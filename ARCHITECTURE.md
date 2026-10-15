@@ -40,6 +40,8 @@ src/cfdgui/
   - `foam/dictfile.py`: thin wrapper encapsulating `foamlib` for OpenFOAM dictionary reading and writing.
   - `foam/case_writer.py`: orchestrates writing complete OpenFOAM case directory trees from file dictionaries.
   - `foam/reference_cases/`: generators for standard reference cases (e.g. cavity).
+  - `foam/runner.py`: process execution via `run_foam` and streaming runner `FoamRun` returning `RunResult`.
+  - `foam/logparse.py`: incremental solver log parsing via `LogParser` recording `TimeStep` events.
   - Must **NOT** import Qt (`PySide6`) or anything GUI-related.
   - Must **NOT** import `cfdgui.gui`.
 - **`gui/`**:
