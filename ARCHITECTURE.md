@@ -34,6 +34,7 @@ src/vortexcfd/
   - `core/model.py`: defines the simulation tree data models validated via Pydantic.
   - `core/project_io.py`: handles saving, loading, validation, and migration of JSON project files.
   - `core/project.py`: Qt-free `Project` document wrapping a `Simulation` with validated edits, snapshot undo/redo, dirty tracking and change observers.
+  - `Project` is not thread-safe: only the GUI thread may call its methods.
   - Must **NOT** import Qt (`PySide6`), `pyvista`, `pyvistaqt`, or anything GUI-related.
   - Must **NOT** import `vortexcfd.gui`.
 - **`foam/`**:

@@ -3,28 +3,23 @@
 from pyvistaqt import QtInteractor
 from pytestqt.qtbot import QtBot
 
+from tests.fakes import FakeDialogs
+from vortexcfd.core.project import Project
 from vortexcfd.gui.main_window import MainWindow
 
 
-def test_main_window_structure(qtbot: QtBot) -> None:
-    """Verify that MainWindow contains the 5 tree nodes and the 3D viewer widget."""
-    window = MainWindow()
+def test_main_window_creates_viewer(qtbot: QtBot) -> None:
+    """With with_viewer=True the placeholder 3D viewer is created next to the tree."""
+    project = Project.new("Demo")
+    window = MainWindow(project, dialogs=FakeDialogs(discard="discard"))
     qtbot.addWidget(window)
     window.show()
 
-    # Check tree widget exists and contains the expected placeholder nodes
-    assert hasattr(window, "tree")
-    expected_nodes = ["Geometry", "Mesh", "Physics", "Solvers", "Reports"]
-    assert window.tree.topLevelItemCount() == len(expected_nodes)
-    actual_nodes = [
-        window.tree.topLevelItem(i).text(0)
-        for i in range(window.tree.topLevelItemCount())
-    ]
-    assert actual_nodes == expected_nodes
-
-    # Check embedded 3D viewer widget exists
-    assert hasattr(window, "viewer")
     assert isinstance(window.viewer, QtInteractor)
     assert window.viewer.isVisible()
-
+    root = window.tree.topLevelItem(0)
+    assert [root.child(i).text(0) for i in range(root.childCount())] == [
+        "Geometry", "Mesh", "Physics", "Solvers", "Reports",
+    ]
+    assert not project.observer_errors
     window.close()
