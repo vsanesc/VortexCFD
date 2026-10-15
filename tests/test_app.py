@@ -3,7 +3,7 @@
 from pyvistaqt import QtInteractor
 from pytestqt.qtbot import QtBot
 
-from cfdgui.app import MainWindow
+from cfdgui.gui.main_window import MainWindow
 
 
 def test_main_window_structure(qtbot: QtBot) -> None:

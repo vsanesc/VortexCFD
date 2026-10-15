@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-cfdgui = "cfdgui.app:main"
+cfdgui = "cfdgui.gui.main_window:main"
 
 [project.optional-dependencies]
 dev = [
