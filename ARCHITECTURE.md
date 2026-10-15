@@ -13,7 +13,7 @@
 - Every OpenFOAM process is launched through `cfdgui.foam.runner`, which sources `/usr/lib/openfoam/openfoam2606/etc/bashrc` explicitly.
 
 ## 4. Technology Stack
-- **Python**: 3.12
+- **Python**: >= 3.11 (developed on 3.12)
 - **GUI Framework**: PySide6 (Qt)
 - **3D Viewer / Visualization**: PyVista + pyvistaqt
 - **Testing**: pytest + pytest-qt
@@ -54,31 +54,13 @@ src/cfdgui/
   *(Note: not implemented yet.)*
 
 ## 8. Validation Policy and Agent Workflow
-Refer to `docs/PLAN.md` section 0 for the governing principles:
+Validation policy and agent workflow: see docs/PLAN.md section 0.
 
-### Scope Principles
-- OpenFOAM remains the numerical solver backend. The GUI orchestrates it via subprocesses. Solvers are not forked or rewritten unless explicitly mandated by a phase.
-- Reuse before build: every module starts with an evaluation of existing tools.
-- Plain OpenFOAM numerical behaviour is not re-validated. Anything added or modified numerically (custom mesher, layer extrusion, new boundary conditions, custom turbulence setup logic, solver variant) requires a simple validation case before it is considered done.
+## 9. Results and ParaView
+Simulation results are always stored as standard OpenFOAM cases (no app-specific result format), so any case produced by the app can be opened in ParaView. The app's own viewer is a convenience, not a replacement. An "Open in ParaView" button is planned for Phase 6 and is not implemented yet.
 
-### Validation Policy
-| What changed | Minimum validation |
-|---|---|
-| GUI / templates only (reproduces a known OpenFOAM setup) | Generated case must match a hand-written reference case dictionary-by-dictionary (diff test) |
-| Mesher / layers | Benchmark suite (Phase 5.0): `checkMesh` metrics, layer coverage, y+ distribution |
-| Turbulence setup logic (k, omega, nut, wall treatment) | Flat plate (Cf, y+) |
-| New/modified solver, BC or numerics | Lid-driven cavity and/or NACA 0012 vs reference data |
-| Moving mesh feature | Simple prescribed-motion case with known behaviour |
-
-### Agent Workflow (Antigravity implements, Claude reviews)
-- Everything lives in a Git repository. One branch per task, small PRs (< ~400 changed lines).
-- Each task defines: Goal, Deliverables, Acceptance criteria. A task is done only when acceptance criteria pass in CI/pytest.
-- Tasks tagged `[NUMERICS-REVIEW]` must be reviewed by Claude/Vic before merge (units, BCs, wall treatment, schemes).
-- The agent must stop and ask if a task requires an architectural change not in `ARCHITECTURE.md`.
-- Keep `ARCHITECTURE.md`, `DECISIONS.md`, and agent rules files updated whenever an interface changes.
-- Code and documentation must be written in English.
-
-## 9. Open Questions
-1. Repository visibility (public vs. private) and GUI license selection (from `docs/PLAN.md` Section 0).
-2. Long-term solver backend abstraction: whether to keep the backend open for alternative solvers (e.g., SU2) or remain strictly OpenFOAM-only (from `docs/PLAN.md` Section 0).
-3. Launcher script implementation details for setting `GALLIUM_DRIVER=d3d12` and `MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA` (entry point wrapper vs. shell script vs. runtime environment bootstrap).
+## 10. Open Questions
+1. GUI license selection (the repository is private; license remains open).
+2. Long-term solver backend abstraction: whether to keep the backend open for alternative solvers (e.g., SU2) or remain strictly OpenFOAM-only.
+3. Where user projects and simulation outputs live in the released app (run/ in the repo root is a development-only location).
+4. Launcher script implementation details for setting `GALLIUM_DRIVER=d3d12` and `MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA`.
