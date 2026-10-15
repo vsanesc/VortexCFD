@@ -407,3 +407,43 @@ def test_lines_keeps_at_most_keep_last_lines(tmp_path: Path) -> None:
     assert len(lines) == 3
     assert [l.strip() for l in lines] == ["line8", "line9", "line10"]
     assert len(log_file.read_text(encoding="utf-8").splitlines()) == 10
+
+
+def test_clean_stop_requires_sigusr1_switch(tmp_path: Path) -> None:
+    """start(clean_stop=True) rejects a controlDict without stopAtWriteNowSignal."""
+    import signal
+
+    files = build_cavity_files(CavityParams())
+    plain_dir = tmp_path / "plain"
+    write_case(plain_dir, files)
+    runner = FoamRun()
+    with pytest.raises(ValueError, match="enable_clean_stop"):
+        runner.start(["true"], plain_dir, plain_dir / "log", clean_stop=True)
+    assert runner.is_running() is True and runner._process is None  # nothing spawned
+
+    wrong = enable_clean_stop(files)
+    spec = wrong["system/controlDict"]
+    content = dict(spec.content)
+    content["OptimisationSwitches"] = {"stopAtWriteNowSignal": int(signal.SIGUSR2)}
+    wrong["system/controlDict"] = type(spec)(content=content, class_name=spec.class_name)
+    wrong_dir = tmp_path / "wrong"
+    write_case(wrong_dir, wrong)
+    with pytest.raises(ValueError, match="enable_clean_stop"):
+        FoamRun().start(["true"], wrong_dir, wrong_dir / "log", clean_stop=True)
+
+    ok_dir = tmp_path / "ok"
+    write_case(ok_dir, enable_clean_stop(files))
+    ok = FoamRun()
+    ok.start(["true"], ok_dir, ok_dir / "log", clean_stop=True)
+    assert ok.wait(timeout=10) is True
+
+
+def test_stop_before_start_returns_immediately() -> None:
+    """stop() on a never-started run must not block; request_stop returns False."""
+    runner = FoamRun()
+    result: list[bool] = []
+    t = threading.Thread(target=lambda: (runner.stop(), result.append(True)), daemon=True)
+    t.start()
+    t.join(timeout=2)
+    assert result == [True]
+    assert runner.request_stop() is False

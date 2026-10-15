@@ -19,6 +19,8 @@ import threading
 import time
 from typing import Callable
 
+from cfdgui.foam.dictfile import read_foam_file
+
 OPENFOAM_BASHRC = Path("/usr/lib/openfoam/openfoam2606/etc/bashrc")
 
 
@@ -164,11 +166,16 @@ class FoamRun:
             keep_last_lines: Optional override for the in-memory line buffer size.
 
         Raises:
-            ValueError: If command is empty.
+            ValueError: If command is empty, or if clean_stop=True and the case's
+                system/controlDict does not set OptimisationSwitches.stopAtWriteNowSignal
+                to int(signal.SIGUSR1).
             RuntimeError: If start() has already been called on this instance.
         """
         if not command:
             raise ValueError("command must not be empty")
+
+        if clean_stop:
+            self._validate_clean_stop_switch(Path(case_dir))
 
         with self._lock:
             if self._started:
@@ -213,6 +220,23 @@ class FoamRun:
             )
             self._timeout_thread.start()
 
+    @staticmethod
+    def _validate_clean_stop_switch(case_dir: Path) -> None:
+        """Ensure controlDict makes OpenFOAM handle SIGUSR1, else the signal kills the solver."""
+        expected = int(signal.SIGUSR1)
+        control_dict = case_dir / "system" / "controlDict"
+        try:
+            switches = read_foam_file(control_dict).get("OptimisationSwitches")
+            actual = switches.get("stopAtWriteNowSignal") if isinstance(switches, dict) else None
+        except OSError:
+            actual = None
+        if actual != expected:
+            raise ValueError(
+                f"clean_stop=True requires OptimisationSwitches.stopAtWriteNowSignal = "
+                f"{expected} in {control_dict} (found {actual!r}); without it SIGUSR1 kills "
+                f"the solver without writing. Use cfdgui.foam.case_writer.enable_clean_stop()."
+            )
+
     def _read_output(self) -> None:
         """Reader thread: read lines from stdout, detect time step gate, write log."""
         assert self._process is not None
@@ -238,6 +262,7 @@ class FoamRun:
                         with self._lock:
                             self._callback_errors += 1
         finally:
+            self._process.stdout.close()
             self._process.wait()
             self._end_time = time.monotonic()
             self._log_file_handle.close()  # type: ignore[union-attr]
@@ -403,6 +428,9 @@ class FoamRun:
         Args:
             grace_s: Seconds to wait for orderly exit before escalating signals.
         """
+        with self._lock:
+            if not self._started:
+                return
         self.request_stop(grace_s=grace_s)
         self.wait()
 
