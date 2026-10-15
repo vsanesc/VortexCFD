@@ -7,3 +7,4 @@
 | D-003 | 2026-10-15 | Three-layer package structure | Decouples simulation logic from the UI to allow headless execution and testing without Qt dependencies. |
 | D-004 | 2026-10-15 | OpenFOAM always launched via explicit sourcing | Ensures deterministic execution regardless of the user's host shell environment or PATH configuration. |
 | D-005 | 2026-10-15 | Results stored as standard OpenFOAM cases | Allows cases to be opened directly in ParaView without relying on an application-specific format. |
+| D-006 | 2026-10-15 | Project file format: JSON, validated with pydantic, with schema_version | Provides human-readable versioned project files with schema validation and migration support. |

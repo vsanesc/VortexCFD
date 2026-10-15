@@ -31,6 +31,8 @@ src/cfdgui/
 ### Layer Constraints
 - **`core/`**:
   - Encapsulates the simulation data model.
+  - `core/model.py`: defines the simulation tree data models validated via Pydantic.
+  - `core/project_io.py`: handles saving, loading, validation, and migration of JSON project files.
   - Must **NOT** import Qt (`PySide6`), `pyvista`, `pyvistaqt`, or anything GUI-related.
   - Must **NOT** import `cfdgui.gui`.
 - **`foam/`**:
