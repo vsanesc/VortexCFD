@@ -7,7 +7,13 @@ from foamlib import FoamFile
 import numpy as np
 import pytest
 
-from cfdgui.foam.case_writer import CaseDirectoryNotEmptyError, FoamFileSpec, write_case
+import signal
+from cfdgui.foam.case_writer import (
+    CaseDirectoryNotEmptyError,
+    FoamFileSpec,
+    enable_clean_stop,
+    write_case,
+)
 from cfdgui.foam.dictfile import read_foam_file, write_foam_file
 from cfdgui.foam.reference_cases.cavity import CavityParams, build_cavity_files
 from cfdgui.foam.runner import run_foam
@@ -244,3 +250,43 @@ def test_macro_resolver_raises_on_unknown_construct() -> None:
 
     with pytest.raises(ValueError, match="sibling 'foo' not found"):
         resolve_macros({"$foo": None}, parent={"other": {}})
+
+
+def test_enable_clean_stop_helper() -> None:
+    """Verify enable_clean_stop adds stopAtWriteNowSignal to OptimisationSwitches."""
+    files = {
+        "system/controlDict": FoamFileSpec(
+            content={"application": "icoFoam", "startFrom": "startTime"},
+            class_name="dictionary",
+        ),
+        "0/U": FoamFileSpec(content={"dimensions": [0, 1, -1, 0, 0, 0, 0]}),
+    }
+    modified = enable_clean_stop(files)
+
+    # Original dict must be unchanged
+    assert "OptimisationSwitches" not in files["system/controlDict"].content
+
+    # Modified dict must have OptimisationSwitches with stopAtWriteNowSignal
+    cd_mod = modified["system/controlDict"].content
+    assert "OptimisationSwitches" in cd_mod
+    assert cd_mod["OptimisationSwitches"]["stopAtWriteNowSignal"] == int(signal.SIGUSR1)
+    assert modified["0/U"] == files["0/U"]
+
+    # If OptimisationSwitches already existed, existing keys are preserved
+    files_with_opt = {
+        "system/controlDict": FoamFileSpec(
+            content={
+                "application": "icoFoam",
+                "OptimisationSwitches": {"fileModificationSkew": 0},
+            },
+            class_name="dictionary",
+        )
+    }
+    modified2 = enable_clean_stop(files_with_opt)
+    cd2_switches = modified2["system/controlDict"].content["OptimisationSwitches"]
+    assert cd2_switches["fileModificationSkew"] == 0
+    assert cd2_switches["stopAtWriteNowSignal"] == int(signal.SIGUSR1)
+
+    # Missing system/controlDict raises KeyError
+    with pytest.raises(KeyError, match="system/controlDict"):
+        enable_clean_stop({"0/U": files["0/U"]})

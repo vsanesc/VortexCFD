@@ -1,0 +1,13 @@
+# Project rules
+- GUI for OpenFOAM ESI v2606, running inside WSL2 Ubuntu 24.04. Read ARCHITECTURE.md and DECISIONS.md before changing anything.
+- OpenFOAM is not on PATH. Run OpenFOAM through the `openfoam2606` launcher, or through cfdgui.foam.runner in code.
+- Python venv in .venv. Never install packages system-wide. No new dependencies without asking.
+- Layers: core/ and foam/ must never import Qt, pyvista or cfdgui.gui (tests/test_layers.py enforces it).
+- Never push, merge, or delete branches. Commit only on the current task branch.
+- Paste command output exactly as produced; never retype or reconstruct it.
+- Code in numerics, boundary conditions or turbulence: stop and flag it for review.
+- Code, comments and docs in English.
+- Use `.venv/bin/python` and `.venv/bin/pytest`; `python` is not on PATH outside the venv.
+- Commit locally after each completed part, message "Task <id>: <summary>". Stage only files that belong to the task (never `git add .` blindly). Never push, merge, or delete branches.
+- Final reports must be short: `git diff --stat main`, the last line of `pytest -q`, and a list of open doubts. No full test listings or long file dumps unless asked.
+- scripts/ship.sh pushes, merges and deletes the branch. It is run only by Vic. Agents never run it.

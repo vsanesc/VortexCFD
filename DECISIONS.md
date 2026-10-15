@@ -10,3 +10,5 @@
 | D-006 | 2026-10-15 | Project file format: JSON, validated with pydantic, with schema_version | Provides human-readable versioned project files with schema validation and migration support. |
 | D-007 | 2026-10-15 | Project license GPL-3.0-or-later | Required because the foamlib runtime dependency is licensed under GPLv3. |
 | D-008 | 2026-10-15 | Use foamlib for reading/writing OpenFOAM files, isolated behind foam/dictfile.py | Encapsulates the third-party OpenFOAM parser and serializer behind a single internal interface. |
+| D-009 | 2026-10-15 | Clean stop via controlDict stopAt writeNow | Enables solver to write the current time step and exit cleanly without corrupting state. |
+| D-010 | 2026-10-15 | Clean stop via SIGUSR1 with stopAtWriteNowSignal in case controlDict (supersedes D-009) | Measurements showed file-based stop is delayed ~5 s by fileModificationSkew, while SIGUSR1 stops cleanly in ~0.01 s without mutating case files on disk. |
