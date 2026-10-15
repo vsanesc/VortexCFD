@@ -40,7 +40,7 @@ src/cfdgui/
   - `foam/dictfile.py`: thin wrapper encapsulating `foamlib` for OpenFOAM dictionary reading and writing.
   - `foam/case_writer.py`: orchestrates writing complete OpenFOAM case directory trees from file dictionaries.
   - `foam/reference_cases/`: generators for standard reference cases (e.g. cavity).
-  - `foam/runner.py`: process execution via `run_foam` and streaming runner `FoamRun` returning `RunResult`.
+  - `foam/runner.py`: process execution via `run_foam` and streaming runner `FoamRun` returning `RunResult`. Clean stop works for single-process solvers launched through `FoamRun` with `clean_stop=True`.
   - `foam/logparse.py`: incremental solver log parsing via `LogParser` recording `TimeStep` events.
   - Must **NOT** import Qt (`PySide6`) or anything GUI-related.
   - Must **NOT** import `cfdgui.gui`.
@@ -70,3 +70,4 @@ Simulation results are always stored as standard OpenFOAM cases (no app-specific
 1. Long-term solver backend abstraction: whether to keep the backend open for alternative solvers (e.g., SU2) or remain strictly OpenFOAM-only.
 2. Where user projects and simulation outputs live in the released app (run/ in the repo root is a development-only location).
 3. Launcher script implementation details for setting `GALLIUM_DRIVER=d3d12` and `MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA`.
+4. Parallel (mpirun) solver execution and clean stop are not covered yet.
