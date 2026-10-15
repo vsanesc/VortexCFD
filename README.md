@@ -26,6 +26,13 @@ A Python-based GUI orchestrating OpenFOAM (ESI v2606) for CFD workflows.
    pip install -e ".[dev]"
    ```
 
+### Launching the Application
+
+Launch the GUI via the entry point command:
+```bash
+cfdgui
+```
+
 ### Running Tests
 
 Run the test suite with pytest:
@@ -36,4 +43,9 @@ pytest
 To run only the OpenFOAM smoke tests:
 ```bash
 pytest -m openfoam
+```
+
+To run tests in headless mode:
+```bash
+QT_QPA_PLATFORM=offscreen pytest
 ```

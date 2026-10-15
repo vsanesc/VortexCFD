@@ -8,11 +8,19 @@ version = "0.1.0"
 description = "STAR-CCM+-style CFD GUI frontend orchestrating OpenFOAM"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "PySide6",
+    "pyvista",
+    "pyvistaqt",
+]
+
+[project.scripts]
+cfdgui = "cfdgui.app:main"
 
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "pytest-qt",
 ]
 
 [tool.setuptools.packages.find]
