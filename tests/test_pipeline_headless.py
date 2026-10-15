@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from cfdgui.foam.case_writer import write_case
-from cfdgui.foam.logparse import LogParser
+from cfdgui.foam.logparse import LogParser, parse_log_text
 from cfdgui.foam.reference_cases.cavity import CavityParams, build_cavity_files
 from cfdgui.foam.runner import FoamRun, run_foam
 
@@ -39,7 +39,11 @@ def test_pipeline_headless_cavity(tmp_path: Path) -> None:
         on_line=parser.feed,
         timeout_s=120,
     )
-    runner.wait(timeout=120)
+    try:
+        assert runner.wait(timeout=120) is True, "icoFoam did not finish within 120 s"
+    finally:
+        if runner.is_running():
+            runner.stop(grace_s=2.0)
     result = runner.result()
     parser.close()
 
@@ -67,3 +71,9 @@ def test_pipeline_headless_cavity(tmp_path: Path) -> None:
         assert math.isfinite(init_res), f"Initial residual for {field_name} is not finite: {init_res}"
         assert math.isfinite(final_res), f"Final residual for {field_name} is not finite: {final_res}"
         assert iters >= 0, f"Iteration count for {field_name} is negative: {iters}"
+
+    # 9. Live parsing (callback during the run) equals parsing the log file written to disk
+    disk_parser = parse_log_text(solver_log.read_text(encoding="utf-8"))
+    assert parser.events == disk_parser.events
+    assert len(parser.events) == expected_steps + 1  # steps + NormalEnd
+    assert parser.parse_error_count == disk_parser.parse_error_count == 0
