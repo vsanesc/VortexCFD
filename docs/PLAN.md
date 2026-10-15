@@ -1,0 +1,228 @@
+# Open-source CFD GUI on OpenFOAM — Development Plan
+
+Working name: `PROJECT` (placeholder). Target: a STAR-CCM+-style workflow (single simulation tree, integrated geometry → mesh → physics → solve → post) running on OpenFOAM as the numerical backend.
+
+## 0. Ground rules (apply to every task)
+
+**Scope principles**
+- OpenFOAM stays the solver. The GUI orchestrates it via subprocess (WSL/Linux). We do not fork or rewrite solvers unless a phase explicitly says so.
+- Reuse before build. Every module starts with a survey of existing tools (decision: reuse / wrap / build).
+- Numerical behaviour that is plain OpenFOAM is NOT re-validated. Anything we add or modify numerically (own mesher, layer extrusion, new BC, own turbulence setup logic, own solver variant) gets a simple validation case before it is considered done.
+
+**Validation policy**
+| What changed | Minimum validation |
+|---|---|
+| GUI/templates only (reproduces a known OpenFOAM setup) | Generated case must match a hand-written reference case dictionary-by-dictionary (diff test) |
+| Mesher / layers | Benchmark suite (Phase 5.0): checkMesh metrics, layer coverage, y+ distribution |
+| Turbulence setup logic (k, omega, nut, wall treatment) | Flat plate (Cf, y+) |
+| New/modified solver, BC or numerics | Lid-driven cavity and/or NACA 0012 vs reference data |
+| Moving mesh feature | Simple prescribed-motion case with known behaviour |
+
+**Agent workflow (Antigravity implements, Claude reviews)**
+- Everything lives in a Git repo. One branch per task, small PRs (< ~400 changed lines).
+- Each task below has: Goal, Deliverables, Acceptance criteria. A task is done only when acceptance criteria pass in CI/pytest.
+- Tasks tagged `[NUMERICS-REVIEW]` must be reviewed by Claude/Vic before merge (units, BCs, wall treatment, schemes).
+- The agent must stop and ask if a task requires an architectural change not in `ARCHITECTURE.md`.
+- Keep `ARCHITECTURE.md`, `DECISIONS.md` and the agent rules file updated whenever an interface changes.
+- Code and docs in English.
+
+**Open decisions (block Phase 1 until answered)**
+1. OpenFOAM flavour/version: ESI (openfoam.com) vs Foundation (openfoam.org).
+2. Repo visibility (public/private) and GUI license.
+3. Keep the backend abstraction open for SU2 or OpenFOAM-only.
+
+---
+
+## Phase 0 — Reference analysis & foundation
+
+### 0.1 STAR-CCM+ reference inventory
+- Goal: precise map of what STAR-CCM+ does that we want to match.
+- Deliverable: `docs/reference/starccm_feature_map.md` covering: simulation tree structure, object types, meshing operations (surface wrapper, remesher, trimmer, polyhedral, thin mesher, prism layers), mesh controls (base size, relative sizes, custom controls, volumetric controls), physics continua and model selection, turbulence models and wall treatments, solvers (segregated/coupled), reports/monitors/scenes, automation.
+- Acceptance: each item has a column "OpenFOAM equivalent", "Gap" (none/partial/missing) and "Priority" (P1/P2/P3).
+
+### 0.2 Open-source landscape survey
+- Goal: decide reuse vs wrap vs build per module.
+- Candidates to evaluate (verify current status, license and maintenance before relying on them): CfdOF (FreeCAD), SALOME, cfMesh, snappyHexMesh, fTetWild, Gmsh, MMG, CGAL meshing, OpenCASCADE (pythonOCC/cadquery), trimesh/pymeshfix, ParaView/PyVista, Code_Saturne and SU2 GUIs, existing OpenFOAM GUIs.
+- Deliverable: `docs/reference/oss_survey.md` with per-tool: purpose, license, last activity, strengths, weaknesses, integration effort, recommendation.
+- Acceptance: every gap marked P1/P2 in 0.1 has a recommended source (reuse/wrap/build).
+
+### 0.3 Repo, environment, architecture
+- Deliverables: repo skeleton, `ARCHITECTURE.md`, `DECISIONS.md`, agent rules file, pytest + CI, dev environment script (WSL + OpenFOAM detection), smoke test that runs a trivial OpenFOAM tutorial case from Python.
+- Proposed stack (revisable after 0.2): Python 3.11+, PySide6, PyVista/VTK, Jinja2, pydantic for the case model.
+- Acceptance: `pytest` green; smoke test runs `blockMesh` + a solver on the cavity and returns exit code 0 with parsed log.
+
+---
+
+## Phase 1 — Core: case model, writer, runner
+
+### 1.1 Simulation data model
+- Goal: internal representation of the simulation tree (Geometry, Regions/Parts, Mesh, Physics, Solvers, Monitors, Reports), serializable to JSON/YAML and versioned.
+- Acceptance: round-trip save/load tests; schema version field; migration stub.
+
+### 1.2 Case writer (templates → OpenFOAM dictionaries)
+- Goal: generate `controlDict`, `fvSchemes`, `fvSolution`, `transportProperties`/`physicalProperties`, `turbulenceProperties`/`momentumTransport`, BC files in `0/`, `snappyHexMeshDict`, etc., with differences between OpenFOAM flavours isolated in one adapter layer.
+- Acceptance: for 3 reference cases (cavity, external flow around a cylinder, wing), generated dictionaries match hand-written reference cases (normalized diff test); `checkMesh` and a short solver run pass.
+
+### 1.3 Runner and log parsing
+- Goal: run meshing/solver as subprocesses, stream logs, stop/restart, parallel decomposition, parse residuals, courant, force coefficients.
+- Acceptance: unit tests on recorded logs; stopping a run cleanly writes a restartable time.
+
+### 1.4 Integration test
+- Goal: model → case → mesh → solve → parsed results, headless (no GUI).
+- Acceptance: cavity end-to-end headless in CI.
+
+---
+
+## Phase 2 — GUI shell and 3D viewer
+
+### 2.1 Main window
+- Simulation tree (STAR-style), property panel bound to the data model, undo/redo, project save/load.
+- Acceptance: editing a property updates the model; undo/redo covers at least property edits and add/remove nodes.
+
+### 2.2 3D viewer
+- PyVista/VTK embedded: geometry, surface/volume mesh, clip/slice, scalar fields, part visibility, picking surfaces.
+- Acceptance: loads 1M-triangle STL interactively; picking returns the selected surface/patch id.
+
+### 2.3 Console and live monitors
+- Log console, residual plot, coefficient plots updating while the solver runs.
+- Acceptance: plots update at least every few seconds on a running case without freezing the UI (solver runs in a separate process/thread).
+
+---
+
+## Phase 3 — CAD import and geometry (priority 1 from the gap analysis)
+
+### 3.1 Surface mesh import
+- STL (ASCII/binary), OBJ, PLY; units selection; multi-part/multi-solid STL splitting.
+- Checks: watertightness, non-manifold edges, inverted normals, self-intersections, tiny/degenerate triangles, duplicate faces. Report in GUI with highlight in viewer.
+- Acceptance: test corpus of clean and deliberately broken STLs; each defect type detected.
+
+### 3.2 CAD import (STEP/IGES/BREP)
+- Via OpenCASCADE (or the best option from 0.2). Preserve part and face names/colors where available. Tessellation with controllable deflection.
+- Acceptance: STEP assembly with named faces imports with part tree; faces selectable as patches.
+
+### 3.3 Geometry repair
+- Automated repair pipeline (e.g., hole filling, normal fixing, optional robust remesh via fTetWild-style approaches, per 0.2). Always keep the original and show a before/after report.
+- Acceptance: a defined fraction of the broken-STL corpus ends up watertight and snappyHexMesh-ready; failures give actionable messages.
+
+### 3.4 Domain and boundary definition
+- Box/cylinder far-field domain builder from body bounding box with size multipliers; symmetry planes; named boundaries (inlet, outlet, wall, symmetry, far-field).
+- Acceptance: domain generated for a wing and a VTOL STL; boundaries exported as patches consistent with the case writer.
+
+### 3.5 Surface-to-patch assignment
+- Group triangles/faces into named patches via selection, angle-based feature splitting, or CAD face names.
+- Acceptance: patches persist in the project file and reach the meshing dictionary.
+
+---
+
+## Phase 4 — Physics, boundary templates, turbulence
+
+### 4.1 Physics continua
+- Presets: steady incompressible RANS, transient incompressible, compressible steady/transient, with energy on/off; fluid properties (air with Sutherland/ideal gas, constants), reference values.
+- Solver selection logic: continuum choices → OpenFOAM solver + required fields.
+- Acceptance: each preset generates a runnable case on a reference geometry.
+
+### 4.2 Boundary condition library
+- Inlet (velocity, mass flow, total pressure), outlet (static pressure), walls (no-slip, slip, moving), symmetry, far-field, with the correct OpenFOAM BC per variable and flavour.
+- Acceptance: BC table (GUI choice → OpenFOAM BC for U, p, T, k, omega, epsilon, nut, nuTilda) covered by unit tests. `[NUMERICS-REVIEW]`
+
+### 4.3 Turbulence module (STAR-like model selection)
+- Goal: model + wall-treatment selector with sane defaults, plus automatic estimate of freestream k/omega/epsilon/nuTilda from turbulence intensity and length scale or viscosity ratio.
+- Includes a y+ estimator that proposes first-cell height and layer settings for a target y+.
+- Model coverage to map (verify availability in the chosen OpenFOAM version): k-epsilon variants, k-omega SST, Spalart-Allmaras, transition (SST-based), LES/DES options.
+- Deliverable: `docs/reference/turbulence_mapping.md` stating, per STAR model/wall treatment, the closest OpenFOAM equivalent and where behaviour differs (e.g., STAR "All y+" vs OpenFOAM wall-function combinations).
+- Acceptance: flat-plate case with the generated setup gives Cf and y+ in the expected range. `[NUMERICS-REVIEW]`
+
+### 4.4 Numerics presets
+- Schemes/relaxation/linear-solver presets (robust / accurate / fast) per physics type.
+- Acceptance: presets converge on the reference cases; any preset change recorded in `DECISIONS.md`. `[NUMERICS-REVIEW]`
+
+---
+
+## Phase 5 — Meshing (staged track; the hardest part)
+
+Reality check: "as powerful as STAR-CCM+" is not a deliverable that can be verified. It is replaced here by measurable levels (below). Each level must beat the previous one on the benchmark suite, or it is not adopted.
+
+### 5.0 Benchmark suite and quality metrics (do first)
+- Geometries: simple (sphere, cylinder), aerodynamic (NACA 0012 wing, wing-fuselage with thin trailing edge), complex (VTOL UAV with props/booms), dirty (broken STLs from 3.1).
+- Metrics: success/failure, wall time, cell count, `checkMesh` (non-orthogonality, skewness, aspect ratio, negative volumes), prism-layer coverage %, first-cell y+ distribution, solver convergence on the resulting mesh.
+- Acceptance: one command runs the suite and outputs a comparison table.
+
+### 5.1 Level M1 — GUI over snappyHexMesh
+- STAR-like mesh controls: base size, surface target/min size relative to base, per-surface and per-volume refinement, feature-edge refinement, wake refinement boxes, prism-layer parameters (number, growth, total thickness or first-cell height), automatic `snappyHexMeshDict` + `blockMeshDict` generation, `checkMesh` report in GUI.
+- Acceptance: wing and VTOL meshed from the GUI without editing text files; benchmark results recorded as baseline.
+
+### 5.2 Level M2 — Surface preparation ("wrapper-like") pipeline
+- Goal: robust watertight, quality surface from dirty/CAD tessellation before volume meshing (leak closing, remeshing, feature preservation).
+- Acceptance: improves benchmark success rate on the dirty set vs M1 baseline.
+
+### 5.3 Level M3 — Alternative volume mesher evaluation
+- Evaluate and, if better on the benchmarks, wrap: cfMesh (Cartesian/polyhedral/tetra), Gmsh, others from 0.2. Mesher selectable per project.
+- Acceptance: written comparison on the benchmark suite; adopt only on measurable improvement.
+
+### 5.4 Level M4 — Prism layer robustness
+- Goal: better layer generation in concave corners, thin trailing edges and wing-body junctions (layer collapse handling, quality-driven retraction, local layer controls, y+ driven sizing).
+- Treat as research: start with the failure-case catalogue from M1/M3, then prototype improvements as an independent module operating on an existing mesh.
+- Validation: flat plate (y+, Cf) and NACA 0012; layer coverage % on benchmark. `[NUMERICS-REVIEW]`
+
+### 5.5 Level M5 — Own trimmer/cut-cell mesher (go/no-go gate)
+- Only starts if benchmarks after M1–M4 show a gap that justifies it and Vic approves the decision.
+- If go: C++ core (octree + cut cells + quality repair), Python bindings, OpenFOAM polyMesh writer.
+- Validation: mesh independence on sphere/cylinder/NACA 0012, quality metrics ≥ M3 baseline.
+
+---
+
+## Phase 6 — Post-processing (in-GUI)
+
+### 6.1 Monitors and reports
+- Residuals, force/moment coefficients (CL, CD, CM with reference area/length/axes defined in GUI), probes, surface integrals, mass flow; convergence criteria and auto-stop.
+- Acceptance: coefficients match OpenFOAM `forceCoeffs` output on reference cases.
+
+### 6.2 Scenes and derived parts
+- Slices, clips, iso-surfaces, streamlines, scalar/vector fields on surfaces, Cp plots along sections, y+ on walls, mesh quality displays.
+- Acceptance: scene definitions saved in the project and reproducible; image export.
+
+### 6.3 Data export and reports
+- CSV, VTK/EnSight, image sets, simple HTML/PDF run report (setup summary + results).
+- Acceptance: report generated automatically at end of run.
+
+---
+
+## Phase 7 — Coupled solver: analysis only (no implementation yet)
+
+### 7.1 Inventory
+- Document what the chosen OpenFOAM version offers for pressure-velocity coupling (SIMPLE/SIMPLEC/PIMPLE consistent options, density-based compressible solvers, block/coupled options in OpenFOAM variants or extensions).
+### 7.2 Comparison
+- Run the benchmark cases with available options; record iterations/time to convergence and robustness.
+### 7.3 Decision memo
+- `docs/decisions/coupled_solver.md`: what is feasible, what it costs, recommendation (adopt / wrap external / defer).
+- Acceptance: memo reviewed; no code merged for this phase.
+
+---
+
+## Phase 8 — Moving meshes (lower priority)
+
+Order by relevance to VTOL/UAV work: rotating zones first, 6DOF last.
+### 8.1 Survey and capability matrix (dynamicMesh, MRF, AMI/sliding interfaces, overset, sixDoF) in the chosen OpenFOAM version.
+### 8.2 MRF / rotating zones in GUI (propellers, rotors). Validation: simple rotating case. 
+### 8.3 AMI / sliding mesh in GUI. Validation: prescribed-rotation case.
+### 8.4 Overset (only if robust in the chosen version).
+### 8.5 6DOF / rigid-body motion (only after 8.2–8.3 are stable).
+- Acceptance per subphase: GUI generates a runnable case; one simple validation case documented.
+
+---
+
+## Phase 9 — Packaging and automation
+
+### 9.1 Project management: save/load, templates library, recent projects, case cloning/parametric variants.
+### 9.2 Python scripting API over the data model (equivalent to STAR macros) and batch execution.
+### 9.3 Installer/docs: reproducible install (WSL + OpenFOAM + app), user guide, tutorials with the benchmark cases.
+
+---
+
+## Dependency overview
+
+`0 → 1 → 2 → 3 → 4 → 5.0/5.1 → 6`. Phases 5.2–5.5 run in parallel to 6 and later. Phases 7 and 8 start after a working end-to-end MVP (external flow on wing/VTOL: STL → mesh → solve → results).
+
+## Definition of MVP
+
+STL/STEP import → domain → snappyHexMesh with layers (M1) → k-omega SST → steady RANS → live residuals/CL/CD → pressure slice, all from the GUI, with no manual dictionary editing.
