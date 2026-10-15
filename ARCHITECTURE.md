@@ -37,6 +37,9 @@ src/cfdgui/
   - Must **NOT** import `cfdgui.gui`.
 - **`foam/`**:
   - Handles OpenFOAM integration (case generation/writing, process execution, log parsing).
+  - `foam/dictfile.py`: thin wrapper encapsulating `foamlib` for OpenFOAM dictionary reading and writing.
+  - `foam/case_writer.py`: orchestrates writing complete OpenFOAM case directory trees from file dictionaries.
+  - `foam/reference_cases/`: generators for standard reference cases (e.g. cavity).
   - Must **NOT** import Qt (`PySide6`) or anything GUI-related.
   - Must **NOT** import `cfdgui.gui`.
 - **`gui/`**:
@@ -62,7 +65,6 @@ Validation policy and agent workflow: see docs/PLAN.md section 0.
 Simulation results are always stored as standard OpenFOAM cases (no app-specific result format), so any case produced by the app can be opened in ParaView. The app's own viewer is a convenience, not a replacement. An "Open in ParaView" button is planned for Phase 6 and is not implemented yet.
 
 ## 10. Open Questions
-1. GUI license selection (the repository is private; license remains open).
-2. Long-term solver backend abstraction: whether to keep the backend open for alternative solvers (e.g., SU2) or remain strictly OpenFOAM-only.
-3. Where user projects and simulation outputs live in the released app (run/ in the repo root is a development-only location).
-4. Launcher script implementation details for setting `GALLIUM_DRIVER=d3d12` and `MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA`.
+1. Long-term solver backend abstraction: whether to keep the backend open for alternative solvers (e.g., SU2) or remain strictly OpenFOAM-only.
+2. Where user projects and simulation outputs live in the released app (run/ in the repo root is a development-only location).
+3. Launcher script implementation details for setting `GALLIUM_DRIVER=d3d12` and `MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA`.
