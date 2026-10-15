@@ -17,8 +17,8 @@ class Project:
     """A simulation document with snapshot-based undo/redo and change observers.
 
     Every edit goes through ``_commit``, which stores a deep-copied snapshot of the previous
-    state. ``sim`` returns the current state and must not be mutated by callers: use the edit
-    methods instead.
+    state. ``sim`` returns an independent copy of the current state: change the project only
+    through the edit methods.
     """
 
     def __init__(
@@ -64,8 +64,11 @@ class Project:
 
     @property
     def sim(self) -> Simulation:
-        """Current simulation state. Read-only by convention: do not mutate."""
-        return self._sim
+        """Independent deep copy of the current state.
+
+        Mutating it has no effect on the project; all changes go through the edit API.
+        """
+        return self._sim.model_copy(deep=True)
 
     @property
     def path(self) -> Path | None:

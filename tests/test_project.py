@@ -281,10 +281,34 @@ def test_resolve_part_path(tmp_path: Path) -> None:
     assert project.resolve_part_path(absolute) == tmp_path / "elsewhere.stl"
 
 
-def test_snapshots_are_independent_of_later_mutation() -> None:
-    """Mutating the exposed sim against the rules must not corrupt stored history."""
+def test_mutating_returned_sim_changes_nothing(tmp_path: Path) -> None:
+    """The object returned by sim is a copy: state, dirty and history are unaffected."""
     project = Project.new("Demo")
+    project.add_part(make_part("wing"))
     project.rename("A")
-    project.sim.name = "tampered"  # forbidden by contract; history must still be intact
+    project.save(tmp_path / "p.json")
+    calls: list[Project] = []
+    project.subscribe(calls.append)
+
+    sim = project.sim
+    sim.name = "tampered"
+    sim.geometry.parts[0].units = "mm"
+    sim.geometry.parts.append(make_part("extra", "x.stl"))
+
+    assert project.sim.name == "A"
+    assert [(p.name, p.units) for p in project.sim.geometry.parts] == [("wing", "m")]
+    assert project.dirty is False
+    assert project.undo_label == "Rename simulation to 'A'"
+    assert project.can_redo is False
+    assert calls == []
     project.undo()
     assert project.sim.name == "Demo"
+
+
+def test_sim_reads_are_equal_but_distinct_objects() -> None:
+    project = Project.new("Demo")
+    project.add_part(make_part("wing"))
+    first, second = project.sim, project.sim
+    assert first == second
+    assert first is not second
+    assert first.geometry.parts[0] is not second.geometry.parts[0]
