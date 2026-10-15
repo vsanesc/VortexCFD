@@ -1,10 +1,43 @@
 """OpenFOAM case directory writer."""
 
+from __future__ import annotations
+
+import signal
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from cfdgui.foam.dictfile import write_foam_file
+
+
+def enable_clean_stop(files: dict[str, FoamFileSpec]) -> dict[str, FoamFileSpec]:
+    """Return a copy of files with OptimisationSwitches { stopAtWriteNowSignal } added to system/controlDict.
+
+    Placed in case_writer.py alongside FoamFileSpec to keep case file dict transformations cohesive.
+
+    Args:
+        files: Mapping of relative case file paths to FoamFileSpec objects.
+
+    Returns:
+        A copy of files with stopAtWriteNowSignal configured for clean signal-based stopping.
+
+    Raises:
+        KeyError: If 'system/controlDict' is not present in files.
+    """
+    if "system/controlDict" not in files:
+        raise KeyError("'system/controlDict' not found in case files")
+
+    result = dict(files)
+    cd_spec = files["system/controlDict"]
+    new_content = dict(cd_spec.content)
+    opt_switches = dict(new_content.get("OptimisationSwitches", {}))
+    opt_switches["stopAtWriteNowSignal"] = int(signal.SIGUSR1)
+    new_content["OptimisationSwitches"] = opt_switches
+    result["system/controlDict"] = FoamFileSpec(
+        content=new_content,
+        class_name=cd_spec.class_name,
+    )
+    return result
 
 
 class CaseDirectoryNotEmptyError(FileExistsError):

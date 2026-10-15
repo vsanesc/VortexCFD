@@ -69,6 +69,10 @@ def set_foam_entry(
     Uses foamlib's native in-place editing (FoamFile.__setitem__) to modify
     just the specified key without rewriting the whole file.
 
+    Note:
+        This operation is not atomic and must not be called while a solver
+        is actively running on that case.
+
     Args:
         path: Path to the existing OpenFOAM file.
         key: Top-level keyword to set.
