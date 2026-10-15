@@ -225,11 +225,17 @@ class FoamRun:
         """Ensure controlDict makes OpenFOAM handle SIGUSR1, else the signal kills the solver."""
         expected = int(signal.SIGUSR1)
         control_dict = case_dir / "system" / "controlDict"
-        try:
-            switches = read_foam_file(control_dict).get("OptimisationSwitches")
+        actual = None
+        if control_dict.is_file():
+            try:
+                switches = read_foam_file(control_dict).get("OptimisationSwitches")
+            except Exception as exc:  # foamlib raises assorted parser exceptions
+                raise ValueError(
+                    f"clean_stop=True requires a readable {control_dict}, but it cannot be "
+                    f"parsed ({type(exc).__name__}: {exc}). Use "
+                    f"cfdgui.foam.case_writer.enable_clean_stop() to generate it."
+                ) from exc
             actual = switches.get("stopAtWriteNowSignal") if isinstance(switches, dict) else None
-        except OSError:
-            actual = None
         if actual != expected:
             raise ValueError(
                 f"clean_stop=True requires OptimisationSwitches.stopAtWriteNowSignal = "
@@ -300,8 +306,10 @@ class FoamRun:
             pass
 
     def is_running(self) -> bool:
-        """Return True if the process is still running."""
-        return not self._done_event.is_set()
+        """Return True if the process has been started and is still running."""
+        with self._lock:
+            started = self._started
+        return started and not self._done_event.is_set()
 
     def wait(self, timeout: float | None = None) -> bool:
         """Block until the process finishes.
@@ -311,7 +319,13 @@ class FoamRun:
 
         Returns:
             True if the process finished, False if the timeout expired.
+
+        Raises:
+            RuntimeError: If start() has not been called.
         """
+        with self._lock:
+            if not self._started:
+                raise RuntimeError("start() has not been called")
         return self._done_event.wait(timeout=timeout)
 
     def request_stop(self, grace_s: float = 10.0) -> bool:
