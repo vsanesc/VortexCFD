@@ -57,3 +57,23 @@ def write_foam_file(
         ff.object_ = object_name
         for k, v in content.items():
             ff[k] = v
+
+
+def set_foam_entry(
+    path: Path | str,
+    key: str,
+    value: Any,
+) -> None:
+    """Edit a single entry in an existing OpenFOAM dictionary file in place.
+
+    Uses foamlib's native in-place editing (FoamFile.__setitem__) to modify
+    just the specified key without rewriting the whole file.
+
+    Args:
+        path: Path to the existing OpenFOAM file.
+        key: Top-level keyword to set.
+        value: New value for the keyword.
+    """
+    file_path = Path(path)
+    ff = FoamFile(file_path)
+    ff[key] = value
