@@ -3,7 +3,7 @@
 import math
 from pathlib import Path
 
-from cfdgui.foam.logparse import (
+from vortexcfd.foam.logparse import (
     MAX_BLOCK_LINES,
     FatalError,
     LogParser,

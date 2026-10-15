@@ -5,8 +5,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from cfdgui.core.model import Part, Simulation
-from cfdgui.core.project_io import load_simulation, save_simulation
+from vortexcfd.core.model import Part, Simulation
+from vortexcfd.core.project_io import load_simulation, save_simulation
 
 MAX_OBSERVER_ERRORS = 20
 

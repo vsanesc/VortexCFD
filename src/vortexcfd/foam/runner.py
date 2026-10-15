@@ -19,7 +19,7 @@ import threading
 import time
 from typing import Callable
 
-from cfdgui.foam.dictfile import read_foam_file
+from vortexcfd.foam.dictfile import read_foam_file
 
 OPENFOAM_BASHRC = Path("/usr/lib/openfoam/openfoam2606/etc/bashrc")
 
@@ -233,14 +233,14 @@ class FoamRun:
                 raise ValueError(
                     f"clean_stop=True requires a readable {control_dict}, but it cannot be "
                     f"parsed ({type(exc).__name__}: {exc}). Use "
-                    f"cfdgui.foam.case_writer.enable_clean_stop() to generate it."
+                    f"vortexcfd.foam.case_writer.enable_clean_stop() to generate it."
                 ) from exc
             actual = switches.get("stopAtWriteNowSignal") if isinstance(switches, dict) else None
         if actual != expected:
             raise ValueError(
                 f"clean_stop=True requires OptimisationSwitches.stopAtWriteNowSignal = "
                 f"{expected} in {control_dict} (found {actual!r}); without it SIGUSR1 kills "
-                f"the solver without writing. Use cfdgui.foam.case_writer.enable_clean_stop()."
+                f"the solver without writing. Use vortexcfd.foam.case_writer.enable_clean_stop()."
             )
 
     def _read_output(self) -> None:

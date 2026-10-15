@@ -7,7 +7,7 @@ import tempfile
 from typing import Any
 from pydantic import ValidationError
 
-from cfdgui.core.model import CURRENT_SCHEMA_VERSION, Simulation
+from vortexcfd.core.model import CURRENT_SCHEMA_VERSION, Simulation
 
 
 class ProjectFileError(Exception):

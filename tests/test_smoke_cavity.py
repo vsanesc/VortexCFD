@@ -4,7 +4,7 @@ from pathlib import Path
 import shutil
 import pytest
 
-from cfdgui.foam.runner import run_foam
+from vortexcfd.foam.runner import run_foam
 
 CAVITY_TUTORIAL = Path(
     "/usr/lib/openfoam/openfoam2606/tutorials/incompressible/icoFoam/cavity/cavity"

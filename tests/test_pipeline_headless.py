@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from cfdgui.foam.case_writer import write_case
-from cfdgui.foam.logparse import LogParser, parse_log_text
-from cfdgui.foam.reference_cases.cavity import CavityParams, build_cavity_files
-from cfdgui.foam.runner import FoamRun, run_foam
+from vortexcfd.foam.case_writer import write_case
+from vortexcfd.foam.logparse import LogParser, parse_log_text
+from vortexcfd.foam.reference_cases.cavity import CavityParams, build_cavity_files
+from vortexcfd.foam.runner import FoamRun, run_foam
 
 
 @pytest.mark.openfoam

@@ -1,7 +1,7 @@
 # ARCHITECTURE.md
 
 ## 1. Overview and Target
-`cfdgui` is a Python-based desktop application providing a STAR-CCM+-style workflow (single simulation tree, integrated geometry → mesh → physics → solve → post-processing) orchestrating OpenFOAM as its numerical backend.
+`vortexcfd` is a Python-based desktop application providing a STAR-CCM+-style workflow (single simulation tree, integrated geometry → mesh → physics → solve → post-processing) orchestrating OpenFOAM as its numerical backend.
 
 ## 2. Runtime Environment
 - The entire application runs inside **WSL2** running **Ubuntu 24.04**.
@@ -10,7 +10,7 @@
 ## 3. Numerical Backend
 - **OpenFOAM ESI v2606 only**, installed at `/usr/lib/openfoam/openfoam2606`.
 - OpenFOAM is **never assumed to be on `PATH`**.
-- Every OpenFOAM process is launched through `cfdgui.foam.runner`, which sources `/usr/lib/openfoam/openfoam2606/etc/bashrc` explicitly.
+- Every OpenFOAM process is launched through `vortexcfd.foam.runner`, which sources `/usr/lib/openfoam/openfoam2606/etc/bashrc` explicitly.
 
 ## 4. Technology Stack
 - **Python**: >= 3.11 (developed on 3.12)
@@ -19,10 +19,10 @@
 - **Testing**: pytest + pytest-qt
 
 ## 5. Package Layers
-All application code resides under `src/cfdgui/` and is strictly partitioned into three layers:
+All application code resides under `src/vortexcfd/` and is strictly partitioned into three layers:
 
 ```
-src/cfdgui/
+src/vortexcfd/
 ├── core/   # Simulation data model
 ├── foam/   # OpenFOAM integration
 └── gui/    # Presentation and 3D viewer
@@ -35,7 +35,7 @@ src/cfdgui/
   - `core/project_io.py`: handles saving, loading, validation, and migration of JSON project files.
   - `core/project.py`: Qt-free `Project` document wrapping a `Simulation` with validated edits, snapshot undo/redo, dirty tracking and change observers.
   - Must **NOT** import Qt (`PySide6`), `pyvista`, `pyvistaqt`, or anything GUI-related.
-  - Must **NOT** import `cfdgui.gui`.
+  - Must **NOT** import `vortexcfd.gui`.
 - **`foam/`**:
   - Handles OpenFOAM integration (case generation/writing, process execution, log parsing).
   - `foam/dictfile.py`: thin wrapper encapsulating `foamlib` for OpenFOAM dictionary reading and writing.
@@ -46,7 +46,7 @@ src/cfdgui/
   - `SolverCrash` (logparse): event for an OpenFOAM `[stack trace]` block. A diverging solver dies with SIGFPE and prints no nan residuals, so the process exit code is the reliable failure signal.
   - `FoamRun.is_running()` is False and `FoamRun.wait()` raises `RuntimeError` before `start()` has been called.
   - Must **NOT** import Qt (`PySide6`) or anything GUI-related.
-  - Must **NOT** import `cfdgui.gui`.
+  - Must **NOT** import `vortexcfd.gui`.
 - **`gui/`**:
   - Implements UI components, main window, and 3D visualization using PySide6 and PyVista/pyvistaqt.
   - May import `core` and `foam`.

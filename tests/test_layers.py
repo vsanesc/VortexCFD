@@ -1,16 +1,16 @@
 """Tests verifying architectural layer boundaries.
 
 Layer constraints:
-- cfdgui.core (simulation data model) must NOT import PySide6, pyvista, pyvistaqt,
-  or cfdgui.gui.
-- cfdgui.foam (OpenFOAM integration) must NOT import PySide6, pyvista, pyvistaqt,
-  or cfdgui.gui.
+- vortexcfd.core (simulation data model) must NOT import PySide6, pyvista, pyvistaqt,
+  or vortexcfd.gui.
+- vortexcfd.foam (OpenFOAM integration) must NOT import PySide6, pyvista, pyvistaqt,
+  or vortexcfd.gui.
 """
 
 import ast
 from pathlib import Path
 
-FORBIDDEN_MODULES = ("PySide6", "pyvista", "pyvistaqt", "cfdgui.gui")
+FORBIDDEN_MODULES = ("PySide6", "pyvista", "pyvistaqt", "vortexcfd.gui")
 
 
 def _is_forbidden(module_name: str) -> bool:
@@ -85,10 +85,10 @@ def check_file_imports(file_path: Path, src_root: Path) -> list[str]:
 
 
 def test_core_and_foam_do_not_import_gui_or_viz() -> None:
-    """Ensure core and foam packages do not import PySide6, pyvista, pyvistaqt, or cfdgui.gui."""
+    """Ensure core and foam packages do not import PySide6, pyvista, pyvistaqt, or vortexcfd.gui."""
     repo_root = Path(__file__).resolve().parent.parent
     src_root = repo_root / "src"
-    scanned_dirs = [src_root / "cfdgui" / "core", src_root / "cfdgui" / "foam"]
+    scanned_dirs = [src_root / "vortexcfd" / "core", src_root / "vortexcfd" / "foam"]
 
     files_to_scan: list[Path] = []
     for d in scanned_dirs:

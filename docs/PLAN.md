@@ -1,6 +1,6 @@
 # Open-source CFD GUI on OpenFOAM — Development Plan
 
-Working name: `PROJECT` (placeholder). Target: a STAR-CCM+-style workflow (single simulation tree, integrated geometry → mesh → physics → solve → post) running on OpenFOAM as the numerical backend.
+Working name: VortexCFD. Target: a STAR-CCM+-style workflow (single simulation tree, integrated geometry → mesh → physics → solve → post) running on OpenFOAM as the numerical backend.
 
 ## 0. Ground rules (apply to every task)
 

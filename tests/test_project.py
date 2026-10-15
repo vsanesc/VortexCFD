@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from cfdgui.core.model import Part
-from cfdgui.core.project import Project
-from cfdgui.core.project_io import ProjectFileError
+from vortexcfd.core.model import Part
+from vortexcfd.core.project import Project
+from vortexcfd.core.project_io import ProjectFileError
 
 
 def make_part(name: str = "wing", source: str = "wing.stl", units: str = "m") -> Part:

@@ -1,9 +1,9 @@
-"""Tests for CFD GUI main window application."""
+"""Tests for the VortexCFD main window application."""
 
 from pyvistaqt import QtInteractor
 from pytestqt.qtbot import QtBot
 
-from cfdgui.gui.main_window import MainWindow
+from vortexcfd.gui.main_window import MainWindow
 
 
 def test_main_window_structure(qtbot: QtBot) -> None:

@@ -19,7 +19,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("CFD GUI")
+        self.setWindowTitle("VortexCFD")
         self.resize(1024, 768)
 
         splitter = QSplitter(Qt.Orientation.Horizontal, self)

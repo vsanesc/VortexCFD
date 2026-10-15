@@ -1,8 +1,8 @@
 # Project rules
 - GUI for OpenFOAM ESI v2606, running inside WSL2 Ubuntu 24.04. Read ARCHITECTURE.md and DECISIONS.md before changing anything.
-- OpenFOAM is not on PATH. Run OpenFOAM through the `openfoam2606` launcher, or through cfdgui.foam.runner in code.
+- OpenFOAM is not on PATH. Run OpenFOAM through the `openfoam2606` launcher, or through vortexcfd.foam.runner in code.
 - Python venv in .venv. Never install packages system-wide. No new dependencies without asking.
-- Layers: core/ and foam/ must never import Qt, pyvista or cfdgui.gui (tests/test_layers.py enforces it).
+- Layers: core/ and foam/ must never import Qt, pyvista or vortexcfd.gui (tests/test_layers.py enforces it).
 - Never push, merge, or delete branches. Commit only on the current task branch.
 - Paste command output exactly as produced; never retype or reconstruct it.
 - Code in numerics, boundary conditions or turbulence: stop and flag it for review.

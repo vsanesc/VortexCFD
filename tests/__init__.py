@@ -1,1 +1,1 @@
-"""Test suite for cfdgui."""
+"""Test suite for vortexcfd."""
