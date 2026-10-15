@@ -1,4 +1,4 @@
-"""Minimal CFD GUI application feasibility spike."""
+"""Main window with simulation tree and 3D viewer."""
 
 import sys
 from PySide6.QtCore import Qt
