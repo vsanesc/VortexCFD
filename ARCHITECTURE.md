@@ -42,6 +42,8 @@ src/cfdgui/
   - `foam/reference_cases/`: generators for standard reference cases (e.g. cavity).
   - `foam/runner.py`: process execution via `run_foam` and streaming runner `FoamRun` returning `RunResult`. Clean stop works for single-process solvers launched through `FoamRun` with `clean_stop=True`.
   - `foam/logparse.py`: incremental solver log parsing via `LogParser` recording `TimeStep` events.
+  - `SolverCrash` (logparse): event for an OpenFOAM `[stack trace]` block. A diverging solver dies with SIGFPE and prints no nan residuals, so the process exit code is the reliable failure signal.
+  - `FoamRun.is_running()` is False and `FoamRun.wait()` raises `RuntimeError` before `start()` has been called.
   - Must **NOT** import Qt (`PySide6`) or anything GUI-related.
   - Must **NOT** import `cfdgui.gui`.
 - **`gui/`**:

@@ -7,3 +7,6 @@
 - Paste command output exactly as produced; never retype or reconstruct it.
 - Code in numerics, boundary conditions or turbulence: stop and flag it for review.
 - Code, comments and docs in English.
+- Use `.venv/bin/python` and `.venv/bin/pytest`; `python` is not on PATH outside the venv.
+- Commit locally after each completed part, message "Task <id>: <summary>". Stage only files that belong to the task (never `git add .` blindly). Never push, merge, or delete branches.
+- Final reports must be short: `git diff --stat main`, the last line of `pytest -q`, and a list of open doubts. No full test listings or long file dumps unless asked.
