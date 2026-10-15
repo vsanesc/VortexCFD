@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from cfdgui.foam.case_writer import FoamFileSpec
+from vortexcfd.foam.case_writer import FoamFileSpec
 
 
 @dataclass

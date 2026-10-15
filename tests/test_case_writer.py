@@ -8,15 +8,15 @@ import numpy as np
 import pytest
 
 import signal
-from cfdgui.foam.case_writer import (
+from vortexcfd.foam.case_writer import (
     CaseDirectoryNotEmptyError,
     FoamFileSpec,
     enable_clean_stop,
     write_case,
 )
-from cfdgui.foam.dictfile import read_foam_file, write_foam_file
-from cfdgui.foam.reference_cases.cavity import CavityParams, build_cavity_files
-from cfdgui.foam.runner import run_foam
+from vortexcfd.foam.dictfile import read_foam_file, write_foam_file
+from vortexcfd.foam.reference_cases.cavity import CavityParams, build_cavity_files
+from vortexcfd.foam.runner import run_foam
 
 TUTORIAL_CAVITY = Path(
     "/usr/lib/openfoam/openfoam2606/tutorials/incompressible/icoFoam/cavity/cavity"

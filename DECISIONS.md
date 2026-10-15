@@ -13,3 +13,4 @@
 | D-009 | 2026-10-15 | Clean stop via controlDict stopAt writeNow | Enables solver to write the current time step and exit cleanly without corrupting state. |
 | D-010 | 2026-10-15 | Clean stop via SIGUSR1 with stopAtWriteNowSignal in case controlDict (supersedes D-009) | Measurements showed file-based stop is delayed ~5 s by fileModificationSkew, while SIGUSR1 stops cleanly in ~0.01 s without mutating case files on disk. |
 | D-011 | 2026-10-15 | Undo/redo as snapshots in core/project.py instead of QUndoStack | Snapshots of the validated Simulation work headless and from scripts, while QUndoStack would tie the document to Qt. |
+| D-012 | 2026-10-15 | Project renamed to VortexCFD (Python package vortexcfd) | Final name chosen before the GUI and public API grow. |

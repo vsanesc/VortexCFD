@@ -8,9 +8,9 @@ import time
 
 import pytest
 
-from cfdgui.foam.case_writer import enable_clean_stop, write_case
-from cfdgui.foam.reference_cases.cavity import CavityParams, build_cavity_files
-from cfdgui.foam.runner import FoamRun, RunResult, run_foam
+from vortexcfd.foam.case_writer import enable_clean_stop, write_case
+from vortexcfd.foam.reference_cases.cavity import CavityParams, build_cavity_files
+from vortexcfd.foam.runner import FoamRun, RunResult, run_foam
 
 
 def wait_until(condition: Callable[[], bool], timeout_s: float, message: str) -> None:
@@ -251,7 +251,7 @@ def test_clean_stop_immediate_after_start(tmp_path: Path, make_run: Callable[...
 @pytest.mark.openfoam
 def test_restart_after_clean_stop(tmp_path: Path, make_run: Callable[..., FoamRun]) -> None:
     """After a clean stop, restart from latestTime and check the second run advances."""
-    from cfdgui.foam.dictfile import set_foam_entry
+    from vortexcfd.foam.dictfile import set_foam_entry
 
     case_dir = tmp_path / "cavity_restart"
     params = CavityParams(cells_x=40, cells_y=40, delta_t=0.002, end_time=20.0)

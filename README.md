@@ -1,4 +1,4 @@
-# CFD GUI
+# VortexCFD
 
 A Python-based GUI orchestrating OpenFOAM (ESI v2606) for CFD workflows.
 
@@ -30,7 +30,7 @@ A Python-based GUI orchestrating OpenFOAM (ESI v2606) for CFD workflows.
 
 Launch the GUI via the entry point command:
 ```bash
-cfdgui
+vortexcfd
 ```
 
 ### Running Tests

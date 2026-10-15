@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from cfdgui.foam.dictfile import write_foam_file
+from vortexcfd.foam.dictfile import write_foam_file
 
 
 def enable_clean_stop(files: dict[str, FoamFileSpec]) -> dict[str, FoamFileSpec]:

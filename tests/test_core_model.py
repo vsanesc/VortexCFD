@@ -5,7 +5,7 @@ from pathlib import Path
 from pydantic import ValidationError
 import pytest
 
-from cfdgui.core.model import (
+from vortexcfd.core.model import (
     CURRENT_SCHEMA_VERSION,
     Geometry,
     Mesh,
@@ -15,7 +15,7 @@ from cfdgui.core.model import (
     Simulation,
     Solvers,
 )
-from cfdgui.core.project_io import (
+from vortexcfd.core.project_io import (
     ProjectFileError,
     load_simulation,
     migrate,
