@@ -20,3 +20,5 @@ params = CavityParams(delta_t=0.5, lid_velocity=100.0, nu=0.01, end_time=50.0, w
 
 ## `pitzDaily_simpleFoam.log`
 Real log of the steady `simpleFoam` tutorial `incompressible/simpleFoam/pitzDaily` (ESI OpenFOAM v2606), run on a temporary copy with `endTime = 20` and `writeInterval = 1000` set via `set_foam_entry`, then `blockMesh` and `simpleFoam` through `run_foam` / `FoamRun`. 20 iterations (`Time = 1` .. `Time = 20`), exit code 0, ends with `End`. Each iteration has one `Solving for` line for each of Ux, Uy, p, epsilon and k, and no `Courant` line.
+
+The logs are real OpenFOAM output with the Case, Host and PID lines replaced by placeholders.

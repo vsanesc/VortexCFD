@@ -10,10 +10,10 @@ Arch   : "LSB;label=32;scalar=64"
 Exec   : simpleFoam
 Date   : Oct 15 2026
 Time   : 21:15:18
-Host   : PCVIC
-PID    : 342377
+Host   : "host"
+PID    : 0
 I/O    : uncollated
-Case   : /tmp/claude-1000/-home-vic-proyectos-cfd-gui/cd4f5291-e9c5-41b6-b395-1cc5a0f3b58d/scratchpad/pitz
+Case   : /path/to/case
 nProcs : 1
 trapFpe: Floating point exception trapping enabled (FOAM_SIGFPE).
 memory pool : not available

@@ -10,3 +10,4 @@
 - Use `.venv/bin/python` and `.venv/bin/pytest`; `python` is not on PATH outside the venv.
 - Commit locally after each completed part, message "Task <id>: <summary>". Stage only files that belong to the task (never `git add .` blindly). Never push, merge, or delete branches.
 - Final reports must be short: `git diff --stat main`, the last line of `pytest -q`, and a list of open doubts. No full test listings or long file dumps unless asked.
+- scripts/ship.sh pushes, merges and deletes the branch. It is run only by Vic. Agents never run it.

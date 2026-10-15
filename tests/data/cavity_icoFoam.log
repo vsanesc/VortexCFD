@@ -10,10 +10,10 @@ Arch   : "LSB;label=32;scalar=64"
 Exec   : icoFoam
 Date   : Oct 15 2026
 Time   : 18:34:15
-Host   : PCVIC
-PID    : 93497
+Host   : "host"
+PID    : 0
 I/O    : uncollated
-Case   : /tmp/cfd_log_fixture/cavity
+Case   : /path/to/case
 nProcs : 1
 trapFpe: Floating point exception trapping enabled (FOAM_SIGFPE).
 memory pool : not available
