@@ -1,0 +1,106 @@
+"""Quality checks for triangulated surfaces."""
+
+from dataclasses import dataclass
+
+import numpy as np
+import pyvista as pv
+
+# A triangle is degenerate when its area is below this fraction of the squared bbox diagonal.
+DEGENERATE_AREA_TOLERANCE = 1e-10
+
+
+@dataclass(frozen=True)
+class SurfaceReport:
+    """Result of ``check_surface``."""
+
+    n_triangles: int
+    n_points: int
+    bounds: tuple[float, float, float, float, float, float]
+    size: tuple[float, float, float]
+    open_edges: int  # edges used by exactly one triangle
+    non_manifold_edges: int  # edges used by more than two triangles
+    degenerate_triangles: int
+    duplicate_faces: int
+    inconsistent_orientation: int  # triangles to flip to make orientation consistent
+    watertight: bool
+
+    def summary(self) -> str:
+        """One-line summary for logs."""
+        problems = []
+        if self.open_edges:
+            problems.append(f"{self.open_edges} open edges")
+        if self.non_manifold_edges:
+            problems.append(f"{self.non_manifold_edges} non-manifold edges")
+        if self.degenerate_triangles:
+            problems.append(f"{self.degenerate_triangles} degenerate triangles")
+        if self.duplicate_faces:
+            problems.append(f"{self.duplicate_faces} duplicate faces")
+        if self.inconsistent_orientation:
+            problems.append(f"{self.inconsistent_orientation} inconsistently oriented triangles")
+        head = f"{self.n_triangles} triangles, {self.n_points} points, watertight: {'yes' if self.watertight else 'no'}"
+        return head + ("; " + ", ".join(problems) if problems else "")
+
+
+def _triangles(mesh: pv.PolyData) -> np.ndarray:
+    tri = mesh if mesh.is_all_triangles else mesh.triangulate()
+    return np.asarray(tri.faces).reshape(-1, 4)[:, 1:]
+
+
+def _orientation_conflicts(mesh: pv.PolyData) -> int:
+    """Triangles that disagree with an auto-oriented copy (the smaller side of the split)."""
+    n = mesh.n_cells
+    try:
+        base = mesh.compute_normals(cell_normals=True, point_normals=False, split_vertices=False,
+                                    consistent_normals=False, auto_orient_normals=False)
+        fixed = mesh.compute_normals(cell_normals=True, point_normals=False, split_vertices=False,
+                                     consistent_normals=True, auto_orient_normals=True)
+    except Exception:  # pragma: no cover - VTK failure on pathological input
+        return 0
+    if fixed.n_cells != n:  # cell order not preserved: cannot compare
+        return 0
+    dots = np.einsum("ij,ij->i", base.cell_data["Normals"], fixed.cell_data["Normals"])
+    flipped = int(np.count_nonzero(dots < 0))
+    return min(flipped, n - flipped)
+
+
+def check_surface(mesh: pv.PolyData) -> SurfaceReport:
+    """Check a triangulated surface.
+
+    Reports open and non-manifold edges, degenerate triangles, duplicate faces and
+    inconsistent orientation. Self-intersections are NOT checked (Phase 3.3).
+    """
+    tris = _triangles(mesh)
+    n_tri = len(tris)
+    bounds = tuple(float(b) for b in mesh.bounds)
+    size = (bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4])
+    if n_tri == 0:
+        return SurfaceReport(0, mesh.n_points, bounds, size, 0, 0, 0, 0, 0, False)
+
+    edges = np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [2, 0]]])
+    edges.sort(axis=1)
+    _, counts = np.unique(edges, axis=0, return_counts=True)
+    open_edges = int(np.count_nonzero(counts == 1))
+    non_manifold = int(np.count_nonzero(counts > 2))
+
+    pts = np.asarray(mesh.points, dtype=float)
+    a, b, c = pts[tris[:, 0]], pts[tris[:, 1]], pts[tris[:, 2]]
+    areas = 0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1)
+    diag2 = float(size[0] ** 2 + size[1] ** 2 + size[2] ** 2)
+    degenerate = int(np.count_nonzero(areas <= DEGENERATE_AREA_TOLERANCE * diag2))
+
+    sorted_tris = np.sort(tris, axis=1)
+    duplicates = n_tri - len(np.unique(sorted_tris, axis=0))
+
+    tri_mesh = mesh if mesh.is_all_triangles else mesh.triangulate()
+    return SurfaceReport(
+        n_triangles=n_tri,
+        n_points=int(mesh.n_points),
+        bounds=bounds,
+        size=size,
+        open_edges=open_edges,
+        non_manifold_edges=non_manifold,
+        degenerate_triangles=degenerate,
+        duplicate_faces=duplicates,
+        inconsistent_orientation=_orientation_conflicts(tri_mesh),
+        watertight=open_edges == 0 and non_manifold == 0,
+    )

@@ -25,6 +25,7 @@ All application code resides under `src/vortexcfd/` and is strictly partitioned 
 src/vortexcfd/
 ├── core/   # Simulation data model
 ├── foam/   # OpenFOAM integration
+├── geometry/  # Surface loading and checks (pyvista, no Qt)
 └── gui/    # Presentation and 3D viewer
 ```
 
@@ -48,6 +49,10 @@ src/vortexcfd/
   - `FoamRun.is_running()` is False and `FoamRun.wait()` raises `RuntimeError` before `start()` has been called.
   - Must **NOT** import Qt (`PySide6`) or anything GUI-related.
   - Must **NOT** import `vortexcfd.gui`.
+- **`geometry/`**:
+  - Surface geometry; may import numpy and pyvista, must **NOT** import Qt, pyvistaqt or `vortexcfd.gui`; `core/` must not import it.
+  - `geometry/loader.py`: `load_surface(path, units)` reads STL/OBJ/PLY as a triangulated PyVista mesh in metres (cached by path, mtime and units).
+  - `geometry/checks.py`: `check_surface(mesh)` returns a `SurfaceReport` (open and non-manifold edges, degenerate and duplicate triangles, orientation, watertightness).
 - **`gui/`**:
   - Implements UI components, main window, and 3D visualization using PySide6 and PyVista/pyvistaqt.
   - `gui/theme.py`: design tokens (`Theme`), Fusion palette/stylesheet and font zoom; `gui/icons.py` draws tree icons in code.
