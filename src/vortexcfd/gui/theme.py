@@ -20,6 +20,8 @@ MAX_POINT_SIZE = 24
 
 # Application font family stack: the first installed family wins.
 FONT_FAMILIES: tuple[str, ...] = ("Inter", "Segoe UI", "Noto Sans", "DejaVu Sans")
+# Monospace stack for numbers, badges, the console and viewport text.
+MONO_FAMILIES: tuple[str, ...] = ("JetBrains Mono", "Cascadia Mono", "DejaVu Sans Mono")
 
 
 @dataclass(frozen=True)
@@ -28,15 +30,16 @@ class Theme:
 
     name: str
     canvas: str  # viewer background
-    base: str  # window, menu bar, side panels, tree, status bar
+    base: str  # window, panels, tree, console, status line
     elevated: str  # inputs, section headers, tree row hover
     floating: str  # menus, popups, tooltips, dialogs
     border: str
     border_active: str
     text: str
     muted_text: str
-    accent: str
-    accent_text: str
+    accent: str  # primary action (orange)
+    accent_text: str  # text on accent
+    accent_secondary: str  # teal: part dots, selected-row bar, active tab, highlighted names
     selection: str  # selected tree row
     success: str
     warning: str
@@ -46,7 +49,8 @@ class Theme:
     axis_z: str
 
 
-# Tungsten & Amber. The first six colors are the owner's table.
+# Tungsten & Amber. The first six colors are the owner's table; the rest are sampled from
+# docs/design/design_preview.png (the mockup) as the mean/extreme of a small area.
 DARK = Theme(
     name="dark",
     canvas="#0A0D12",
@@ -55,20 +59,46 @@ DARK = Theme(
     floating="#232B3A",
     border="#2A3446",
     border_active="#3B4963",
-    text="#E6EAF2",  # PROVISIONAL: not in owner table
-    muted_text="#94A0B5",  # PROVISIONAL: not in owner table
-    accent="#F5A524",  # PROVISIONAL: not in owner table
-    accent_text="#1A1205",  # PROVISIONAL: not in owner table
-    selection="#3F3320",  # PROVISIONAL: not in owner table
-    success="#4CC38A",  # PROVISIONAL: not in owner table
-    warning="#E5B94E",  # PROVISIONAL: not in owner table
-    error="#F2555A",  # PROVISIONAL: not in owner table
-    axis_x="#F2555A",  # PROVISIONAL: not in owner table
-    axis_y="#4CC38A",  # PROVISIONAL: not in owner table
-    axis_z="#5B9CF5",  # PROVISIONAL: not in owner table
+    text="#EFF3F8",  # sampled from mockup at (89, 157): brightest pixel of the row text
+    muted_text="#8EA0B1",  # sampled from mockup at (45, 731): "Surface Area" label
+    accent="#FF8800",  # sampled from mockup at (1700, 18): fill of the Run Solver button
+    accent_text="#090C11",  # sampled from mockup at (1764, 27): darkest pixel of its label
+    accent_secondary="#00E5CC",  # sampled from mockup at (71, 154): selected part dot (teal)
+    selection="#0F2E32",  # sampled from mockup at (250, 156): selected tree row background
+    success="#10B981",  # sampled from mockup at (550, 26): state dot
+    warning="#F6BC17",  # sampled from mockup at (1668, 66): "High CFL Warn" label
+    error="#DE353F",  # sampled from mockup at (1740, 63): "Diverged" label
+    axis_x="#FF4D4D",  # sampled from mockup at (417, 987): X legend dot
+    axis_y="#2ECC71",  # sampled from mockup at (418, 1002): Y legend dot
+    axis_z="#38BDF8",  # sampled from mockup at (417, 1021): Z legend dot
 )
 
 THEMES: dict[str, Theme] = {DARK.name: DARK}
+
+
+@dataclass(frozen=True)
+class LayoutFractions:
+    """Region proportions measured on docs/design/design_preview.png (1833 x 1210)."""
+
+    top_bar: float = 0.040  # top bar height / window height (48 px)
+    left: float = 0.181  # left column width / window width (331 px)
+    tree_split: float = 0.548  # tree section height / left column height (637 of 1162 px)
+    tab_bar: float = 0.0265  # scene tab bar height / window height (32 px)
+    monitors: float = 0.347  # right monitors column width / window width (637 px)
+    console: float = 0.131  # bottom console height / window height (158 px)
+
+
+LAYOUT = LayoutFractions()
+
+# Region limits in units of u (font height): (minimum, maximum or None).
+LIMITS_U: dict[str, tuple[int, int | None]] = {
+    "left": (11, 22),
+    "monitors": (14, 40),
+    "center": (20, None),
+    "console": (4, None),
+    "tree": (8, None),
+    "properties": (6, None),
+}
 
 
 @dataclass(frozen=True)
@@ -88,11 +118,14 @@ class Metrics:
     radius_s: int  # 0.25u
     radius_m: int  # 0.5u
     menubar: int  # menu bar height (2u)
-    status: int  # status bar height (2u)
-    strip: int  # top/bottom pill strip height (3.4u)
-    sidebar_header: int  # project header height (3u)
-    pill_h: int  # pill height (2.4u); pill radius is half of it
+    status: int  # status line height (2u)
+    top_bar: int  # top bar height (2.4u; the measured 1.9u is too tight for its buttons)
+    tab_bar: int  # scene tab bar height (1.6u)
+    button: int  # top bar button height (1.7u)
     hit: int  # splitter hit area (0.5u)
+    strip: int = 0  # TEMPORARY (old layout), removed with the new window
+    pill_h: int = 0
+    sidebar_header: int = 0
     line: int = 1  # divider / border width
     bar: int = 2  # accent bar on the selected row
 
@@ -107,13 +140,23 @@ def metrics(u: int | None = None) -> Metrics:
 
     return Metrics(
         u=u, s1=k(0.25), s2=k(0.5), s3=k(0.75), s4=k(1), s5=k(1.5), s6=k(2),
-        header=k(2), row=k(1.8), field=k(2), radius_s=k(0.25), radius_m=k(0.5), hit=k(0.5),
-        menubar=k(2), status=k(2), strip=k(3.4), sidebar_header=k(3), pill_h=k(2.4),
+        header=k(2), row=k(1.8), field=k(2), radius_s=k(0.25), radius_m=k(0.5),
+        menubar=k(2), status=k(2), top_bar=k(2.4), tab_bar=k(1.6), button=k(1.7), hit=k(0.5),
+        strip=k(3.4), pill_h=k(2.4), sidebar_header=k(3),
     )
 
 
 def clamp_point_size(size: int) -> int:
     return max(MIN_POINT_SIZE, min(MAX_POINT_SIZE, int(size)))
+
+
+def mono_font(base: QFont, scale: float = 1.0) -> QFont:
+    """Monospace variant of ``base`` (``scale`` multiplies its point size)."""
+    font = QFont(base)
+    font.setFamilies(list(MONO_FAMILIES))
+    font.setStyleHint(QFont.StyleHint.Monospace)
+    font.setPointSizeF(base.pointSizeF() * scale)
+    return font
 
 
 def section_title_font(base: QFont) -> QFont:
@@ -159,38 +202,53 @@ def build_stylesheet(t: Theme, m: Metrics, base_point_size: float) -> str:
     ln = m.line
     inner = m.field - 2 * ln
     status_pt = f"{base_point_size * 0.9:.1f}pt"
+    btr = m.radius_s
     return f"""
 QToolTip {{ background: {t.floating}; color: {t.text}; border: {ln}px solid {t.border};
     border-radius: {m.radius_s}px; padding: {m.s2}px {m.s3}px; }}
-QWidget#pane {{ background: {t.base}; }}
+QWidget#panel {{ background: {t.base}; }}
 QWidget#canvas {{ background: {t.canvas}; }}
 QLabel#muted {{ color: {t.muted_text}; }}
-QLabel#sectionTitle {{ background: {t.elevated}; color: {t.muted_text};
-    border: none; border-bottom: {ln}px solid {t.border}; padding: 0 {m.s3}px; }}
+QLabel#accent2 {{ color: {t.accent_secondary}; background: transparent; }}
+QLabel#sectionTitle {{ color: {t.text}; background: transparent; }}
+QWidget#sectionHeader {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
+QLabel#badge {{ background: {t.elevated}; color: {t.accent_secondary}; border: {ln}px solid {t.border};
+    border-radius: {btr}px; padding: {m.s1}px {m.s2}px; }}
+QLabel#badge[state="success"] {{ color: {t.success}; }}
+QLabel#badge[state="warning"] {{ color: {t.warning}; }}
+QLabel#dirtyDot {{ color: {t.accent}; background: transparent; }}
+QWidget#topBar {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
+QFrame#vsep {{ background: {t.border}; border: none; }}
+QPushButton#tbBtn {{ background: transparent; color: {t.muted_text}; border: {ln}px solid transparent;
+    border-radius: {btr}px; padding: 0 {m.s3}px; }}
+QPushButton#tbBtn:hover {{ color: {t.text}; background: {t.elevated}; }}
+QPushButton#tbBtn:checked {{ color: {t.accent_secondary}; border-color: {t.accent_secondary};
+    background: {t.selection}; }}
+QPushButton#nameBtn {{ background: transparent; color: {t.text}; border: none; text-align: left;
+    padding: 0 {m.s2}px; border-radius: {btr}px; }}
+QPushButton#nameBtn:hover {{ background: {t.elevated}; }}
+QPushButton#meshBtn {{ background: transparent; color: {t.accent}; border: {ln}px solid {t.accent};
+    border-radius: {btr}px; padding: 0 {m.s4}px; }}
+QPushButton#runBtn {{ background: {t.accent}; color: {t.accent_text}; border: {ln}px solid {t.accent};
+    border-radius: {btr}px; padding: 0 {m.s4}px; }}
+QPushButton#flatBtn {{ background: transparent; color: {t.muted_text}; border: none;
+    border-radius: {btr}px; padding: {m.s1}px {m.s3}px; }}
+QPushButton#flatBtn:hover {{ color: {t.text}; background: {t.elevated}; }}
+QWidget#tabBar {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
+QLabel#sceneTab {{ color: {t.text}; background: {t.elevated}; border: none;
+    border-bottom: {m.bar}px solid {t.accent_secondary}; padding: 0 {m.s4}px; }}
+QWidget#consoleBar {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
+QLabel#consoleTab {{ color: {t.text}; background: transparent; border: none;
+    border-bottom: {m.bar}px solid {t.accent_secondary}; padding: 0 {m.s3}px; }}
+QPlainTextEdit#console {{ background: {t.base}; color: {t.text}; border: none; padding: {m.s2}px; }}
+QWidget#kpiRow {{ background: {t.base}; border-top: {ln}px solid {t.border}; }}
+QWidget#kpiCell {{ background: {t.base}; border-right: {ln}px solid {t.border}; }}
+QWidget#kpiCell[last="true"] {{ border-right: none; }}
+QLabel#kpiTitle {{ color: {t.muted_text}; background: transparent; }}
+QLabel#kpiValue {{ color: {t.text}; background: transparent; }}
+QWidget#propRow {{ background: transparent; border-bottom: {ln}px solid {t.border}; }}
 QTreeView {{ background: {t.base}; border: none; outline: 0; }}
 QTreeView::item {{ background: transparent; }}
-QWidget#stripTop {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
-QWidget#stripBottom {{ background: {t.base}; border-top: {ln}px solid {t.border}; }}
-QFrame#pill {{ background: {t.elevated}; border: {ln}px solid {t.border}; border-radius: {m.pill_h // 2}px; }}
-QPushButton#segBtn, QPushButton#viewBtn {{
-    background: transparent; color: {t.muted_text}; border: {ln}px solid transparent;
-    border-radius: {(m.pill_h - 2 * (m.s1 + ln)) // 2}px; padding: 0 {m.s4}px;
-}}
-QPushButton#segBtn:hover, QPushButton#viewBtn:hover {{ color: {t.text}; }}
-QPushButton#viewBtn:hover {{ background: {t.floating}; }}
-QPushButton#segBtn:checked {{ background: {t.floating}; color: {t.text}; border: {ln}px solid {t.accent}; }}
-QPushButton#viewBtn:disabled {{ color: {t.muted_text}; background: transparent; }}
-QWidget#sidebarHeader {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
-QPushButton#headerName {{ background: transparent; border: none; color: {t.text};
-    text-align: left; padding: {m.s1}px {m.s2}px; border-radius: {m.radius_s}px; }}
-QPushButton#headerName:hover {{ background: {t.elevated}; }}
-QLabel#dirtyDot {{ color: {t.accent}; background: transparent; }}
-QToolButton {{ background: transparent; border: none; border-radius: {m.radius_s}px; padding: {m.s1}px; }}
-QToolButton:hover {{ background: {t.elevated}; }}
-QToolButton::menu-indicator {{ image: none; width: 0; }}
-QFrame#cardHeader {{ background: {t.elevated}; border: none; border-bottom: {ln}px solid {t.border}; }}
-QLabel#cardTitle {{ color: {t.muted_text}; font-weight: bold; background: transparent; }}
-QLabel#cardToggle {{ background: transparent; }}
 QLineEdit, QComboBox {{
     background: {t.elevated}; color: {t.text}; border: {ln}px solid {t.border};
     border-radius: {m.radius_s}px; padding: 0 {m.s2}px; min-height: {inner}px;
@@ -206,8 +264,7 @@ QComboBox QAbstractItemView {{
     background: {t.floating}; color: {t.text}; border: {ln}px solid {t.border};
     selection-background-color: {t.elevated}; selection-color: {t.text}; outline: 0;
 }}
-QAbstractButton:checked {{ background: {t.elevated}; border: {ln}px solid {t.accent}; }}
-QStatusBar {{ background: {t.base}; color: {t.text}; border-top: {ln}px solid {t.border};
+QStatusBar {{ background: {t.base}; color: {t.muted_text}; border-top: {ln}px solid {t.border};
     font-size: {status_pt}; }}
 QStatusBar::item {{ border: none; }}
 QStatusBar[level="success"] {{ color: {t.success}; }}
