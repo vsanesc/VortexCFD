@@ -224,9 +224,13 @@ def test_save_simulation_atomic_cleanup(tmp_path: Path) -> None:
 def test_migrate_v1_to_v2_and_current_unchanged() -> None:
     """v1 gains the default domain and version 2; current data is returned unchanged."""
     assert migrate({"schema_version": 1, "custom": "data"}) == {
-        "schema_version": 2, "custom": "data", "domain": {}, "mesh": {},
+        "schema_version": 3, "custom": "data", "domain": {}, "mesh": {},
+        "physics": {}, "inflow": {}, "solvers": {},
     }
-    current = {"schema_version": 2, "custom": "data"}
+    assert migrate({"schema_version": 2, "x": 1}) == {
+        "schema_version": 3, "x": 1, "physics": {}, "inflow": {}, "solvers": {},
+    }
+    current = {"schema_version": 3, "custom": "data"}
     assert migrate(current) == current
 
 
@@ -243,6 +247,7 @@ from vortexcfd.core.project import Project
 from vortexcfd.core.project_io import ProjectFileError, load_simulation, save_simulation
 
 V1_FIXTURE = Path(__file__).parent / "data" / "project_v1.json"
+V2_FIXTURE = Path(__file__).parent / "data" / "project_v2.json"
 
 
 def test_domain_defaults() -> None:
@@ -251,7 +256,7 @@ def test_domain_defaults() -> None:
         True, 5.0, 10.0, 5.0, 5.0, "none",
     )
     assert Simulation(name="x").domain == d
-    assert CURRENT_SCHEMA_VERSION == 2
+    assert CURRENT_SCHEMA_VERSION == 3
 
 
 @pytest.mark.parametrize("field", ["upstream", "downstream", "lateral", "vertical"])
@@ -268,31 +273,31 @@ def test_domain_rejects_unknown_symmetry_and_fields() -> None:
         Domain(bogus=1)
 
 
-def test_v1_fixture_opens_as_v2_with_default_domain() -> None:
+def test_v1_fixture_opens_as_v3_with_default_domain() -> None:
     sim = load_simulation(V1_FIXTURE)
-    assert sim.schema_version == 2
+    assert sim.schema_version == 3
     assert sim.domain == Domain()
     assert [p.name for p in sim.geometry.parts] == ["Wing"]
 
 
-def test_v2_round_trip(tmp_path: Path) -> None:
+def test_v3_round_trip(tmp_path: Path) -> None:
     sim = Simulation(name="rt", domain=Domain(upstream=3, symmetry="y_min", enabled=False))
     path = tmp_path / "p.json"
     save_simulation(sim, path)
-    assert json.loads(path.read_text())["schema_version"] == 2
+    assert json.loads(path.read_text())["schema_version"] == 3
     assert load_simulation(path) == sim
 
 
 def test_future_version_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "p.json"
-    path.write_text(json.dumps({"schema_version": 3, "name": "x"}))
+    path.write_text(json.dumps({"schema_version": 4, "name": "x"}))
     with pytest.raises(ProjectFileError, match="Unsupported schema_version"):
         load_simulation(path)
 
 
 def test_invalid_domain_in_file_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "p.json"
-    path.write_text(json.dumps({"schema_version": 2, "name": "x", "domain": {"upstream": -2}}))
+    path.write_text(json.dumps({"schema_version": 3, "name": "x", "domain": {"upstream": -2}}))
     with pytest.raises(ProjectFileError, match="Validation failed"):
         load_simulation(path)
 
@@ -371,3 +376,71 @@ def test_update_mesh_is_one_undoable_step_and_validates() -> None:
     p.undo()
     p.update_mesh(layers=3)  # unchanged: no trace
     assert not p.can_undo
+
+
+# -- physics, inflow, solvers (schema v3) ----------------------------------------------------------
+
+from vortexcfd.core.model import Inflow, Physics, Solvers
+
+
+def test_v2_fixture_opens_as_v3_with_default_physics_and_keeps_its_data() -> None:
+    sim = load_simulation(V2_FIXTURE)
+    assert sim.schema_version == 3
+    assert sim.physics == Physics() and sim.inflow == Inflow() and sim.solvers == Solvers()
+    assert sim.domain.symmetry == "y_min" and sim.domain.upstream == 4
+    assert sim.mesh.layers == 2 and sim.mesh.base_size == 0.1
+    assert [p.name for p in sim.geometry.parts] == ["Wing"]
+
+
+def test_physics_inflow_solver_defaults() -> None:
+    assert (Physics().flow, Physics().nu, Physics().rho_ref, Physics().turbulence_model) == (
+        "incompressible_steady", 1.5e-5, 1.225, "kOmegaSST")
+    i = Inflow()
+    assert (i.speed, i.alpha_deg, i.turbulence_intensity, i.viscosity_ratio) == (20.0, 0.0, 0.01, 10.0)
+    sv = Solvers()
+    assert (sv.iterations, sv.write_interval, sv.relaxation) == (1000, 200, "robust")
+    m = Mesh()
+    assert (m.layer_sizing, m.target_yplus) == ("relative", 1.0)
+
+
+@pytest.mark.parametrize("model, fields", [
+    (Physics, {"nu": 0}), (Physics, {"rho_ref": -1}), (Physics, {"flow": "transient"}),
+    (Physics, {"turbulence_model": "kEpsilon"}), (Inflow, {"speed": 0}), (Inflow, {"alpha_deg": 91}),
+    (Inflow, {"turbulence_intensity": 0}), (Inflow, {"turbulence_intensity": 1.5}),
+    (Inflow, {"viscosity_ratio": 0}), (Solvers, {"iterations": 0}), (Solvers, {"write_interval": 0}),
+    (Solvers, {"relaxation": "fast"}), (Mesh, {"layer_sizing": "yplus"}), (Mesh, {"target_yplus": 0}),
+    (Inflow, {"bogus": 1}),
+])
+def test_physics_models_reject_invalid_values(model, fields: dict) -> None:
+    with pytest.raises(ValidationError):
+        model(**fields)
+
+
+@pytest.mark.parametrize("method, fields, label", [
+    ("update_physics", {"nu": 2e-5}, "Edit physics (nu)"),
+    ("update_inflow", {"speed": 30.0, "alpha_deg": 4.0}, "Edit inflow (speed, alpha_deg)"),
+    ("update_solver", {"iterations": 500}, "Edit solver (iterations)"),
+])
+def test_update_apis_are_one_undoable_step_and_validate(method, fields, label) -> None:
+    p = Project.new("e")
+    before = p.sim
+    getattr(p, method)(**fields)
+    assert len(p._undo) == 1 and p.undo_label == label
+    p.undo()
+    assert p.sim == before
+    p.redo()
+    assert p.sim != before
+    bad = {k: -1 for k in fields}
+    with pytest.raises(ValidationError):
+        getattr(p, method)(**bad)
+    p2 = Project.new("n")
+    getattr(p2, method)(**{k: getattr(getattr(p2.sim, {"update_physics": "physics", "update_inflow": "inflow", "update_solver": "solvers"}[method]), k) for k in fields})
+    assert not p2.can_undo  # same values: no trace
+
+
+def test_v3_round_trip_with_physics(tmp_path: Path) -> None:
+    sim = Simulation(name="rt", physics=Physics(nu=2e-5), inflow=Inflow(speed=35, alpha_deg=-3),
+                     solvers=Solvers(iterations=77), mesh=Mesh(layer_sizing="absolute_yplus", target_yplus=30))
+    path = tmp_path / "p.json"
+    save_simulation(sim, path)
+    assert load_simulation(path) == sim

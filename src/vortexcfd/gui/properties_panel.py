@@ -3,6 +3,7 @@
 from typing import get_args
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QBoxLayout,
@@ -26,6 +27,7 @@ from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.foam.mesh_case import safe_part_names
 from vortexcfd.foam.mesh_estimate import estimate_mesh
+from vortexcfd.foam.physics_case import inlet_turbulence
 from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_status, report_for_part
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
 
@@ -54,6 +56,54 @@ def _dspin(low: float, high: float, decimals: int, suffix: str = "", special: st
     return box
 
 
+class SciEdit(QLineEdit):
+    """Line edit for a positive number shown in scientific notation (e.g. 1.5e-05)."""
+
+    def __init__(self, suffix: str = "") -> None:
+        super().__init__()
+        self._suffix = suffix
+        self.setValidator(QDoubleValidator(self))
+
+    def value(self) -> float:
+        return float(self.text().replace(",", ".").strip() or "nan")
+
+    def setValue(self, value: float) -> None:
+        self.setText(f"{value:.6g}")
+
+
+def _combo(items) -> QComboBox:
+    box = QComboBox()
+    box.addItems(list(items))
+    return box
+
+
+def _sci(suffix: str = "") -> SciEdit:
+    return SciEdit(suffix)
+
+
+def _widget_get(widget):
+    return widget.currentText() if isinstance(widget, QComboBox) else widget.value()
+
+
+def _widget_set(widget, value) -> None:
+    if isinstance(widget, QComboBox):
+        widget.setCurrentText(str(value))
+    elif isinstance(widget, QSpinBox):
+        widget.setValue(int(value))
+    elif isinstance(widget, SciEdit):
+        widget.setValue(float(value))
+    else:
+        widget.setValue(float(value))
+
+
+def _connect_commit(widget, slot) -> None:
+    """Commit when a field is edited: combos on change, everything else on editing finished."""
+    if isinstance(widget, QComboBox):
+        widget.currentTextChanged.connect(lambda _text: slot())
+    else:
+        widget.editingFinished.connect(slot)
+
+
 # Editable Mesh settings: (Mesh field, label, widget factory). "auto" is the minimum special
 # value of the optional fields (stored as None).
 MESH_SETTINGS = (
@@ -67,8 +117,40 @@ MESH_SETTINGS = (
     ("expansion_ratio", "Expansion ratio", lambda: _dspin(1.0, 3.0, 3)),
     ("final_layer_thickness", "Final layer thickness", lambda: _dspin(0.001, 5.0, 3, " \u00d7 cell")),
     ("min_thickness", "Min layer thickness", lambda: _dspin(0.001, 5.0, 3, " \u00d7 cell")),
+    ("layer_sizing", "Layer sizing", lambda: _combo(("relative", "absolute_yplus"))),
+    ("target_yplus", "Target y+", lambda: _dspin(0.01, 1000.0, 3)),
 )
 MESH_OPTIONAL = frozenset({"base_size", "surface_level_min", "surface_level_max"})
+
+# Physics / Inflow / Solvers nodes: model section, update method and editable fields.
+GROUPS: dict[str, dict] = {
+    "physics": {
+        "model": lambda sim: sim.physics, "update": "update_physics",
+        "fields": (
+            ("flow", "Flow", lambda: _combo(("incompressible_steady",))),
+            ("nu", "Kinematic viscosity", lambda: _sci(" m\u00b2/s")),
+            ("rho_ref", "Reference density", lambda: _dspin(0.001, 100000.0, 4, " kg/m\u00b3")),
+            ("turbulence_model", "Turbulence model", lambda: _combo(("kOmegaSST",))),
+        ),
+    },
+    "inflow": {
+        "model": lambda sim: sim.inflow, "update": "update_inflow",
+        "fields": (
+            ("speed", "Speed", lambda: _dspin(0.001, 10000.0, 3, " m/s")),
+            ("alpha_deg", "Angle of attack", lambda: _dspin(-90.0, 90.0, 3, "\u00b0")),
+            ("turbulence_intensity", "Turbulence intensity", lambda: _dspin(0.0001, 1.0, 4)),
+            ("viscosity_ratio", "Viscosity ratio", lambda: _dspin(0.001, 100000.0, 3)),
+        ),
+    },
+    "solvers": {
+        "model": lambda sim: sim.solvers, "update": "update_solver",
+        "fields": (
+            ("iterations", "Iterations", lambda: _spin(1, 10_000_000)),
+            ("write_interval", "Write interval", lambda: _spin(1, 10_000_000)),
+            ("relaxation", "Relaxation preset", lambda: _combo(("robust",))),
+        ),
+    },
+}
 
 # Rows of the read-only mesh report on the Mesh node: (key, label).
 MESH_ROWS = (
@@ -133,7 +215,6 @@ class ElidedLabel(QLabel):
 MIN_LABEL_U = 8  # label column width bounds, in u (and a fraction of the panel width)
 MAX_LABEL_FRACTION = 0.50
 MIN_FIELD_U = 7  # a field is never narrower than this in the side-by-side layout
-SIDE_BY_SIDE_MIN_PANEL_U = 20  # panels at least this wide put label and field side by side
 
 # First Mesh field of each section header in the Mesh rows.
 MESH_SECTIONS = {
@@ -260,7 +341,7 @@ class PropertiesPanel(QWidget):
             widget = factory()
             self.mesh_fields[key] = widget
             self._layout.addWidget(self._make_row(f"mset_{key}", label, widget))
-            widget.editingFinished.connect(lambda k=key: self._commit_mesh(k))
+            _connect_commit(widget, lambda k=key: self._commit_mesh(k))
             if key == "base_size":
                 self.mesh_base_used = self._ro_row("mset_base_used", "Base size used")
             if key == "surface_level_max":
@@ -294,6 +375,19 @@ class PropertiesPanel(QWidget):
         self.mesh_empty.setObjectName("muted")
         _wrap(self.mesh_empty)
         self._layout.addWidget(self.mesh_empty)
+        # Physics / Inflow / Solvers nodes: editable fields, one generic group each.
+        self.group_fields: dict[str, dict[str, QWidget]] = {}
+        for gkind, spec in GROUPS.items():
+            fields: dict[str, QWidget] = {}
+            for key, label, factory in spec["fields"]:
+                widget = factory()
+                fields[key] = widget
+                self._layout.addWidget(self._make_row(f"{gkind}_{key}", label, widget))
+                _connect_commit(widget, lambda k=key, g=gkind: self._commit_group(g, k))
+            self.group_fields[gkind] = fields
+        self._section("inflow_computed", "Computed")
+        self.inflow_k = self._ro_row("inflow_k", "Turbulence k")
+        self.inflow_omega = self._ro_row("inflow_omega", "Turbulence omega")
         self._layout.addWidget(self.info_label)
         self._layout.addStretch(1)
         self.apply_metrics(metrics(), DARK)
@@ -342,7 +436,7 @@ class PropertiesPanel(QWidget):
     def _apply_label_column(self) -> None:
         """Lay out the label column.
 
-        Side by side (panel at least 20u wide): label width = the widest visible label, clamped
+        Side by side (panel at least 8u + 7u + margins and gap wide, about 17u): label width = the widest visible label, clamped
         to [8u, 50 % of the panel] and such that the field keeps at least 7u; labels that still
         do not fit are elided with "…" and carry the full text as a tooltip, so a label never
         overlaps its field. Narrower panels stack every row instead: label above field.
@@ -353,7 +447,9 @@ class PropertiesPanel(QWidget):
         widest = max((lab.fontMetrics().horizontalAdvance(lab.full_text()) for _, lab in pairs), default=0)
         # A scrollbar's width is always reserved, so the layout does not depend on whether it shows.
         panel_w = max(self.width() - m.s3, 1)
-        self.stacked = self.width() < SIDE_BY_SIDE_MIN_PANEL_U * m.u
+        # Side by side as soon as the real space is there: minimum label + minimum field + the
+        # row margins and the gap between them.
+        self.stacked = self.width() < (MIN_LABEL_U + MIN_FIELD_U) * m.u + 3 * m.s3
         room_for_field = panel_w - 3 * m.s3 - MIN_FIELD_U * m.u  # keeps the field >= 7u
         column = max(1, min(max(widest + m.s1, MIN_LABEL_U * m.u),
                             int(MAX_LABEL_FRACTION * panel_w), room_for_field))
@@ -421,7 +517,8 @@ class PropertiesPanel(QWidget):
             widget.setFont(mono)
         self.mesh_title.setFont(section_title_font(QApplication.font()))
         self.mesh_title.setContentsMargins(m.s3, m.s3, m.s3, m.s2)
-        for label in (self.mesh_base_used, self.mesh_levels_used, self.mesh_bg_cells, self.mesh_surface_cells):
+        for label in (self.mesh_base_used, self.mesh_levels_used, self.mesh_bg_cells, self.mesh_surface_cells,
+                      self.inflow_k, self.inflow_omega):
             label.setFont(mono)
         self.info_label.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
         self.mesh_empty.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
@@ -468,9 +565,12 @@ class PropertiesPanel(QWidget):
         self._rows["name"].setVisible(show_name)
         is_domain = self._kind == "fluid_domain"
         self._refresh_domain(is_domain)
+        self._refresh_groups()
         self._refresh_mesh_settings(self._kind == "mesh")
         self._refresh_mesh(self._kind == "mesh")
-        self.info_label.setVisible(not show_name and not is_domain and self._kind != "mesh")
+        self.info_label.setVisible(
+            not show_name and not is_domain and self._kind != "mesh" and self._kind not in GROUPS
+        )
         self._apply_label_column()
 
     def _mesh_setting_rows(self) -> list[str]:
@@ -493,10 +593,10 @@ class PropertiesPanel(QWidget):
             for key, _, _ in MESH_SETTINGS:
                 value = getattr(mesh, key)
                 widget = self.mesh_fields[key]
-                if isinstance(widget, QSpinBox):
-                    widget.setValue(widget.minimum() if value is None else value)
+                if value is None:
+                    widget.setValue(widget.minimum())  # the "auto" special value
                 else:
-                    widget.setValue(widget.minimum() if value is None else float(value))
+                    _widget_set(widget, value)
         finally:
             for w in widgets:
                 w.blockSignals(False)
@@ -518,12 +618,51 @@ class PropertiesPanel(QWidget):
         self._set_warn(self.mesh_bg_cells, est.too_many_cells)
         self.mesh_surface_cells.setText(f"{est.surface_size:.4g} m")
 
+    def _refresh_groups(self) -> None:
+        """Show the group of the selected node (Physics, Inflow or Solvers) and fill it."""
+        sim = self._project.sim
+        for gkind, spec in GROUPS.items():
+            show = self._kind == gkind
+            for key, _, _ in spec["fields"]:
+                self._rows[f"{gkind}_{key}"].setVisible(show)
+            if not show:
+                continue
+            model = spec["model"](sim)
+            widgets = list(self.group_fields[gkind].values())
+            for w in widgets:
+                w.blockSignals(True)
+            try:
+                for key, _, _ in spec["fields"]:
+                    _widget_set(self.group_fields[gkind][key], getattr(model, key))
+            finally:
+                for w in widgets:
+                    w.blockSignals(False)
+        inflow = self._kind == "inflow"
+        self._sections["inflow_computed"].setVisible(inflow)
+        self._rows["inflow_k"].setVisible(inflow)
+        self._rows["inflow_omega"].setVisible(inflow)
+        if inflow:
+            k, omega = inlet_turbulence(sim.inflow.speed, sim.inflow.turbulence_intensity,
+                                        sim.physics.nu, sim.inflow.viscosity_ratio)
+            self.inflow_k.setText(f"{k:.4g} m\u00b2/s\u00b2")
+            self.inflow_omega.setText(f"{omega:.4g} 1/s")
+
+    def _commit_group(self, gkind: str, key: str) -> None:
+        if self._kind != gkind:
+            return
+        value = _widget_get(self.group_fields[gkind][key])
+        try:
+            getattr(self._project, GROUPS[gkind]["update"])(**{key: value})
+        except (ValueError, TypeError) as exc:  # includes pydantic errors
+            self.message.emit(str(exc))
+        self.refresh()  # reverts a rejected value
+
     def _commit_mesh(self, key: str) -> None:
         if self._kind != "mesh":
             return
         widget = self.mesh_fields[key]
-        value = widget.value()
-        if value == widget.minimum() and key in MESH_OPTIONAL:
+        value = _widget_get(widget)
+        if key in MESH_OPTIONAL and value == widget.minimum():
             value = None  # the "auto" special value
         try:
             self._project.update_mesh(**{key: value})

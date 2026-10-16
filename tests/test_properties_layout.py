@@ -131,8 +131,26 @@ def test_long_labels_are_elided_with_a_tooltip_in_the_side_by_side_layout(make_w
 
 
 @pytest.mark.parametrize("font", [11, 14])
-def test_narrow_panel_stacks_label_above_field(make_window, font: int) -> None:
-    w = make_window(font)  # the default left column is 14u wide: too narrow for side by side
+def test_default_18u_column_is_side_by_side(make_window, font: int) -> None:
+    """The real space needed is 8u + 7u + margins and gap (about 17u): the default 18u fits it."""
+    w = make_window(font)
+    _select(w, "mesh")
+    p = w.properties
+    u = metrics().u
+    assert abs(w._left.width() - 18 * u) <= 0.5 * u and not p.stacked
+    for key, row in _visible_rows(p):
+        lr, fr = _rect(p._row_labels[key], p), _rect(p._row_fields[key], p)
+        assert not lr.intersects(fr) and lr.right() < fr.left(), key
+        assert fr.width() >= 7 * u - 2, (key, fr.width(), u)  # the field keeps 7u
+        assert lr.width() >= 8 * u - 2
+
+
+@pytest.mark.parametrize("font", [11, 14])
+def test_narrow_panel_stacks_label_above_field(make_window, qtbot: QtBot, font: int) -> None:
+    w = make_window(font)
+    u = metrics().u
+    w._outer.setSizes([15 * u, w._outer.width() - 15 * u])  # below the space a row needs
+    qtbot.wait(60)
     _select(w, "mesh")
     p = w.properties
     assert p.stacked
@@ -158,7 +176,9 @@ def test_every_mesh_field_shows_its_value(make_window, font: int) -> None:
         shown = _displayed(widget)
         assert shown, key
         model = getattr(mesh, key)
-        if model is None:
+        if isinstance(widget, QComboBox):
+            assert shown == model, key
+        elif model is None:
             assert shown == "auto", key
         else:
             assert float(widget.cleanText()) == pytest.approx(float(model)), (key, shown, model)
@@ -229,14 +249,14 @@ def test_tree_properties_split_defaults_to_40_60_and_is_restored(make_window, qt
 
 @pytest.mark.parametrize("font", [11, 14])
 @pytest.mark.parametrize("kind", NODES)
-def test_side_by_side_from_20u_with_clamped_label_column_and_7u_fields(make_window, qtbot: QtBot, font: int, kind: str) -> None:
+def test_side_by_side_at_24u_with_clamped_label_column_and_7u_fields(make_window, qtbot: QtBot, font: int, kind: str) -> None:
     w = make_window(font)
     u = metrics().u
     w._outer.setSizes([24 * u, w._outer.width() - 24 * u])  # a left column of 24u
     qtbot.wait(60)
     _select(w, kind)
     p = w.properties
-    assert p.width() >= 20 * u and not p.stacked
+    assert not p.stacked
     assert 8 * u <= p._label_column <= 0.5 * p.width()
     for key, row in _visible_rows(p):
         label, field = p._row_labels[key], p._row_fields[key]
@@ -248,13 +268,13 @@ def test_side_by_side_from_20u_with_clamped_label_column_and_7u_fields(make_wind
 
 
 @pytest.mark.parametrize("font", [11, 14])
-def test_stacked_below_20u(make_window, qtbot: QtBot, font: int) -> None:
+def test_threshold_is_the_real_space_a_row_needs(make_window, qtbot: QtBot, font: int) -> None:
     w = make_window(font)
-    u = metrics().u
-    w._outer.setSizes([19 * u, w._outer.width() - 19 * u])
-    qtbot.wait(60)
+    m = metrics()
+    needed = (8 + 7) * m.u + 3 * m.s3  # label min + field min + row margins and gap
     _select(w, "mesh")
-    assert w.properties.width() < 20 * u and w.properties.stacked
-    w._outer.setSizes([20 * u + 4, w._outer.width() - 20 * u - 4])
-    qtbot.wait(60)
-    assert w.properties.width() >= 20 * u and not w.properties.stacked
+    p = w.properties
+    for column, stacked in ((needed - 2 * m.s3, True), (needed + m.s3, False)):
+        w._outer.setSizes([round(column), w._outer.width() - round(column)])
+        qtbot.wait(60)
+        assert p.stacked is stacked, (column, p.width(), needed)

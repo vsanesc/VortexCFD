@@ -17,8 +17,9 @@ class ProjectFileError(Exception):
 def migrate(data: dict[str, Any]) -> dict[str, Any]:
     """Migrate project data dictionary from older schema versions to current.
 
-    v1 -> v2 adds the default far-field ``domain``. Data already at the current version (or
-    not a dict / without a version) is returned unchanged.
+    v1 -> v2 adds the default far-field ``domain`` and ``mesh``; v2 -> v3 adds the default
+    ``physics``, ``inflow`` and ``solvers``. Data already at the current version (or not a dict /
+    without a version) is returned unchanged.
     """
     if not isinstance(data, dict):
         return data
@@ -27,6 +28,10 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
         data.setdefault("domain", {})  # an empty dict validates to the Domain defaults
         data.setdefault("mesh", {})  # ... and to the Mesh defaults
         data["schema_version"] = 2
+    if data.get("schema_version") == 2:
+        for key in ("physics", "inflow", "solvers"):
+            data.setdefault(key, {})  # empty dicts validate to the defaults
+        data["schema_version"] = 3
     return data
 
 

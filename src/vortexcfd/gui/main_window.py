@@ -775,7 +775,8 @@ class MainWindow(QMainWindow):
                     item.setToolTip(0, "File not found" if status == MISSING else "Cannot load file")
             continua = add(root, "continua", None, "Continua", "folder", "text")
             add(continua, "mesh", None, "Mesh", "dot", "accent_secondary")
-            add(continua, "physics", None, "Physics", "dot", "accent")
+            physics_item = add(continua, "physics", None, "Physics", "dot", "accent")
+            add(physics_item, "inflow", None, "Inflow", "dot", "accent")
             regions = add(root, "regions", None, "Regions", "folder", "text")
             fluid = add(regions, "fluid_domain", None, "Fluid Domain", "folder", "text")
             domain = self._project.sim.domain

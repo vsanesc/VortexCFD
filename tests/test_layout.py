@@ -118,10 +118,10 @@ def test_tree_structure_and_node_count(make_window) -> None:
         "inlet", "outlet", "sides", "top", "bottom", "Part 1 (wall)", "Part 2 (wall)", "Part 3 (wall)",
     ]
     # Geometry, Parts, 3 parts, Continua, Mesh, Physics, Regions, Fluid Domain, 5 boundaries,
-    # 3 walls, Solvers, Reports = 20
-    assert w.node_count() == 20 and w.node_badge.text() == "20 Nodes"
+    # 3 walls, Inflow, Solvers, Reports = 21
+    assert w.node_count() == 21 and w.node_badge.text() == "21 Nodes"
     w.act_add_part.trigger()
-    assert w.node_badge.text() == "22 Nodes"  # a part and its wall
+    assert w.node_badge.text() == "23 Nodes"  # a part and its wall
 
 
 def test_header_name_selects_root(make_window) -> None:
@@ -177,8 +177,8 @@ def test_properties_header_and_rows(make_window) -> None:
     w.tree.setCurrentItem(w._items[("part", 0)])
     assert p._rows["name"].isVisible() and p._rows["source"].isVisible() and p._rows["units"].isVisible()
     assert w.props_name.text() == "Part 1"
-    w.tree.setCurrentItem(w._items[("solvers", None)])
-    assert w.props_name.text() == "Solvers"
+    w.tree.setCurrentItem(w._items[("geometry", None)])
+    assert w.props_name.text() == "Geometry"
     assert not p._rows["name"].isVisible() and p.info_label.isVisible()
     w._select_root()
     assert p._rows["name"].isVisible() and not p._rows["source"].isVisible()
@@ -227,7 +227,7 @@ def test_no_coefficient_names_in_the_ui(make_window) -> None:
     texts += [x.toolTip() for x in w.findChildren(QPushButton)]
     import re
 
-    banned = re.compile(r"lift|drag|coeff|y\+|\bcl\b|\bcd\b|converged", re.IGNORECASE)
+    banned = re.compile(r"lift|drag|coeff|max wall y\+|\bcl\b|\bcd\b|converged", re.IGNORECASE)
     offenders = [t for t in texts if banned.search(t)]
     assert not offenders, offenders
 

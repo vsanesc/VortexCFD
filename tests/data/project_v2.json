@@ -1,0 +1,14 @@
+{
+  "schema_version": 2,
+  "name": "Legacy v2",
+  "geometry": {
+    "parts": [
+      {"name": "Wing", "source_file": "geometry/wing.stl", "units": "mm"}
+    ]
+  },
+  "domain": {"enabled": true, "upstream": 4, "downstream": 8, "lateral": 3, "vertical": 3, "symmetry": "y_min"},
+  "mesh": {"layers": 2, "base_size": 0.1},
+  "physics": {},
+  "solvers": {},
+  "reports": {}
+}

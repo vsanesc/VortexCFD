@@ -154,6 +154,25 @@ class Project:
         changed = ", ".join(fields) or "no fields"
         self._edit(f"Edit mesh ({changed})", mutate)
 
+    def update_physics(self, **fields: Any) -> None:
+        """Edit flow physics as one undoable step (validated; no-ops leave no trace)."""
+        self._update_section("physics", "physics", fields)
+
+    def update_inflow(self, **fields: Any) -> None:
+        """Edit inflow conditions as one undoable step."""
+        self._update_section("inflow", "inflow", fields)
+
+    def update_solver(self, **fields: Any) -> None:
+        """Edit solver settings as one undoable step."""
+        self._update_section("solvers", "solver", fields)
+
+    def _update_section(self, key: str, label: str, fields: dict[str, Any]) -> None:
+        def mutate(data: dict[str, Any]) -> None:
+            data[key].update(fields)
+
+        changed = ", ".join(fields) or "no fields"
+        self._edit(f"Edit {label} ({changed})", mutate)
+
     # -- history -------------------------------------------------------------
 
     @property

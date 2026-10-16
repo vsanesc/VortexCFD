@@ -3,7 +3,7 @@
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-CURRENT_SCHEMA_VERSION: int = 2
+CURRENT_SCHEMA_VERSION: int = 3
 
 
 class StrictModel(BaseModel):
@@ -47,6 +47,10 @@ class Mesh(StrictModel):
     expansion_ratio: float = Field(default=1.2, ge=1.0)
     final_layer_thickness: float = Field(default=0.5, gt=0)
     min_thickness: float = Field(default=0.1, gt=0)
+    # "relative": layer sizes relative to the local cell; "absolute_yplus": the first layer
+    # thickness follows from target_yplus (see foam/yplus.py), expansion_ratio is reused.
+    layer_sizing: Literal["relative", "absolute_yplus"] = "relative"
+    target_yplus: float = Field(default=1.0, gt=0)
 
     @model_validator(mode="after")
     def _levels_ordered(self) -> "Mesh":
@@ -57,11 +61,34 @@ class Mesh(StrictModel):
 
 
 class Physics(StrictModel):
-    """Placeholder model for physics continuum; fields will be added by later tasks."""
+    """Flow physics. Only steady incompressible kOmegaSST for now.
+
+    ``nu`` is the kinematic viscosity (m2/s); ``rho_ref`` (kg/m3) is used only to scale forces
+    (the solver is incompressible, pressure is kinematic).
+    """
+
+    flow: Literal["incompressible_steady"] = "incompressible_steady"
+    nu: float = Field(default=1.5e-5, gt=0)
+    rho_ref: float = Field(default=1.225, gt=0)
+    turbulence_model: Literal["kOmegaSST"] = "kOmegaSST"
+
+
+class Inflow(StrictModel):
+    """Free-stream conditions at the inlet. The flow is along +x rotated by the angle of attack
+    about +y (z up); the turbulence comes from the intensity and the viscosity ratio."""
+
+    speed: float = Field(default=20.0, gt=0)  # m/s
+    alpha_deg: float = Field(default=0.0, ge=-90.0, le=90.0)  # angle of attack
+    turbulence_intensity: float = Field(default=0.01, gt=0, le=1.0)  # fraction
+    viscosity_ratio: float = Field(default=10.0, gt=0)  # nut / nu
 
 
 class Solvers(StrictModel):
-    """Placeholder model for solver settings; fields will be added by later tasks."""
+    """Solver run settings."""
+
+    iterations: int = Field(default=1000, gt=0)
+    write_interval: int = Field(default=200, gt=0)
+    relaxation: Literal["robust"] = "robust"  # the motorBike tutorial values
 
 
 class Reports(StrictModel):
@@ -93,5 +120,6 @@ class Simulation(StrictModel):
     domain: Domain = Field(default_factory=Domain)
     mesh: Mesh = Field(default_factory=Mesh)
     physics: Physics = Field(default_factory=Physics)
+    inflow: Inflow = Field(default_factory=Inflow)
     solvers: Solvers = Field(default_factory=Solvers)
     reports: Reports = Field(default_factory=Reports)

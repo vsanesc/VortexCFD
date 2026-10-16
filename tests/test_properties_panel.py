@@ -30,7 +30,7 @@ def test_part_fields_and_visibility(qtbot: QtBot) -> None:
     assert panel.source_label.text() == "wing.stl"
     assert panel.units_combo.currentText() == "mm"
     assert panel.units_combo.isVisible()
-    panel.show_node("solvers", None)
+    panel.show_node("geometry", None)
     assert not panel.name_edit.isVisible()
     assert panel.info_label.isVisible()
     assert not project.observer_errors
