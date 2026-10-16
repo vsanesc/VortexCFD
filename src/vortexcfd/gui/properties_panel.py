@@ -20,6 +20,7 @@ class PropertiesPanel(QWidget):
     """
 
     message = Signal(str)  # short text for the status bar
+    pending_changed = Signal()  # an uncommitted name edit appeared or was resolved
 
     def __init__(self, project: Project, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -100,11 +101,27 @@ class PropertiesPanel(QWidget):
         self._form.setRowVisible(self.units_combo, part is not None)
         self._form.setRowVisible(self.info_label, not show_name)
 
+    def commit_pending(self) -> None:
+        """Commit an uncommitted name edit through the Project API (idempotent).
+
+        A rejected value is reverted and reported through ``message``.
+        """
+        if self._name_pending:
+            self._commit_name()
+
+    @property
+    def has_pending(self) -> bool:
+        return self._name_pending
+
     def _on_name_edited(self, _text: str) -> None:
         self._name_pending = True
+        self.pending_changed.emit()
 
     def _commit_name(self) -> None:
+        was_pending = self._name_pending
         self._name_pending = False
+        if was_pending:
+            self.pending_changed.emit()
         text = self.name_edit.text()
         try:
             if self._kind == "root":

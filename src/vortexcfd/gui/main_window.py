@@ -85,7 +85,11 @@ class _Handle(QSplitterHandle):
         painter.fillRect(self.rect(), self.palette().color(QPalette.ColorRole.Window))
         line = metrics().line
         color = self.palette().color(QPalette.ColorRole.Mid)
-        painter.fillRect(QRect((self.width() - line) // 2, 0, line, self.height()), color)
+        # The 1px line sits on the edge facing the viewer (the center column, index 1).
+        splitter = self.splitter()
+        on_right = splitter is not None and splitter.indexOf(self) == 1
+        x = self.width() - line if on_right else 0
+        painter.fillRect(QRect(x, 0, line, self.height()), color)
 
 
 class _Splitter(QSplitter):
@@ -112,9 +116,9 @@ class MainWindow(QMainWindow):
         self._unsubscribe = None
         self._selection: Selection | None = None
         self.dialogs = dialogs if dialogs is not None else Dialogs(self)
-        self.resize(1400, 850)
         self._theme, self._point_size = load_appearance()
         apply_theme(self._theme, self._point_size)
+        self._apply_default_size()
         self._first_show = True
 
         self.tree = QTreeWidget()
@@ -123,6 +127,7 @@ class MainWindow(QMainWindow):
         self.tree.setItemDelegate(self._delegate)
         self.properties = PropertiesPanel(project)
         self.properties.message.connect(lambda text: self.show_message(text, "warning"))
+        self.properties.pending_changed.connect(self._update_actions)
 
         self._titles: list[QLabel] = []
         self._layouts: list[QVBoxLayout] = []
@@ -264,6 +269,16 @@ class MainWindow(QMainWindow):
         self.viewer.add_axes(color=t.text, x_color=t.axis_x, y_color=t.axis_y, z_color=t.axis_z)
         self.viewer.render()
 
+    def _apply_default_size(self) -> None:
+        """78u x 47u, clamped to 90% of the available screen."""
+        u = metrics().u
+        w, h = 78 * u, 47 * u
+        screen = self.screen()
+        if screen is not None:
+            avail = screen.availableGeometry()
+            w, h = min(w, int(avail.width() * 0.9)), min(h, int(avail.height() * 0.9))
+        self.resize(w, h)
+
     def _apply_initial_sizes(self) -> None:
         u = metrics().u
         width = self._splitter.width()
@@ -377,7 +392,8 @@ class MainWindow(QMainWindow):
 
     def _update_actions(self) -> None:
         p = self._project
-        self.act_undo.setEnabled(p.can_undo)
+        # A pending field edit is committed by Undo first, so it counts as undoable.
+        self.act_undo.setEnabled(p.can_undo or self.properties.has_pending)
         self.act_undo.setText(f"Undo {p.undo_label}" if p.undo_label else "Undo")
         self.act_redo.setEnabled(p.can_redo)
         self.act_redo.setText(f"Redo {p.redo_label}" if p.redo_label else "Redo")
@@ -394,10 +410,16 @@ class MainWindow(QMainWindow):
         except (ValueError, TypeError, IndexError) as exc:
             self.show_message(str(exc), "warning")
 
+    def _flush_edits(self) -> None:
+        """Commit any uncommitted field edit before an action that reads the project."""
+        self.properties.commit_pending()
+
     def _undo(self) -> None:
+        self._flush_edits()
         self._project.undo()
 
     def _redo(self) -> None:
+        self._flush_edits()
         self._project.redo()
 
     def add_placeholder_part(self) -> None:
@@ -424,11 +446,13 @@ class MainWindow(QMainWindow):
 
     def save(self) -> bool:
         """Save to the project's path (Save As if it has none). False if not saved."""
+        self._flush_edits()
         if self._project.path is None:
             return self.save_as()
         return self._save_to(None)
 
     def save_as(self) -> bool:
+        self._flush_edits()
         path = self.dialogs.ask_save_path(self._project.path)
         if path is None:
             return False
@@ -445,6 +469,7 @@ class MainWindow(QMainWindow):
 
     def _confirm_discard(self) -> bool:
         """True if it is OK to drop the current project (saved, discarded or not dirty)."""
+        self._flush_edits()
         if not self._project.dirty:
             return True
         choice = self.dialogs.confirm_discard()

@@ -18,6 +18,9 @@ DEFAULT_POINT_SIZE = 11
 MIN_POINT_SIZE = 8
 MAX_POINT_SIZE = 24
 
+# Application font family stack: the first installed family wins.
+FONT_FAMILIES: tuple[str, ...] = ("Inter", "Segoe UI", "Noto Sans", "DejaVu Sans")
+
 
 @dataclass(frozen=True)
 class Theme:
@@ -82,7 +85,12 @@ class Metrics:
     header: int  # section header height (2u)
     row: int  # tree row height (1.8u)
     field: int  # input height (2u)
-    radius: int  # 0.25u
+    radius_s: int  # 0.25u
+    radius_m: int  # 0.5u
+    menubar: int  # menu bar height (2u)
+    status: int  # status bar height (2u)
+    strip: int  # top/bottom pill strip height (3.4u)
+    sidebar_header: int  # project header height (3u)
     hit: int  # splitter hit area (0.5u)
     line: int = 1  # divider / border width
     bar: int = 2  # accent bar on the selected row
@@ -98,7 +106,8 @@ def metrics(u: int | None = None) -> Metrics:
 
     return Metrics(
         u=u, s1=k(0.25), s2=k(0.5), s3=k(0.75), s4=k(1), s5=k(1.5), s6=k(2),
-        header=k(2), row=k(1.8), field=k(2), radius=k(0.25), hit=k(0.5),
+        header=k(2), row=k(1.8), field=k(2), radius_s=k(0.25), radius_m=k(0.5), hit=k(0.5),
+        menubar=k(2), status=k(2), strip=k(3.4), sidebar_header=k(3),
     )
 
 
@@ -151,7 +160,7 @@ def build_stylesheet(t: Theme, m: Metrics, base_point_size: float) -> str:
     status_pt = f"{base_point_size * 0.9:.1f}pt"
     return f"""
 QToolTip {{ background: {t.floating}; color: {t.text}; border: {ln}px solid {t.border};
-    border-radius: {m.radius}px; padding: {m.s2}px {m.s3}px; }}
+    border-radius: {m.radius_s}px; padding: {m.s2}px {m.s3}px; }}
 QWidget#pane {{ background: {t.base}; }}
 QWidget#canvas {{ background: {t.canvas}; }}
 QLabel#muted {{ color: {t.muted_text}; }}
@@ -163,7 +172,7 @@ QTreeView::item:hover, QTreeView::branch:hover {{ background: {t.elevated}; }}
 QTreeView::item:selected, QTreeView::branch:selected {{ background: {t.selection}; color: {t.text}; }}
 QLineEdit, QComboBox {{
     background: {t.elevated}; color: {t.text}; border: {ln}px solid {t.border};
-    border-radius: {m.radius}px; padding: 0 {m.s2}px; min-height: {inner}px;
+    border-radius: {m.radius_s}px; padding: 0 {m.s2}px; min-height: {inner}px;
     selection-background-color: {t.accent}; selection-color: {t.accent_text};
 }}
 QLineEdit:hover, QComboBox:hover {{ border-color: {t.border_active}; }}
@@ -187,7 +196,7 @@ QMenuBar {{ background: {t.base}; }}
 QMenuBar::item {{ background: transparent; padding: {m.s2}px {m.s3}px; }}
 QMenuBar::item:selected {{ background: {t.elevated}; }}
 QMenu {{ background: {t.floating}; border: {ln}px solid {t.border};
-    border-radius: {m.radius}px; padding: {m.s1}px 0; }}
+    border-radius: {m.radius_s}px; padding: {m.s1}px 0; }}
 QMenu::item {{ padding: {m.s2}px {m.s4}px; border-left: {m.bar}px solid transparent; }}
 QMenu::item:selected {{ background: {t.elevated}; border-left: {m.bar}px solid {t.accent}; }}
 QMenu::item:disabled {{ color: {t.muted_text}; }}
@@ -202,6 +211,7 @@ def apply_theme(theme: Theme, point_size: int) -> None:
         raise RuntimeError("apply_theme needs a QApplication")
     app.setStyle("Fusion")
     font = app.font()
+    font.setFamilies(list(FONT_FAMILIES))
     font.setPointSize(clamp_point_size(point_size))
     app.setFont(font)
     app.setPalette(build_palette(theme))

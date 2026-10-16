@@ -276,3 +276,60 @@ def test_pending_edit_commits_when_selection_changes(
     assert len(window.project._undo) == steps + 1
     assert window.properties.name_edit.text() == "Part 2"
     assert not window.project.observer_errors
+
+
+def _type_name(window: MainWindow, text: str, qtbot: QtBot) -> None:
+    edit = window.properties.name_edit
+    edit.setFocus()
+    edit.selectAll()
+    qtbot.keyClicks(edit, text)  # no Enter
+
+
+def test_save_shortcut_commits_pending_name(make_window, qtbot: QtBot, tmp_path: Path) -> None:
+    target = tmp_path / "p.json"
+    window, _ = make_window(save_path=target)
+    _type_name(window, "Typed", qtbot)
+    window.act_save.trigger()  # same slot the Ctrl+S shortcut fires
+    assert Project.open(target).sim.name == "Typed"
+    assert not window.isWindowModified()
+    assert not window.project.observer_errors
+
+
+def test_undo_commits_pending_then_undoes(make_window, qtbot: QtBot) -> None:
+    window, _ = make_window()
+    _type_name(window, "Typed", qtbot)
+    window.act_undo.trigger()
+    assert window.project.sim.name == "Demo"
+    assert window.act_redo.text() == "Redo Rename simulation to 'Typed'"
+    assert not window.project.observer_errors
+
+
+def test_close_commits_pending_then_asks(make_window, qtbot: QtBot) -> None:
+    window, dialogs = make_window(discard="discard")
+    _type_name(window, "Typed", qtbot)
+    assert window.close()
+    assert dialogs.confirm_calls == 1
+    assert window.project.sim.name == "Typed"
+
+
+def test_empty_pending_name_keeps_previous_and_reports(make_window, qtbot: QtBot, tmp_path: Path) -> None:
+    target = tmp_path / "p.json"
+    window, _ = make_window(save_path=target)
+    edit = window.properties.name_edit
+    edit.setFocus()
+    edit.selectAll()
+    qtbot.keyClick(edit, Qt.Key.Key_Delete)
+    window.save()
+    assert Project.open(target).sim.name == "Demo"
+    assert "empty" in window.statusBar().currentMessage() or "Saved" in window.statusBar().currentMessage()
+    assert edit.text() == "Demo"
+    assert not window.project.observer_errors
+
+
+def test_save_shortcut_key_event(make_window, qtbot: QtBot, tmp_path: Path) -> None:
+    target = tmp_path / "k.json"
+    window, _ = make_window(save_path=target)
+    qtbot.waitUntil(window.isActiveWindow)
+    _type_name(window, "Keyed", qtbot)
+    qtbot.keyClick(window.properties.name_edit, Qt.Key.Key_S, Qt.KeyboardModifier.ControlModifier)
+    assert target.exists() and Project.open(target).sim.name == "Keyed"

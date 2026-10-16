@@ -143,20 +143,18 @@ def test_source_field_is_read_only(make_window) -> None:
 def test_layout_proportions(make_window, qtbot: QtBot, font: int, with_viewer: bool) -> None:
     window = make_window(with_viewer)
     window.set_point_size(font)
-    window.resize(1400, 850)
+    u = metrics().u
+    width, height = 78 * u, 47 * u
+    window.resize(width, height)
     window.show()
     qtbot.waitUntil(window.isVisible)
     qtbot.wait(50)
-    u = metrics().u
     left, center, right = window._splitter.sizes()
     print(f"font {font} viewer {with_viewer}: u={u} left={left} center={center} right={right}")
     assert 11 * u <= left <= 22 * u
     assert 14 * u <= right <= 28 * u
-    assert window.width() <= 1400 and window.height() <= 850
-    if center < 0.5 * window.width():
-        # Owner-fixed initial widths (14u + 17u) leave the viewer < 50% at large fonts.
-        # Reported to the owner; values are NOT adjusted here.
-        pytest.xfail(f"center {center}px < 50% of {window.width()}px at font {font}")
+    assert window.width() <= width and window.height() <= height
+    assert center >= 0.5 * window.width()
 
 
 def test_axes_label_color_matches_text_token(make_window) -> None:
