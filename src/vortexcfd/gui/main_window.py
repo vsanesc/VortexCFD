@@ -4,14 +4,18 @@ import logging
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QColor, QKeySequence
+from PySide6.QtCore import QRect, QSize, Qt
+from PySide6.QtGui import QAction, QCloseEvent, QColor, QKeySequence, QPainter, QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QLabel,
     QVBoxLayout,
     QMainWindow,
+    QSizePolicy,
     QSplitter,
+    QSplitterHandle,
+    QStyle,
+    QStyledItemDelegate,
     QTreeWidget,
     QTreeWidgetItem,
     QWidget,
@@ -24,12 +28,14 @@ from vortexcfd.gui.icons import ICON_TOKENS, make_icon
 from vortexcfd.gui.properties_panel import PropertiesPanel
 from vortexcfd.gui.theme import (
     DEFAULT_POINT_SIZE,
-    THEMES,
     Theme,
+    Metrics,
     apply_theme,
     clamp_point_size,
     load_appearance,
+    metrics,
     save_appearance,
+    section_title_font,
 )
 
 log = logging.getLogger(__name__)
@@ -44,6 +50,47 @@ _SECTIONS = (
 )
 
 Selection = tuple[str, int | None]  # (node kind, part index)
+
+
+class _RowDelegate(QStyledItemDelegate):
+    """Fixed tree row height and an accent bar on the left edge of the selected row."""
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self._metrics: Metrics | None = None
+        self._bar_color = QColor()
+
+    def configure(self, m: Metrics, bar_color: QColor) -> None:
+        self._metrics = m
+        self._bar_color = bar_color
+
+    def sizeHint(self, option, index) -> QSize:
+        hint = super().sizeHint(option, index)
+        if self._metrics is not None:
+            hint.setHeight(self._metrics.row)
+        return hint
+
+    def paint(self, painter: QPainter, option, index) -> None:
+        super().paint(painter, option, index)
+        if self._metrics is not None and option.state & QStyle.StateFlag.State_Selected:
+            r = option.rect
+            painter.fillRect(QRect(0, r.top(), self._metrics.bar, r.height()), self._bar_color)
+
+
+class _Handle(QSplitterHandle):
+    """Splitter handle with a wide hit area and a single 1px divider line."""
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), self.palette().color(QPalette.ColorRole.Window))
+        line = metrics().line
+        color = self.palette().color(QPalette.ColorRole.Mid)
+        painter.fillRect(QRect((self.width() - line) // 2, 0, line, self.height()), color)
+
+
+class _Splitter(QSplitter):
+    def createHandle(self) -> QSplitterHandle:
+        return _Handle(self.orientation(), self)
 
 
 class MainWindow(QMainWindow):
@@ -65,27 +112,25 @@ class MainWindow(QMainWindow):
         self._unsubscribe = None
         self._selection: Selection | None = None
         self.dialogs = dialogs if dialogs is not None else Dialogs(self)
-        self.resize(1280, 800)
+        self.resize(1400, 850)
         self._theme, self._point_size = load_appearance()
         apply_theme(self._theme, self._point_size)
+        self._first_show = True
 
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
+        self._delegate = _RowDelegate(self.tree)
+        self.tree.setItemDelegate(self._delegate)
         self.properties = PropertiesPanel(project)
         self.properties.message.connect(lambda text: self.show_message(text, "warning"))
 
+        self._titles: list[QLabel] = []
         self._layouts: list[QVBoxLayout] = []
-        left = QSplitter(Qt.Orientation.Vertical)
-        left.addWidget(self._pane("Simulation", self.tree))
-        left.addWidget(self._pane("Properties", self.properties))
-        left.setStretchFactor(0, 3)
-        left.setStretchFactor(1, 2)
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(left)
-        splitter.setStretchFactor(0, 24)
-        splitter.setStretchFactor(1, 76)
-        splitter.setSizes([24, 76])  # proportions; Qt scales them to the actual width
-        self._splitter = splitter
+        splitter = _Splitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        self._left = self._pane("Simulation", self.tree)
+        self._right = self._pane("Properties", self.properties)
+        splitter.addWidget(self._left)
 
         self.viewer = None
         if with_viewer:
@@ -96,12 +141,27 @@ class MainWindow(QMainWindow):
             self.viewer = QtInteractor(splitter)
             self.plotter = self.viewer
             self.viewer.add_mesh(pv.Sphere(), color="lightblue", show_edges=True)
-            self.viewer.add_axes()
             self.viewer.reset_camera()
-            splitter.addWidget(self.viewer)
+            self._center: QWidget = self.viewer
+        else:
+            self._center = QWidget()
+            self._center.setObjectName("canvas")
+            self._center.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        # Ignored: no widget may drive column or window width through its size hint.
+        for w in (self.tree, self._left, self._right, self._center):
+            w.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        splitter.addWidget(self._center)
+        splitter.addWidget(self._right)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setStretchFactor(2, 0)
+        for i in range(3):
+            splitter.setCollapsible(i, False)
+        self._splitter = splitter
         self.setCentralWidget(splitter)
 
         self._parts_label = QLabel()
+        self.statusBar().setSizeGripEnabled(False)
         self.statusBar().addPermanentWidget(self._parts_label)
         self._build_actions()
         self._apply_appearance()
@@ -147,12 +207,14 @@ class MainWindow(QMainWindow):
         pane = QWidget()
         pane.setObjectName("pane")
         pane.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        label = QLabel(title)
+        label = QLabel(title.upper())
         label.setObjectName("sectionTitle")
         layout = QVBoxLayout(pane)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         layout.addWidget(label)
-        layout.addWidget(body)
-        self._layouts.append(layout)
+        layout.addWidget(body, 1)
+        self._titles.append(label)
         return pane
 
     @property
@@ -162,10 +224,6 @@ class MainWindow(QMainWindow):
     @property
     def point_size(self) -> int:
         return self._point_size
-
-    def set_theme(self, name: str) -> None:
-        self._theme = THEMES[name]
-        self._persist_and_apply()
 
     def set_point_size(self, size: int) -> None:
         self._point_size = clamp_point_size(size)
@@ -177,28 +235,52 @@ class MainWindow(QMainWindow):
 
     def _apply_appearance(self) -> None:
         apply_theme(self._theme, self._point_size)
-        unit = self.fontMetrics().height()
-        small, large = round(unit * 0.5), round(unit * 0.75)
-        for layout in self._layouts:
-            layout.setContentsMargins(large, large, large, large)
-            layout.setSpacing(small)
-        self.properties.apply_metrics(unit)
-        self.statusBar().setContentsMargins(large, 0, large, 0)
-        self.tree.setIconSize(QSize(unit, unit))
+        m = metrics()
+        for label in self._titles:
+            label.setFont(section_title_font(QApplication.font()))
+            label.setFixedHeight(m.header)
+        self.properties.apply_metrics(m)
+        self._delegate.configure(m, QColor(self._theme.accent))
+        self._splitter.setHandleWidth(m.hit)
+        self._left.setMinimumWidth(11 * m.u)
+        self._left.setMaximumWidth(22 * m.u)
+        self._center.setMinimumWidth(20 * m.u)
+        self._right.setMinimumWidth(14 * m.u)
+        self._right.setMaximumWidth(28 * m.u)
+        self.statusBar().setContentsMargins(m.s3, 0, m.s3, 0)
+        self.tree.setIconSize(QSize(m.u, m.u))
         if self.viewer is not None:
-            self.viewer.set_background(self._theme.viewer_bottom, top=self._theme.viewer_top)
-            self.viewer.render()
-        for act, name in ((self.act_dark, "dark"), (self.act_light, "light")):
-            act.setChecked(self._theme.name == name)
-        if hasattr(self, "_unsubscribe") and self._unsubscribe is not None:
-            self._refresh()  # rebuild tree icons for the new colors and size
+            self._style_viewer()
+        if self._unsubscribe is not None:
+            self._refresh()  # rebuild tree icons for the new size
+        if not self._first_show:
+            self._apply_initial_sizes()
+
+    def _style_viewer(self) -> None:
+        t = self._theme
+        self.viewer.set_background(t.canvas)
+        self.viewer.hide_axes()
+        # pyvista add_axes: color = label text color; x/y/z_color = axis colors.
+        self.viewer.add_axes(color=t.text, x_color=t.axis_x, y_color=t.axis_y, z_color=t.axis_z)
+        self.viewer.render()
+
+    def _apply_initial_sizes(self) -> None:
+        u = metrics().u
+        width = self._splitter.width()
+        left, right = 14 * u, 17 * u
+        self._splitter.setSizes([left, max(0, width - left - right), right])
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._first_show:
+            self._first_show = False
+            self._apply_initial_sizes()  # needs the real width
 
     def _icon(self, kind: str):
         color = QColor(getattr(self._theme, ICON_TOKENS[kind]))
         size = self.tree.iconSize().height()
-        return make_icon(
-            kind, color, size, self.devicePixelRatioF(), QColor(self._theme.accent_text)
-        )
+        # Same tint when selected (Qt would otherwise auto-tint the selected variant).
+        return make_icon(kind, color, size, self.devicePixelRatioF(), color)
 
     # -- refresh -------------------------------------------------------------
 
@@ -279,13 +361,6 @@ class MainWindow(QMainWindow):
         self.act_zoom_reset = action(
             "&Reset Zoom", lambda: self.set_point_size(DEFAULT_POINT_SIZE), "Ctrl+0"
         )
-        self.act_dark = action("&Dark", lambda: self.set_theme("dark"))
-        self.act_light = action("&Light", lambda: self.set_theme("light"))
-        group = QActionGroup(self)
-        group.setExclusive(True)
-        for act in (self.act_dark, self.act_light):
-            act.setCheckable(True)
-            group.addAction(act)
 
         file_menu = self.menuBar().addMenu("&File")
         file_menu.addActions([self.act_new, self.act_open])
@@ -299,9 +374,6 @@ class MainWindow(QMainWindow):
         edit_menu.addActions([self.act_add_part, self.act_remove_part])
         view_menu = self.menuBar().addMenu("&View")
         view_menu.addActions([self.act_zoom_in, self.act_zoom_out, self.act_zoom_reset])
-        view_menu.addSeparator()
-        theme_menu = view_menu.addMenu("&Theme")
-        theme_menu.addActions([self.act_dark, self.act_light])
 
     def _update_actions(self) -> None:
         p = self._project

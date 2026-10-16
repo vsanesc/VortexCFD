@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QComboBox, QFormLayout, QLabel, QLineEdit, QWidget
 
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
+from vortexcfd.gui.theme import Metrics, metrics
 
 # Allowed units are read from the model so the two never drift apart.
 ALLOWED_UNITS: tuple[str, ...] = get_args(Part.model_fields["units"].annotation)
@@ -49,19 +50,18 @@ class PropertiesPanel(QWidget):
             self._form.addRow(label, field)
         self._form.addRow(self.info_label)
         self._form.setRowVisible(self.info_label, False)
-        self.apply_metrics(self.fontMetrics().height())
+        self.apply_metrics(metrics())
 
         self.name_edit.editingFinished.connect(self._commit_name)
         self.name_edit.textEdited.connect(self._on_name_edited)
         self.units_combo.currentTextChanged.connect(self._commit_units)
         self.refresh()
 
-    def apply_metrics(self, unit: int) -> None:
-        """Margins and spacing derived from the font height ``unit`` (8/12 px at 16 px)."""
-        small, large = round(unit * 0.5), round(unit * 0.75)
-        self._form.setContentsMargins(large, small, large, large)
-        self._form.setHorizontalSpacing(large)
-        self._form.setVerticalSpacing(small)
+    def apply_metrics(self, m: Metrics) -> None:
+        """Padding s3 around the form, gaps s2 between controls."""
+        self._form.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
+        self._form.setHorizontalSpacing(m.s3)
+        self._form.setVerticalSpacing(m.s2)
 
     def set_project(self, project: Project) -> None:
         self._project = project
