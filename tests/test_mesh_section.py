@@ -6,30 +6,19 @@ import numpy as np
 import pytest
 import pyvista as pv
 
-from vortexcfd.core.model import Domain, Mesh
-from vortexcfd.foam.mesh_case import TRI_SURFACE, MeshCaseInput, build_mesh_files, prepare_case_dir, safe_part_names
-from vortexcfd.foam.mesh_run import MeshRun
-from vortexcfd.geometry.domain import compute_domain
 from vortexcfd.gui.scene import MeshView
 from vortexcfd.gui.theme import DARK, SECTION_EPS_FRACTION
 
 SPHERE = pv.Sphere(radius=0.5, theta_resolution=24, phi_resolution=24)
 
 
-@pytest.fixture(scope="module")
-def case_dir(tmp_path_factory) -> Path:
-    """A real coarse mesh of a sphere with prism layers (meshed once for the whole module)."""
-    case = tmp_path_factory.mktemp("section") / "case"
-    box = compute_domain([tuple(SPHERE.bounds)], Domain(upstream=2, downstream=3, lateral=2, vertical=2))
-    inp = MeshCaseInput(box.bounds, False, tuple(safe_part_names(["Sphere"])), tuple(SPHERE.bounds),
-                        box.reference_length, Mesh(base_size=0.25, surface_level_min=1, surface_level_max=2, layers=2))
-    prepare_case_dir(case, build_mesh_files(inp))
-    SPHERE.save(str(case / TRI_SURFACE / "Sphere.stl"))
-    run = MeshRun(case, step_timeout_s=100)
-    run.start()
-    result = run.wait(115)
-    assert result is not None and result.success
-    return case
+pytestmark = pytest.mark.slow  # the shared session mesh takes ~25 s to build
+
+
+@pytest.fixture
+def case_dir(sphere_mesh) -> Path:
+    """The shared session mesh (read only: these tests only slice it in memory)."""
+    return sphere_mesh.case_dir
 
 
 def make_plotter(qtbot):

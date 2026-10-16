@@ -28,7 +28,7 @@ def _fresh_cache():
 def make_window(qtbot: QtBot, tmp_path: Path):
     made: list[MainWindow] = []
 
-    def make(with_part=True, save=True, with_viewer=True, domain_enabled=True) -> MainWindow:
+    def make(with_part=True, save=True, with_viewer=False, domain_enabled=True) -> MainWindow:
         folder = tmp_path / "proj"
         (folder / "geometry").mkdir(parents=True, exist_ok=True)
         project = Project.new("m")
@@ -234,7 +234,7 @@ def test_failed_checks_are_warned(make_window, fake_run) -> None:
 
 
 def test_scene_tabs_switch_between_geometry_and_mesh(make_window) -> None:
-    w = make_window()
+    w = make_window(with_viewer=True)
     assert [b.text() for b in (w.scene_tab, w.mesh_tab)] == ["Geometry Scene", "Mesh Scene"]
     assert w.scene_tab.isChecked() and w.scene.actors[0].GetVisibility()
     w.mesh_tab.click()
@@ -248,8 +248,9 @@ def test_scene_tabs_switch_between_geometry_and_mesh(make_window) -> None:
 # -- real end to end through the window ------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_end_to_end_meshing_through_the_window(make_window, qtbot) -> None:
-    w = make_window()
+    w = make_window(with_viewer=True)
     w.top_bar.mesh_button.click()  # real MeshRun: blockMesh .. checkMesh on a coarse sphere
     assert w.top_bar.mesh_button.text() == "Stop"
     # The report arrives through the queued `finished` signal, after the worker thread ended.

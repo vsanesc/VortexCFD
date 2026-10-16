@@ -99,10 +99,10 @@ def test_zoom_actions_and_persistence(make_window) -> None:
     assert app.font().pointSize() == 11
     window.act_zoom_in.trigger()
     assert app.font().pointSize() == 12
-    for _ in range(30):
+    for _ in range(14):  # 12 steps reach the maximum, the rest must be ignored
         window.act_zoom_in.trigger()
     assert app.font().pointSize() == MAX_POINT_SIZE
-    for _ in range(30):
+    for _ in range(18):  # 16 steps reach the minimum
         window.act_zoom_out.trigger()
     assert app.font().pointSize() == MIN_POINT_SIZE
     window.act_zoom_in.trigger()

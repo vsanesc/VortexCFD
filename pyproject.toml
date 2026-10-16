@@ -24,6 +24,7 @@ vortexcfd = "vortexcfd.gui.main_window:main"
 dev = [
     "pytest",
     "pytest-qt",
+    "pytest-xdist",
 ]
 
 [tool.setuptools.packages.find]
@@ -33,4 +34,5 @@ where = ["src"]
 testpaths = ["tests"]
 markers = [
     "openfoam: marks tests that require an OpenFOAM installation",
+    "slow: tests above ~5 s (real meshing runs); deselect with -m 'not slow'",
 ]
