@@ -224,7 +224,7 @@ def test_save_simulation_atomic_cleanup(tmp_path: Path) -> None:
 def test_migrate_v1_to_v2_and_current_unchanged() -> None:
     """v1 gains the default domain and version 2; current data is returned unchanged."""
     assert migrate({"schema_version": 1, "custom": "data"}) == {
-        "schema_version": 2, "custom": "data", "domain": {},
+        "schema_version": 2, "custom": "data", "domain": {}, "mesh": {},
     }
     current = {"schema_version": 2, "custom": "data"}
     assert migrate(current) == current
@@ -329,14 +329,16 @@ from vortexcfd.core.model import Mesh
 
 def test_mesh_defaults() -> None:
     m = Mesh()
-    assert (m.base_size, m.surface_level_min, m.surface_level_max) == (None, 2, 3)
+    assert (m.base_size, m.surface_level_min, m.surface_level_max) == (None, None, None)
+    assert (m.background_cells_target, m.target_surface_size) == (100_000, 0.01)
     assert (m.feature_angle, m.layers, m.expansion_ratio) == (30.0, 3, 1.2)
     assert (m.final_layer_thickness, m.min_thickness) == (0.5, 0.1)
     assert Simulation(name="x").mesh == m
 
 
 @pytest.mark.parametrize("fields", [
-    {"base_size": 0}, {"base_size": -1.0}, {"surface_level_min": -1}, {"feature_angle": 0},
+    {"base_size": 0}, {"base_size": -1.0}, {"surface_level_min": -1}, {"background_cells_target": 0},
+    {"target_surface_size": 0}, {"feature_angle": 0},
     {"feature_angle": 181}, {"layers": -1}, {"expansion_ratio": 0.9}, {"final_layer_thickness": 0},
     {"min_thickness": -0.1}, {"surface_level_min": 4, "surface_level_max": 2}, {"bogus": 1},
 ])
@@ -363,7 +365,9 @@ def test_update_mesh_is_one_undoable_step_and_validates() -> None:
     assert p.sim.mesh == Mesh()
     with pytest.raises(ValidationError):
         p.update_mesh(layers=-1)
+    p.update_mesh(surface_level_max=2)
     with pytest.raises(ValidationError):
-        p.update_mesh(surface_level_min=9)  # above the default max of 3
+        p.update_mesh(surface_level_min=9)  # above the explicit max of 2
+    p.undo()
     p.update_mesh(layers=3)  # unchanged: no trace
     assert not p.can_undo

@@ -14,6 +14,7 @@ from pathlib import Path
 from vortexcfd.core.model import Mesh
 from vortexcfd.foam.case_writer import FoamFileSpec
 from vortexcfd.foam.dictfile import write_foam_file
+from vortexcfd.foam.mesh_estimate import estimate_mesh
 
 Bounds = tuple[float, float, float, float, float, float]  # xmin, xmax, ymin, ymax, zmin, zmax
 
@@ -34,8 +35,6 @@ RESERVED_PATCH_NAMES = frozenset(BOUNDARY_PATCH_TYPES)
 
 # Fraction of a base cell used to place locationInMesh away from any (refined) cell face.
 LOCATION_OFFSET = (0.34, 0.41, 0.28)  # >= 0.027 of a cell from every face up to refinement level 4
-# Default base cell size is L / this.
-DEFAULT_BASE_DIVISIONS = 20
 # snappyHexMesh cell budget (castellatedMeshControls), as in the tutorial.
 MAX_LOCAL_CELLS = 1_000_000
 MAX_GLOBAL_CELLS = 5_000_000
@@ -93,11 +92,6 @@ def safe_part_names(names: Sequence[str]) -> list[str]:
     return result
 
 
-def base_cell_size(mesh: Mesh, reference_length: float) -> float:
-    """Base cell size in metres: the user value, else L / 20."""
-    return mesh.base_size if mesh.base_size is not None else reference_length / DEFAULT_BASE_DIVISIONS
-
-
 def block_cells(bounds: Bounds, size: float) -> tuple[int, int, int]:
     """Cells of the background block mesh (at least one per direction)."""
     extents = (bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4])
@@ -135,8 +129,7 @@ def _hex_faces(bounds: Bounds) -> dict[str, list[int]]:
 
 def block_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
     x0, x1, y0, y1, z0, z1 = inp.domain_bounds
-    size = base_cell_size(inp.mesh, inp.reference_length)
-    cells = block_cells(inp.domain_bounds, size)
+    cells = estimate_mesh(inp.domain_bounds, inp.reference_length, inp.mesh).cells
     faces = _hex_faces(inp.domain_bounds)
     patches = [
         ("inlet", ["x_min"]),
@@ -178,12 +171,12 @@ def surface_feature_extract_dict(inp: MeshCaseInput) -> FoamFileSpec:
 
 def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
     m = inp.mesh
-    size = base_cell_size(m, inp.reference_length)
-    cells = block_cells(inp.domain_bounds, size)
+    est = estimate_mesh(inp.domain_bounds, inp.reference_length, m)
+    cells = est.cells
     geometry = {f"{n}.stl": {"type": "triSurfaceMesh", "name": n} for n in inp.parts}
     refinement_surfaces = {
         n: {
-            "level": [m.surface_level_min, m.surface_level_max],
+            "level": [est.level_min, est.level_max],
             "patchInfo": {"type": "wall", "inGroups": [f"{n}Group"]},
         }
         for n in inp.parts
@@ -200,7 +193,7 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
             "minRefinementCells": 10,
             "maxLoadUnbalance": 0.10,
             "nCellsBetweenLevels": 3,
-            "features": [{"file": f'"{n}.eMesh"', "level": m.surface_level_max} for n in inp.parts],
+            "features": [{"file": f'"{n}.eMesh"', "level": est.level_max} for n in inp.parts],
             "refinementSurfaces": refinement_surfaces,
             "resolveFeatureAngle": m.feature_angle,
             "refinementRegions": {},

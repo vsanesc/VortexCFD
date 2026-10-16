@@ -25,6 +25,7 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
     data = dict(data)
     if data.get("schema_version") == 1:
         data.setdefault("domain", {})  # an empty dict validates to the Domain defaults
+        data.setdefault("mesh", {})  # ... and to the Mesh defaults
         data["schema_version"] = 2
     return data
 

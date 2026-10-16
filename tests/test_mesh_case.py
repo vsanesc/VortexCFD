@@ -13,13 +13,13 @@ from vortexcfd.foam.mesh_case import (
     TRI_SURFACE,
     CaseDirectoryNotOursError,
     MeshCaseInput,
-    base_cell_size,
     block_cells,
     build_mesh_files,
     location_in_mesh,
     prepare_case_dir,
     safe_part_names,
 )
+from vortexcfd.foam.mesh_estimate import MAX_BACKGROUND_CELLS, estimate_mesh
 from vortexcfd.foam.mesh_report import parse_check_mesh
 from vortexcfd.foam.mesh_run import MeshRun
 from vortexcfd.geometry.domain import compute_domain
@@ -46,17 +46,58 @@ def test_safe_part_names_are_unique_and_never_reserved() -> None:
     assert len(set(names)) == len(names)
 
 
-def test_base_size_defaults_to_l_over_20_and_cells_are_at_least_one() -> None:
-    assert base_cell_size(Mesh(), 10.0) == 0.5
-    assert base_cell_size(Mesh(base_size=0.2), 10.0) == 0.2
+def test_block_cells_are_at_least_one() -> None:
     assert block_cells((0, 10, 0, 5, 0, 1), 0.5) == (20, 10, 2)
     assert block_cells((0, 1, 0, 1, 0, 1), 100.0) == (1, 1, 1)
+
+
+def default_box_1m():
+    """The default domain (5/10/5/5) around a 1 m cube: 16 x 11 x 11 m."""
+    return compute_domain([(0.0, 1.0, 0.0, 1.0, 0.0, 1.0)], Domain())
+
+
+def test_estimate_default_domain_hits_the_cell_target() -> None:
+    box = default_box_1m()
+    est = estimate_mesh(box.bounds, box.reference_length, Mesh())
+    assert est.base_size == pytest.approx((16 * 11 * 11 / 100_000) ** (1 / 3))
+    assert est.cells == (60, 41, 41)
+    assert est.total_cells == 60 * 41 * 41
+    assert abs(est.total_cells - 100_000) <= 0.2 * 100_000
+    # base 0.2686 m, target surface size 0.01 m: ceil(log2(26.9)) = 5 levels, min = 4
+    assert (est.level_max, est.level_min) == (5, 4)
+    assert est.surface_size == pytest.approx(est.base_size / 32)
+    assert not est.base_size_overridden and not est.levels_overridden and not est.too_many_cells
+
+
+def test_estimate_scales_with_the_target_and_respects_overrides() -> None:
+    box = default_box_1m()
+    coarse = estimate_mesh(box.bounds, box.reference_length, Mesh(background_cells_target=10_000))
+    assert abs(coarse.total_cells - 10_000) <= 2_000
+    assert (coarse.level_max, coarse.level_min) == (6, 5)  # base 0.579 m: ceil(log2(57.9)) = 6
+    explicit = estimate_mesh(box.bounds, box.reference_length,
+                             Mesh(base_size=0.5, surface_level_min=1, surface_level_max=3))
+    assert explicit.base_size == 0.5 and explicit.base_size_overridden and explicit.levels_overridden
+    assert (explicit.level_min, explicit.level_max) == (1, 3)
+    assert explicit.cells == (32, 22, 22)
+    only_max = estimate_mesh(box.bounds, box.reference_length, Mesh(surface_level_max=2))
+    assert (only_max.level_min, only_max.level_max) == (1, 2)  # min follows max - 1
+    coarse_surface = estimate_mesh(box.bounds, box.reference_length, Mesh(target_surface_size=10.0))
+    assert coarse_surface.level_max == 0 and coarse_surface.level_min == 0  # never negative
+
+
+def test_estimate_flags_too_many_background_cells() -> None:
+    box = default_box_1m()
+    huge = estimate_mesh(box.bounds, box.reference_length, Mesh(background_cells_target=15_500_000))
+    assert huge.too_many_cells and huge.total_cells > MAX_BACKGROUND_CELLS
+    assert "limit 2,000,000" in huge.limit_message()
+    ok = estimate_mesh(box.bounds, box.reference_length, Mesh(background_cells_target=1_900_000))
+    assert ok.total_cells <= MAX_BACKGROUND_CELLS and ok.limit_message() is None
 
 
 @pytest.mark.parametrize("symmetric", [False, True])
 def test_location_in_mesh_is_inside_domain_and_outside_parts(symmetric: bool) -> None:
     inp = sphere_input(symmetric=symmetric)
-    cells = block_cells(inp.domain_bounds, base_cell_size(inp.mesh, inp.reference_length))
+    cells = estimate_mesh(inp.domain_bounds, inp.reference_length, inp.mesh).cells
     x, y, z = location_in_mesh(inp.domain_bounds, inp.parts_bounds, cells)
     d, p = inp.domain_bounds, inp.parts_bounds
     assert d[0] < x < d[1] and d[2] < y < d[3] and d[4] < z < d[5]  # inside the domain
@@ -71,7 +112,7 @@ def test_location_in_mesh_with_two_parts_stays_outside_the_union() -> None:
     a, b = (0, 1, 0, 1, 0, 1), (3, 4, 0, 1, 0, 1)
     box = compute_domain([a, b], Domain())
     union = (0, 4, 0, 1, 0, 1)
-    cells = block_cells(box.bounds, box.reference_length / 20)
+    cells = estimate_mesh(box.bounds, box.reference_length, Mesh()).cells
     x, y, z = location_in_mesh(box.bounds, union, cells)
     assert x < 0  # upstream of both parts
 
@@ -83,7 +124,7 @@ def test_block_mesh_dict_structure() -> None:
     inp = sphere_input()
     spec = build_mesh_files(inp)["system/blockMeshDict"].content
     assert len(spec["vertices"]) == 8 and spec["blocks"][0] == "hex" and spec["blocks"][3] == "simpleGrading"
-    assert spec["blocks"][2] == list(block_cells(inp.domain_bounds, 0.5))
+    assert spec["blocks"][2] == list(estimate_mesh(inp.domain_bounds, inp.reference_length, inp.mesh).cells)
     names = [name for name, _ in spec["boundary"]]
     assert names == ["inlet", "outlet", "sides", "top", "bottom"]
     assert all(body["type"] == "patch" for _, body in spec["boundary"])
@@ -218,7 +259,11 @@ def test_parse_failed_checks_and_truncated_logs() -> None:
 
 def test_end_to_end_coarse_sphere_meshing(tmp_path: Path) -> None:
     case = tmp_path / "case"
-    inp = sphere_input(Mesh(base_size=0.5, surface_level_min=1, surface_level_max=2, layers=1))
+    # NEW defaults only: default domain (5/10/5/5 L), default Mesh (100k background cells,
+    # 0.01 L surface cells, 3 layers); nothing is tuned by hand.
+    inp = sphere_input(Mesh(), Domain())
+    est = estimate_mesh(inp.domain_bounds, inp.reference_length, inp.mesh)
+    assert abs(est.total_cells - 100_000) <= 20_000
     prepare_case_dir(case, build_mesh_files(inp))
     pv.Sphere(radius=0.5, theta_resolution=24, phi_resolution=24).save(str(case / TRI_SURFACE / "Sphere.stl"))
     lines: list[str] = []

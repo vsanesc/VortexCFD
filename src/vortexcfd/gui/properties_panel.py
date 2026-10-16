@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
 from vortexcfd.core.model import Domain, Part
 from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_report import MeshReport
+from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_status, report_for_part
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
 
@@ -26,6 +28,43 @@ ALLOWED_UNITS: tuple[str, ...] = get_args(Part.model_fields["units"].annotation)
 
 
 DOMAIN_SYMMETRY = get_args(Domain.model_fields["symmetry"].annotation)
+
+def _spin(low: int, high: int, suffix: str = "", special: str | None = None) -> QSpinBox:
+    box = QSpinBox()
+    box.setRange(low, high)
+    box.setSuffix(suffix)
+    box.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+    if special:
+        box.setSpecialValueText(special)
+    return box
+
+
+def _dspin(low: float, high: float, decimals: int, suffix: str = "", special: str | None = None) -> QDoubleSpinBox:
+    box = QDoubleSpinBox()
+    box.setRange(low, high)
+    box.setDecimals(decimals)
+    box.setSuffix(suffix)
+    box.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+    if special:
+        box.setSpecialValueText(special)
+    return box
+
+
+# Editable Mesh settings: (Mesh field, label, widget factory). "auto" is the minimum special
+# value of the optional fields (stored as None).
+MESH_SETTINGS = (
+    ("background_cells_target", "Background cells target", lambda: _spin(1000, 100_000_000, " cells")),
+    ("target_surface_size", "Target surface size", lambda: _dspin(0.0001, 1.0, 4, " L")),
+    ("base_size", "Base size override", lambda: _dspin(0.0, 1000.0, 5, " m", "auto")),
+    ("surface_level_min", "Min surface level", lambda: _spin(-1, 30, "", "auto")),
+    ("surface_level_max", "Max surface level", lambda: _spin(-1, 30, "", "auto")),
+    ("feature_angle", "Feature angle", lambda: _dspin(1.0, 180.0, 1, "\u00b0")),
+    ("layers", "Layers", lambda: _spin(0, 20)),
+    ("expansion_ratio", "Expansion ratio", lambda: _dspin(1.0, 3.0, 3)),
+    ("final_layer_thickness", "Final layer thickness", lambda: _dspin(0.001, 5.0, 3, " \u00d7 cell")),
+    ("min_thickness", "Min layer thickness", lambda: _dspin(0.001, 5.0, 3, " \u00d7 cell")),
+)
+MESH_OPTIONAL = frozenset({"base_size", "surface_level_min", "surface_level_max"})
 
 # Rows of the read-only mesh report on the Mesh node: (key, label).
 MESH_ROWS = (
@@ -133,6 +172,23 @@ class PropertiesPanel(QWidget):
         self._layout.addWidget(self.domain_warning)
         self.domain_enabled.toggled.connect(lambda _: self._commit_domain("enabled"))
         self.domain_symmetry.currentTextChanged.connect(lambda _: self._commit_domain("symmetry"))
+        # Mesh node: editable sizing/layer settings (Project.update_mesh) with computed values
+        # shown read-only next to their overrides, then the checkMesh report.
+        self.mesh_fields: dict[str, QWidget] = {}
+        for key, label, factory in MESH_SETTINGS:
+            widget = factory()
+            self.mesh_fields[key] = widget
+            self._layout.addWidget(self._make_row(f"mset_{key}", label, widget))
+            widget.editingFinished.connect(lambda k=key: self._commit_mesh(k))
+            if key == "base_size":
+                self.mesh_base_used = self._ro_row("mset_base_used", "Base size used")
+            if key == "surface_level_max":
+                self.mesh_levels_used = self._ro_row("mset_levels_used", "Levels used")
+        self.mesh_bg_cells = self._ro_row("mset_bg_cells", "Background cells")
+        self.mesh_surface_cells = self._ro_row("mset_surface_cells", "Surface cell size")
+        self.mesh_title = QLabel("LAST MESH")
+        self.mesh_title.setObjectName("sectionTitle")
+        self._layout.addWidget(self.mesh_title)
         # Mesh node: the read-only checkMesh report (or the "No mesh" empty state).
         self._mesh_report: MeshReport | None = None
         self.mesh_values: dict[str, QLabel] = {}
@@ -152,6 +208,13 @@ class PropertiesPanel(QWidget):
         self.name_edit.textEdited.connect(self._on_name_edited)
         self.units_combo.currentTextChanged.connect(self._commit_units)
         self.refresh()
+
+    def _ro_row(self, key: str, text: str) -> QLabel:
+        """A read-only value row; returns its label."""
+        value = QLabel()
+        value.setObjectName("checkValue")
+        self._layout.addWidget(self._make_row(key, text, value))
+        return value
 
     def _make_row(self, key: str, text: str, field: QWidget) -> QWidget:
         row = QWidget()
@@ -177,8 +240,12 @@ class PropertiesPanel(QWidget):
         mono = mono_font(QApplication.font(), 0.9)
         for label in (*self.check_values.values(), *self.mesh_values.values(), self.status_value):
             label.setFont(mono)
-        for widget in (self.name_edit, self.source_label, self.units_combo):
+        for widget in (self.name_edit, self.source_label, self.units_combo, *self.mesh_fields.values()):
             widget.setFont(mono)
+        self.mesh_title.setFont(section_title_font(QApplication.font()))
+        self.mesh_title.setContentsMargins(m.s3, m.s3, m.s3, m.s2)
+        for label in (self.mesh_base_used, self.mesh_levels_used, self.mesh_bg_cells, self.mesh_surface_cells):
+            label.setFont(mono)
         self.info_label.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
         self.mesh_empty.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
 
@@ -220,8 +287,65 @@ class PropertiesPanel(QWidget):
         self._rows["name"].setVisible(show_name)
         is_domain = self._kind == "fluid_domain"
         self._refresh_domain(is_domain)
+        self._refresh_mesh_settings(self._kind == "mesh")
         self._refresh_mesh(self._kind == "mesh")
         self.info_label.setVisible(not show_name and not is_domain and self._kind != "mesh")
+
+    def _mesh_setting_rows(self) -> list[str]:
+        keys = [f"mset_{k}" for k, _, _ in MESH_SETTINGS]
+        return keys + ["mset_base_used", "mset_levels_used", "mset_bg_cells", "mset_surface_cells"]
+
+    def _refresh_mesh_settings(self, show: bool) -> None:
+        for key in self._mesh_setting_rows():
+            self._rows[key].setVisible(show)
+        self.mesh_title.setVisible(show and self._mesh_report is not None)
+        if not show:
+            return
+        mesh = self._project.sim.mesh
+        widgets = list(self.mesh_fields.values())
+        for w in widgets:
+            w.blockSignals(True)
+        try:
+            for key, _, _ in MESH_SETTINGS:
+                value = getattr(mesh, key)
+                widget = self.mesh_fields[key]
+                if isinstance(widget, QSpinBox):
+                    widget.setValue(widget.minimum() if value is None else value)
+                else:
+                    widget.setValue(widget.minimum() if value is None else float(value))
+        finally:
+            for w in widgets:
+                w.blockSignals(False)
+        box = domain_box_for(self._project)
+        if box.bounds is None:
+            for label in (self.mesh_base_used, self.mesh_levels_used, self.mesh_bg_cells,
+                          self.mesh_surface_cells):
+                label.setText("\u2014")
+            self._set_warn(self.mesh_bg_cells, False)
+            return
+        est = estimate_mesh(box.bounds, box.reference_length, mesh)
+        auto = "" if est.base_size_overridden else " (computed)"
+        self.mesh_base_used.setText(f"{est.base_size:.4g} m{auto}")
+        self.mesh_levels_used.setText(
+            f"{est.level_min} \u2013 {est.level_max}" + ("" if est.levels_overridden else " (computed)")
+        )
+        nx, ny, nz = est.cells
+        self.mesh_bg_cells.setText(f"{nx} \u00d7 {ny} \u00d7 {nz} = {est.total_cells:,}")
+        self._set_warn(self.mesh_bg_cells, est.too_many_cells)
+        self.mesh_surface_cells.setText(f"{est.surface_size:.4g} m")
+
+    def _commit_mesh(self, key: str) -> None:
+        if self._kind != "mesh":
+            return
+        widget = self.mesh_fields[key]
+        value = widget.value()
+        if value == widget.minimum() and key in MESH_OPTIONAL:
+            value = None  # the "auto" special value
+        try:
+            self._project.update_mesh(**{key: value})
+        except (ValueError, TypeError) as exc:  # includes pydantic errors
+            self.message.emit(str(exc))
+        self.refresh()  # reverts a rejected value
 
     def set_mesh_report(self, report: MeshReport | None) -> None:
         """The checkMesh summary shown on the Mesh node (None: no mesh yet)."""

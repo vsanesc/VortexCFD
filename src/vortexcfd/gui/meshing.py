@@ -1,12 +1,14 @@
-"""Meshing orchestration: project -> meshing case directory (no Qt).
+"""Meshing orchestration: project -> meshing case directory (Qt-free).
 
-Joins the layers: core (project), geometry (surfaces, domain) and foam (case files).
+Lives in gui/ although it needs no Qt: it joins core (project), geometry (surfaces, domain) and
+foam (case files), and foam/ must not depend on geometry/ (which imports pyvista).
 """
 
 from dataclasses import dataclass
 from pathlib import Path
 
 from vortexcfd.core.project import Project
+from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.mesh_case import (
     TRI_SURFACE,
     MeshCaseInput,
@@ -49,6 +51,19 @@ def _part_files(project: Project) -> list[tuple[str, Path | None, str]]:
     return out
 
 
+def _loaded_parts(project: Project):
+    """(domain box, part names, loaded meshes in metres) for the project's parts."""
+    names, meshes = [], []
+    for name, path, units in _part_files(project):
+        try:
+            meshes.append(load_surface(path, units))
+        except (OSError, SurfaceLoadError) as exc:
+            raise MeshingNotReady(f"Cannot load part '{name}': {exc}") from exc
+        names.append(name)
+    bounds = [tuple(float(b) for b in m.bounds) for m in meshes]
+    return compute_domain(bounds, project.sim.domain, names), names, meshes
+
+
 def readiness(project: Project) -> str | None:
     """Why the project cannot be meshed, or None when it can."""
     if project.path is None:
@@ -61,7 +76,11 @@ def readiness(project: Project) -> str | None:
         return f"The file of part '{missing[0]}' is missing."
     if not project.sim.domain.enabled:
         return "Enable the fluid domain."
-    return None
+    try:
+        box, _, _ = _loaded_parts(project)
+    except MeshingNotReady as exc:
+        return str(exc)
+    return estimate_mesh(box.bounds, box.reference_length, project.sim.mesh).limit_message()
 
 
 def prepare_job(project: Project) -> MeshJob:
@@ -74,15 +93,8 @@ def prepare_job(project: Project) -> MeshJob:
     reason = readiness(project)
     if reason is not None:
         raise MeshingNotReady(reason)
-    names, meshes = [], []
-    for name, path, units in _part_files(project):
-        try:
-            meshes.append(load_surface(path, units))
-        except (OSError, SurfaceLoadError) as exc:
-            raise MeshingNotReady(f"Cannot load part '{name}': {exc}") from exc
-        names.append(name)
+    box, names, meshes = _loaded_parts(project)
     bounds = [tuple(float(b) for b in m.bounds) for m in meshes]
-    box = compute_domain(bounds, project.sim.domain, names)
     safe = safe_part_names(names)
     inputs = MeshCaseInput(
         domain_bounds=box.bounds,

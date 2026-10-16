@@ -10,7 +10,7 @@ from vortexcfd.core.project import Project
 from vortexcfd.foam.dictfile import read_foam_file
 from vortexcfd.foam.mesh_case import MARKER_NAME, CaseDirectoryNotOursError
 from vortexcfd.geometry.loader import clear_cache
-from vortexcfd.meshing import MeshingNotReady, case_dir_for, prepare_job, readiness
+from vortexcfd.gui.meshing import MeshingNotReady, case_dir_for, prepare_job, readiness
 
 
 @pytest.fixture(autouse=True)

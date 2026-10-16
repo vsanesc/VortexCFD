@@ -49,10 +49,11 @@ from vortexcfd.geometry.checks import surface_report
 from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.gui.properties_panel import PropertiesPanel
 from vortexcfd.geometry.domain import BOUNDARY_NAMES
-from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError, base_cell_size
+from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError
+from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.gui.mesh_worker import MeshWorker
-from vortexcfd.meshing import MeshingNotReady, case_dir_for, prepare_job, readiness
+from vortexcfd.gui.meshing import MeshingNotReady, case_dir_for, prepare_job, readiness
 from vortexcfd.gui.scene import (
     ERROR,
     MISSING,
@@ -854,8 +855,10 @@ class MainWindow(QMainWindow):
         self.mesh_report = None
         self.properties.set_mesh_report(None)
         self.top_bar.set_run_state("Meshing")
-        log.info("Meshing %s (base size %.4g m)", job.case_dir,
-                 base_cell_size(job.inputs.mesh, job.inputs.reference_length))
+        est = estimate_mesh(job.inputs.domain_bounds, job.inputs.reference_length, job.inputs.mesh)
+        log.info("Meshing %s: background %d cells (base size %.4g m), surface levels %d-%d "
+                 "(surface cells %.4g m)", job.case_dir, est.total_cells, est.base_size,
+                 est.level_min, est.level_max, est.surface_size)
         self.mesh_worker.start(job.case_dir)
         self._update_mesh_button()
         self._update_telemetry()

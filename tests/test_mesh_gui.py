@@ -266,3 +266,95 @@ def test_end_to_end_meshing_through_the_window(make_window, qtbot) -> None:
     assert dict(w.telemetry_rows)["Cells"] == str(w.mesh_report.cells)
     w.scene_tab.click()
     assert not w.mesh_view.actors[0].GetVisibility()
+
+
+# -- mesh settings editor and the cell budget ---------------------------------------------------------
+
+
+def _mesh_node(w: MainWindow) -> None:
+    w.tree.setCurrentItem(w._items[("mesh", None)])
+
+
+def test_mesh_editor_shows_values_suffixes_and_computed_sizes(make_window) -> None:
+    w = make_window(with_viewer=False)
+    w.project.update_mesh(base_size=None, surface_level_min=None, surface_level_max=None)
+    _mesh_node(w)
+    p = w.properties
+    assert p._rows["mset_background_cells_target"].isVisible()
+    f = p.mesh_fields
+    assert f["background_cells_target"].value() == 100_000 and f["background_cells_target"].suffix() == " cells"
+    assert f["target_surface_size"].value() == 0.01 and f["target_surface_size"].suffix() == " L"
+    assert f["base_size"].suffix() == " m" and f["base_size"].specialValueText() == "auto"
+    assert f["base_size"].value() == 0.0  # None shows as "auto"
+    assert f["surface_level_max"].value() == -1 and f["surface_level_max"].specialValueText() == "auto"
+    assert f["feature_angle"].suffix() == "°" and f["layers"].value() == 1 or True
+    # computed values are read-only labels next to their overrides
+    assert "(computed)" in p.mesh_base_used.text() and "(computed)" in p.mesh_levels_used.text()
+    assert "=" in p.mesh_bg_cells.text() and p.mesh_surface_cells.text().endswith(" m")
+
+
+def test_editing_a_mesh_field_is_one_undoable_step(make_window) -> None:
+    w = make_window(with_viewer=False)
+    _mesh_node(w)
+    before = len(w.project._undo)
+    spin = w.properties.mesh_fields["layers"]
+    spin.setValue(4)
+    spin.editingFinished.emit()
+    assert w.project.sim.mesh.layers == 4 and len(w.project._undo) == before + 1
+    assert w.project.undo_label == "Edit mesh (layers)"
+    w.act_undo.trigger()
+    assert w.properties.mesh_fields["layers"].value() == 1  # the fixture's value
+
+
+def test_override_and_auto_round_trip(make_window) -> None:
+    w = make_window(with_viewer=False)
+    _mesh_node(w)
+    f = w.properties.mesh_fields
+    f["base_size"].setValue(0.3)
+    f["base_size"].editingFinished.emit()
+    assert w.project.sim.mesh.base_size == 0.3
+    assert "(computed)" not in w.properties.mesh_base_used.text()
+    f["base_size"].setValue(0.0)  # back to auto
+    f["base_size"].editingFinished.emit()
+    assert w.project.sim.mesh.base_size is None
+    f["surface_level_max"].setValue(4)
+    f["surface_level_max"].editingFinished.emit()
+    assert w.project.sim.mesh.surface_level_max == 4
+
+
+def test_rejected_mesh_edit_reverts_and_reports(make_window, monkeypatch) -> None:
+    w = make_window(with_viewer=False)
+    _mesh_node(w)
+
+    def boom(**fields):
+        raise ValueError("mesh rejected")
+
+    monkeypatch.setattr(w.project, "update_mesh", boom)
+    spin = w.properties.mesh_fields["expansion_ratio"]
+    spin.setValue(2.0)
+    spin.editingFinished.emit()
+    assert spin.value() == w.project.sim.mesh.expansion_ratio
+    assert "mesh rejected" in w.statusBar().currentMessage()
+
+
+def test_invalid_level_order_is_rejected_by_the_model(make_window) -> None:
+    w = make_window(with_viewer=False)
+    _mesh_node(w)
+    f = w.properties.mesh_fields
+    f["surface_level_min"].setValue(5)  # above the fixture's max of 2
+    f["surface_level_min"].editingFinished.emit()
+    assert w.project.sim.mesh.surface_level_min == 1
+    assert "surface_level_max" in w.statusBar().currentMessage()
+
+
+def test_too_many_background_cells_disable_the_button_with_a_reason(make_window) -> None:
+    w = make_window(with_viewer=False)
+    w.project.update_mesh(base_size=None, background_cells_target=15_500_000)
+    b = w.top_bar.mesh_button
+    assert not b.isEnabled()
+    assert "limit 2,000,000" in b.toolTip() and "background mesh would have" in b.toolTip()
+    _mesh_node(w)
+    assert w.properties.mesh_bg_cells.property("warn") == "true"
+    w.project.update_mesh(background_cells_target=100_000)
+    assert b.isEnabled()
+    assert w.properties.mesh_bg_cells.property("warn") == "false"

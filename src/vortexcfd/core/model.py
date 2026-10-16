@@ -29,14 +29,19 @@ class Geometry(StrictModel):
 class Mesh(StrictModel):
     """snappyHexMesh controls (mesher level M1).
 
-    ``base_size`` is the background cell size in metres; when unset it is L / 20 at generation
-    time (L = largest extent of the parts). ``final_layer_thickness`` and ``min_thickness`` are
+    Sizing is derived from two targets unless overridden: the background mesh gets about
+    ``background_cells_target`` cells (so ``base_size`` = (domain volume / target)^(1/3)), and
+    the surface cells aim at ``target_surface_size`` times L (L = largest extent of the parts), which
+    fixes the refinement levels. ``base_size`` (metres) and the two surface levels are optional
+    explicit overrides (None = computed). ``final_layer_thickness`` and ``min_thickness`` are
     relative to the local cell size.
     """
 
+    background_cells_target: int = Field(default=100_000, gt=0)
+    target_surface_size: float = Field(default=0.01, gt=0)  # relative to L
     base_size: float | None = Field(default=None, gt=0)
-    surface_level_min: int = Field(default=2, ge=0)
-    surface_level_max: int = Field(default=3, ge=0)
+    surface_level_min: int | None = Field(default=None, ge=0)
+    surface_level_max: int | None = Field(default=None, ge=0)
     feature_angle: float = Field(default=30.0, gt=0, le=180)
     layers: int = Field(default=3, ge=0)
     expansion_ratio: float = Field(default=1.2, ge=1.0)
@@ -45,7 +50,8 @@ class Mesh(StrictModel):
 
     @model_validator(mode="after")
     def _levels_ordered(self) -> "Mesh":
-        if self.surface_level_max < self.surface_level_min:
+        lo, hi = self.surface_level_min, self.surface_level_max
+        if lo is not None and hi is not None and hi < lo:
             raise ValueError("surface_level_max must be >= surface_level_min")
         return self
 
