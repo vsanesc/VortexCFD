@@ -17,9 +17,15 @@ class ProjectFileError(Exception):
 def migrate(data: dict[str, Any]) -> dict[str, Any]:
     """Migrate project data dictionary from older schema versions to current.
 
-    Migrations for older versions will go here as schema versions evolve.
-    Currently returns the data dictionary unchanged.
+    v1 -> v2 adds the default far-field ``domain``. Data already at the current version (or
+    not a dict / without a version) is returned unchanged.
     """
+    if not isinstance(data, dict):
+        return data
+    data = dict(data)
+    if data.get("schema_version") == 1:
+        data.setdefault("domain", {})  # an empty dict validates to the Domain defaults
+        data["schema_version"] = 2
     return data
 
 

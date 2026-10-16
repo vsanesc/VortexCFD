@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "name": "Legacy",
+  "geometry": {
+    "parts": [
+      {"name": "Wing", "source_file": "geometry/wing.stl", "units": "mm"}
+    ]
+  },
+  "mesh": {},
+  "physics": {},
+  "solvers": {},
+  "reports": {}
+}

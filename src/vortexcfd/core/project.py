@@ -136,6 +136,15 @@ class Project:
         changed = ", ".join(fields) or "no fields"
         self._edit(f"Edit part '{old_name}' ({changed})", mutate)
 
+    def update_domain(self, **fields: Any) -> None:
+        """Edit far-field domain fields as one undoable step (validated; no-ops leave no trace)."""
+
+        def mutate(data: dict[str, Any]) -> None:
+            data["domain"].update(fields)
+
+        changed = ", ".join(fields) or "no fields"
+        self._edit(f"Edit domain ({changed})", mutate)
+
     # -- history -------------------------------------------------------------
 
     @property
