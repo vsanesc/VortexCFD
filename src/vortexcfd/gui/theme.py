@@ -7,12 +7,11 @@ as owner values are fixed by the owner and change only on his request.
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import QSettings
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPalette
 from PySide6.QtWidgets import QApplication
 
-ORGANIZATION = "VortexCFD"
-APPLICATION = "VortexCFD"
+from vortexcfd.gui.settings_store import settings
+
 
 DEFAULT_POINT_SIZE = 11
 MIN_POINT_SIZE = 8
@@ -101,6 +100,30 @@ LIMITS_U: dict[str, tuple[int, int | None]] = {
 }
 
 
+# Derived-color alphas and drawing constants (the only place for these numbers).
+DISABLED_ALPHA = 0.5  # muted text/borders of disabled actions, blended over `base`
+LOGO_FILL_ALPHA = 0.15  # logo fill: accent_secondary over base
+LOGO_RADIUS_FRACTION = 0.25 / 1.6  # logo corner radius / side (radius_s at the 1.6u logo)
+WINDOW_ICON_SIZES = (16, 24, 32, 48, 64, 128)  # px
+TELEMETRY_OPACITY = 0.92  # telemetry card background opacity
+TELEMETRY_OFFSET_U = 1  # card offset from the viewport's top-left corner, in u
+TELEMETRY_FONT_U = 0.85  # card body font size in px per u (VTK Courier)
+TELEMETRY_LINE_SPACING = 1.35  # VTK line spacing of the card text
+TELEMETRY_TITLE_SCALE = 0.8  # card title size relative to the body
+TELEMETRY_GAP_CHARS = 2  # characters between the label and value columns
+GRID_HALF_LINES = 10  # ground grid: lines on each side of the origin
+GRID_SPACING = 1.0  # ground grid spacing (scene units)
+GRID_MAJOR_EVERY = 5  # every Nth grid line is brighter
+EMPTY_SCENE_POINT_FRACTION = 1.0  # "No geometry yet" size in px per u
+
+
+def blend(fg: str, bg: str, alpha: float) -> str:
+    """Hex color of ``fg`` at ``alpha`` opacity over ``bg``."""
+    a, b = QColor(fg), QColor(bg)
+    mix = [round(x * alpha + y * (1 - alpha)) for x, y in ((a.red(), b.red()), (a.green(), b.green()), (a.blue(), b.blue()))]
+    return QColor(*mix).name().upper()
+
+
 @dataclass(frozen=True)
 class Metrics:
     """Sizes in px derived from the font height ``u``."""
@@ -122,6 +145,8 @@ class Metrics:
     top_bar: int  # top bar height (2.4u; the measured 1.9u is too tight for its buttons)
     tab_bar: int  # scene tab bar height (1.6u)
     button: int  # top bar button height (1.7u)
+    dot: int  # status/toggle dot diameter (0.4u)
+    logo: int  # logo placeholder side (1.6u)
     hit: int  # splitter hit area (0.5u)
     line: int = 1  # divider / border width
     bar: int = 2  # accent bar on the selected row
@@ -138,7 +163,8 @@ def metrics(u: int | None = None) -> Metrics:
     return Metrics(
         u=u, s1=k(0.25), s2=k(0.5), s3=k(0.75), s4=k(1), s5=k(1.5), s6=k(2),
         header=k(2), row=k(1.8), field=k(2), radius_s=k(0.25), radius_m=k(0.5),
-        menubar=k(2), status=k(2), top_bar=k(2.4), tab_bar=k(1.6), button=k(1.7), hit=k(0.5),
+        menubar=k(2), status=k(2), top_bar=k(2.4), tab_bar=k(1.6), button=k(1.7), dot=k(0.4), logo=k(1.6),
+        hit=k(0.5),
     )
 
 
@@ -199,6 +225,8 @@ def build_stylesheet(t: Theme, m: Metrics, base_point_size: float) -> str:
     inner = m.field - 2 * ln
     status_pt = f"{base_point_size * 0.9:.1f}pt"
     btr = m.radius_s
+    dis_text = blend(t.muted_text, t.base, DISABLED_ALPHA)
+    dis_border = blend(t.border_active, t.base, DISABLED_ALPHA)
     return f"""
 QToolTip {{ background: {t.floating}; color: {t.text}; border: {ln}px solid {t.border};
     border-radius: {m.radius_s}px; padding: {m.s2}px {m.s3}px; }}
@@ -215,11 +243,18 @@ QLabel#badge[state="warning"] {{ color: {t.warning}; }}
 QLabel#dirtyDot {{ color: {t.accent}; background: transparent; }}
 QWidget#topBar {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
 QFrame#vsep {{ background: {t.border}; border: none; }}
-QPushButton#tbBtn {{ background: transparent; color: {t.muted_text}; border: {ln}px solid transparent;
+QPushButton#tbBtn, QPushButton#dotBtn {{ background: transparent; color: {t.muted_text};
+    border: {ln}px solid transparent; border-radius: {btr}px; padding: 0 {m.s3}px; }}
+QPushButton#dotBtn {{ padding-left: {2 * m.s3 + m.dot}px; }}
+QPushButton#tbBtn:hover, QPushButton#dotBtn:hover {{ color: {t.text}; background: {t.elevated}; }}
+QPushButton#dotBtn:checked {{ color: {t.text}; border-color: {t.accent_secondary}; background: {t.selection}; }}
+QFrame#segmented {{ background: {t.elevated}; border: {ln}px solid {t.border}; border-radius: {btr}px; }}
+QFrame#segSep {{ background: {t.border}; border: none; }}
+QPushButton#segBtn {{ background: transparent; color: {t.muted_text}; border: {ln}px solid transparent;
     border-radius: {btr}px; padding: 0 {m.s3}px; }}
-QPushButton#tbBtn:hover {{ color: {t.text}; background: {t.elevated}; }}
-QPushButton#tbBtn:checked {{ color: {t.accent_secondary}; border-color: {t.accent_secondary};
-    background: {t.selection}; }}
+QPushButton#segBtn:hover {{ color: {t.text}; }}
+QPushButton#segBtn:checked {{ background: {t.floating}; color: {t.text}; border-color: {t.accent_secondary}; }}
+QLabel#badge[dot="true"] {{ padding-left: {2 * m.s2 + m.dot}px; }}
 QPushButton#nameBtn {{ background: transparent; color: {t.text}; border: none; text-align: left;
     padding: 0 {m.s2}px; border-radius: {btr}px; }}
 QPushButton#nameBtn:hover {{ background: {t.elevated}; }}
@@ -227,6 +262,11 @@ QPushButton#meshBtn {{ background: transparent; color: {t.accent}; border: {ln}p
     border-radius: {btr}px; padding: 0 {m.s4}px; }}
 QPushButton#runBtn {{ background: {t.accent}; color: {t.accent_text}; border: {ln}px solid {t.accent};
     border-radius: {btr}px; padding: 0 {m.s4}px; }}
+QPushButton#meshBtn:disabled {{ background: transparent; color: {dis_text}; border-color: {dis_border}; }}
+QPushButton#runBtn:disabled {{ background: {t.elevated}; color: {dis_text}; border-color: {t.border}; }}
+QToolButton#chevronBtn:disabled {{ background: transparent; }}
+QToolButton {{ background: transparent; border: none; border-radius: {btr}px; padding: {m.s1}px; }}
+QLabel#kpiSub {{ color: {t.muted_text}; background: transparent; }}
 QPushButton#flatBtn {{ background: transparent; color: {t.muted_text}; border: none;
     border-radius: {btr}px; padding: {m.s1}px {m.s3}px; }}
 QPushButton#flatBtn:hover {{ color: {t.text}; background: {t.elevated}; }}
@@ -290,11 +330,6 @@ def apply_theme(theme: Theme, point_size: int) -> None:
     app.setFont(font)
     app.setPalette(build_palette(theme))
     app.setStyleSheet(build_stylesheet(theme, metrics(), float(point_size)))
-
-
-def settings() -> QSettings:
-    """User settings (created on demand so a redirected QSettings path is honored)."""
-    return QSettings(ORGANIZATION, APPLICATION)
 
 
 def load_appearance() -> tuple[Theme, int]:

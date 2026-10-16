@@ -54,6 +54,8 @@ src/vortexcfd/
   - `gui/widgets.py`: shared pieces (section header, badge, search field, glyph pixmaps).
   - `gui/topbar.py`: top bar (brand, project file and state, camera buttons, wireframe, disabled Generate Mesh / Run Solver).
   - `gui/monitors.py`: right column (empty log-scale residual chart drawn with QPainter, KPI cards).
+  - `gui/viewport.py`: VTK-drawn viewport pieces (ground grid, empty-scene message, telemetry card) and telemetry settings.
+  - `gui/settings_store.py`: the shared `QSettings` accessor.
   - `gui/console.py`: output console fed by a logging handler on the `vortexcfd` logger.
   - `gui/properties_panel.py`: properties rows (label left, mono value box right) for the selected node; `gui/dialogs.py`: injectable file/confirm dialogs.
   - May import `core` and `foam`.

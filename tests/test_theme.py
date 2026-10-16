@@ -116,7 +116,7 @@ def test_no_theme_menu(make_window) -> None:
     window = make_window()
     assert [a.text() for a in window.menuBar().actions()] == ["&File", "&Edit", "&View"]
     view = window.menuBar().actions()[2].menu()
-    assert all(a.menu() is None for a in view.actions())
+    assert [a.text() for a in view.actions() if a.menu() is not None] == ["Viewport &Telemetry"]  # no Theme menu
 
 
 def test_icons_exist_and_scale_with_font(make_window) -> None:

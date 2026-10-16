@@ -173,24 +173,42 @@ def test_future_actions_are_disabled_with_tooltips(make_window) -> None:
 
 def test_top_bar_state_follows_dirty(make_window, tmp_path) -> None:
     w = make_window()
+    badge = w.top_bar.state_badge
     assert w.top_bar.name_button.text() == "Untitled"
-    assert w.top_bar.state_badge.text() == "Modified" and not w.top_bar.dirty_dot.isHidden()
+    assert badge.text() == "Modified" and badge.dot_color() == w._theme.warning
     w.project.save(tmp_path / "proj.json")
     assert w.top_bar.name_button.text() == "proj.json"
-    assert w.top_bar.state_badge.text() == "Saved" and w.top_bar.dirty_dot.isHidden()
+    assert badge.text() == "Saved" and badge.dot_color() == w._theme.success
 
 
-def test_kpis_and_chart_are_empty_states(make_window) -> None:
+def test_report_slots_are_empty_and_unassigned(make_window) -> None:
+    from vortexcfd.gui.monitors import REPORT_SLOTS
+
     w = make_window()
-    assert {k: v.text() for k, v in w.monitors.kpis.values.items()} == {
-        "cl": "—", "cd": "—", "yplus": "—",
-    }
-    assert [t.text() for t in w.monitors.kpis.titles.values()] == [
-        "LIFT COEFF (CL)", "DRAG COEFF (CD)", "MAX WALL Y+",
-    ]
+    slots = w.monitors.kpis
+    assert REPORT_SLOTS == 3
+    assert [t.text() for t in slots.titles.values()] == ["REPORT 1", "REPORT 2", "REPORT 3"]
+    assert all(v.text() == "\u2014" for v in slots.values.values())
+    assert all(v.text() == "Not assigned" for v in slots.subtitles.values())
+    for button in slots.assign_buttons.values():
+        assert not button.isEnabled() and button.toolTip() == "Assign a report (Phase 6)"
     assert w.monitors.chart.EMPTY_MESSAGE == "No solver run yet"
+    assert (w.monitors.chart.X_CAPTION, w.monitors.chart.Y_CAPTION) == ("Iteration", "Residual")
     assert w.monitors.chart.axis_labels() == ["1e0", "1e-1", "1e-2", "1e-3", "1e-4", "1e-5", "1e-6"]
     assert w.monitors.header.badge.text() == "Log10 Scale"
+
+
+def test_no_coefficient_names_in_the_ui(make_window) -> None:
+    from PySide6.QtWidgets import QLabel, QPushButton
+
+    w = make_window()
+    texts = [x.text() for x in w.findChildren(QLabel)] + [x.text() for x in w.findChildren(QPushButton)]
+    texts += [x.toolTip() for x in w.findChildren(QPushButton)]
+    import re
+
+    banned = re.compile(r"lift|drag|coeff|y\+|\bcl\b|\bcd\b|converged", re.IGNORECASE)
+    offenders = [t for t in texts if banned.search(t)]
+    assert not offenders, offenders
 
 
 def test_console_receives_log_records_and_clears(make_window, tmp_path) -> None:
@@ -205,13 +223,86 @@ def test_console_receives_log_records_and_clears(make_window, tmp_path) -> None:
     assert w.console.text() == ""
 
 
-def test_telemetry_has_real_values_only(make_window) -> None:
+def test_telemetry_rows_real_values_in_order(make_window) -> None:
     w = make_window(parts=3)
     w.tree.setCurrentItem(w._items[("part", 1)])
-    assert w.telemetry_text.splitlines() == [
-        "VIEWPORT TELEMETRY", "Parts:    3", "Selected: Part 2", "Cells:    —",
+    assert w.telemetry_rows == [
+        ("Parts", "3"), ("Selected node", "Part 2"), ("Cells", "\u2014"), ("View", "ISO"),
     ]
-    assert w.statusBar().children()
+
+
+def test_telemetry_follows_checked_fields_and_persists(make_window, qtbot) -> None:
+    from PySide6.QtCore import QSettings
+
+    w = make_window(with_viewer=True)
+    w.act_tel_fields["selected"].trigger()  # uncheck
+    w.act_tel_fields["view"].trigger()
+    assert [label for label, _ in w.telemetry_rows] == ["Parts", "Cells"]
+    assert w.telemetry.visible and "Selected" not in w.telemetry.labels.GetInput()
+    for key in ("parts", "cells"):
+        w.act_tel_fields[key].trigger()
+    assert w.telemetry_rows == [] and not w.telemetry.visible  # no field checked: card hidden
+    w.act_tel_fields["parts"].trigger()
+    assert w.telemetry.visible
+    w.act_tel_show.trigger()  # hide everything
+    assert w.telemetry_rows == [] and not w.telemetry.visible
+    s = QSettings("VortexCFD", "VortexCFD")
+    assert str(s.value("telemetry/show")).lower() == "false"
+    assert str(s.value("telemetry/field_selected")).lower() == "false"
+    other = make_window(with_viewer=True)  # a new window restores the choices
+    assert not other.act_tel_show.isChecked()
+    assert [k for k, a in other.act_tel_fields.items() if a.isChecked()] == ["parts"]
+
+
+def test_telemetry_card_actors_use_token_colors(make_window) -> None:
+    from PySide6.QtGui import QColor
+
+    from vortexcfd.gui.viewport import TITLE
+
+    w = make_window(with_viewer=True)
+    t, card = w._theme, w.telemetry
+
+    def rgb(actor):
+        return QColor.fromRgbF(*actor.GetTextProperty().GetColor())
+
+    assert card.title.GetInput().strip() == TITLE and TITLE == "VIEWPORT TELEMETRY"
+    assert rgb(card.title) == QColor(t.accent_secondary)
+    assert rgb(card.labels) == QColor(t.muted_text) and rgb(card.values) == QColor(t.text)
+    box = card.box.GetTextProperty()
+    assert QColor.fromRgbF(*box.GetBackgroundColor()) == QColor(t.elevated)
+    assert 0.9 <= box.GetBackgroundOpacity() <= 0.95
+    assert box.GetFrame() and QColor.fromRgbF(*box.GetFrameColor()) == QColor(t.border)
+    labels = card.labels.GetInput().splitlines()
+    values = card.values.GetInput().splitlines()
+    assert any("Parts" in line for line in labels) and any("Cells" in line for line in labels)
+    assert any(line.rstrip().endswith("\u2014") for line in values)
+
+
+def test_default_scene_has_grid_and_no_sphere(make_window) -> None:
+    w = make_window(with_viewer=True)
+    names = set(w.viewer.renderer.actors)
+    assert {"grid_minor", "grid_major"} <= names
+    assert w.scene_actors == []
+    # Nothing but the grid: the largest actor bounds are the grid extent (no sphere of radius 0.5).
+    xmin, xmax, *_ = w.viewer.bounds
+    assert xmax - xmin >= 10
+    assert w._empty_message.actor.GetInput() == "No geometry yet"
+    assert w.current_view == "ISO" and w.top_bar.active_view() == "ISO"
+
+
+def test_logo_and_window_icon(make_window) -> None:
+    from vortexcfd.gui.icons import logo_icon, logo_pixmap
+    from vortexcfd.gui.theme import WINDOW_ICON_SIZES
+
+    w = make_window()
+    for side in (16, 32, 64):
+        pm = logo_pixmap(w._theme, side)
+        assert not pm.isNull() and pm.width() == side
+    icon = w.windowIcon()
+    assert not icon.isNull()
+    assert len(icon.availableSizes()) == len(WINDOW_ICON_SIZES)
+    assert not logo_icon(w._theme, (24,)).isNull()
+    assert not w.top_bar._logo.pixmap().isNull()
 
 
 def test_view_buttons_disabled_without_viewer(make_window) -> None:
@@ -220,27 +311,62 @@ def test_view_buttons_disabled_without_viewer(make_window) -> None:
     assert not w.top_bar.wireframe_button.isEnabled()
 
 
-def test_view_buttons_call_plotter(make_window, monkeypatch) -> None:
+def test_segmented_control_active_state_follows_last_view(make_window, monkeypatch) -> None:
     w = make_window(with_viewer=True)
     calls: list[str] = []
     for name in ("reset_camera", "view_isometric", "view_xz", "view_xy", "view_yz"):
         monkeypatch.setattr(w.viewer, name, lambda n=name, **k: calls.append(n))
     monkeypatch.setattr(w.viewer, "render", lambda *a, **k: None)
-    texts = {b.text(): b for b in w.top_bar.view_buttons.values()}
+    bar = w.top_bar
+    texts = {b.text(): b for b in bar.view_buttons.values()}
     assert list(texts) == ["ISO", "XY", "XZ", "YZ", "Fit"]
-    for button in texts.values():
-        button.click()
-    assert calls == ["view_isometric", "view_xy", "view_xz", "view_yz", "reset_camera"]
+    assert bar.active_view() == "ISO"
+    for label in ("XY", "XZ", "YZ"):
+        texts[label].click()
+        assert bar.active_view() == label and w.current_view == label
+        assert dict(w.telemetry_rows)["View"] == label
+    texts["Fit"].click()  # momentary: the active view is unchanged
+    assert bar.active_view() == "YZ" and not texts["Fit"].isChecked()
+    texts["ISO"].click()
+    texts["ISO"].click()  # clicking the active segment keeps it active
+    assert bar.active_view() == "ISO"
+    assert calls == ["view_xy", "view_xz", "view_yz", "reset_camera", "view_isometric", "view_isometric"]
+    w._on_camera_interaction()  # the user rotated the camera
+    assert bar.active_view() is None and w.current_view == "Custom"
+    assert dict(w.telemetry_rows)["View"] == "Custom"
 
 
 def test_wireframe_toggle_switches_representation(make_window) -> None:
+    import pyvista as pv
+
     w = make_window(with_viewer=True)
-    prop = w._mesh_actor.prop
-    assert prop.style.lower() == "surface"
+    actor = w.viewer.add_mesh(pv.Sphere(), reset_camera=False)
+    w.add_scene_actor(actor)
+    assert actor.prop.style.lower() == "surface"
+    assert not w._empty_message.actor.GetVisibility()
     w.top_bar.wireframe_button.click()
-    assert prop.style.lower() == "wireframe"
+    assert actor.prop.style.lower() == "wireframe" and w.wireframe
+    assert w.top_bar.wireframe_button.dot_color() == w._theme.accent_secondary
     w.top_bar.wireframe_button.click()
-    assert prop.style.lower() == "surface"
+    assert actor.prop.style.lower() == "surface"
+    assert w.top_bar.wireframe_button.dot_color() == w._theme.muted_text
+
+
+def test_disabled_actions_keep_style_cursor_and_tooltip(make_window) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from vortexcfd.gui.theme import DISABLED_ALPHA, blend
+
+    w = make_window()
+    sheet = QApplication.instance().styleSheet()
+    t = w._theme
+    assert "QPushButton#runBtn:disabled" in sheet and "QPushButton#meshBtn:disabled" in sheet
+    assert blend(t.muted_text, t.base, DISABLED_ALPHA) in sheet  # reduced-contrast text
+    for button, phase in ((w.top_bar.mesh_button, "Phase 5"), (w.top_bar.run_button, "Phase 4")):
+        assert not button.isEnabled()
+        assert button.cursor().shape() == Qt.CursorShape.ForbiddenCursor
+        assert phase in button.toolTip()
+        assert button.graphicsEffect() is None  # drawn by the stylesheet, not by opacity
 
 
 def test_status_line_shows_selection(make_window) -> None:

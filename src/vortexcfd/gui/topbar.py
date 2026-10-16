@@ -1,20 +1,20 @@
-"""Top bar: brand, project file + state, view buttons, wireframe toggle, run buttons."""
+"""Top bar: brand, project file + state, view segmented control, wireframe, run buttons."""
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
-    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QWidget,
 )
 
+from vortexcfd.gui.icons import logo_pixmap
 from vortexcfd.gui.theme import Metrics, Theme, mono_font
-from vortexcfd.gui.widgets import Badge, glyph_pixmap
+from vortexcfd.gui.widgets import Badge, DotButton
 
-# (label, plotter method) for the camera buttons; Fit is the plotter's reset_camera.
+# (label, plotter method, tooltip). Fit is momentary: it does not change the active view.
 VIEW_BUTTONS = (
     ("ISO", "view_isometric", "Isometric view"),
     ("XY", "view_xy", "View the XY plane (top)"),
@@ -22,7 +22,7 @@ VIEW_BUTTONS = (
     ("YZ", "view_yz", "View the YZ plane (right)"),
     ("Fit", "reset_camera", "Fit the model in the view"),
 )
-DISABLED_OPACITY = 0.55
+FIT_METHOD = "reset_camera"
 
 
 class TopBar(QWidget):
@@ -41,32 +41,41 @@ class TopBar(QWidget):
         self.name_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.name_button.setToolTip("Select the simulation (edit its name in Properties)")
         self.name_button.clicked.connect(self.name_clicked)
-        self.dirty_dot = QLabel("●")
-        self.dirty_dot.setObjectName("dirtyDot")
-        self.dirty_dot.hide()
-        self.state_badge = Badge("Saved")
-
+        self.state_badge = Badge("Saved", with_dot=True)
         self._pad = 0
-        self.view_buttons: dict[str, QPushButton] = {}
+
         row = QHBoxLayout(self)
         self._row = row
         row.addWidget(self._logo)
         row.addWidget(self.brand)
         row.addWidget(self._separator())
         row.addWidget(self.name_button)
-        row.addWidget(self.dirty_dot)
         row.addWidget(self.state_badge)
         row.addWidget(self._separator())
-        for text, method, tip in VIEW_BUTTONS:
+
+        # One segmented control: elevated pill, 1px border, 1px separators between segments.
+        self.segmented = QFrame()
+        self.segmented.setObjectName("segmented")
+        seg_row = QHBoxLayout(self.segmented)
+        self._seg_row = seg_row
+        self.view_buttons: dict[str, QPushButton] = {}
+        for i, (text, method, tip) in enumerate(VIEW_BUTTONS):
+            if i:
+                sep = QFrame()
+                sep.setObjectName("segSep")
+                sep.setFrameShape(QFrame.Shape.NoFrame)
+                seg_row.addWidget(sep)
             button = QPushButton(text)
-            button.setObjectName("tbBtn")
+            button.setObjectName("segBtn")
             button.setToolTip(tip)
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.setCheckable(method != FIT_METHOD)
             button.clicked.connect(lambda _=False, name=method: self.view_requested.emit(name))
             self.view_buttons[method] = button
-            row.addWidget(button)
-        self.wireframe_button = QPushButton("Wireframe")
-        self.wireframe_button.setObjectName("tbBtn")
+            seg_row.addWidget(button)
+        row.addWidget(self.segmented)
+
+        self.wireframe_button = DotButton("Wireframe")
         self.wireframe_button.setCheckable(True)
         self.wireframe_button.setToolTip("Toggle wireframe representation")
         self.wireframe_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -89,36 +98,54 @@ class TopBar(QWidget):
         button.setObjectName(name)
         button.setEnabled(False)
         button.setToolTip(tooltip)
-        effect = QGraphicsOpacityEffect(button)
-        effect.setOpacity(DISABLED_OPACITY)
-        button.setGraphicsEffect(effect)
+        button.setCursor(Qt.CursorShape.ForbiddenCursor)
         return button
 
     def set_project(self, file_name: str, dirty: bool) -> None:
         self.name_button.setText(file_name)
         self._fit_name()
-        self.dirty_dot.setHidden(not dirty)
         self.state_badge.setText("Modified" if dirty else "Saved")
         self.state_badge.set_state("warning" if dirty else "success")
+
+    def set_active_view(self, name: str | None) -> None:
+        """Mark the segment called ``name`` active (None or "Custom": none is active)."""
+        for text, method, _ in VIEW_BUTTONS:
+            button = self.view_buttons[method]
+            if button.isCheckable():
+                button.setChecked(text == name)
+
+    def active_view(self) -> str | None:
+        for text, method, _ in VIEW_BUTTONS:
+            if self.view_buttons[method].isChecked():
+                return text
+        return None
 
     def set_viewer_enabled(self, enabled: bool) -> None:
         for button in (*self.view_buttons.values(), self.wireframe_button):
             button.setEnabled(enabled)
 
-    def configure(self, m: Metrics, t: Theme) -> None:
+    def configure(self, m: Metrics, t: Theme, dpr: float) -> None:
         self.setFixedHeight(m.top_bar)
         self._row.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
         self._row.setSpacing(m.s2)
-        self._logo.setPixmap(glyph_pixmap(self, "logo", t.accent_secondary, m.u))
+        self._logo.setPixmap(logo_pixmap(t, m.logo, dpr))
+        self._logo.setFixedSize(m.logo, m.logo)
         brand = QApplication.font()
         brand.setBold(True)
         self.brand.setFont(brand)
         self.name_button.setFont(mono_font(QApplication.font(), 0.9))
-        self.state_badge.configure()
+        self.state_badge.configure(m, t)
+        self.wireframe_button.configure(m, t)
         small = mono_font(QApplication.font(), 0.85)
-        for button in (*self.view_buttons.values(), self.wireframe_button):
+        self._seg_row.setContentsMargins(m.line, m.line, m.line, m.line)
+        self._seg_row.setSpacing(0)
+        inner = m.button - 2 * m.line
+        for button in self.view_buttons.values():
             button.setFont(small)
-            button.setFixedHeight(m.button)
+            button.setFixedHeight(inner - 2 * m.line)
+        self.segmented.setFixedHeight(m.button)
+        self.wireframe_button.setFont(small)
+        self.wireframe_button.setFixedHeight(m.button)
         bold = QApplication.font()
         bold.setBold(True)
         for button in (self.mesh_button, self.run_button):
@@ -127,6 +154,8 @@ class TopBar(QWidget):
         self.name_button.setFixedHeight(m.button)
         for sep in self.findChildren(QFrame, "vsep"):
             sep.setFixedSize(m.line, m.button)
+        for sep in self.segmented.findChildren(QFrame, "segSep"):
+            sep.setFixedSize(m.line, inner - 2 * m.line)
         self._pad = 2 * m.s3
         self._fit_name()
 
@@ -134,5 +163,3 @@ class TopBar(QWidget):
         # Explicit minimum so the name is never clipped by a stale size hint.
         width = self.name_button.fontMetrics().horizontalAdvance(self.name_button.text())
         self.name_button.setMinimumWidth(width + self._pad)
-
-

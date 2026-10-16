@@ -176,10 +176,12 @@ Reality check: "as powerful as STAR-CCM+" is not a deliverable that can be verif
 ### 6.1 Monitors and reports
 - Residuals, force/moment coefficients (CL, CD, CM with reference area/length/axes defined in GUI), probes, surface integrals, mass flow; convergence criteria and auto-stop.
 - Acceptance: coefficients match OpenFOAM `forceCoeffs` output on reference cases.
+- Monitor report slots: the residuals panel shows N report slots; the user assigns any defined report (forces, coefficients, probes, y+) to a slot; convergence banner shown only when stopping criteria exist.
 
 ### 6.2 Scenes and derived parts
 - Slices, clips, iso-surfaces, streamlines, scalar/vector fields on surfaces, Cp plots along sections, y+ on walls, mesh quality displays.
 - Acceptance: scene definitions saved in the project and reproducible; image export.
+- Scalar scenes: field selector (p, |U|, Mach, k, omega, nut, y+, any written field), colormap selector with several perceptual maps (e.g. viridis, plasma, turbo, coolwarm, grayscale), range auto/fixed/symmetric, legend bar with field name and units.
 
 ### 6.3 Data export and reports
 - CSV, VTK/EnSight, image sets, simple HTML/PDF run report (setup summary + results).

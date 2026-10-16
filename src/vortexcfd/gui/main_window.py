@@ -4,7 +4,7 @@ import logging
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRect, QSize, Qt
+from PySide6.QtCore import QEvent, QPointF, QRect, QSize, Qt
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
@@ -39,13 +39,14 @@ from vortexcfd.core.project import Project
 from vortexcfd.gui import console as console_log
 from vortexcfd.gui.console import ConsolePanel
 from vortexcfd.gui.dialogs import Dialogs
-from vortexcfd.gui.icons import make_glyph
+from vortexcfd.gui.icons import logo_icon, make_glyph
 from vortexcfd.gui.monitors import MonitorsPanel
 from vortexcfd.gui.properties_panel import PropertiesPanel
 from vortexcfd.gui.theme import (
     DEFAULT_POINT_SIZE,
     LAYOUT,
     LIMITS_U,
+    WINDOW_ICON_SIZES,
     Metrics,
     Theme,
     apply_theme,
@@ -55,7 +56,15 @@ from vortexcfd.gui.theme import (
     mono_font,
     save_appearance,
 )
-from vortexcfd.gui.topbar import TopBar
+from vortexcfd.gui.topbar import FIT_METHOD, VIEW_BUTTONS, TopBar
+from vortexcfd.gui.viewport import (
+    TELEMETRY_FIELDS,
+    EmptySceneMessage,
+    TelemetryCard,
+    add_ground_grid,
+    load_telemetry_settings,
+    save_telemetry_settings,
+)
 from vortexcfd.gui.widgets import SearchField, SectionHeader
 
 log = logging.getLogger(__name__)
@@ -227,8 +236,13 @@ class MainWindow(QMainWindow):
         self._saved_sizes: dict[str, list[int]] = {}
         # GUI-side visibility of each part (by name); Task 2.2 wires it to the viewer.
         self.part_visibility: dict[str, bool] = {}
-        self.telemetry_text = ""
-        self._mesh_actor = None
+        self.telemetry_rows: list[tuple[str, str]] = []
+        self.scene_actors: list = []  # geometry actors; the wireframe toggle applies to them
+        self.wireframe = False
+        self.current_view = "ISO"  # ISO, XY, XZ, YZ or Custom (after the user rotates)
+        self._telemetry_show, self._telemetry_fields = load_telemetry_settings()
+        self.telemetry = None
+        self._empty_message = None
         self.dialogs = dialogs if dialogs is not None else Dialogs(self)
         self._theme, self._point_size = load_appearance()
         apply_theme(self._theme, self._point_size)
@@ -299,13 +313,23 @@ class MainWindow(QMainWindow):
         self.viewer = None
         if with_viewer:
             # Placeholder from the spike; Task 2.2 replaces it.
-            import pyvista as pv
             from pyvistaqt import QtInteractor
 
             self.viewer = QtInteractor(self._center)
             self.plotter = self.viewer
-            self._mesh_actor = self.viewer.add_mesh(pv.Sphere(), color="lightblue", show_edges=True)
+            # Placeholder scene: ground grid and a centered "No geometry yet" (no mesh).
+            self._grid_actors = add_ground_grid(self.viewer, self._theme)
+            self._empty_message = EmptySceneMessage(self.viewer.renderer)
+            self.telemetry = TelemetryCard(self.viewer.renderer)
+            self.viewer.view_isometric()
             self.viewer.reset_camera()
+            try:  # a user rotation makes the view "Custom"
+                self.viewer.iren.add_observer(
+                    "EndInteractionEvent", lambda *_: self._on_camera_interaction()
+                )
+            except Exception:  # pragma: no cover - interactor without observers
+                log.exception("Could not observe camera interaction")
+            self.viewer.installEventFilter(self)
             canvas: QWidget = self.viewer
         else:
             canvas = QWidget()
@@ -357,6 +381,7 @@ class MainWindow(QMainWindow):
         central_layout.addWidget(self._outer, 1)
         self.setCentralWidget(central)
 
+        self.top_bar.set_active_view(self.current_view)
         self._apply_appearance()
         self.tree.currentItemChanged.connect(self._on_current_item_changed)
         self.set_project(project)
@@ -434,7 +459,8 @@ class MainWindow(QMainWindow):
         apply_theme(self._theme, self._point_size)
         m = metrics()
         t = self._theme
-        self.top_bar.configure(m, t)
+        self.top_bar.configure(m, t, self.devicePixelRatioF())
+        self.setWindowIcon(logo_icon(t, WINDOW_ICON_SIZES, self.devicePixelRatioF()))
         self.tree_header.configure(m)
         self.props_header.configure(m)
         self.props_name.setFont(mono_font(QApplication.font(), 0.9))
@@ -443,7 +469,7 @@ class MainWindow(QMainWindow):
         self.properties.apply_metrics(m, t)
         self.monitors.configure(m, t)
         self.console.configure(m, t)
-        self.node_badge.setFont(mono_font(QApplication.font(), 0.8))
+        self.node_badge.configure(m, t)
         self._delegate.configure(
             m, t,
             make_glyph("eye", QColor(t.muted_text), m.u, self.devicePixelRatioF()),
@@ -483,11 +509,21 @@ class MainWindow(QMainWindow):
 
     def _style_viewer(self) -> None:
         t = self._theme
+        m = metrics()
+        dpr = self.devicePixelRatioF()
         self.viewer.set_background(t.canvas)
+        self._style_axes()
+        self._empty_message.configure(t, m, dpr)
+        self.telemetry.configure(t, m, dpr)
+        self._update_telemetry()
+        self.viewer.render()
+
+    def _style_axes(self) -> None:
+        t = self._theme
+        m = metrics()
         self.viewer.hide_axes()
         # pyvista add_axes: color = label text color; x/y/z_color = axis colors; label_size is
         # forwarded to the marker. The widget occupies ~7u square, so labels scale with the font.
-        m = metrics()
         side = max(1, min(self.viewer.width(), self.viewer.height()))
         frac = min(0.5, 7 * m.u / side)
         self.viewer.add_axes(
@@ -495,8 +531,16 @@ class MainWindow(QMainWindow):
             line_width=max(2, round(m.u / 9)), viewport=(0, 0, frac, frac),
             label_size=(0.4, 0.16),
         )
-        self._update_telemetry()
-        self.viewer.render()
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.viewer and event.type() == QEvent.Type.Resize and self.telemetry is not None:
+            self._style_axes()
+            self._layout_telemetry()
+        return super().eventFilter(obj, event)
+
+    def _layout_telemetry(self) -> None:
+        height = round(self.viewer.height() * self.devicePixelRatioF())
+        self.telemetry.layout(height)
 
     def _apply_default_size(self) -> None:
         """78u x 47u, clamped to 90% of the available screen."""
@@ -623,32 +667,67 @@ class MainWindow(QMainWindow):
         self._update_telemetry()
 
     def _update_telemetry(self) -> None:
-        """Real values only; drawn inside the viewport by VTK."""
-        parts = len(self._project.sim.geometry.parts)
-        self.telemetry_text = (
-            "VIEWPORT TELEMETRY\n"
-            f"Parts:    {parts}\n"
-            f"Selected: {self._selected_name()}\n"
-            f"Cells:    {EMPTY}"
-        )
-        if self.viewer is not None:
-            size = max(7, round(self._point_size * 0.75))
-            self.viewer.add_text(
-                self.telemetry_text, position="upper_left", font_size=size,
-                color=self._theme.text, font="courier", name="telemetry", render=False,
-            )
+        """Real values only; the card is drawn inside the viewport by VTK."""
+        values = {
+            "parts": str(len(self._project.sim.geometry.parts)),
+            "selected": self._selected_name(),
+            "cells": EMPTY,
+            "view": self.current_view,
+        }
+        self.telemetry_rows = [
+            (label, values[key])
+            for key, label in TELEMETRY_FIELDS
+            if self._telemetry_show and self._telemetry_fields.get(key, False)
+        ]
+        if self.telemetry is not None:
+            self.telemetry.set_rows(self.telemetry_rows)
+            self._layout_telemetry()
             self.viewer.render()
+
+    def _set_telemetry(self, show: bool | None = None, field: str | None = None,
+                       checked: bool = True) -> None:
+        if show is not None:
+            self._telemetry_show = show
+        if field is not None:
+            self._telemetry_fields[field] = checked
+        save_telemetry_settings(self._telemetry_show, self._telemetry_fields)
+        self._update_telemetry()
+
+    def _set_current_view(self, name: str) -> None:
+        self.current_view = name
+        self.top_bar.set_active_view(name)
+        self._update_telemetry()
+
+    def _on_camera_interaction(self) -> None:
+        self._set_current_view("Custom")
 
     def _view(self, method: str) -> None:
         if self.viewer is None:
             return
         getattr(self.viewer, method)()
         self.viewer.render()
+        label = next((text for text, m, _ in VIEW_BUTTONS if m == method), None)
+        if method == FIT_METHOD:  # Fit is momentary: the active view stays as it was
+            self.top_bar.set_active_view(self.current_view)
+        elif label is not None:
+            self._set_current_view(label)
+
+    def add_scene_actor(self, actor) -> None:
+        """Register a geometry actor so the wireframe toggle applies to it."""
+        self.scene_actors.append(actor)
+        self._apply_representation()
+        if self._empty_message is not None:
+            self._empty_message.set_visible(False)
+
+    def _apply_representation(self) -> None:
+        for actor in self.scene_actors:
+            actor.prop.style = "wireframe" if self.wireframe else "surface"
+        if self.viewer is not None:
+            self.viewer.render()
 
     def _set_wireframe(self, on: bool) -> None:
-        if self._mesh_actor is not None:
-            self._mesh_actor.prop.style = "wireframe" if on else "surface"
-            self.viewer.render()
+        self.wireframe = on
+        self._apply_representation()
 
     def _set_filter(self, text: str) -> None:
         self._filter = text.strip().casefold()
@@ -770,6 +849,22 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         view_menu.addAction(self.act_toggle_sidebars)
         view_menu.addActions([self.act_toggle_monitors, self.act_toggle_console])
+        view_menu.addSeparator()
+        tel_menu = view_menu.addMenu("Viewport &Telemetry")
+        self.act_tel_show = action("Show telemetry", lambda checked=False: self._set_telemetry(show=checked))
+        self.act_tel_show.setCheckable(True)
+        self.act_tel_show.setChecked(self._telemetry_show)
+        tel_menu.addAction(self.act_tel_show)
+        tel_menu.addSeparator()
+        self.act_tel_fields: dict[str, QAction] = {}
+        for key, label in TELEMETRY_FIELDS:
+            act = action(
+                label, lambda checked=False, k=key: self._set_telemetry(field=k, checked=checked)
+            )
+            act.setCheckable(True)
+            act.setChecked(self._telemetry_fields[key])
+            self.act_tel_fields[key] = act
+            tel_menu.addAction(act)
 
     def _update_actions(self) -> None:
         p = self._project

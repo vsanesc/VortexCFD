@@ -1,7 +1,7 @@
 """UI glyphs drawn in code (no image files)."""
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 
 def make_glyph(name: str, color: QColor, size: int, dpr: float = 1.0) -> QIcon:
     """Small UI glyphs drawn in code, crisp at ``dpr``.
@@ -65,3 +65,39 @@ def make_glyph(name: str, color: QColor, size: int, dpr: float = 1.0) -> QIcon:
             p.drawLine(QPointF(c, a), QPointF(c, b))
     p.end()
     return QIcon(pm)
+
+
+def logo_pixmap(theme, side: int, dpr: float = 1.0) -> QPixmap:
+    """VortexCFD logo placeholder: tinted rounded square with a bold mono "V"."""
+    from vortexcfd.gui.theme import LOGO_FILL_ALPHA, LOGO_RADIUS_FRACTION, blend, mono_font
+
+    px = max(1, round(side * dpr))
+    pm = QPixmap(px, px)
+    pm.setDevicePixelRatio(dpr)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+    line = 1.0
+    accent = QColor(theme.accent_secondary)
+    p.setPen(QPen(accent, line))
+    p.setBrush(QColor(blend(theme.accent_secondary, theme.base, LOGO_FILL_ALPHA)))
+    box = QRectF(line / 2, line / 2, side - line, side - line)
+    radius = side * LOGO_RADIUS_FRACTION
+    p.drawRoundedRect(box, radius, radius)
+    font = mono_font(QFont())
+    font.setBold(True)
+    font.setPixelSize(max(1, round(side * 0.62)))
+    p.setFont(font)
+    p.setPen(accent)
+    p.drawText(box, int(Qt.AlignmentFlag.AlignCenter), "V")
+    p.end()
+    return pm
+
+
+def logo_icon(theme, sizes: tuple[int, ...], dpr: float = 1.0) -> QIcon:
+    """The logo as an icon with one pixmap per size (px)."""
+    icon = QIcon()
+    for side in sizes:
+        icon.addPixmap(logo_pixmap(theme, side, dpr))
+    return icon
