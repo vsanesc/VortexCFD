@@ -67,8 +67,8 @@ def test_loader_errors(tmp_path: Path) -> None:
         load_surface(tmp_path / "missing.stl", "m")
     bad = tmp_path / "bad.stl"
     bad.write_text("this is not an stl")
-    with pytest.raises(SurfaceLoadError):
-        load_surface(bad, "m")
+    with pytest.warns(UserWarning, match="vtkSTLReader"), pytest.raises(SurfaceLoadError):
+        load_surface(bad, "m")  # VTK reports the failed read as a UserWarning
     ok = tmp_path / "ok.stl"
     make_sphere().save(str(ok))
     with pytest.raises(SurfaceLoadError, match="Unknown units"):
