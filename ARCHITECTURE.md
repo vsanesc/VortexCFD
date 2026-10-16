@@ -77,6 +77,9 @@ src/vortexcfd/
   - May import `core` and `foam`.
 - **Enforcement Rule**: `core` and `foam` must never import `gui`. This guarantees that simulation data manipulation, case generation, and solver execution remain fully decoupled from the graphical user interface, enabling headless automation and CLI operation.
 
+## 5b. Validation
+`tests/validation/` holds numerics validation cases (marker `validation`, run with `pytest -m validation`); `tests/validation/flat_plate_case.py` builds a 2D flat plate with blockMesh and the app's own solver files, and results and verdicts are written to `docs/validation/<case>/`.
+
 ## 6. Simulation Outputs
 - All simulation output directories, intermediate files, and temporary execution logs are written under `run/` at the repository root.
 - The `run/` directory is git-ignored.

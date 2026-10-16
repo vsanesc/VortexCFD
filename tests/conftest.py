@@ -101,3 +101,14 @@ def sphere_mesh(tmp_path_factory):
     out.result = run.wait(115)
     assert out.result is not None and out.result.success, "the shared sphere mesh failed to build"
     return out
+
+
+def pytest_collection_modifyitems(config, items):
+    """Validation tests (minutes of OpenFOAM) run only when selected with ``-m validation``."""
+    expression = config.getoption("markexpr") or ""
+    if "validation" in expression and "not validation" not in expression:
+        return
+    skip = pytest.mark.skip(reason="validation test: run with `pytest -m validation`")
+    for item in items:
+        if "validation" in item.keywords:
+            item.add_marker(skip)
