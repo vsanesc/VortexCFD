@@ -43,6 +43,9 @@ def test_owner_values_are_exact() -> None:
     assert (t.success, t.warning, t.error) == ("#10B981", "#FACC15", "#F43F5E")
     assert (t.part_surface, t.part_edge) == ("#7F8DA3", "#2A3446")
     assert t.part_selected == t.accent_secondary == "#00B4A2"
+    # Mesh section: edges in the owner's disabled_text colour, faces in elevated.
+    assert t.mesh_edge == t.disabled_text == "#526077"
+    assert t.mesh_surface == t.elevated == "#1A202C"
     # The dim tokens are the accents at alpha 0.15 over base; the selection row uses the teal one.
     assert t.accent_secondary_dim == blend("#00B4A2", t.base, 0.15)
     assert t.accent_dim == blend("#FF8800", t.base, 0.15)
@@ -99,10 +102,12 @@ def test_zoom_actions_and_persistence(make_window) -> None:
     assert app.font().pointSize() == 11
     window.act_zoom_in.trigger()
     assert app.font().pointSize() == 12
-    for _ in range(14):  # 12 steps reach the maximum, the rest must be ignored
+    window.set_point_size(MAX_POINT_SIZE - 1)
+    for _ in range(3):  # one step reaches the maximum, the rest must be ignored
         window.act_zoom_in.trigger()
     assert app.font().pointSize() == MAX_POINT_SIZE
-    for _ in range(18):  # 16 steps reach the minimum
+    window.set_point_size(MIN_POINT_SIZE + 1)
+    for _ in range(3):  # one step reaches the minimum
         window.act_zoom_out.trigger()
     assert app.font().pointSize() == MIN_POINT_SIZE
     window.act_zoom_in.trigger()

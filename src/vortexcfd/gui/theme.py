@@ -55,6 +55,8 @@ class Theme:
     part_surface: str  # imported part faces in the viewer
     part_edge: str  # imported part edges
     part_selected: str  # selected part (= accent_secondary)
+    mesh_edge: str  # cell edges of the mesh section (owner colour disabled_text, reused)
+    mesh_surface: str  # cell faces of the mesh section (= elevated)
     success: str
     warning: str
     error: str
@@ -91,6 +93,8 @@ DARK = Theme(
     part_surface="#7F8DA3",
     part_edge="#2A3446",
     part_selected=_ACCENT_SECONDARY,
+    mesh_edge="#526077",
+    mesh_surface="#1A202C",
     success="#10B981",
     warning="#FACC15",
     error="#F43F5E",
@@ -141,6 +145,7 @@ TELEMETRY_LINE_SPACING = 1.35  # VTK line spacing of the card text
 TELEMETRY_TITLE_SCALE = 0.8  # card title size relative to the body
 TELEMETRY_GAP_CHARS = 2  # characters between the label and value columns
 BOUNDARY_FACE_OPACITY = 0.25  # translucent domain boundary patches in the mesh scene
+SECTION_PREVIEW_MS = 150  # while dragging the section slider, re-slice at most this often
 SECTION_SLIDER_STEPS = 1000  # resolution of the section offset slider
 SECTION_EPS_FRACTION = 0.002  # nudge of a section plane off a boundary face (fraction of the extent)
 DOMAIN_OPACITY = 0.6  # translucent domain wireframe

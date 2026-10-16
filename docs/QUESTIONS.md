@@ -45,3 +45,10 @@ Decisions taken while Vic was away (Tasks 3.4 and 5.1). Each one is reversible; 
 
 30. **Rows are stacked at the default width.** The left column now starts at 18u (min 14u, max 28u), but the property rows only go side by side when the panel is at least 20u wide (label column clamped to [8u, 50 %], field at least 7u), so at the default 18u the rows are still stacked; they switch to side by side as soon as the column is dragged past 20u (screenshots `v5_mesh_side_by_side_font*.png` show 24u). Say if the default should be 20u instead.
 31. **Monitors column** default width is now 25 % of the window (was 34.7 % measured on the mockup) so that the viewer keeps at least 50 % at 78u next to the 18u sidebar (tests for fonts 11, 14 and 18).
+
+## Layer metric, section contrast, slider, test speed
+
+32. **Layer warning** uses both numbers per patch: layers present / target (from snappy's "mesh" layers column, an average) and the achieved thickness percentage; either below 80 % warns. They are shown as "2.1 / 3 (70 %), thickness 64 %".
+33. **Section look.** Cells use `mesh_edge` (#526077) over `mesh_surface` (#1A202C); framing is the parts' box plus 0.3 part extents, which makes the three prism layers visible as parallel bands along the wall at the default zoom (checked at 1:1 pixels on a 1 m sphere; they are 3-4 px thick).
+34. **Slider.** Dragging re-slices at most every 150 ms (leading edge, then trailing flushes) and once more on release; keyboard and programmatic changes slice at once.
+35. **Test speed.** The big slowdown was windows never being destroyed between tests (pytest-qt only calls deleteLater and nothing ran the deferred deletes), so each test got slower; an autouse fixture now flushes them. pytest-xdist is added as a dev dependency: `-n 8` passed the full suite 6 times (offscreen and real display) with the Qt and OpenFOAM tests; each worker builds its own session sphere mesh (tmp_path_factory), QSettings are per-test temp dirs, so nothing is shared. `scripts/ship.sh` still runs the plain single-process offscreen suite.

@@ -574,10 +574,7 @@ class PropertiesPanel(QWidget):
         if report is None:
             return
         for cov in report.layers:
-            label = QLabel(
-                f"{cov.mesh_layers:g}/{cov.target_layers} layers, {cov.thickness_m:.4g} m, "
-                f"{cov.coverage_percent:g} % of target {cov.basis}"
-            )
+            label = QLabel(f"{cov.description()} ({cov.thickness_m:.4g} m)")
             label.setObjectName("checkValue")
             label.setFont(mono_font(QApplication.font(), 0.9))
             _wrap(label)

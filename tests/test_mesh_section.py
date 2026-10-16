@@ -113,11 +113,50 @@ def test_part_walls_are_clipped_behind_the_plane_when_the_section_is_on(view: Me
     assert view.section_actor.GetVisibility()
 
 
-def test_walls_use_part_surface_and_the_section_uses_elevated_with_part_edge(view: MeshView) -> None:
+def test_walls_use_part_surface_and_the_section_uses_the_mesh_tokens(view: MeshView) -> None:
     assert pv.Color(view.actors[0].prop.color).hex_rgb.lower() == DARK.part_surface.lower()
-    assert pv.Color(view.section_actor.prop.color).hex_rgb.lower() == DARK.elevated.lower()
+    assert pv.Color(view.section_actor.prop.color).hex_rgb.lower() == DARK.mesh_surface.lower()
     assert view.section_actor.prop.show_edges
-    assert pv.Color(view.section_actor.prop.edge_color).hex_rgb.lower() == DARK.part_edge.lower()
+    assert pv.Color(view.section_actor.prop.edge_color).hex_rgb.lower() == DARK.mesh_edge.lower()
+
+
+def test_dragging_the_slider_slices_a_handful_of_times_plus_one_final(sphere_mesh, qtbot) -> None:
+    from tests.fakes import FakeDialogs
+    from vortexcfd.core.project import Project
+    from vortexcfd.gui.main_window import MainWindow
+    from vortexcfd.gui.theme import SECTION_PREVIEW_MS, SECTION_SLIDER_STEPS
+
+    w = MainWindow(Project.new("slider"), FakeDialogs(), with_viewer=True)
+    qtbot.addWidget(w)
+    w.show()
+    try:
+        assert w.mesh_view.load(sphere_mesh.case_dir, ("Sphere",))
+        w._set_scene_mode("mesh")
+        assert w.section_slider.isVisible()
+        calls = []
+        original = w.mesh_view.set_section
+        w.mesh_view.set_section = lambda **kw: (calls.append(kw), original(**kw))[1]
+        slider = w.section_slider
+        slider.setSliderDown(True)  # start dragging
+        for i in range(50):  # 50 positions in far less than 150 ms
+            slider.setValue(100 + 10 * i)
+        during = len(calls)
+        assert 1 <= during <= 3, during  # the first preview, at most a couple more
+        slider.setSliderDown(False)  # release: one final slice at the last position
+        assert len(calls) <= during + 1 and len(calls) <= 4
+        lo, hi = w.mesh_view.volume_bounds()[2:4]
+        expected = lo + (100 + 10 * 49) / SECTION_SLIDER_STEPS * (hi - lo)
+        assert w.mesh_view.section_position == pytest.approx(expected)
+        qtbot.wait(2 * SECTION_PREVIEW_MS)
+        assert len(calls) <= 4  # nothing slices after the release (no stale pending preview)
+        assert w.mesh_view.section_position == pytest.approx(expected)
+        # Without dragging (keyboard, programmatic) each change slices immediately.
+        before = len(calls)
+        slider.setValue(300)
+        assert len(calls) == before + 1
+    finally:
+        w.project.save = lambda *a, **k: None
+        w.close()
 
 
 def test_domain_boundary_patches_are_optional_translucent_faces(view: MeshView) -> None:

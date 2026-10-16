@@ -296,6 +296,7 @@ def test_parse_layer_table_from_the_real_snappy_log() -> None:
     layers, extruded = parse_layer_table((DATA / "snappyHexMesh_sphere_default.log").read_text())
     assert layers == (LayerCoverage("Sphere", 9460, 3, 3.0, 0.0211, 100.0),)  # the FINAL table
     assert layers[0].basis == "thickness" and layers[0].coverage_percent == 100.0
+    assert layers[0].layers_percent == 100.0 and layers[0].description() == "3 / 3 (100 %), thickness 100 %"
     assert not layers[0].below_threshold
     assert extruded == 100.0  # "Extruding 9460 out of 9460 faces (100%)"
 
@@ -322,6 +323,7 @@ Layer mesh : cells:1
     assert [c.patch for c in layers] == ["wing", "tail"]
     assert layers[0].below_threshold and layers[0].thickness_percent == 55.5 and layers[0].mesh_layers == 2.5
     assert not layers[1].below_threshold and LAYER_WARN_PERCENT == 80.0
+    assert layers[0].description() == "2.5 / 3 (83 %), thickness 55.5 %"
     assert extruded == 90.0
     assert parse_layer_table("no table here") == ((), None)
 
@@ -366,3 +368,15 @@ def test_patch_names_never_collide_with_boundaries_or_each_other() -> None:
     assert not set(names) & {"inlet", "outlet", "sides", "top", "bottom", "symmetry"}
     assert safe_part_names(["inlet", "inlet"]) == ["inlet_1", "inlet_2"]  # deterministic suffixes
     assert safe_part_names(["inlet", "inlet"]) == safe_part_names(["inlet", "inlet"])
+
+
+def test_layer_warning_uses_either_metric() -> None:
+    ok = LayerCoverage("a", 10, 3, 3.0, 0.01, 95.0)
+    few_layers = LayerCoverage("b", 10, 3, 2.1, 0.01, 95.0)  # 70 % of the layers, thickness fine
+    thin = LayerCoverage("c", 10, 3, 3.0, 0.01, 64.0)  # all layers, only 64 % of the thickness
+    assert not ok.below_threshold
+    assert few_layers.layers_percent == pytest.approx(70.0) and few_layers.below_threshold
+    assert thin.below_threshold and not thin.layers_percent < 80
+    assert few_layers.description() == "2.1 / 3 (70 %), thickness 95 %"
+    report = MeshReport(1, 1, 1, 1.0, 1.0, 0.1, 0, True, layers=(few_layers, thin))
+    assert "b 2.1 / 3 (70 %), thickness 95 %" in report.layer_summary()

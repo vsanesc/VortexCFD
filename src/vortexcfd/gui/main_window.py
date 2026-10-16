@@ -6,7 +6,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QPointF, QRect, QSize, Qt
+from PySide6.QtCore import QEvent, QPointF, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
@@ -71,6 +71,7 @@ from vortexcfd.gui.theme import (
     LAYOUT,
     LEFT_INITIAL_U,
     LIMITS_U,
+    SECTION_PREVIEW_MS,
     SECTION_SLIDER_STEPS,
     WINDOW_ICON_SIZES,
     Metrics,
@@ -392,6 +393,12 @@ class MainWindow(QMainWindow):
         self.section_slider.setRange(0, SECTION_SLIDER_STEPS)
         self.section_slider.setToolTip("Section plane offset along its normal (within the domain)")
         self.section_slider.valueChanged.connect(self._on_section_slider)
+        self.section_slider.sliderReleased.connect(self._on_section_slider_released)
+        self._pending_slice: int | None = None
+        self._slice_timer = QTimer(self)
+        self._slice_timer.setSingleShot(True)
+        self._slice_timer.setInterval(SECTION_PREVIEW_MS)
+        self._slice_timer.timeout.connect(self._flush_slice_preview)
         sc_row.addWidget(self.section_slider)
         self.boundary_toggle = DotButton("Boundaries")
         self.boundary_toggle.setCheckable(True)
@@ -1095,6 +1102,28 @@ class MainWindow(QMainWindow):
         self.viewer.render()
 
     def _on_section_slider(self, value: int) -> None:
+        """While the handle is dragged the plane is re-sliced at most every 150 ms (a preview);
+        keyboard and programmatic changes slice at once; releasing the handle slices for good."""
+        if not self.section_slider.isSliderDown():
+            self._slice_at(value)
+            return
+        self._pending_slice = value
+        if not self._slice_timer.isActive():
+            self._flush_slice_preview()
+
+    def _flush_slice_preview(self) -> None:
+        if self._pending_slice is None:
+            return
+        value, self._pending_slice = self._pending_slice, None
+        self._slice_at(value)
+        self._slice_timer.start()  # no new preview before another 150 ms
+
+    def _on_section_slider_released(self) -> None:
+        self._slice_timer.stop()
+        self._pending_slice = None
+        self._slice_at(self.section_slider.value())  # the final, full re-slice
+
+    def _slice_at(self, value: int) -> None:
         view = self.mesh_view
         if view is None or not view.has_volume:
             return

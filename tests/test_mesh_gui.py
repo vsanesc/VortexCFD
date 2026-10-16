@@ -295,6 +295,7 @@ def test_end_to_end_meshing_through_the_window(make_window, qtbot) -> None:
     # Layer coverage of the real run, shown in the Mesh properties.
     assert [c.patch for c in w.mesh_report.layers] == ["Ball"] and w.properties.layer_labels
     print("\nGUI layers:", w.properties.layer_labels[0].text())
+    assert "/" in w.properties.layer_labels[0].text() and "thickness" in w.properties.layer_labels[0].text()
     # The old mesh stays visible in the Mesh Scene with an out-of-date warning.
     w.mesh_tab.click()
     assert "mesh_stale" not in w.viewer.renderer.actors and not w.mesh_stale
@@ -414,11 +415,10 @@ def test_layer_coverage_rows_warn_below_80_percent(make_window, fake_run) -> Non
     fake_run.instances[-1].finish(MeshRunResult(True, False, exit_codes={}, report=report))
     p = w.properties
     assert len(p.layer_labels) == 2
-    assert "2/3 layers" in p.layer_labels[0].text() and "55.5 %" in p.layer_labels[0].text()
-    assert "thickness" in p.layer_labels[0].text()  # says which basis the coverage is
+    assert p.layer_labels[0].text().startswith("2 / 3 (67 %), thickness 55.5 %")  # both metrics
     assert p.layer_labels[0].property("warn") == "true" and p.layer_labels[1].property("warn") == "false"
     assert p.mesh_values["extruded"].text() == "88 %"
-    assert "Layers:" in w.console.text() and "Ball 55.5%" in w.console.text()
+    assert "Layers:" in w.console.text() and "Ball 2 / 3 (67 %), thickness 55.5 %" in w.console.text()
     assert "WARNING" in w.console.text()  # low coverage is logged as a warning
 
 

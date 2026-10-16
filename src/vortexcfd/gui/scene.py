@@ -379,7 +379,7 @@ class MeshView:
             cut = self._internal.slice(normal=normal, origin=origin)
             if cut.n_cells:
                 self.section_actor = self.plotter.add_mesh(
-                    cut, color=t.elevated, show_edges=True, edge_color=t.part_edge, line_width=1,
+                    cut, color=t.mesh_surface, show_edges=True, edge_color=t.mesh_edge, line_width=1,
                     lighting=False, pickable=False, reset_camera=False, render=False,
                     name=self.SECTION_NAME,
                 )
@@ -406,7 +406,7 @@ class MeshView:
         return (min(b[0] for b in boxes), max(b[1] for b in boxes), min(b[2] for b in boxes),
                 max(b[3] for b in boxes), min(b[4] for b in boxes), max(b[5] for b in boxes))
 
-    FOCUS_MARGIN = 0.75  # section framing: the parts' box grown by this many part extents
+    FOCUS_MARGIN = 0.3  # section framing: the parts' box grown by this many part extents
 
     def focus_bounds(self):
         """Bounds to frame: the parts' box with a margin (so the refinement and the prism layers
