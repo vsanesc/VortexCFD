@@ -19,3 +19,4 @@ build/
 log.*
 cavity/
 run/
+*:Zone.Identifier

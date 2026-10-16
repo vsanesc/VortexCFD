@@ -1,6 +1,8 @@
 """Main window bound to a Project, laid out after docs/design/design_preview.png."""
 
 import logging
+import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -41,7 +43,10 @@ from vortexcfd.gui.console import ConsolePanel
 from vortexcfd.gui.dialogs import Dialogs
 from vortexcfd.gui.icons import logo_icon, make_glyph
 from vortexcfd.gui.monitors import MonitorsPanel
+from vortexcfd.geometry.checks import surface_report
+from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.gui.properties_panel import PropertiesPanel
+from vortexcfd.gui.scene import ERROR, MISSING, PartScene, part_status, report_for_part
 from vortexcfd.gui.theme import (
     DEFAULT_POINT_SIZE,
     LAYOUT,
@@ -237,12 +242,15 @@ class MainWindow(QMainWindow):
         # GUI-side visibility of each part (by name); Task 2.2 wires it to the viewer.
         self.part_visibility: dict[str, bool] = {}
         self.telemetry_rows: list[tuple[str, str]] = []
-        self.scene_actors: list = []  # geometry actors; the wireframe toggle applies to them
+        self.scene_actors: list = []  # extra geometry actors (besides the parts) for the wireframe toggle
+        self.scene: PartScene | None = None
         self.wireframe = False
         self.current_view = "ISO"  # ISO, XY, XZ, YZ or Custom (after the user rotates)
         self._telemetry_show, self._telemetry_fields = load_telemetry_settings()
         self.telemetry = None
         self._empty_message = None
+        self._grid_actors: list = []
+        self._framed_visibility = False
         self.dialogs = dialogs if dialogs is not None else Dialogs(self)
         self._theme, self._point_size = load_appearance()
         apply_theme(self._theme, self._point_size)
@@ -323,6 +331,11 @@ class MainWindow(QMainWindow):
             self.telemetry = TelemetryCard(self.viewer.renderer)
             self.viewer.view_isometric()
             self.viewer.reset_camera()
+            self.scene = PartScene(self.viewer, self._theme, self._on_viewer_pick)
+            try:
+                self.scene.install_picking()
+            except Exception:  # pragma: no cover - interactor without observers
+                log.exception("Could not install viewer picking")
             try:  # a user rotation makes the view "Custom"
                 self.viewer.iren.add_observer(
                     "EndInteractionEvent", lambda *_: self._on_camera_interaction()
@@ -579,8 +592,9 @@ class MainWindow(QMainWindow):
 
     def _refresh(self) -> None:
         sim = self._project.sim
-        self._rebuild_tree(sim.name, [p.name for p in sim.geometry.parts])
+        self._rebuild_tree(sim.name, list(sim.geometry.parts))
         self.properties.show_node(*(self._selection or ("root", None)))
+        self._sync_scene()
         self._update_selection_views()
         self._update_actions()
         self._update_title(sim.name)
@@ -589,7 +603,7 @@ class MainWindow(QMainWindow):
         color = QColor(getattr(self._theme, token))
         return make_glyph(glyph, color, self.tree.iconSize().height(), self.devicePixelRatioF())
 
-    def _rebuild_tree(self, name: str, part_names: list[str]) -> None:
+    def _rebuild_tree(self, name: str, parts: list[Part]) -> None:
         wanted = self._selection
         t = self._theme
         self.tree.blockSignals(True)
@@ -611,10 +625,15 @@ class MainWindow(QMainWindow):
 
             root = add(self.tree, "root", None, name, "dot", "text")
             geometry = add(root, "geometry", None, "Geometry", "folder", "text")
-            parts = add(geometry, "parts", None, "Parts", "folder", "text")
-            for i, part_name in enumerate(part_names):
-                add(parts, "part", i, part_name, "dot", "accent_secondary",
-                    eye=self.part_visibility.get(part_name, True))
+            parts_item = add(geometry, "parts", None, "Parts", "folder", "text")
+            for i, part in enumerate(parts):
+                status = part_status(self._project, part)
+                broken = status == MISSING or (status != "none" and not self._loadable(part))
+                item = add(parts_item, "part", i, part.name, "dot",
+                           "warning" if broken else "accent_secondary",
+                           eye=self.part_visibility.get(part.name, True))
+                if broken:
+                    item.setToolTip(0, "File not found" if status == MISSING else "Cannot load file")
             continua = add(root, "continua", None, "Continua", "folder", "text")
             add(continua, "mesh", None, "Mesh", "dot", "accent_secondary")
             add(continua, "physics", None, "Physics", "dot", "accent")
@@ -635,6 +654,9 @@ class MainWindow(QMainWindow):
         self.node_badge.setText(f"{self.node_count()} Nodes")
         self._apply_filter()
 
+    def _loadable(self, part: Part) -> bool:
+        return report_for_part(self._project, part) is not None
+
     def node_count(self) -> int:
         """Real tree nodes shown (the hidden root and the "(none yet)" row are not counted)."""
         return len(self._items) - 2
@@ -648,6 +670,7 @@ class MainWindow(QMainWindow):
         self.part_visibility[name] = visible
         item.setData(0, ROLE_EYE, visible)
         self.tree.viewport().update()
+        self._sync_scene()
 
     def _select_root(self) -> None:
         if self._root_item is not None:
@@ -660,7 +683,46 @@ class MainWindow(QMainWindow):
         item = self._items.get((kind, index))
         return item.text(0) if item is not None else EMPTY
 
+    def _on_viewer_pick(self, index: int) -> None:
+        """A part was clicked in the viewer: select it in the tree."""
+        item = self._items.get(("part", index))
+        if item is not None:
+            self.tree.setCurrentItem(item)
+
+    def _selected_part(self) -> Part | None:
+        index = self._selected_part_index()
+        parts = self._project.sim.geometry.parts
+        return parts[index] if index is not None and index < len(parts) else None
+
+    def _sync_scene(self) -> None:
+        """Bring the viewer's part actors in line with the project (add, remove, edit, undo)."""
+        if self.scene is None:
+            return
+        changed = self.scene.sync(self._project, self.part_visibility, self._selected_part_index())
+        self._apply_representation()
+        if changed or self._framed_visibility != self.scene.has_visible():
+            self._frame_parts()
+        self._framed_visibility = self.scene.has_visible()
+        self._update_empty_state()
+        self.viewer.render()
+
+    def _frame_parts(self) -> None:
+        bounds = self.scene.visible_bounds()
+        if bounds is not None:
+            self.viewer.reset_camera(render=False, bounds=bounds)
+
+    def _update_empty_state(self) -> None:
+        """Hide the empty-scene grid and message when any part (or extra actor) is visible."""
+        has_geometry = (self.scene is not None and self.scene.has_visible()) or bool(self.scene_actors)
+        for actor in self._grid_actors:
+            actor.SetVisibility(not has_geometry)
+        if self._empty_message is not None:
+            self._empty_message.set_visible(not has_geometry)
+
     def _update_selection_views(self) -> None:
+        if self.scene is not None:
+            self.scene.set_selected(self._selected_part_index())
+            self.viewer.render()
         name = self._selected_name()
         self.props_name.setText(name)
         self._selection_label.setText(f"Active selection: {name}")
@@ -671,6 +733,7 @@ class MainWindow(QMainWindow):
         values = {
             "parts": str(len(self._project.sim.geometry.parts)),
             "selected": self._selected_name(),
+            "triangles": self._selected_triangles(),
             "cells": EMPTY,
             "view": self.current_view,
         }
@@ -683,6 +746,11 @@ class MainWindow(QMainWindow):
             self.telemetry.set_rows(self.telemetry_rows)
             self._layout_telemetry()
             self.viewer.render()
+
+    def _selected_triangles(self) -> str:
+        part = self._selected_part()
+        report = report_for_part(self._project, part) if part is not None else None
+        return str(report.n_triangles) if report is not None else EMPTY
 
     def _set_telemetry(self, show: bool | None = None, field: str | None = None,
                        checked: bool = True) -> None:
@@ -716,12 +784,13 @@ class MainWindow(QMainWindow):
         """Register a geometry actor so the wireframe toggle applies to it."""
         self.scene_actors.append(actor)
         self._apply_representation()
-        if self._empty_message is not None:
-            self._empty_message.set_visible(False)
+        self._update_empty_state()
 
     def _apply_representation(self) -> None:
-        for actor in self.scene_actors:
+        parts = self.scene.actors if self.scene is not None else []
+        for actor in (*parts, *self.scene_actors):
             actor.prop.style = "wireframe" if self.wireframe else "surface"
+            actor.prop.show_edges = self.wireframe  # edges are off unless wireframe is on
         if self.viewer is not None:
             self.viewer.render()
 
@@ -809,6 +878,7 @@ class MainWindow(QMainWindow):
         S = QKeySequence.StandardKey
         self.act_new = action("&New", self.new_project, S.New)
         self.act_open = action("&Open...", self.open_project, S.Open)
+        self.act_import = action("&Import Surface...", self.import_surface, "Ctrl+I")
         self.act_save = action("&Save", self.save, S.Save)
         self.act_save_as = action("Save &As...", self.save_as, S.SaveAs)
         self.act_quit = action("&Quit", self.close, S.Quit)
@@ -835,7 +905,7 @@ class MainWindow(QMainWindow):
             act.setChecked(True)
 
         file_menu = self.menuBar().addMenu("&File")
-        file_menu.addActions([self.act_new, self.act_open])
+        file_menu.addActions([self.act_new, self.act_open, self.act_import])
         file_menu.addSeparator()
         file_menu.addActions([self.act_save, self.act_save_as])
         file_menu.addSeparator()
@@ -943,6 +1013,63 @@ class MainWindow(QMainWindow):
         log.info("Saved %s", self._project.path)
         self.show_message(f"Saved {self._project.path}", "success")
         return True
+
+    def import_surface(self) -> None:
+        """File > Import Surface: copy a surface file into <project>/geometry/ and add a Part."""
+        self._flush_edits()
+        if self._project.path is None and not self.save_as():  # the copy needs a project folder
+            return
+        source = self.dialogs.ask_import_path()
+        if source is None:
+            return
+        units = self.dialogs.ask_units()
+        if units is None:
+            return
+        project_dir = self._project.path.parent
+        folder = project_dir / "geometry"
+        dest = None
+        try:
+            folder.mkdir(exist_ok=True)
+            dest = self._unique_path(folder, source.name)
+            shutil.copy2(source, dest)
+            report = surface_report(dest, units)
+        except (OSError, SurfaceLoadError) as exc:
+            if dest is not None:
+                dest.unlink(missing_ok=True)
+            self.show_message(f"Could not import {source.name}: {exc}", "error")
+            return
+        taken = {p.name for p in self._project.sim.geometry.parts}
+        name = self._unique_name(source.stem, taken)
+        relative = Path(os.path.relpath(dest, project_dir)).as_posix()
+        previous = self._selection
+        self._selection = ("part", len(taken))  # the observer refresh selects the new part
+        try:
+            self._project.add_part(Part(name=name, source_file=relative, units=units))
+        except (ValueError, TypeError) as exc:
+            self._selection = previous
+            dest.unlink(missing_ok=True)
+            self.show_message(f"Could not import {source.name}: {exc}", "error")
+            return
+        log.info("Imported %s as part '%s' (units: %s)", source.name, name, units)
+        log.info("Checks for '%s': %s", name, report.summary())
+        self.show_message(f"Imported {source.name} as '{name}'", "success", log_it=False)
+
+    @staticmethod
+    def _unique_path(folder: Path, file_name: str) -> Path:
+        candidate = folder / file_name
+        stem, suffix, n = candidate.stem, candidate.suffix, 1
+        while candidate.exists():
+            n += 1
+            candidate = folder / f"{stem}_{n}{suffix}"
+        return candidate
+
+    @staticmethod
+    def _unique_name(base: str, taken: set[str]) -> str:
+        name, n = base, 1
+        while name in taken:
+            n += 1
+            name = f"{base}_{n}"
+        return name
 
     def _confirm_discard(self) -> bool:
         """True if it is OK to drop the current project (saved, discarded or not dirty)."""

@@ -227,7 +227,8 @@ def test_telemetry_rows_real_values_in_order(make_window) -> None:
     w = make_window(parts=3)
     w.tree.setCurrentItem(w._items[("part", 1)])
     assert w.telemetry_rows == [
-        ("Parts", "3"), ("Selected node", "Part 2"), ("Cells", "\u2014"), ("View", "ISO"),
+        ("Parts", "3"), ("Selected node", "Part 2"), ("Triangles", "\u2014"),
+        ("Cells", "\u2014"), ("View", "ISO"),
     ]
 
 
@@ -237,6 +238,7 @@ def test_telemetry_follows_checked_fields_and_persists(make_window, qtbot) -> No
     w = make_window(with_viewer=True)
     w.act_tel_fields["selected"].trigger()  # uncheck
     w.act_tel_fields["view"].trigger()
+    w.act_tel_fields["triangles"].trigger()
     assert [label for label, _ in w.telemetry_rows] == ["Parts", "Cells"]
     assert w.telemetry.visible and "Selected" not in w.telemetry.labels.GetInput()
     for key in ("parts", "cells"):

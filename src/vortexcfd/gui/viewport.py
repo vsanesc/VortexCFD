@@ -26,6 +26,7 @@ TITLE = "VIEWPORT TELEMETRY"
 TELEMETRY_FIELDS = (
     ("parts", "Parts"),
     ("selected", "Selected node"),
+    ("triangles", "Triangles"),
     ("cells", "Cells"),
     ("view", "View"),
 )
