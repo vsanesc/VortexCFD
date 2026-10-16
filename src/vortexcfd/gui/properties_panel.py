@@ -2,7 +2,7 @@
 
 from typing import get_args
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QComboBox, QFormLayout, QLabel, QLineEdit, QWidget
 
 from vortexcfd.core.model import Part
@@ -28,21 +28,40 @@ class PropertiesPanel(QWidget):
         self._name_pending = False  # user typed in the name field without committing yet
 
         self.name_edit = QLineEdit()
-        self.source_label = QLabel()
+        self.source_label = QLineEdit()  # read-only field (import comes in Phase 3)
+        self.source_label.setReadOnly(True)
         self.units_combo = QComboBox()
         self.units_combo.addItems(ALLOWED_UNITS)
         self.info_label = QLabel("No properties yet")
+        self.info_label.setObjectName("muted")
 
         self._form = QFormLayout(self)
-        self._form.addRow("Name", self.name_edit)
-        self._form.addRow("Source file", self.source_label)
-        self._form.addRow("Units", self.units_combo)
+        self._form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        self._form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
+        for text, field in (
+            ("Name", self.name_edit),
+            ("Source file", self.source_label),
+            ("Units", self.units_combo),
+        ):
+            label = QLabel(text)
+            label.setObjectName("muted")
+            self._form.addRow(label, field)
         self._form.addRow(self.info_label)
+        self._form.setRowVisible(self.info_label, False)
+        self.apply_metrics(self.fontMetrics().height())
 
         self.name_edit.editingFinished.connect(self._commit_name)
         self.name_edit.textEdited.connect(self._on_name_edited)
         self.units_combo.currentTextChanged.connect(self._commit_units)
         self.refresh()
+
+    def apply_metrics(self, unit: int) -> None:
+        """Margins and spacing derived from the font height ``unit`` (8/12 px at 16 px)."""
+        small, large = round(unit * 0.5), round(unit * 0.75)
+        self._form.setContentsMargins(large, small, large, large)
+        self._form.setHorizontalSpacing(large)
+        self._form.setVerticalSpacing(small)
 
     def set_project(self, project: Project) -> None:
         self._project = project

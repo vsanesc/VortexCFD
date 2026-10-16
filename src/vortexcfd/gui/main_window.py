@@ -4,11 +4,12 @@ import logging
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QColor, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QLabel,
+    QVBoxLayout,
     QMainWindow,
     QSplitter,
     QTreeWidget,
@@ -19,7 +20,17 @@ from PySide6.QtWidgets import (
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
 from vortexcfd.gui.dialogs import Dialogs
+from vortexcfd.gui.icons import ICON_TOKENS, make_icon
 from vortexcfd.gui.properties_panel import PropertiesPanel
+from vortexcfd.gui.theme import (
+    DEFAULT_POINT_SIZE,
+    THEMES,
+    Theme,
+    apply_theme,
+    clamp_point_size,
+    load_appearance,
+    save_appearance,
+)
 
 log = logging.getLogger(__name__)
 
@@ -54,18 +65,27 @@ class MainWindow(QMainWindow):
         self._unsubscribe = None
         self._selection: Selection | None = None
         self.dialogs = dialogs if dialogs is not None else Dialogs(self)
-        self.resize(1024, 768)
+        self.resize(1280, 800)
+        self._theme, self._point_size = load_appearance()
+        apply_theme(self._theme, self._point_size)
 
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabel("Simulation Tree")
+        self.tree.setHeaderHidden(True)
         self.properties = PropertiesPanel(project)
-        self.properties.message.connect(self.show_message)
+        self.properties.message.connect(lambda text: self.show_message(text, "warning"))
 
+        self._layouts: list[QVBoxLayout] = []
         left = QSplitter(Qt.Orientation.Vertical)
-        left.addWidget(self.tree)
-        left.addWidget(self.properties)
+        left.addWidget(self._pane("Simulation", self.tree))
+        left.addWidget(self._pane("Properties", self.properties))
+        left.setStretchFactor(0, 3)
+        left.setStretchFactor(1, 2)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left)
+        splitter.setStretchFactor(0, 24)
+        splitter.setStretchFactor(1, 76)
+        splitter.setSizes([24, 76])  # proportions; Qt scales them to the actual width
+        self._splitter = splitter
 
         self.viewer = None
         if with_viewer:
@@ -76,14 +96,15 @@ class MainWindow(QMainWindow):
             self.viewer = QtInteractor(splitter)
             self.plotter = self.viewer
             self.viewer.add_mesh(pv.Sphere(), color="lightblue", show_edges=True)
+            self.viewer.add_axes()
             self.viewer.reset_camera()
             splitter.addWidget(self.viewer)
-            splitter.setSizes([300, 724])
         self.setCentralWidget(splitter)
 
         self._parts_label = QLabel()
         self.statusBar().addPermanentWidget(self._parts_label)
         self._build_actions()
+        self._apply_appearance()
 
         self.tree.currentItemChanged.connect(self._on_current_item_changed)
         self.set_project(project)
@@ -110,10 +131,74 @@ class MainWindow(QMainWindow):
             self._refresh()
         except Exception as exc:
             log.exception("UI refresh failed")
-            self.show_message(f"Internal error refreshing the UI: {exc}")
+            self.show_message(f"Internal error refreshing the UI: {exc}", "error")
 
-    def show_message(self, text: str) -> None:
-        self.statusBar().showMessage(text)
+    def show_message(self, text: str, level: str = "info") -> None:
+        """Show ``text`` in the status bar; level is info, success, warning or error."""
+        bar = self.statusBar()
+        bar.setProperty("level", level)
+        bar.style().unpolish(bar)
+        bar.style().polish(bar)
+        bar.showMessage(text)
+
+    # -- appearance ----------------------------------------------------------
+
+    def _pane(self, title: str, body: QWidget) -> QWidget:
+        pane = QWidget()
+        pane.setObjectName("pane")
+        pane.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        label = QLabel(title)
+        label.setObjectName("sectionTitle")
+        layout = QVBoxLayout(pane)
+        layout.addWidget(label)
+        layout.addWidget(body)
+        self._layouts.append(layout)
+        return pane
+
+    @property
+    def theme(self) -> Theme:
+        return self._theme
+
+    @property
+    def point_size(self) -> int:
+        return self._point_size
+
+    def set_theme(self, name: str) -> None:
+        self._theme = THEMES[name]
+        self._persist_and_apply()
+
+    def set_point_size(self, size: int) -> None:
+        self._point_size = clamp_point_size(size)
+        self._persist_and_apply()
+
+    def _persist_and_apply(self) -> None:
+        save_appearance(self._theme, self._point_size)
+        self._apply_appearance()
+
+    def _apply_appearance(self) -> None:
+        apply_theme(self._theme, self._point_size)
+        unit = self.fontMetrics().height()
+        small, large = round(unit * 0.5), round(unit * 0.75)
+        for layout in self._layouts:
+            layout.setContentsMargins(large, large, large, large)
+            layout.setSpacing(small)
+        self.properties.apply_metrics(unit)
+        self.statusBar().setContentsMargins(large, 0, large, 0)
+        self.tree.setIconSize(QSize(unit, unit))
+        if self.viewer is not None:
+            self.viewer.set_background(self._theme.viewer_bottom, top=self._theme.viewer_top)
+            self.viewer.render()
+        for act, name in ((self.act_dark, "dark"), (self.act_light, "light")):
+            act.setChecked(self._theme.name == name)
+        if hasattr(self, "_unsubscribe") and self._unsubscribe is not None:
+            self._refresh()  # rebuild tree icons for the new colors and size
+
+    def _icon(self, kind: str):
+        color = QColor(getattr(self._theme, ICON_TOKENS[kind]))
+        size = self.tree.iconSize().height()
+        return make_icon(
+            kind, color, size, self.devicePixelRatioF(), QColor(self._theme.accent_text)
+        )
 
     # -- refresh -------------------------------------------------------------
 
@@ -146,10 +231,10 @@ class MainWindow(QMainWindow):
         finally:
             self.tree.blockSignals(False)
 
-    @staticmethod
-    def _make_item(parent, text: str, node: Selection) -> QTreeWidgetItem:
+    def _make_item(self, parent, text: str, node: Selection) -> QTreeWidgetItem:
         item = QTreeWidgetItem(parent, [text])
         item.setData(0, _NODE_ROLE, node)
+        item.setIcon(0, self._icon(node[0]))
         return item
 
     def _on_current_item_changed(self, current, _previous) -> None:
@@ -188,6 +273,20 @@ class MainWindow(QMainWindow):
         self.act_remove_part.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.tree.addAction(self.act_remove_part)
 
+        self.act_zoom_in = action("Zoom &In", lambda: self.set_point_size(self._point_size + 1))
+        self.act_zoom_in.setShortcuts([QKeySequence("Ctrl+="), QKeySequence("Ctrl++")])
+        self.act_zoom_out = action("Zoom &Out", lambda: self.set_point_size(self._point_size - 1), "Ctrl+-")
+        self.act_zoom_reset = action(
+            "&Reset Zoom", lambda: self.set_point_size(DEFAULT_POINT_SIZE), "Ctrl+0"
+        )
+        self.act_dark = action("&Dark", lambda: self.set_theme("dark"))
+        self.act_light = action("&Light", lambda: self.set_theme("light"))
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        for act in (self.act_dark, self.act_light):
+            act.setCheckable(True)
+            group.addAction(act)
+
         file_menu = self.menuBar().addMenu("&File")
         file_menu.addActions([self.act_new, self.act_open])
         file_menu.addSeparator()
@@ -198,6 +297,11 @@ class MainWindow(QMainWindow):
         edit_menu.addActions([self.act_undo, self.act_redo])
         edit_menu.addSeparator()
         edit_menu.addActions([self.act_add_part, self.act_remove_part])
+        view_menu = self.menuBar().addMenu("&View")
+        view_menu.addActions([self.act_zoom_in, self.act_zoom_out, self.act_zoom_reset])
+        view_menu.addSeparator()
+        theme_menu = view_menu.addMenu("&Theme")
+        theme_menu.addActions([self.act_dark, self.act_light])
 
     def _update_actions(self) -> None:
         p = self._project
@@ -216,7 +320,7 @@ class MainWindow(QMainWindow):
         try:
             edit()
         except (ValueError, TypeError, IndexError) as exc:
-            self.show_message(str(exc))
+            self.show_message(str(exc), "warning")
 
     def _undo(self) -> None:
         self._project.undo()
@@ -237,7 +341,7 @@ class MainWindow(QMainWindow):
             self._project.add_part(part)
         except (ValueError, TypeError, IndexError) as exc:
             self._selection = previous
-            self.show_message(str(exc))
+            self.show_message(str(exc), "warning")
 
     def remove_selected_part(self) -> None:
         index = self._selected_part_index()
@@ -262,9 +366,9 @@ class MainWindow(QMainWindow):
         try:
             self._project.save(path)
         except (OSError, ValueError) as exc:
-            self.show_message(f"Save failed: {exc}")
+            self.show_message(f"Save failed: {exc}", "error")
             return False
-        self.show_message(f"Saved {self._project.path}")
+        self.show_message(f"Saved {self._project.path}", "success")
         return True
 
     def _confirm_discard(self) -> bool:
@@ -290,7 +394,7 @@ class MainWindow(QMainWindow):
             project = Project.open(path)
         except Exception as exc:  # ProjectFileError, OSError, ...
             log.exception("Could not open project %s", path)
-            self.show_message(f"Could not open {path}: {exc}")
+            self.show_message(f"Could not open {path}: {exc}", "error")
             return
         self.set_project(project)
         self.show_message(f"Opened {path}")
@@ -319,7 +423,7 @@ def main() -> int:
             error = f"Could not open {args[0]}: {exc}"
     window = MainWindow(project if project is not None else Project.new("Untitled"))
     if error:
-        window.show_message(error)
+        window.show_message(error, "error")
     window.show()
     return app.exec()
 
