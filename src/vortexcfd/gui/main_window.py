@@ -145,7 +145,7 @@ class _RowDelegate(QStyledItemDelegate):
         super().paint(painter, opt, index)
 
     def _draw_chevron(self, painter, r, expanded: bool, hover: bool, m: Metrics, t: Theme) -> None:
-        pen = QPen(QColor(t.accent_secondary if hover else t.muted_text), max(1.2, m.u / 12))
+        pen = QPen(QColor(t.accent_secondary_hover if hover else t.muted_text), max(1.2, m.u / 12))
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         painter.save()

@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from vortexcfd.gui.icons import make_glyph
-from vortexcfd.gui.theme import DARK, DISABLED_ALPHA, Metrics, Theme, blend, mono_font
+from vortexcfd.gui.theme import DARK, Metrics, Theme, mono_font
 from vortexcfd.gui.widgets import SectionHeader
 
 EMPTY = "—"
@@ -159,7 +159,7 @@ class ReportSlots(QWidget):
             label.setFont(small)
         for label in self.values.values():
             label.setFont(big)
-        icon = make_glyph("chevron_down", QColor(blend(t.muted_text, t.base, DISABLED_ALPHA)),
+        icon = make_glyph("chevron_down", QColor(t.disabled_text),
                           m.u, self.devicePixelRatioF())
         for button in self.assign_buttons.values():
             button.setIcon(icon)

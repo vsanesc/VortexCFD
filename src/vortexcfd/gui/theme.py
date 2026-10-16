@@ -23,6 +23,13 @@ FONT_FAMILIES: tuple[str, ...] = ("Inter", "Segoe UI", "Noto Sans", "DejaVu Sans
 MONO_FAMILIES: tuple[str, ...] = ("JetBrains Mono", "Cascadia Mono", "DejaVu Sans Mono")
 
 
+def blend(fg: str, bg: str, alpha: float) -> str:
+    """Hex color of ``fg`` at ``alpha`` opacity over ``bg``."""
+    a, b = QColor(fg), QColor(bg)
+    mix = [round(x * alpha + y * (1 - alpha)) for x, y in ((a.red(), b.red()), (a.green(), b.green()), (a.blue(), b.blue()))]
+    return QColor(*mix).name().upper()
+
+
 @dataclass(frozen=True)
 class Theme:
     """Named colors (hex strings)."""
@@ -36,10 +43,15 @@ class Theme:
     border_active: str
     text: str
     muted_text: str
-    accent: str  # primary action (orange)
+    disabled_text: str  # disabled controls and input placeholders ONLY
+    accent: str  # amber: execution / calculation
+    accent_hover: str
+    accent_dim: str  # accent at 15% over base
     accent_text: str  # text on accent
-    accent_secondary: str  # teal: part dots, selected-row bar, active tab, highlighted names
-    selection: str  # selected tree row
+    accent_secondary: str  # teal: navigation / selection (dots, selected-row bar, active tab)
+    accent_secondary_hover: str
+    accent_secondary_dim: str  # accent_secondary at 15% over base
+    selection: str  # selected tree row: accent_secondary_dim over base
     success: str
     warning: str
     error: str
@@ -48,28 +60,37 @@ class Theme:
     axis_z: str
 
 
-# Tungsten & Amber. The first six colors are the owner's table; the rest are sampled from
-# docs/design/design_preview.png (the mockup) as the mean/extreme of a small area.
+DIM_ALPHA = 0.15  # accent_dim / accent_secondary_dim: the accent at this alpha over base
+_BASE = "#12161F"
+_ACCENT = "#FF8800"
+_ACCENT_SECONDARY = "#00B4A2"
+
+# Tungsten & Amber, the owner's final palette (values change only on his request).
 DARK = Theme(
     name="dark",
     canvas="#0A0D12",
-    base="#12161F",
+    base=_BASE,
     elevated="#1A202C",
     floating="#232B3A",
     border="#2A3446",
     border_active="#3B4963",
-    text="#EFF3F8",  # sampled from mockup at (89, 157): brightest pixel of the row text
-    muted_text="#8EA0B1",  # sampled from mockup at (45, 731): "Surface Area" label
-    accent="#FF8800",  # sampled from mockup at (1700, 18): fill of the Run Solver button
-    accent_text="#090C11",  # sampled from mockup at (1764, 27): darkest pixel of its label
-    accent_secondary="#00E5CC",  # sampled from mockup at (71, 154): selected part dot (teal)
-    selection="#0F2E32",  # sampled from mockup at (250, 156): selected tree row background
-    success="#10B981",  # sampled from mockup at (550, 26): state dot
-    warning="#F6BC17",  # sampled from mockup at (1668, 66): "High CFL Warn" label
-    error="#DE353F",  # sampled from mockup at (1740, 63): "Diverged" label
-    axis_x="#FF4D4D",  # sampled from mockup at (417, 987): X legend dot
-    axis_y="#2ECC71",  # sampled from mockup at (418, 1002): Y legend dot
-    axis_z="#38BDF8",  # sampled from mockup at (417, 1021): Z legend dot
+    text="#F1F5F9",
+    muted_text="#94A3B8",
+    disabled_text="#526077",
+    accent=_ACCENT,
+    accent_hover="#FFA033",
+    accent_dim=blend(_ACCENT, _BASE, DIM_ALPHA),
+    accent_text="#0A0D12",
+    accent_secondary=_ACCENT_SECONDARY,
+    accent_secondary_hover="#14C8B6",
+    accent_secondary_dim=blend(_ACCENT_SECONDARY, _BASE, DIM_ALPHA),
+    selection=blend(_ACCENT_SECONDARY, _BASE, DIM_ALPHA),
+    success="#10B981",
+    warning="#FACC15",
+    error="#F43F5E",
+    axis_x="#FF4D4D",
+    axis_y="#2ECC71",
+    axis_z="#38BDF8",
 )
 
 THEMES: dict[str, Theme] = {DARK.name: DARK}
@@ -115,13 +136,6 @@ GRID_HALF_LINES = 10  # ground grid: lines on each side of the origin
 GRID_SPACING = 1.0  # ground grid spacing (scene units)
 GRID_MAJOR_EVERY = 5  # every Nth grid line is brighter
 EMPTY_SCENE_POINT_FRACTION = 1.0  # "No geometry yet" size in px per u
-
-
-def blend(fg: str, bg: str, alpha: float) -> str:
-    """Hex color of ``fg`` at ``alpha`` opacity over ``bg``."""
-    a, b = QColor(fg), QColor(bg)
-    mix = [round(x * alpha + y * (1 - alpha)) for x, y in ((a.red(), b.red()), (a.green(), b.green()), (a.blue(), b.blue()))]
-    return QColor(*mix).name().upper()
 
 
 @dataclass(frozen=True)
@@ -204,7 +218,7 @@ def build_palette(t: Theme) -> QPalette:
         QPalette.ColorRole.HighlightedText: t.accent_text,
         QPalette.ColorRole.ToolTipBase: t.floating,
         QPalette.ColorRole.ToolTipText: t.text,
-        QPalette.ColorRole.PlaceholderText: t.muted_text,
+        QPalette.ColorRole.PlaceholderText: t.disabled_text,
         QPalette.ColorRole.Link: t.accent,
         QPalette.ColorRole.Mid: t.border,
     }
@@ -215,7 +229,7 @@ def build_palette(t: Theme) -> QPalette:
         QPalette.ColorRole.WindowText,
         QPalette.ColorRole.ButtonText,
     ):
-        p.setColor(QPalette.ColorGroup.Disabled, role, QColor(t.muted_text))
+        p.setColor(QPalette.ColorGroup.Disabled, role, QColor(t.disabled_text))
     return p
 
 
@@ -225,7 +239,7 @@ def build_stylesheet(t: Theme, m: Metrics, base_point_size: float) -> str:
     inner = m.field - 2 * ln
     status_pt = f"{base_point_size * 0.9:.1f}pt"
     btr = m.radius_s
-    dis_text = blend(t.muted_text, t.base, DISABLED_ALPHA)
+    dis_text = t.disabled_text
     dis_border = blend(t.border_active, t.base, DISABLED_ALPHA)
     return f"""
 QToolTip {{ background: {t.floating}; color: {t.text}; border: {ln}px solid {t.border};
@@ -247,13 +261,15 @@ QPushButton#tbBtn, QPushButton#dotBtn {{ background: transparent; color: {t.mute
     border: {ln}px solid transparent; border-radius: {btr}px; padding: 0 {m.s3}px; }}
 QPushButton#dotBtn {{ padding-left: {2 * m.s3 + m.dot}px; }}
 QPushButton#tbBtn:hover, QPushButton#dotBtn:hover {{ color: {t.text}; background: {t.elevated}; }}
-QPushButton#dotBtn:checked {{ color: {t.text}; border-color: {t.accent_secondary}; background: {t.selection}; }}
+QPushButton#dotBtn:checked {{ color: {t.text}; border-color: {t.accent_secondary}; background: {t.accent_secondary_dim}; }}
+QPushButton#dotBtn:checked:hover {{ border-color: {t.accent_secondary_hover}; }}
 QFrame#segmented {{ background: {t.elevated}; border: {ln}px solid {t.border}; border-radius: {btr}px; }}
 QFrame#segSep {{ background: {t.border}; border: none; }}
 QPushButton#segBtn {{ background: transparent; color: {t.muted_text}; border: {ln}px solid transparent;
     border-radius: {btr}px; padding: 0 {m.s3}px; }}
 QPushButton#segBtn:hover {{ color: {t.text}; }}
 QPushButton#segBtn:checked {{ background: {t.floating}; color: {t.text}; border-color: {t.accent_secondary}; }}
+QPushButton#segBtn:checked:hover {{ border-color: {t.accent_secondary_hover}; }}
 QLabel#badge[dot="true"] {{ padding-left: {2 * m.s2 + m.dot}px; }}
 QPushButton#nameBtn {{ background: transparent; color: {t.text}; border: none; text-align: left;
     padding: 0 {m.s2}px; border-radius: {btr}px; }}
@@ -262,6 +278,8 @@ QPushButton#meshBtn {{ background: transparent; color: {t.accent}; border: {ln}p
     border-radius: {btr}px; padding: 0 {m.s4}px; }}
 QPushButton#runBtn {{ background: {t.accent}; color: {t.accent_text}; border: {ln}px solid {t.accent};
     border-radius: {btr}px; padding: 0 {m.s4}px; }}
+QPushButton#meshBtn:hover {{ color: {t.accent_hover}; border-color: {t.accent_hover}; }}
+QPushButton#runBtn:hover {{ background: {t.accent_hover}; border-color: {t.accent_hover}; }}
 QPushButton#meshBtn:disabled {{ background: transparent; color: {dis_text}; border-color: {dis_border}; }}
 QPushButton#runBtn:disabled {{ background: {t.elevated}; color: {dis_text}; border-color: {t.border}; }}
 QToolButton#chevronBtn:disabled {{ background: transparent; }}
@@ -313,7 +331,7 @@ QMenu {{ background: {t.floating}; border: {ln}px solid {t.border};
     border-radius: {m.radius_s}px; padding: {m.s1}px 0; }}
 QMenu::item {{ padding: {m.s2}px {m.s4}px; border-left: {m.bar}px solid transparent; }}
 QMenu::item:selected {{ background: {t.elevated}; border-left: {m.bar}px solid {t.accent}; }}
-QMenu::item:disabled {{ color: {t.muted_text}; }}
+QMenu::item:disabled {{ color: {t.disabled_text}; }}
 QMenu::separator {{ height: {ln}px; background: {t.border}; margin: {m.s1}px 0; }}
 """
 

@@ -12,7 +12,7 @@ from pytestqt.qtbot import QtBot
 from tests.fakes import FakeDialogs
 from vortexcfd.core.project import Project
 from vortexcfd.gui.main_window import MainWindow
-from vortexcfd.gui.theme import DARK, MAX_POINT_SIZE, MIN_POINT_SIZE, metrics
+from vortexcfd.gui.theme import DARK, DIM_ALPHA, blend, MAX_POINT_SIZE, MIN_POINT_SIZE, metrics
 
 GUI_DIR = Path(__file__).resolve().parent.parent / "src" / "vortexcfd" / "gui"
 
@@ -32,27 +32,33 @@ def contrast(a: str, b: str) -> float:
 
 def test_owner_values_are_exact() -> None:
     """Fixed by the owner: change only on his request."""
-    assert DARK.canvas == "#0A0D12"
-    assert DARK.base == "#12161F"
-    assert DARK.elevated == "#1A202C"
-    assert DARK.floating == "#232B3A"
-    assert DARK.border == "#2A3446"
-    assert DARK.border_active == "#3B4963"
+    t = DARK
+    assert (t.canvas, t.base, t.elevated) == ("#0A0D12", "#12161F", "#1A202C")
+    assert (t.floating, t.border, t.border_active) == ("#232B3A", "#2A3446", "#3B4963")
+    assert (t.accent_secondary, t.accent_secondary_hover) == ("#00B4A2", "#14C8B6")
+    assert (t.accent, t.accent_hover) == ("#FF8800", "#FFA033")
+    assert (t.text, t.muted_text, t.disabled_text, t.accent_text) == (
+        "#F1F5F9", "#94A3B8", "#526077", "#0A0D12",
+    )
+    assert (t.success, t.warning, t.error) == ("#10B981", "#FACC15", "#F43F5E")
+    # The dim tokens are the accents at alpha 0.15 over base; the selection row uses the teal one.
+    assert t.accent_secondary_dim == blend("#00B4A2", t.base, 0.15)
+    assert t.accent_dim == blend("#FF8800", t.base, 0.15)
+    assert DIM_ALPHA == 0.15
+    assert t.selection == t.accent_secondary_dim
 
 
 def test_contrast() -> None:
+    """disabled_text is exempt (disabled controls and placeholders only); all else >= 4.5."""
     t = DARK
     pairs = [(t.text, s) for s in (t.base, t.elevated, t.floating)]
     pairs += [(t.muted_text, s) for s in (t.base, t.elevated, t.floating)]
-    pairs += [(t.accent_text, t.accent)]
-    pairs += [(c, t.base) for c in (t.success, t.warning, t.accent, t.accent_secondary)]
+    pairs += [(t.accent_text, t.accent), (t.accent_text, t.accent_hover)]
+    pairs += [(c, t.base) for c in (t.success, t.warning, t.error, t.accent, t.accent_hover,
+                                    t.accent_secondary, t.accent_secondary_hover)]
+    pairs += [(t.text, t.selection)]
     failures = [(a, b, round(contrast(a, b), 2)) for a, b in pairs if contrast(a, b) < 4.5]
     assert not failures, failures
-
-
-@pytest.mark.xfail(strict=True, reason="sampled error #DE353F is 4.04:1 on base; reported, not altered")
-def test_error_contrast_on_base() -> None:
-    assert contrast(DARK.error, DARK.base) >= 4.5
 
 
 def test_no_color_literals_outside_theme() -> None:

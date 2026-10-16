@@ -355,13 +355,11 @@ def test_wireframe_toggle_switches_representation(make_window) -> None:
 def test_disabled_actions_keep_style_cursor_and_tooltip(make_window) -> None:
     from PySide6.QtWidgets import QApplication
 
-    from vortexcfd.gui.theme import DISABLED_ALPHA, blend
-
     w = make_window()
     sheet = QApplication.instance().styleSheet()
     t = w._theme
     assert "QPushButton#runBtn:disabled" in sheet and "QPushButton#meshBtn:disabled" in sheet
-    assert blend(t.muted_text, t.base, DISABLED_ALPHA) in sheet  # reduced-contrast text
+    assert t.disabled_text in sheet  # reduced-contrast text
     for button, phase in ((w.top_bar.mesh_button, "Phase 5"), (w.top_bar.run_button, "Phase 4")):
         assert not button.isEnabled()
         assert button.cursor().shape() == Qt.CursorShape.ForbiddenCursor
