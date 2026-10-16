@@ -89,6 +89,11 @@ class Solvers(StrictModel):
     iterations: int = Field(default=1000, gt=0)
     write_interval: int = Field(default=200, gt=0)
     relaxation: Literal["robust"] = "robust"  # the motorBike tutorial values
+    # SIMPLE residualControl: the run stops when the initial residuals fall below these targets.
+    residual_p: float = Field(default=1e-4, gt=0)
+    residual_u: float = Field(default=1e-5, gt=0)
+    residual_k: float = Field(default=1e-5, gt=0)
+    residual_omega: float = Field(default=1e-5, gt=0)
 
 
 class Reports(StrictModel):

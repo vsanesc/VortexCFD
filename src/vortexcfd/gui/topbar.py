@@ -132,7 +132,7 @@ class TopBar(QWidget):
             self.state_badge.setText("Modified" if self._dirty else "Saved")
             self.state_badge.set_state("warning" if self._dirty else "success")
 
-    def set_mesh_state(self, reason: str | None, running: bool) -> None:
+    def set_mesh_state(self, reason: str | None, running: bool, warning: str | None = None) -> None:
         """Generate Mesh: "Stop" while running, enabled when ``reason`` is None, else disabled
         with the reason as tooltip."""
         button = self.mesh_button
@@ -144,7 +144,10 @@ class TopBar(QWidget):
         else:
             button.setText("Generate Mesh")
             button.setEnabled(reason is None)
-            button.setToolTip("Generate the mesh with snappyHexMesh" if reason is None else reason)
+            tip = "Generate the mesh with snappyHexMesh"
+            if warning:
+                tip += f"\nWarning: {warning}"
+            button.setToolTip(tip if reason is None else reason)
             button.setCursor(
                 Qt.CursorShape.PointingHandCursor if reason is None else Qt.CursorShape.ForbiddenCursor
             )

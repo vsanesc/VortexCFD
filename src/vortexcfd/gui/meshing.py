@@ -11,7 +11,7 @@ from pathlib import Path
 
 from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_estimate import estimate_mesh
-from vortexcfd.foam.yplus import first_layer_thickness
+from vortexcfd.foam.yplus import LayerPlan, first_layer_thickness, plan_layers
 from vortexcfd.foam.mesh_case import (
     TRI_SURFACE,
     MeshCaseInput,
@@ -67,6 +67,29 @@ def _loaded_parts(project: Project):
     return compute_domain(bounds, project.sim.domain, names), names, meshes
 
 
+def plan_layers_for(project: Project, box: DomainBox) -> LayerPlan:
+    """The y+ layer stack for ``project``: first layer from the estimator, count from the surface
+    cell size at the maximum refinement level (see foam/yplus.plan_layers)."""
+    mesh = project.sim.mesh
+    first = first_layer_thickness(mesh.target_yplus, project.sim.inflow.speed, project.sim.physics.nu,
+                                  box.reference_length)
+    est = estimate_mesh(box.bounds, box.reference_length, mesh)
+    return plan_layers(first, mesh.expansion_ratio, est.surface_size)
+
+
+def layer_warning(project: Project) -> str | None:
+    """Warning about the y+ layer stack (None for relative sizing, or when it is fine or unknown)."""
+    if project.sim.mesh.layer_sizing != "absolute_yplus":
+        return None
+    try:
+        box, _, _ = _loaded_parts(project)
+    except MeshingNotReady:
+        return None
+    if box.bounds is None:
+        return None
+    return plan_layers_for(project, box).warning
+
+
 def readiness(project: Project) -> str | None:
     """Why the project cannot be meshed, or None when it can."""
     if project.path is None:
@@ -99,12 +122,10 @@ def prepare_job(project: Project) -> MeshJob:
     box, names, meshes = _loaded_parts(project)
     bounds = [tuple(float(b) for b in m.bounds) for m in meshes]
     safe = safe_part_names(names)
-    first_layer = None
+    first_layer = layer_count = None
     if project.sim.mesh.layer_sizing == "absolute_yplus":
-        first_layer = first_layer_thickness(
-            project.sim.mesh.target_yplus, project.sim.inflow.speed, project.sim.physics.nu,
-            box.reference_length,
-        )
+        plan = plan_layers_for(project, box)
+        first_layer, layer_count = plan.first, plan.count
     inputs = MeshCaseInput(
         domain_bounds=box.bounds,
         symmetric=project.sim.domain.symmetry == "y_min",
@@ -113,6 +134,7 @@ def prepare_job(project: Project) -> MeshJob:
         reference_length=box.reference_length,
         mesh=project.sim.mesh,
         first_layer_thickness=first_layer,
+        layer_count=layer_count,
     )
     case_dir = case_dir_for(project)
     prepare_case_dir(case_dir, build_mesh_files(inputs))

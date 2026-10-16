@@ -55,7 +55,14 @@ from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.gui.mesh_worker import MeshWorker
 from vortexcfd.foam.mesh_record import MeshRecord, read_mesh_record, write_mesh_record
-from vortexcfd.gui.meshing import MeshingNotReady, case_dir_for, inputs_hash, prepare_job, readiness
+from vortexcfd.gui.meshing import (
+    MeshingNotReady,
+    case_dir_for,
+    inputs_hash,
+    layer_warning,
+    prepare_job,
+    readiness,
+)
 from vortexcfd.gui.scene import (
     ERROR,
     MISSING,
@@ -924,7 +931,9 @@ class MainWindow(QMainWindow):
 
     def _update_mesh_button(self) -> None:
         running = self.mesh_worker.is_running()
-        self.top_bar.set_mesh_state(None if running else readiness(self._project), running)
+        reason = None if running else readiness(self._project)
+        warning = None if running or reason is not None else layer_warning(self._project)
+        self.top_bar.set_mesh_state(reason, running, warning)
 
     def generate_mesh(self) -> None:
         """Generate Mesh / Stop: write the meshing case and run it in the background."""

@@ -444,3 +444,15 @@ def test_v3_round_trip_with_physics(tmp_path: Path) -> None:
     path = tmp_path / "p.json"
     save_simulation(sim, path)
     assert load_simulation(path) == sim
+
+
+def test_solver_residual_targets_defaults_and_validation() -> None:
+    sv = Solvers()
+    assert (sv.residual_p, sv.residual_u, sv.residual_k, sv.residual_omega) == (1e-4, 1e-5, 1e-5, 1e-5)
+    for key in ("residual_p", "residual_u", "residual_k", "residual_omega"):
+        with pytest.raises(ValidationError):
+            Solvers(**{key: 0})
+    p = Project.new("r")
+    p.update_solver(residual_p=1e-6)
+    assert p.sim.solvers.residual_p == 1e-6 and p.undo_label == "Edit solver (residual_p)"
+    assert load_simulation(V2_FIXTURE).solvers == Solvers()  # a v2 file gets the defaults

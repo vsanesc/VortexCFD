@@ -130,13 +130,21 @@ def fv_schemes() -> FoamFileSpec:
 
 
 def fv_solution(solvers: Solvers) -> FoamFileSpec:
-    """motorBike fvSolution (v2606), preset "robust": SIMPLEC (consistent), U 0.9, k/omega 0.7."""
+    """motorBike fvSolution (v2606), preset "robust": SIMPLEC (consistent), U 0.9, k/omega 0.7,
+    plus residualControl (the airFoil2D tutorial's mechanism) from the solver settings."""
     p = {"solver": "GAMG", "smoother": "GaussSeidel", "tolerance": 1e-7, "relTol": 0.01}
     smooth = {"solver": "smoothSolver", "smoother": "GaussSeidel", "tolerance": 1e-8, "relTol": 0.1,
               "nSweeps": 1}
     return FoamFileSpec(content={
         "solvers": {"p": p, "Phi": dict(p), "U": dict(smooth), "k": dict(smooth), "omega": dict(smooth)},
-        "SIMPLE": {"nNonOrthogonalCorrectors": 0, "consistent": True},
+        "SIMPLE": {
+            "nNonOrthogonalCorrectors": 0,
+            "consistent": True,
+            "residualControl": {
+                "p": solvers.residual_p, "U": solvers.residual_u,
+                "k": solvers.residual_k, "omega": solvers.residual_omega,
+            },
+        },
         "potentialFlow": {"nNonOrthogonalCorrectors": 10},
         "relaxationFactors": {"equations": {"U": 0.9, "k": 0.7, "omega": 0.7}},
     })

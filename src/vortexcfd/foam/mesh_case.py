@@ -75,6 +75,9 @@ class MeshCaseInput:
     mesh: Mesh
     # First prism-layer thickness (m) for layer_sizing "absolute_yplus" (see foam/yplus.py).
     first_layer_thickness: float | None = None
+    # Number of layers for layer_sizing "absolute_yplus" (foam/yplus.plan_layers); mesh.layers is
+    # used for relative sizing only.
+    layer_count: int | None = None
 
 
 def safe_part_names(names: Sequence[str]) -> list[str]:
@@ -190,6 +193,17 @@ def _layer_sizing(inp: MeshCaseInput) -> dict:
     return {"relativeSizes": False, "firstLayerThickness": h, "minThickness": m.min_thickness * h}
 
 
+def _quality_controls(m: Mesh) -> dict:
+    """meshQualityControls. With absolute (y+) layers the face-decomposition tet-quality test is
+    switched off (minTetQuality -1e30): a stack of thin, high-aspect layers trips it on perfectly
+    usable meshes (2436 faces on the coarse sphere, which removed 30 % of the layers) while every
+    other check stays; checkMesh still judges the final mesh. [NUMERICS-REVIEW]"""
+    controls = dict(MESH_QUALITY)
+    if m.layer_sizing == "absolute_yplus":
+        controls["minTetQuality"] = -1e30
+    return controls
+
+
 def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
     m = inp.mesh
     est = estimate_mesh(inp.domain_bounds, inp.reference_length, m)
@@ -202,11 +216,14 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
         }
         for n in inp.parts
     }
-    layers = {f'"{n}.*"': {"nSurfaceLayers": m.layers} for n in inp.parts} if m.layers > 0 else {}
+    n_layers = m.layers
+    if m.layer_sizing == "absolute_yplus" and inp.layer_count is not None:
+        n_layers = inp.layer_count
+    layers = {f'"{n}.*"': {"nSurfaceLayers": n_layers} for n in inp.parts} if n_layers > 0 else {}
     content = {
         "castellatedMesh": True,
         "snap": True,
-        "addLayers": m.layers > 0,
+        "addLayers": n_layers > 0,
         "geometry": geometry,
         "castellatedMeshControls": {
             "maxLocalCells": MAX_LOCAL_CELLS,
@@ -248,7 +265,7 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
             "nBufferCellsNoExtrude": 0,
             "nLayerIter": 50,
         },
-        "meshQualityControls": dict(MESH_QUALITY),
+        "meshQualityControls": _quality_controls(m),
         "mergeTolerance": 1e-6,
     }
     return FoamFileSpec(content=content)

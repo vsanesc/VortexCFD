@@ -137,7 +137,10 @@ def test_schemes_and_solution_follow_the_motorbike_tutorial() -> None:
     assert s["divSchemes"]["div(phi,k)"] == ("bounded", "Gauss", "upwind")
     assert s["gradSchemes"]["grad(U)"] == ("cellLimited", "Gauss", "linear", 1)
     sol = f["system/fvSolution"].content
-    assert sol["SIMPLE"] == {"nNonOrthogonalCorrectors": 0, "consistent": True}
+    assert sol["SIMPLE"] == {
+        "nNonOrthogonalCorrectors": 0, "consistent": True,
+        "residualControl": {"p": 1e-4, "U": 1e-5, "k": 1e-5, "omega": 1e-5},
+    }
     assert sol["relaxationFactors"]["equations"] == {"U": 0.9, "k": 0.7, "omega": 0.7}
     assert sol["solvers"]["p"]["solver"] == "GAMG" and sol["solvers"]["p"]["relTol"] == 0.01
     assert sol["solvers"]["U"]["solver"] == "smoothSolver" and sol["solvers"]["omega"]["nSweeps"] == 1
@@ -211,7 +214,9 @@ def _mesh_input(mesh: Mesh, first: float | None) -> MeshCaseInput:
 
 
 def test_relative_layers_are_the_default() -> None:
-    layers = snappy_hex_mesh_dict(_mesh_input(Mesh(), None)).content["addLayersControls"]
+    content = snappy_hex_mesh_dict(_mesh_input(Mesh(), None)).content
+    assert content["meshQualityControls"]["minTetQuality"] == 1e-15  # the default quality limits
+    layers = content["addLayersControls"]
     assert layers["relativeSizes"] is True and "firstLayerThickness" not in layers
     assert layers["finalLayerThickness"] == 0.5 and layers["minThickness"] == 0.1
 
@@ -220,6 +225,7 @@ def test_absolute_yplus_layers_use_the_first_layer_thickness() -> None:
     mesh = Mesh(layer_sizing="absolute_yplus", target_yplus=1.0, expansion_ratio=1.3, min_thickness=0.2)
     layers = snappy_hex_mesh_dict(_mesh_input(mesh, 4e-5)).content["addLayersControls"]
     assert layers["relativeSizes"] is False
+    assert snappy_hex_mesh_dict(_mesh_input(mesh, 4e-5)).content["meshQualityControls"]["minTetQuality"] == -1e30
     assert layers["firstLayerThickness"] == 4e-5 and layers["expansionRatio"] == 1.3  # reused
     assert layers["minThickness"] == pytest.approx(0.2 * 4e-5)
     assert "finalLayerThickness" not in layers
@@ -290,3 +296,85 @@ def test_snappy_accepts_absolute_layers_and_first_layer_is_the_first_cell(tmp_pa
     assert cov.target_layers == 3 and cov.mesh_layers == 3.0
     assert cov.thickness_m == pytest.approx(h * (1 + 1.2 + 1.2**2), rel=0.02)
     assert result.report.extruded_percent == 100.0
+
+
+def test_residual_targets_are_written_as_simple_residual_control() -> None:
+    solvers = Solvers(residual_p=1e-6, residual_u=2e-6, residual_k=3e-6, residual_omega=4e-6)
+    f = build_solver_files(make(solvers=solvers))
+    assert f["system/fvSolution"].content["SIMPLE"]["residualControl"] == {
+        "p": 1e-6, "U": 2e-6, "k": 3e-6, "omega": 4e-6}
+
+
+# -- layer count from y+ ----------------------------------------------------------------------------------------
+
+from vortexcfd.foam.yplus import MAX_LAYERS, WARNING_HINT, plan_layers
+
+
+def test_plan_layers_hand_values() -> None:
+    # t1 = 1 mm, r = 1.2, surface cell 8.4 mm: 0.5 h / t1 = 4.2, ln 4.2 / ln 1.2 = 7.87 -> n = 8 + 1 = 9
+    plan = plan_layers(1e-3, 1.2, 8.4e-3)
+    assert plan.count == 9 and plan.warning is None
+    assert plan.needed == pytest.approx(4.2)
+    assert plan.total == pytest.approx(1e-3 * (1.2**9 - 1) / 0.2)  # 20.8 mm
+    assert plan.final == pytest.approx(1e-3 * 1.2**8)  # 4.30 mm, about half a surface cell (4.2 mm)
+    assert 0.5 * 8.4e-3 <= plan.final <= 1.2 * 0.5 * 8.4e-3
+
+
+def test_plan_layers_clamps_and_warns() -> None:
+    assert plan_layers(0.01, 1.2, 0.01).count == 1  # the first layer is already thicker than needed
+    assert plan_layers(0.01, 1.2, 0.01).warning is None
+    thin = plan_layers(1.8e-5, 1.2, 8.4e-3)  # y+ 1 on a coarse surface: 0.5 h / t1 = 233 > 1.2^29 = 198
+    assert thin.count == MAX_LAYERS == 30 and thin.warning and WARNING_HINT in thin.warning
+    assert thin.needed > 1.2 ** 29
+    ok = plan_layers(5.4e-4, 1.2, 8.4e-3)  # y+ 30: 7.8, n = 12 + 1 = 13
+    assert ok.count == 13 and ok.warning is None
+    # exactly at the limit: r^29 needed -> n = 30 without a warning, a hair more warns
+    edge = plan_layers(1.0, 2.0, 2.0 * 2.0**29)
+    assert edge.count == 30 and edge.warning is None
+    assert plan_layers(1.0, 2.0, 2.0 * 2.0**29 * 1.01).warning
+
+
+def test_snappy_uses_the_computed_layer_count_for_absolute_sizing() -> None:
+    mesh = Mesh(layer_sizing="absolute_yplus", layers=3)
+    inp = MeshCaseInput((-5, 10, -5, 5, -5, 5), False, ("Wing",), (0.0, 1.0, -0.5, 0.5, 0.0, 0.3), 1.0, mesh,
+                        first_layer_thickness=1e-3, layer_count=9)
+    d = snappy_hex_mesh_dict(inp).content
+    assert d["addLayersControls"]["layers"]['"Wing.*"'] == {"nSurfaceLayers": 9} and d["addLayers"] is True
+    rel = MeshCaseInput((-5, 10, -5, 5, -5, 5), False, ("Wing",), (0.0, 1.0, -0.5, 0.5, 0.0, 0.3), 1.0,
+                        Mesh(layers=4), layer_count=9)
+    assert snappy_hex_mesh_dict(rel).content["addLayersControls"]["layers"]['"Wing.*"'] == {"nSurfaceLayers": 4}
+
+
+@pytest.mark.slow
+def test_yplus_30_layer_count_gives_good_coverage_on_the_shared_sphere(sphere_mesh, tmp_path: Path) -> None:
+    """Shared coarse sphere at 20 m/s with target y+ 30 and the computed layer count: layer coverage
+    (average layers and thickness) of at least 80 %. The y+ 1 case is expected to warn instead."""
+    import pyvista as pv
+
+    from vortexcfd.foam.mesh_case import TRI_SURFACE, prepare_case_dir
+    from vortexcfd.foam.mesh_run import MeshRun
+
+    inputs, est = sphere_mesh.inputs, sphere_mesh.estimate
+    mesh = Mesh(layer_sizing="absolute_yplus", target_yplus=30.0)
+    first = first_layer_thickness(30.0, 20.0, 1.5e-5, inputs.reference_length)
+    plan = plan_layers(first, mesh.expansion_ratio, est.surface_size)
+    assert plan.warning is None and 5 <= plan.count <= 30
+    thin = plan_layers(first_layer_thickness(1.0, 20.0, 1.5e-5, inputs.reference_length),
+                       mesh.expansion_ratio, est.surface_size)
+    assert thin.warning and thin.count == 30  # y+ 1 on this surface mesh warns
+    case = tmp_path / "case"
+    inp = MeshCaseInput(inputs.domain_bounds, False, inputs.parts, inputs.parts_bounds,
+                        inputs.reference_length, mesh, plan.first, plan.count)
+    prepare_case_dir(case, build_mesh_files(inp))
+    pv.Sphere(radius=0.5, theta_resolution=24, phi_resolution=24).save(str(case / TRI_SURFACE / "Sphere.stl"))
+    run = MeshRun(case, step_timeout_s=100)
+    run.start()
+    result = run.wait(115)
+    assert result is not None and result.success, result
+    cov = result.report.layers[0]
+    print(f"\ny+ 30 sphere: n={plan.count} first={plan.first:.3g} m total={plan.total:.3g} m "
+          f"final={plan.final:.3g} m; coverage {cov.description()} ({cov.thickness_m:.3g} m), "
+          f"extruded {result.report.extruded_percent}%")
+    assert cov.target_layers == plan.count
+    assert cov.layers_percent >= 80.0 and cov.thickness_percent >= 80.0, cov
+    assert result.report.extruded_percent >= 80.0 and result.report.mesh_ok

@@ -28,7 +28,7 @@ from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.foam.mesh_case import safe_part_names
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.physics_case import inlet_turbulence
-from vortexcfd.foam.yplus import first_layer_thickness
+from vortexcfd.gui.meshing import plan_layers_for
 from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_status, report_for_part
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
 
@@ -149,6 +149,10 @@ GROUPS: dict[str, dict] = {
             ("iterations", "Iterations", lambda: _spin(1, 10_000_000)),
             ("write_interval", "Write interval", lambda: _spin(1, 10_000_000)),
             ("relaxation", "Relaxation preset", lambda: _combo(("robust",))),
+            ("residual_p", "Residual target p", lambda: _sci()),
+            ("residual_u", "Residual target U", lambda: _sci()),
+            ("residual_k", "Residual target k", lambda: _sci()),
+            ("residual_omega", "Residual target omega", lambda: _sci()),
         ),
     },
 }
@@ -351,6 +355,8 @@ class PropertiesPanel(QWidget):
         self.mesh_bg_cells = self._ro_row("mset_bg_cells", "Background cells")
         self.mesh_surface_cells = self._ro_row("mset_surface_cells", "Surface cell size")
         self.mesh_first_layer = self._ro_row("mset_first_layer", "First layer thickness")
+        self.mesh_layer_count = self._ro_row("mset_layer_count", "Layers (computed)")
+        self.mesh_layer_stack = self._ro_row("mset_layer_stack", "Stack / final layer")
         self.mesh_title = QLabel("LAST MESH")
         self.mesh_title.setObjectName("sectionTitle")
         self._layout.addWidget(self.mesh_title)
@@ -520,7 +526,7 @@ class PropertiesPanel(QWidget):
         self.mesh_title.setFont(section_title_font(QApplication.font()))
         self.mesh_title.setContentsMargins(m.s3, m.s3, m.s3, m.s2)
         for label in (self.mesh_base_used, self.mesh_levels_used, self.mesh_bg_cells, self.mesh_surface_cells,
-                      self.mesh_first_layer, self.inflow_k, self.inflow_omega):
+                      self.mesh_first_layer, self.mesh_layer_count, self.mesh_layer_stack, self.inflow_k, self.inflow_omega):
             label.setFont(mono)
         self.info_label.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
         self.mesh_empty.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
@@ -578,7 +584,7 @@ class PropertiesPanel(QWidget):
     def _mesh_setting_rows(self) -> list[str]:
         keys = [f"mset_{k}" for k, _, _ in MESH_SETTINGS]
         return keys + ["mset_base_used", "mset_levels_used", "mset_bg_cells", "mset_surface_cells",
-                       "mset_first_layer"]
+                       "mset_first_layer", "mset_layer_count", "mset_layer_stack"]
 
     def _refresh_mesh_settings(self, show: bool) -> None:
         for key in self._mesh_setting_rows():
@@ -604,12 +610,22 @@ class PropertiesPanel(QWidget):
             for w in widgets:
                 w.blockSignals(False)
         box = domain_box_for(self._project)
-        if box.bounds is not None and mesh.layer_sizing == "absolute_yplus":
-            sim = self._project.sim
-            h = first_layer_thickness(mesh.target_yplus, sim.inflow.speed, sim.physics.nu, box.reference_length)
-            self.mesh_first_layer.setText(f"{h:.4g} m (for y+ {mesh.target_yplus:g})")
+        absolute = mesh.layer_sizing == "absolute_yplus"
+        plan = plan_layers_for(self._project, box) if box.bounds is not None and absolute else None
+        if plan is not None:
+            self.mesh_first_layer.setText(f"{plan.first:.4g} m (for y+ {mesh.target_yplus:g})")
+            self.mesh_layer_count.setText(f"{plan.count}" + (" (limit 30)" if plan.warning else ""))
+            self.mesh_layer_stack.setText(f"{plan.total:.4g} m / {plan.final:.4g} m")
         else:
-            self.mesh_first_layer.setText("relative sizing" if mesh.layer_sizing == "relative" else "\u2014")
+            blank = "relative sizing" if not absolute else "\u2014"
+            self.mesh_first_layer.setText(blank)
+            self.mesh_layer_count.setText(f"{mesh.layers} (set)" if not absolute else "\u2014")
+            self.mesh_layer_stack.setText("\u2014")
+        warn = plan is not None and plan.warning is not None
+        for label in (self.mesh_first_layer, self.mesh_layer_count, self.mesh_layer_stack):
+            self._set_warn(label, warn)
+        for label in (self.mesh_layer_count, self.mesh_layer_stack):
+            label.setToolTip(plan.warning if warn else "")
         if box.bounds is None:
             for label in (self.mesh_base_used, self.mesh_levels_used, self.mesh_bg_cells,
                           self.mesh_surface_cells):

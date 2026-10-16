@@ -94,6 +94,14 @@ def test_solvers_editor(window: MainWindow) -> None:
     f["iterations"].editingFinished.emit()
     assert window.project.sim.solvers.iterations == 250
     assert window.project.undo_label == "Edit solver (iterations)"
+    for key, value in (("residual_p", 1e-4), ("residual_u", 1e-5), ("residual_k", 1e-5), ("residual_omega", 1e-5)):
+        assert f[key].value() == pytest.approx(value) and f[key].text() == f"{value:.6g}"
+    f["residual_p"].setText("1e-6")
+    f["residual_p"].editingFinished.emit()
+    assert window.project.sim.solvers.residual_p == pytest.approx(1e-6)
+    f["residual_k"].setText("0")  # invalid: reverts with a message
+    f["residual_k"].editingFinished.emit()
+    assert window.project.sim.solvers.residual_k == pytest.approx(1e-5) and "residual_k" in window.statusBar().currentMessage()
 
 
 def test_mesh_node_has_layer_sizing_rows(window: MainWindow) -> None:
@@ -167,3 +175,39 @@ def test_absolute_layers_make_the_mesh_depend_on_the_flow(tmp_path) -> None:
     assert inputs_hash(project) != with_40  # absolute layers do
     project.update_physics(nu=2e-5)
     assert inputs_hash(project) not in (with_40,)
+
+
+def test_layer_count_rows_and_the_y_plus_warning(qtbot: QtBot, tmp_path) -> None:
+    from vortexcfd.foam.yplus import WARNING_HINT, first_layer_thickness, plan_layers
+    from vortexcfd.gui.scene import domain_box_for
+    from vortexcfd.foam.mesh_estimate import estimate_mesh
+
+    project = _project_with_sphere(tmp_path)
+    w = MainWindow(project, FakeDialogs(), with_viewer=False)
+    qtbot.addWidget(w)
+    w.show()
+    try:
+        w.tree.setCurrentItem(w._items[("mesh", None)])
+        p = w.properties
+        assert p.mesh_layer_count.text() == "3 (set)" and p.mesh_layer_stack.text() == "—"  # relative
+        box = domain_box_for(project)
+        surface = estimate_mesh(box.bounds, box.reference_length, project.sim.mesh).surface_size
+        project.update_mesh(layer_sizing="absolute_yplus", target_yplus=30.0)
+        plan = plan_layers(first_layer_thickness(30.0, 20.0, 1.5e-5, box.reference_length),
+                           project.sim.mesh.expansion_ratio, surface)
+        assert plan.warning is None
+        assert p.mesh_layer_count.text() == str(plan.count)
+        assert p.mesh_layer_stack.text() == f"{plan.total:.4g} m / {plan.final:.4g} m"
+        assert p.mesh_layer_count.property("warn") == "false"
+        assert WARNING_HINT not in w.top_bar.mesh_button.toolTip() and w.top_bar.mesh_button.isEnabled()
+        project.update_mesh(target_yplus=1.0)  # y+ 1 on this surface mesh: the stack cannot reach 0.5 h
+        assert p.mesh_layer_count.text() == "30 (limit 30)"
+        assert p.mesh_layer_count.property("warn") == "true" and p.mesh_layer_stack.property("warn") == "true"
+        assert WARNING_HINT in p.mesh_layer_count.toolTip()
+        tip = w.top_bar.mesh_button.toolTip()
+        assert w.top_bar.mesh_button.isEnabled() and "Warning" in tip and WARNING_HINT in tip
+        project.update_mesh(layer_sizing="relative")
+        assert "Warning" not in w.top_bar.mesh_button.toolTip()
+    finally:
+        w.project.save = lambda *a, **k: None
+        w.close()
