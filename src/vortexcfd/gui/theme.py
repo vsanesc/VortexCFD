@@ -108,7 +108,7 @@ class LayoutFractions:
 
     top_bar: float = 0.040  # top bar height / window height (48 px)
     left: float = 0.181  # left column width / window width (331 px)
-    tree_split: float = 0.548  # tree section height / left column height (637 of 1162 px)
+    tree_split: float = 0.40  # tree section height / left column height (owner: 40 % tree, 60 % properties)
     tab_bar: float = 0.0265  # scene tab bar height / window height (32 px)
     monitors: float = 0.347  # right monitors column width / window width (637 px)
     console: float = 0.131  # bottom console height / window height (158 px)
@@ -258,6 +258,14 @@ QWidget#canvas {{ background: {t.canvas}; }}
 QLabel#muted {{ color: {t.muted_text}; }}
 QLabel#accent2 {{ color: {t.accent_secondary}; background: transparent; }}
 QLabel#sectionTitle {{ color: {t.text}; background: transparent; }}
+QScrollArea#propScroll {{ background: transparent; border: none; }}
+QScrollBar:vertical {{ background: {t.base}; width: {m.s3}px; margin: 0; border: none; }}
+QScrollBar::handle:vertical {{ background: {t.border_active}; border-radius: {m.s1}px;
+    min-height: {m.s6}px; margin: {m.line}px; }}
+QScrollBar::handle:vertical:hover {{ background: {t.muted_text}; }}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; border: none; }}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
+QLabel#subSection {{ color: {t.muted_text}; background: transparent; }}
 QWidget#sectionHeader {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
 QLabel#badge {{ background: {t.elevated}; color: {t.accent_secondary}; border: {ln}px solid {t.border};
     border-radius: {btr}px; padding: {m.s1}px {m.s2}px; }}
@@ -320,13 +328,16 @@ QLabel#kpiValue {{ color: {t.text}; background: transparent; }}
 QWidget#propRow {{ background: transparent; border-bottom: {ln}px solid {t.border}; }}
 QTreeView {{ background: {t.base}; border: none; outline: 0; }}
 QTreeView::item {{ background: transparent; }}
-QLineEdit, QComboBox, QDoubleSpinBox {{
+QLineEdit, QComboBox, QAbstractSpinBox {{
     background: {t.elevated}; color: {t.text}; border: {ln}px solid {t.border};
     border-radius: {m.radius_s}px; padding: 0 {m.s2}px; min-height: {inner}px;
     selection-background-color: {t.accent}; selection-color: {t.accent_text};
 }}
-QLineEdit:hover, QComboBox:hover, QDoubleSpinBox:hover {{ border-color: {t.border_active}; }}
-QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus {{ border-color: {t.accent}; }}
+QLineEdit:hover, QComboBox:hover, QAbstractSpinBox:hover {{ border-color: {t.border_active}; }}
+QLineEdit:focus, QComboBox:focus, QAbstractSpinBox:focus {{ border-color: {t.accent}; }}
+QAbstractSpinBox::up-button, QAbstractSpinBox::down-button {{ width: 0; height: 0; border: none; }}
+QAbstractSpinBox QLineEdit {{ background: transparent; border: none; padding: 0; min-height: 0;
+    border-radius: 0; }}
 QLineEdit[readOnly="true"], QLineEdit[readOnly="true"]:hover {{
     background: {t.base}; color: {t.muted_text}; border-color: transparent;
 }}

@@ -78,6 +78,7 @@ from vortexcfd.gui.theme import (
     metrics,
     mono_font,
     save_appearance,
+    settings,
 )
 from vortexcfd.gui.topbar import FIT_METHOD, VIEW_BUTTONS, TopBar
 from vortexcfd.gui.viewport import (
@@ -321,6 +322,7 @@ class MainWindow(QMainWindow):
         self._left_split.addWidget(props_section)
         self._left_split.setStretchFactor(0, 1)
         self._left_split.setStretchFactor(1, 0)
+        self._left_split.splitterMoved.connect(self._save_left_split)
         self._status_bar = QStatusBar()
         self._status_bar.setSizeGripEnabled(False)
         self._selection_label = QLabel()
@@ -630,8 +632,27 @@ class MainWindow(QMainWindow):
         right_h = self._right_split.height()
         self._right_split.setSizes([max(0, right_h - console), console])
         column_h = self._left.height()
-        tree = round(LAYOUT.tree_split * column_h)
+        tree = round(self._saved_tree_fraction() * column_h)
         self._left_split.setSizes([tree, max(0, self._left_split.height() - tree)])
+
+    LEFT_SPLIT_KEY = "layout/left_tree_fraction"
+
+    def _saved_tree_fraction(self) -> float:
+        """Tree share of the left column: the user's last split, else the default (40 %)."""
+        try:
+            value = float(settings().value(self.LEFT_SPLIT_KEY, LAYOUT.tree_split))
+        except (TypeError, ValueError):
+            return LAYOUT.tree_split
+        return value if 0.05 < value < 0.95 else LAYOUT.tree_split
+
+    def _save_left_split(self, *_args) -> None:
+        """Remember the tree/properties split after the user drags the handle."""
+        column_h = self._left.height()
+        if column_h > 0:
+            tree_h = self._left_split.sizes()[0]
+            s = settings()
+            s.setValue(self.LEFT_SPLIT_KEY, tree_h / column_h)
+            s.sync()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)

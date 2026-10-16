@@ -4,6 +4,11 @@ from typing import get_args
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
+    QBoxLayout,
+    QFrame,
+    QScrollArea,
+    QSizePolicy,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -34,7 +39,6 @@ def _spin(low: int, high: int, suffix: str = "", special: str | None = None) -> 
     box = QSpinBox()
     box.setRange(low, high)
     box.setSuffix(suffix)
-    box.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
     if special:
         box.setSpecialValueText(special)
     return box
@@ -45,7 +49,6 @@ def _dspin(low: float, high: float, decimals: int, suffix: str = "", special: st
     box.setRange(low, high)
     box.setDecimals(decimals)
     box.setSuffix(suffix)
-    box.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
     if special:
         box.setSpecialValueText(special)
     return box
@@ -94,6 +97,51 @@ CHECK_ROWS = (
 )
 
 
+def _wrap(label: QLabel) -> None:
+    """A value label that wraps instead of forcing the panel wider than its viewport."""
+    label.setWordWrap(True)
+    label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+
+
+class ElidedLabel(QLabel):
+    """Label with a fixed column width: text that does not fit is elided with "…" and the full
+    text becomes the tooltip. It never paints outside its own width."""
+
+    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self._full = text
+        self.setMinimumWidth(0)
+
+    def full_text(self) -> str:
+        return self._full
+
+    def set_full_width(self) -> None:
+        """Stacked layout: the label takes the whole row width and shows its full text."""
+        self.setMinimumWidth(0)
+        self.setMaximumWidth(16777215)
+        self.setText(self._full)
+        self.setToolTip("")
+
+    def set_column_width(self, width: int) -> None:
+        self.setFixedWidth(width)
+        available = max(0, width - self.contentsMargins().left() - self.contentsMargins().right())
+        elided = self.fontMetrics().elidedText(self._full, Qt.TextElideMode.ElideRight, available)
+        self.setText(elided)
+        self.setToolTip(self._full if elided != self._full else "")
+
+
+MIN_LABEL_U = 9  # label column width bounds, in u (and a fraction of the panel width)
+MAX_LABEL_FRACTION = 0.55
+MIN_FIELD_U = 12  # narrower fields than this make the rows stack (label above field)
+
+# First Mesh field of each section header in the Mesh rows.
+MESH_SECTIONS = {
+    "background_cells_target": "Sizing",
+    "surface_level_min": "Refinement",
+    "layers": "Layers",
+}
+
+
 class PropertiesPanel(QWidget):
     """Form for the selected node. Never mutates the model: all edits use the Project API.
 
@@ -119,14 +167,36 @@ class PropertiesPanel(QWidget):
         self.units_combo.addItems(ALLOWED_UNITS)
         self.info_label = QLabel("No properties yet")
         self.info_label.setObjectName("muted")
+        _wrap(self.info_label)
 
         # Rows: label on the left, value box on the right, 1px divider below.
         self._rows: dict[str, QWidget] = {}
         self._row_layouts: list[QHBoxLayout] = []
-        self._labels: list[QLabel] = []
-        self._layout = QVBoxLayout(self)
+        self._row_labels: dict[str, ElidedLabel] = {}  # row key -> its label
+        self._fields: list[QWidget] = []  # input widgets (kept at a minimum height)
+        self._sections: dict[str, QLabel] = {}
+        self._label_column = 0
+        self.stacked = False
+        self._row_fields: dict[str, QWidget] = {}
+        # The rows live in a scroll area: they never shrink below their designed height; a
+        # vertical scrollbar appears when they do not fit.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        self._scroll = QScrollArea()
+        self._scroll.setObjectName("propScroll")
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._content = QWidget()
+        self._content.setObjectName("panel")
+        self._content.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._layout = QVBoxLayout(self._content)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(0)
+        self._scroll.setWidget(self._content)
+        outer.addWidget(self._scroll)
         for key, text, field in (
             ("name", "Name", self.name_edit),
             ("source", "Source file", self.source_label),
@@ -152,20 +222,22 @@ class PropertiesPanel(QWidget):
         self.domain_fields: dict[str, QDoubleSpinBox] = {}
         self._domain_keys = ["enabled"]
         self._layout.addWidget(self._make_row("dom_enabled", "Enabled", self.domain_enabled))
+        self._section("dom_size", "Size")
         for key in ("upstream", "downstream", "lateral", "vertical"):
             spin = QDoubleSpinBox()
             spin.setRange(0.001, 10000.0)
             spin.setDecimals(3)
             spin.setSingleStep(0.5)
             spin.setSuffix(" L")
-            spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
             self.domain_fields[key] = spin
             self._domain_keys.append(key)
             self._layout.addWidget(self._make_row(f"dom_{key}", key.capitalize(), spin))
             spin.editingFinished.connect(lambda k=key: self._commit_domain(k))
+        self._section("dom_symmetry", "Symmetry")
         self.domain_symmetry = QComboBox()
         self.domain_symmetry.addItems(list(DOMAIN_SYMMETRY))
         self._layout.addWidget(self._make_row("dom_symmetry", "Symmetry", self.domain_symmetry))
+        self._section("dom_computed", "Computed")
         self.domain_length = QLineEdit()
         self.domain_length.setReadOnly(True)
         self._layout.addWidget(self._make_row("dom_length", "Reference length L", self.domain_length))
@@ -174,7 +246,7 @@ class PropertiesPanel(QWidget):
         self._layout.addWidget(self._make_row("dom_size", "Box size", self.domain_size))
         self.domain_warning = QLabel()
         self.domain_warning.setObjectName("checkValue")
-        self.domain_warning.setWordWrap(True)
+        _wrap(self.domain_warning)
         self._layout.addWidget(self.domain_warning)
         self.domain_enabled.toggled.connect(lambda _: self._commit_domain("enabled"))
         self.domain_symmetry.currentTextChanged.connect(lambda _: self._commit_domain("symmetry"))
@@ -182,6 +254,8 @@ class PropertiesPanel(QWidget):
         # shown read-only next to their overrides, then the checkMesh report.
         self.mesh_fields: dict[str, QWidget] = {}
         for key, label, factory in MESH_SETTINGS:
+            if key in MESH_SECTIONS:
+                self._section(f"mesh_{MESH_SECTIONS[key].lower()}", MESH_SECTIONS[key])
             widget = factory()
             self.mesh_fields[key] = widget
             self._layout.addWidget(self._make_row(f"mset_{key}", label, widget))
@@ -190,6 +264,7 @@ class PropertiesPanel(QWidget):
                 self.mesh_base_used = self._ro_row("mset_base_used", "Base size used")
             if key == "surface_level_max":
                 self.mesh_levels_used = self._ro_row("mset_levels_used", "Levels used")
+        self._section("mesh_estimate", "Estimate")
         self.mesh_bg_cells = self._ro_row("mset_bg_cells", "Background cells")
         self.mesh_surface_cells = self._ro_row("mset_surface_cells", "Surface cell size")
         self.mesh_title = QLabel("LAST MESH")
@@ -205,6 +280,8 @@ class PropertiesPanel(QWidget):
             self._layout.addWidget(self._make_row(f"mesh_{key}", text, value))
         # Layer coverage: one row per part patch, filled in by _refresh_mesh.
         self._row_margins = (0, 0, 0, 0)
+        self._row_min_height = 0
+        self._layer_titles: list[tuple[QWidget, ElidedLabel]] = []
         self._layer_rows: list[QWidget] = []
         self.layer_labels: list[QLabel] = []
         self._layer_box = QVBoxLayout()
@@ -214,6 +291,7 @@ class PropertiesPanel(QWidget):
         self._mesh_stale = False
         self.mesh_empty = QLabel("No mesh")
         self.mesh_empty.setObjectName("muted")
+        _wrap(self.mesh_empty)
         self._layout.addWidget(self.mesh_empty)
         self._layout.addWidget(self.info_label)
         self._layout.addStretch(1)
@@ -235,15 +313,81 @@ class PropertiesPanel(QWidget):
         row = QWidget()
         row.setObjectName("propRow")
         row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        label = QLabel(text)
+        label = ElidedLabel(text)
         label.setObjectName("muted")
         box = QHBoxLayout(row)
-        box.addWidget(label, 2)
-        box.addWidget(field, 3)
+        box.addWidget(label)  # fixed width, set by _apply_label_column
+        box.addWidget(field, 1)
         self._rows[key] = row
         self._row_layouts.append(box)
-        self._labels.append(label)
+        self._row_labels[key] = label
+        self._row_fields[key] = field
+        if isinstance(field, (QLineEdit, QComboBox, QAbstractSpinBox, QCheckBox)):
+            self._fields.append(field)
+        elif isinstance(field, QLabel):
+            _wrap(field)
         return row
+
+    def _section(self, key: str, text: str) -> QLabel:
+        """A small section header inside a node's rows."""
+        title = QLabel(text.upper())
+        title.setObjectName("subSection")
+        self._layout.addWidget(title)
+        self._sections[key] = title
+        return title
+
+    # -- label column -------------------------------------------------------------------
+
+    def _apply_label_column(self) -> None:
+        """Lay out the label column.
+
+        Side by side: label width = the widest visible label, clamped to [9u, 55 % of the
+        panel]; labels that still do not fit are elided with "…" and carry the full text as
+        a tooltip, so a label never overlaps its field. If that would leave the field narrower
+        than ``MIN_FIELD_U`` (a narrow panel), every row stacks instead: label above field,
+        full width, nothing elided.
+        """
+        m = metrics()
+        pairs = [(self._rows[k], lab) for k, lab in self._row_labels.items() if not self._rows[k].isHidden()]
+        pairs += [(row, lab) for row, lab in self._layer_titles if not row.isHidden()]
+        widest = max((lab.fontMetrics().horizontalAdvance(lab.full_text()) for _, lab in pairs), default=0)
+        # A scrollbar's width is always reserved, so the layout does not depend on whether it shows.
+        panel_w = max(self.width() - m.s3, 1)
+        column = min(max(widest + m.s1, MIN_LABEL_U * m.u), int(MAX_LABEL_FRACTION * panel_w))
+        field_w = panel_w - 2 * m.s3 - m.s3 - column
+        self.stacked = field_w < MIN_FIELD_U * m.u
+        self._label_column = column
+        every = [*self._rows.items(), *((None, r) for r, _ in self._layer_titles)]
+        for row in (r for _, r in every):
+            box = row.layout()
+            box.setDirection(
+                QBoxLayout.Direction.TopToBottom if self.stacked else QBoxLayout.Direction.LeftToRight
+            )
+            box.setSpacing(m.s1 if self.stacked else m.s3)
+            # Explicit minimum heights replace the layout's own: a stacked row needs the label
+            # line as well, or its field would be squeezed into a sliver.
+            label_h = box.itemAt(0).widget().fontMetrics().height()
+            row.setMinimumHeight(m.field + 2 * m.s2 + (label_h + m.s1 if self.stacked else 0))
+        for lab in (*self._row_labels.values(), *(l for _, l in self._layer_titles)):
+            if self.stacked:
+                lab.set_column_width(max(panel_w - 2 * m.s3, 1))  # the row's whole width
+            else:
+                lab.set_column_width(column)
+        self._fit_content_height()
+
+    def _fit_content_height(self) -> None:
+        """Make the scroll area aware of the rows' real height (a layout change inside the content
+        widget does not resize it by itself), so the scrollbar appears when they do not fit."""
+        layout = self._content.layout()
+        layout.activate()
+        height = layout.minimumSize().height()
+        if layout.hasHeightForWidth():
+            height = max(height, layout.totalHeightForWidth(max(self._scroll.viewport().width(), 1)))
+        self._content.setMinimumHeight(height)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._apply_label_column()
 
     def apply_metrics(self, m: Metrics, theme: Theme) -> None:
         """Paddings and fonts derived from the font height."""
@@ -251,6 +395,21 @@ class PropertiesPanel(QWidget):
         for box in self._row_layouts:
             box.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
             box.setSpacing(m.s3)
+        mono_fields = mono_font(QApplication.font(), 0.9)
+        for field in self._fields:  # inputs and rows never shrink below their designed height
+            field.setMinimumHeight(m.field)
+            field.setMinimumWidth(1)  # the content (e.g. a spin box's widest value) must not force a width
+            field.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            if not isinstance(field, QCheckBox):
+                field.setFont(mono_fields)
+        self._row_min_height = m.field + 2 * m.s2
+        for row in self._rows.values():
+            row.setMinimumHeight(m.field + 2 * m.s2)
+        sub = section_title_font(QApplication.font())
+        sub.setPointSizeF(sub.pointSizeF() * 0.9)
+        for title in self._sections.values():
+            title.setFont(sub)
+            title.setContentsMargins(m.s3, m.s3, m.s3, m.s1)
         self.checks_title.setFont(section_title_font(QApplication.font()))
         self.checks_title.setContentsMargins(m.s3, m.s3, m.s3, m.s2)
         mono = mono_font(QApplication.font(), 0.9)
@@ -265,6 +424,7 @@ class PropertiesPanel(QWidget):
             label.setFont(mono)
         self.info_label.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
         self.mesh_empty.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
+        self._apply_label_column()
 
     def set_project(self, project: Project) -> None:
         self._project = project
@@ -310,6 +470,7 @@ class PropertiesPanel(QWidget):
         self._refresh_mesh_settings(self._kind == "mesh")
         self._refresh_mesh(self._kind == "mesh")
         self.info_label.setVisible(not show_name and not is_domain and self._kind != "mesh")
+        self._apply_label_column()
 
     def _mesh_setting_rows(self) -> list[str]:
         keys = [f"mset_{k}" for k, _, _ in MESH_SETTINGS]
@@ -318,6 +479,8 @@ class PropertiesPanel(QWidget):
     def _refresh_mesh_settings(self, show: bool) -> None:
         for key in self._mesh_setting_rows():
             self._rows[key].setVisible(show)
+        for key in ("mesh_sizing", "mesh_refinement", "mesh_layers", "mesh_estimate"):
+            self._sections[key].setVisible(show)
         self.mesh_title.setVisible(show and self._mesh_report is not None)
         if not show:
             return
@@ -406,7 +569,7 @@ class PropertiesPanel(QWidget):
         for row in self._layer_rows:
             self._layer_box.removeWidget(row)
             row.deleteLater()
-        self._layer_rows, self.layer_labels = [], []
+        self._layer_rows, self.layer_labels, self._layer_titles = [], [], []
         if report is None:
             return
         for cov in report.layers:
@@ -416,16 +579,19 @@ class PropertiesPanel(QWidget):
             )
             label.setObjectName("checkValue")
             label.setFont(mono_font(QApplication.font(), 0.9))
+            _wrap(label)
             self._set_warn(label, cov.below_threshold)
             row = QWidget()
             row.setObjectName("propRow")
             row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
             box = QHBoxLayout(row)
             box.setContentsMargins(*self._row_margins)
-            title = QLabel(f"Layers: {cov.patch}")
+            title = ElidedLabel(f"Layers: {cov.patch}")
             title.setObjectName("muted")
-            box.addWidget(title, 2)
-            box.addWidget(label, 3)
+            box.addWidget(title)
+            box.addWidget(label, 1)
+            self._layer_titles.append((row, title))
+            row.setMinimumHeight(self._row_min_height)
             self._layer_box.addWidget(row)
             self._layer_rows.append(row)
             self.layer_labels.append(label)
@@ -440,6 +606,8 @@ class PropertiesPanel(QWidget):
         keys = [f"dom_{k}" for k in self._domain_keys] + ["dom_symmetry", "dom_length", "dom_size"]
         for key in keys:
             self._rows[key].setVisible(show)
+        for key in ("dom_size", "dom_symmetry", "dom_computed"):
+            self._sections[key].setVisible(show)
         self.domain_warning.setVisible(show)
         if not show:
             return
@@ -458,7 +626,7 @@ class PropertiesPanel(QWidget):
         box = domain_box_for(self._project)
         self.domain_length.setText(f"{box.reference_length:.4g} m" if box.bounds else "\u2014")
         self.domain_size.setText(
-            " \u00d7 ".join(f"{v:.4g}" for v in box.size) + " m" if box.bounds else "\u2014"
+            " \u00d7 ".join(f"{v:.3g}" for v in box.size) + " m" if box.bounds else "\u2014"
         )
         self.domain_warning.setText("\n".join(box.warnings))
         self._set_warn(self.domain_warning, bool(box.warnings))

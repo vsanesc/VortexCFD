@@ -29,9 +29,18 @@ def main() -> int:
     from vortexcfd.gui.main_window import MainWindow
 
     app = QApplication.instance() or QApplication(sys.argv)
+    import pyvista as pv
+
+    # A saved project with one real part (so domain and mesh estimates have numbers) and two
+    # placeholder parts without files.
+    folder = Path(tempfile.mkdtemp(prefix="vortexcfd_shots_project_"))
+    (folder / "geometry").mkdir()
+    pv.Sphere(radius=0.5, theta_resolution=24, phi_resolution=24).save(str(folder / "geometry" / "Wing.stl"))
     project = Project.new("Wing study")
-    for name, units in (("Wing", "mm"), ("Fuselage", "m"), ("Tail", "cm")):
-        project.add_part(Part(name=name, source_file=f"{name.lower()}.stl", units=units))
+    project.add_part(Part(name="Wing", source_file="geometry/Wing.stl", units="m"))
+    for name, units in (("Fuselage", "m"), ("Tail", "cm")):
+        project.add_part(Part(name=name, source_file="", units=units))
+    project.save(folder / "wing.json")
 
     window = MainWindow(project, with_viewer=True)  # placeholder viewer shows a sphere
     window.resize(1600, 1000)
@@ -55,6 +64,22 @@ def main() -> int:
     window.set_point_size(11)
     window.tree.setCurrentItem(window._items[("part", 0)])
     shot("v2.png")
+
+    # Mesh and Fluid Domain properties at two font sizes (readability check).
+    from vortexcfd.foam.mesh_report import LayerCoverage, MeshReport
+
+    report = MeshReport(
+        points=222040, faces=603889, cells=192220, max_non_orthogonality=40.23,
+        avg_non_orthogonality=7.2, max_skewness=0.595, failed_checks=0, mesh_ok=True,
+        layers=(LayerCoverage("Wing", 9460, 3, 2.4, 0.0211, 72.5),), extruded_percent=96.0,
+    )
+    window.properties.set_mesh_report(report)
+    for size in (11, 14):
+        window.set_point_size(size)
+        window.tree.setCurrentItem(window._items[("mesh", None)])
+        shot(f"v3_mesh_font{size}.png")
+        window.tree.setCurrentItem(window._items[("fluid_domain", None)])
+        shot(f"v3_domain_font{size}.png")
     for p in paths:
         print(p)
     sys.stdout.flush()
