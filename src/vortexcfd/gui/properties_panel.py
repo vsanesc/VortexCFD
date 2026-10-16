@@ -2,12 +2,13 @@
 
 from typing import get_args
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QComboBox, QFormLayout, QLabel, QLineEdit, QWidget
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit, QVBoxLayout, QWidget
 
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
-from vortexcfd.gui.theme import Metrics, metrics
+from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics
+from vortexcfd.gui.widgets import Card
 
 # Allowed units are read from the model so the two never drift apart.
 ALLOWED_UNITS: tuple[str, ...] = get_args(Part.model_fields["units"].annotation)
@@ -37,32 +38,39 @@ class PropertiesPanel(QWidget):
         self.info_label = QLabel("No properties yet")
         self.info_label.setObjectName("muted")
 
-        self._form = QFormLayout(self)
-        self._form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self._form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        self._form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
-        for text, field in (
-            ("Name", self.name_edit),
-            ("Source file", self.source_label),
-            ("Units", self.units_combo),
-        ):
-            label = QLabel(text)
-            label.setObjectName("muted")
-            self._form.addRow(label, field)
-        self._form.addRow(self.info_label)
-        self._form.setRowVisible(self.info_label, False)
-        self.apply_metrics(metrics())
+        self.card_general = Card("General")
+        self.card_general.add_row("Name", self.name_edit)
+        self.card_source = Card("Source")
+        self.card_source.add_row("Source file", self.source_label)
+        self.card_source.add_row("Units", self.units_combo)
+        self._cards = (self.card_general, self.card_source)
+        self._collapsed: dict[str, bool] = {}  # kept in memory per card title
+        for card in self._cards:
+            card.toggled.connect(self._on_card_toggled)
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(0)
+        for card in self._cards:
+            self._layout.addWidget(card)
+        self._layout.addWidget(self.info_label)
+        self._layout.addStretch(1)
+        self._theme: Theme | None = None
+        self.apply_metrics(metrics(), DARK)
 
         self.name_edit.editingFinished.connect(self._commit_name)
         self.name_edit.textEdited.connect(self._on_name_edited)
         self.units_combo.currentTextChanged.connect(self._commit_units)
         self.refresh()
 
-    def apply_metrics(self, m: Metrics) -> None:
-        """Padding s3 around the form, gaps s2 between controls."""
-        self._form.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
-        self._form.setHorizontalSpacing(m.s3)
-        self._form.setVerticalSpacing(m.s2)
+    def apply_metrics(self, m: Metrics, theme: Theme) -> None:
+        """Card paddings and gaps derived from the font height."""
+        for card in self._cards:
+            card.configure(m, theme)
+        self.info_label.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
+
+    def _on_card_toggled(self, title: str, collapsed: bool) -> None:
+        self._collapsed[title] = collapsed
 
     def set_project(self, project: Project) -> None:
         self._project = project
@@ -96,10 +104,11 @@ class PropertiesPanel(QWidget):
         finally:
             for widget in (self.name_edit, self.source_label, self.units_combo):
                 widget.blockSignals(False)
-        self._form.setRowVisible(self.name_edit, show_name)
-        self._form.setRowVisible(self.source_label, part is not None)
-        self._form.setRowVisible(self.units_combo, part is not None)
-        self._form.setRowVisible(self.info_label, not show_name)
+        self.card_general.setVisible(show_name)
+        self.card_source.setVisible(part is not None)
+        self.info_label.setVisible(not show_name)
+        for card in self._cards:
+            card.set_collapsed(self._collapsed.get(card.title, False))
 
     def commit_pending(self) -> None:
         """Commit an uncommitted name edit through the Project API (idempotent).

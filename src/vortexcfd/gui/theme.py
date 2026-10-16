@@ -91,6 +91,7 @@ class Metrics:
     status: int  # status bar height (2u)
     strip: int  # top/bottom pill strip height (3.4u)
     sidebar_header: int  # project header height (3u)
+    pill_h: int  # pill height (2.4u); pill radius is half of it
     hit: int  # splitter hit area (0.5u)
     line: int = 1  # divider / border width
     bar: int = 2  # accent bar on the selected row
@@ -107,7 +108,7 @@ def metrics(u: int | None = None) -> Metrics:
     return Metrics(
         u=u, s1=k(0.25), s2=k(0.5), s3=k(0.75), s4=k(1), s5=k(1.5), s6=k(2),
         header=k(2), row=k(1.8), field=k(2), radius_s=k(0.25), radius_m=k(0.5), hit=k(0.5),
-        menubar=k(2), status=k(2), strip=k(3.4), sidebar_header=k(3),
+        menubar=k(2), status=k(2), strip=k(3.4), sidebar_header=k(3), pill_h=k(2.4),
     )
 
 
@@ -167,9 +168,29 @@ QLabel#muted {{ color: {t.muted_text}; }}
 QLabel#sectionTitle {{ background: {t.elevated}; color: {t.muted_text};
     border: none; border-bottom: {ln}px solid {t.border}; padding: 0 {m.s3}px; }}
 QTreeView {{ background: {t.base}; border: none; outline: 0; }}
-QTreeView::item, QTreeView::branch {{ background: transparent; }}
-QTreeView::item:hover, QTreeView::branch:hover {{ background: {t.elevated}; }}
-QTreeView::item:selected, QTreeView::branch:selected {{ background: {t.selection}; color: {t.text}; }}
+QTreeView::item {{ background: transparent; }}
+QWidget#stripTop {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
+QWidget#stripBottom {{ background: {t.base}; border-top: {ln}px solid {t.border}; }}
+QFrame#pill {{ background: {t.elevated}; border: {ln}px solid {t.border}; border-radius: {m.pill_h // 2}px; }}
+QPushButton#segBtn, QPushButton#viewBtn {{
+    background: transparent; color: {t.muted_text}; border: {ln}px solid transparent;
+    border-radius: {(m.pill_h - 2 * (m.s1 + ln)) // 2}px; padding: 0 {m.s4}px;
+}}
+QPushButton#segBtn:hover, QPushButton#viewBtn:hover {{ color: {t.text}; }}
+QPushButton#viewBtn:hover {{ background: {t.floating}; }}
+QPushButton#segBtn:checked {{ background: {t.floating}; color: {t.text}; border: {ln}px solid {t.accent}; }}
+QPushButton#viewBtn:disabled {{ color: {t.muted_text}; background: transparent; }}
+QWidget#sidebarHeader {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
+QPushButton#headerName {{ background: transparent; border: none; color: {t.text};
+    text-align: left; padding: {m.s1}px {m.s2}px; border-radius: {m.radius_s}px; }}
+QPushButton#headerName:hover {{ background: {t.elevated}; }}
+QLabel#dirtyDot {{ color: {t.accent}; background: transparent; }}
+QToolButton {{ background: transparent; border: none; border-radius: {m.radius_s}px; padding: {m.s1}px; }}
+QToolButton:hover {{ background: {t.elevated}; }}
+QToolButton::menu-indicator {{ image: none; width: 0; }}
+QFrame#cardHeader {{ background: {t.elevated}; border: none; border-bottom: {ln}px solid {t.border}; }}
+QLabel#cardTitle {{ color: {t.muted_text}; font-weight: bold; background: transparent; }}
+QLabel#cardToggle {{ background: transparent; }}
 QLineEdit, QComboBox {{
     background: {t.elevated}; color: {t.text}; border: {ln}px solid {t.border};
     border-radius: {m.radius_s}px; padding: 0 {m.s2}px; min-height: {inner}px;
@@ -193,7 +214,7 @@ QStatusBar[level="success"] {{ color: {t.success}; }}
 QStatusBar[level="warning"] {{ color: {t.warning}; }}
 QStatusBar[level="error"] {{ color: {t.error}; }}
 QMenuBar {{ background: {t.base}; }}
-QMenuBar::item {{ background: transparent; padding: {m.s2}px {m.s3}px; }}
+QMenuBar::item {{ background: transparent; padding: {m.s1}px {m.s3}px; }}
 QMenuBar::item:selected {{ background: {t.elevated}; }}
 QMenu {{ background: {t.floating}; border: {ln}px solid {t.border};
     border-radius: {m.radius_s}px; padding: {m.s1}px 0; }}

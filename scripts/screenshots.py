@@ -49,11 +49,17 @@ def main() -> int:
         window.plotter.screenshot(str(plotter_path))
         paths.append(plotter_path)
 
-    window.set_point_size(11)
-    window.tree.setCurrentItem(window.tree.topLevelItem(0).child(0).child(1))
-    shot("font11.png")
-    window.set_point_size(14)
-    shot("font14.png")
+    for size in (11, 14):
+        window.set_point_size(size)
+        window.search.setText("")
+        window.properties.card_source.set_collapsed(False)
+        window.tree.setCurrentItem(window._items[("part", 1)])
+        shot(f"font{size}.png")
+        window.search.setText("wing")
+        shot(f"font{size}_search.png")
+        window.search.setText("")
+        window.properties.card_source.set_collapsed(True)
+        shot(f"font{size}_card_collapsed.png")
     for p in paths:
         print(p)
     sys.stdout.flush()

@@ -51,6 +51,8 @@ src/vortexcfd/
 - **`gui/`**:
   - Implements UI components, main window, and 3D visualization using PySide6 and PyVista/pyvistaqt.
   - `gui/theme.py`: design tokens (`Theme`), Fusion palette/stylesheet and font zoom; `gui/icons.py` draws tree icons in code.
+  - `gui/widgets.py`: sidebar project header, search field, stage/view pills and collapsible property cards.
+  - `gui/properties_panel.py`: properties form for the selected node, built from cards; `gui/dialogs.py`: injectable file/confirm dialogs.
   - May import `core` and `foam`.
 - **Enforcement Rule**: `core` and `foam` must never import `gui`. This guarantees that simulation data manipulation, case generation, and solver execution remain fully decoupled from the graphical user interface, enabling headless automation and CLI operation.
 

@@ -4,8 +4,17 @@ import logging
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QRect, QSize, Qt
-from PySide6.QtGui import QAction, QCloseEvent, QColor, QKeySequence, QPainter, QPalette
+from PySide6.QtCore import QPointF, QRect, QSize, Qt
+from PySide6.QtGui import (
+    QAction,
+    QCloseEvent,
+    QColor,
+    QKeySequence,
+    QPainter,
+    QPalette,
+    QPen,
+    QPolygonF,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QLabel,
@@ -16,6 +25,7 @@ from PySide6.QtWidgets import (
     QSplitterHandle,
     QStyle,
     QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTreeWidget,
     QTreeWidgetItem,
     QWidget,
@@ -26,6 +36,7 @@ from vortexcfd.core.project import Project
 from vortexcfd.gui.dialogs import Dialogs
 from vortexcfd.gui.icons import ICON_TOKENS, make_icon
 from vortexcfd.gui.properties_panel import PropertiesPanel
+from vortexcfd.gui.widgets import ProjectHeader, SearchField, StagePill, ViewPill, make_strip
 from vortexcfd.gui.theme import (
     DEFAULT_POINT_SIZE,
     Theme,
@@ -53,28 +64,84 @@ Selection = tuple[str, int | None]  # (node kind, part index)
 
 
 class _RowDelegate(QStyledItemDelegate):
-    """Fixed tree row height and an accent bar on the left edge of the selected row."""
+    """Tree rows: fixed height, full-width hover/selection fill, 2px accent bar on the left
+    edge of the selected row and a drawn chevron slot for rows with children."""
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
         self._metrics: Metrics | None = None
-        self._bar_color = QColor()
+        self._theme: Theme | None = None
 
-    def configure(self, m: Metrics, bar_color: QColor) -> None:
+    def configure(self, m: Metrics, theme: Theme) -> None:
         self._metrics = m
-        self._bar_color = bar_color
+        self._theme = theme
+
+    @property
+    def slot(self) -> int:
+        """Width reserved for the chevron at the left of every row."""
+        return self._metrics.u if self._metrics else 0
 
     def sizeHint(self, option, index) -> QSize:
         hint = super().sizeHint(option, index)
         if self._metrics is not None:
             hint.setHeight(self._metrics.row)
+            hint.setWidth(hint.width() + self.slot)
         return hint
 
     def paint(self, painter: QPainter, option, index) -> None:
-        super().paint(painter, option, index)
-        if self._metrics is not None and option.state & QStyle.StateFlag.State_Selected:
-            r = option.rect
-            painter.fillRect(QRect(0, r.top(), self._metrics.bar, r.height()), self._bar_color)
+        m, t = self._metrics, self._theme
+        if m is None or t is None:
+            super().paint(painter, option, index)
+            return
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        selected = bool(opt.state & QStyle.StateFlag.State_Selected)
+        hover = bool(opt.state & QStyle.StateFlag.State_MouseOver)
+        r = opt.rect
+        row = QRect(0, r.top(), opt.widget.viewport().width(), r.height())
+        if selected:
+            painter.fillRect(row, QColor(t.selection))
+            painter.fillRect(QRect(0, r.top(), m.bar, r.height()), QColor(t.accent))
+        elif hover:
+            painter.fillRect(row, QColor(t.elevated))
+        if index.model().hasChildren(index):
+            self._draw_chevron(painter, r, bool(opt.state & QStyle.StateFlag.State_Open), hover, m, t)
+        opt.state &= ~(
+            QStyle.StateFlag.State_Selected
+            | QStyle.StateFlag.State_MouseOver
+            | QStyle.StateFlag.State_HasFocus
+        )
+        opt.rect = r.adjusted(self.slot, 0, 0, 0)
+        super().paint(painter, opt, index)
+
+    def _draw_chevron(self, painter, r, expanded: bool, hover: bool, m: Metrics, t: Theme) -> None:
+        pen = QPen(QColor(t.accent if hover else t.muted_text), max(1.2, m.u / 12))
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(pen)
+        cx, cy, h = r.left() + self.slot / 2, r.center().y() + 0.5, m.u * 0.16
+        if expanded:
+            pts = [QPointF(cx - h, cy - h / 2), QPointF(cx, cy + h / 2), QPointF(cx + h, cy - h / 2)]
+        else:
+            pts = [QPointF(cx - h / 2, cy - h), QPointF(cx + h / 2, cy), QPointF(cx - h / 2, cy + h)]
+        painter.drawPolyline(QPolygonF(pts))
+        painter.restore()
+
+
+class _Tree(QTreeWidget):
+    """Tree whose chevron slot toggles expansion without changing the selection."""
+
+    def mousePressEvent(self, event) -> None:
+        item = self.itemAt(event.position().toPoint())
+        delegate = self.itemDelegate()
+        if item is not None and item.childCount() and isinstance(delegate, _RowDelegate):
+            rect = self.visualItemRect(item)
+            if rect.left() <= event.position().x() < rect.left() + delegate.slot:
+                item.setExpanded(not item.isExpanded())
+                return
+        super().mousePressEvent(event)
 
 
 class _Handle(QSplitterHandle):
@@ -121,39 +188,79 @@ class MainWindow(QMainWindow):
         self._apply_default_size()
         self._first_show = True
 
-        self.tree = QTreeWidget()
+        self.tree = _Tree()
         self.tree.setHeaderHidden(True)
+        self.tree.setRootIsDecorated(False)  # chevrons are drawn by the delegate
+        self.tree.setMouseTracking(True)
         self._delegate = _RowDelegate(self.tree)
         self.tree.setItemDelegate(self._delegate)
+        self._root_item: QTreeWidgetItem | None = None
+        self._filter = ""
+        self._sidebar_sizes: list[int] | None = None
         self.properties = PropertiesPanel(project)
         self.properties.message.connect(lambda text: self.show_message(text, "warning"))
         self.properties.pending_changed.connect(self._update_actions)
+        self._build_actions()
+
+        # Left sidebar: project header, search, tree.
+        self.header = ProjectHeader(
+            [self.act_new, self.act_open, None, self.act_save, self.act_save_as]
+        )
+        self.header.name_clicked.connect(self._select_root)
+        self.header.collapse_clicked.connect(self.act_toggle_sidebars.trigger)
+        self.search = SearchField()
+        self.search.textChanged.connect(self._set_filter)
+        self._search_row = QWidget()
+        search_layout = QVBoxLayout(self._search_row)
+        search_layout.addWidget(self.search)
+        self._search_layout = search_layout
+        self._left = QWidget()
+        self._left.setObjectName("pane")
+        self._left.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        left_layout = QVBoxLayout(self._left)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(0)
+        left_layout.addWidget(self.header)
+        left_layout.addWidget(self._search_row)
+        left_layout.addWidget(self.tree, 1)
 
         self._titles: list[QLabel] = []
         self._layouts: list[QVBoxLayout] = []
+        self._right = self._pane("Properties", self.properties)
         splitter = _Splitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
-        self._left = self._pane("Simulation", self.tree)
-        self._right = self._pane("Properties", self.properties)
         splitter.addWidget(self._left)
 
+        # Center column: stage strip, viewer, view strip (strips never overlay the viewer).
+        self.stage_pill = StagePill()
+        self.stage_pill.stage_clicked.connect(self._select_stage)
+        self.view_pill = ViewPill(lambda: self.viewer)
+        self._center = QWidget()
+        center_layout = QVBoxLayout(self._center)
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(0)
+        center_layout.addWidget(make_strip(self.stage_pill, "stripTop"))
         self.viewer = None
         if with_viewer:
             # Placeholder from the spike; Task 2.2 replaces it.
             import pyvista as pv
             from pyvistaqt import QtInteractor
 
-            self.viewer = QtInteractor(splitter)
+            self.viewer = QtInteractor(self._center)
             self.plotter = self.viewer
             self.viewer.add_mesh(pv.Sphere(), color="lightblue", show_edges=True)
             self.viewer.reset_camera()
-            self._center: QWidget = self.viewer
+            canvas: QWidget = self.viewer
         else:
-            self._center = QWidget()
-            self._center.setObjectName("canvas")
-            self._center.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            canvas = QWidget()
+            canvas.setObjectName("canvas")
+            canvas.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._canvas = canvas
+        center_layout.addWidget(canvas, 1)
+        center_layout.addWidget(make_strip(self.view_pill, "stripBottom"))
+        self.view_pill.setEnabled(self.viewer is not None)
         # Ignored: no widget may drive column or window width through its size hint.
-        for w in (self.tree, self._left, self._right, self._center):
+        for w in (self.tree, self._left, self._right, self._center, canvas):
             w.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         splitter.addWidget(self._center)
         splitter.addWidget(self._right)
@@ -168,7 +275,6 @@ class MainWindow(QMainWindow):
         self._parts_label = QLabel()
         self.statusBar().setSizeGripEnabled(False)
         self.statusBar().addPermanentWidget(self._parts_label)
-        self._build_actions()
         self._apply_appearance()
 
         self.tree.currentItemChanged.connect(self._on_current_item_changed)
@@ -244,8 +350,20 @@ class MainWindow(QMainWindow):
         for label in self._titles:
             label.setFont(section_title_font(QApplication.font()))
             label.setFixedHeight(m.header)
-        self.properties.apply_metrics(m)
-        self._delegate.configure(m, QColor(self._theme.accent))
+        t = self._theme
+        self.properties.apply_metrics(m, t)
+        self._delegate.configure(m, t)
+        self.header.configure(m, t)
+        self.search.configure(m, t)
+        self._search_layout.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
+        self.tree.setIndentation(m.u)
+        for strip_pill in (self.stage_pill, self.view_pill):
+            strip_pill.configure(m)
+        for pane in (self._center,):
+            for strip in pane.findChildren(QWidget, "stripTop") + pane.findChildren(QWidget, "stripBottom"):
+                strip.setFixedHeight(m.strip)
+        self.menuBar().setFixedHeight(m.menubar)
+        self.statusBar().setFixedHeight(m.status)
         self._splitter.setHandleWidth(m.hit)
         self._left.setMinimumWidth(11 * m.u)
         self._left.setMaximumWidth(22 * m.u)
@@ -265,8 +383,16 @@ class MainWindow(QMainWindow):
         t = self._theme
         self.viewer.set_background(t.canvas)
         self.viewer.hide_axes()
-        # pyvista add_axes: color = label text color; x/y/z_color = axis colors.
-        self.viewer.add_axes(color=t.text, x_color=t.axis_x, y_color=t.axis_y, z_color=t.axis_z)
+        # pyvista add_axes: color = label text color; x/y/z_color = axis colors; label_size is
+        # forwarded to the marker. The widget occupies ~7u square, so labels scale with the font.
+        m = metrics()
+        side = max(1, min(self.viewer.width(), self.viewer.height()))
+        frac = min(0.5, 7 * m.u / side)
+        self.viewer.add_axes(
+            color=t.text, x_color=t.axis_x, y_color=t.axis_y, z_color=t.axis_z,
+            line_width=max(2, round(m.u / 9)), viewport=(0, 0, frac, frac),
+            label_size=(0.4, 0.16),
+        )
         self.viewer.render()
 
     def _apply_default_size(self) -> None:
@@ -290,6 +416,8 @@ class MainWindow(QMainWindow):
         if self._first_show:
             self._first_show = False
             self._apply_initial_sizes()  # needs the real width
+            if self.viewer is not None:
+                self._style_viewer()  # axes viewport depends on the real viewer size
 
     def _icon(self, kind: str):
         color = QColor(getattr(self._theme, ICON_TOKENS[kind]))
@@ -321,12 +449,66 @@ class MainWindow(QMainWindow):
                     for i, part_name in enumerate(part_names):
                         items[("part", i)] = self._make_item(node, part_name, ("part", i))
             self.tree.expandAll()
+            self._root_item = root
+            self.tree.setRootIndex(self.tree.indexFromItem(root))  # the header shows the root
+            self._items = items
             if wanted not in items:
                 wanted = ("root", None)
             self._selection = wanted
             self.tree.setCurrentItem(items[wanted])
         finally:
             self.tree.blockSignals(False)
+        self._apply_filter()
+        self._update_stage()
+
+    def _select_root(self) -> None:
+        if self._root_item is not None:
+            self.tree.setCurrentItem(self._root_item)
+
+    def _select_stage(self, kind: str) -> None:
+        item = self._items.get((kind, None))
+        if item is not None:
+            item.setExpanded(True)
+            self.tree.setCurrentItem(item)
+
+    def _update_stage(self) -> None:
+        kind = self._selection[0] if self._selection else "root"
+        if kind == "part":
+            kind = "geometry"
+        if kind in self.stage_pill._by_kind:  # the root selection keeps the previous stage
+            self.stage_pill.set_stage(kind)
+
+    def _set_filter(self, text: str) -> None:
+        self._filter = text.strip().casefold()
+        self._apply_filter()
+
+    def _apply_filter(self) -> None:
+        """Hide rows that neither match nor have a matching child (empty text shows all)."""
+        if self._root_item is None:
+            return
+
+        def visit(item: QTreeWidgetItem) -> bool:
+            child_match = False
+            for i in range(item.childCount()):
+                child_match |= visit(item.child(i))
+            match = not self._filter or self._filter in item.text(0).casefold()
+            item.setHidden(not (match or child_match))
+            return match or child_match
+
+        for i in range(self._root_item.childCount()):
+            visit(self._root_item.child(i))
+
+    def _toggle_sidebars(self) -> None:
+        """Hide/show both side panels, restoring the previous widths."""
+        if self._left.isHidden():
+            self._left.show()
+            self._right.show()
+            if self._sidebar_sizes:
+                self._splitter.setSizes(self._sidebar_sizes)
+        else:
+            self._sidebar_sizes = self._splitter.sizes()
+            self._left.hide()
+            self._right.hide()
 
     def _make_item(self, parent, text: str, node: Selection) -> QTreeWidgetItem:
         item = QTreeWidgetItem(parent, [text])
@@ -339,12 +521,14 @@ class MainWindow(QMainWindow):
             return
         self._selection = current.data(0, _NODE_ROLE)
         self.properties.show_node(*self._selection)
+        self._update_stage()
         self._update_actions()
 
     def _update_title(self, name: str) -> None:
         path = self._project.path
         self.setWindowTitle(f"{name}[*] - {path.name if path else 'Untitled'} - VortexCFD")
         self.setWindowModified(self._project.dirty)
+        self.header.set_name(name, self._project.dirty)
 
     # -- actions -------------------------------------------------------------
 
@@ -377,6 +561,8 @@ class MainWindow(QMainWindow):
             "&Reset Zoom", lambda: self.set_point_size(DEFAULT_POINT_SIZE), "Ctrl+0"
         )
 
+        self.act_toggle_sidebars = action("Toggle &Sidebars", self._toggle_sidebars, "Ctrl+B")
+
         file_menu = self.menuBar().addMenu("&File")
         file_menu.addActions([self.act_new, self.act_open])
         file_menu.addSeparator()
@@ -389,6 +575,8 @@ class MainWindow(QMainWindow):
         edit_menu.addActions([self.act_add_part, self.act_remove_part])
         view_menu = self.menuBar().addMenu("&View")
         view_menu.addActions([self.act_zoom_in, self.act_zoom_out, self.act_zoom_reset])
+        view_menu.addSeparator()
+        view_menu.addAction(self.act_toggle_sidebars)
 
     def _update_actions(self) -> None:
         p = self._project
