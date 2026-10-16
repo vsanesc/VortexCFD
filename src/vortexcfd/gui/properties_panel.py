@@ -25,6 +25,7 @@ class PropertiesPanel(QWidget):
         self._project = project
         self._kind = "root"
         self._index: int | None = None
+        self._name_pending = False  # user typed in the name field without committing yet
 
         self.name_edit = QLineEdit()
         self.source_label = QLabel()
@@ -39,14 +40,18 @@ class PropertiesPanel(QWidget):
         self._form.addRow(self.info_label)
 
         self.name_edit.editingFinished.connect(self._commit_name)
+        self.name_edit.textEdited.connect(self._on_name_edited)
         self.units_combo.currentTextChanged.connect(self._commit_units)
         self.refresh()
 
     def set_project(self, project: Project) -> None:
         self._project = project
+        self._name_pending = False
         self.show_node("root", None)
 
     def show_node(self, kind: str, index: int | None) -> None:
+        if self._name_pending and (kind, index) != (self._kind, self._index):
+            self._commit_name()  # commit the old node's pending edit before switching
         self._kind = kind
         self._index = index
         self.refresh()
@@ -76,7 +81,11 @@ class PropertiesPanel(QWidget):
         self._form.setRowVisible(self.units_combo, part is not None)
         self._form.setRowVisible(self.info_label, not show_name)
 
+    def _on_name_edited(self, _text: str) -> None:
+        self._name_pending = True
+
     def _commit_name(self) -> None:
+        self._name_pending = False
         text = self.name_edit.text()
         try:
             if self._kind == "root":

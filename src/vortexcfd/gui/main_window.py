@@ -184,6 +184,9 @@ class MainWindow(QMainWindow):
         self.act_redo = action("Redo", self._redo, S.Redo)
         self.act_add_part = action("Add part (placeholder)", self.add_placeholder_part)
         self.act_remove_part = action("&Remove part", self.remove_selected_part, S.Delete)
+        # Delete applies only while the tree has focus, so text fields keep their Delete key.
+        self.act_remove_part.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.tree.addAction(self.act_remove_part)
 
         file_menu = self.menuBar().addMenu("&File")
         file_menu.addActions([self.act_new, self.act_open])
@@ -228,7 +231,13 @@ class MainWindow(QMainWindow):
         while f"Part {n}" in taken:
             n += 1
         part = Part(name=f"Part {n}", source_file="", units="m")
-        self._run_edit(lambda: self._project.add_part(part))
+        previous = self._selection
+        self._selection = ("part", len(taken))  # the observer refresh selects the new part
+        try:
+            self._project.add_part(part)
+        except (ValueError, TypeError, IndexError) as exc:
+            self._selection = previous
+            self.show_message(str(exc))
 
     def remove_selected_part(self) -> None:
         index = self._selected_part_index()
@@ -280,6 +289,7 @@ class MainWindow(QMainWindow):
         try:
             project = Project.open(path)
         except Exception as exc:  # ProjectFileError, OSError, ...
+            log.exception("Could not open project %s", path)
             self.show_message(f"Could not open {path}: {exc}")
             return
         self.set_project(project)
@@ -305,6 +315,7 @@ def main() -> int:
         try:
             project = Project.open(Path(args[0]))
         except Exception as exc:
+            log.exception("Could not open project %s", args[0])
             error = f"Could not open {args[0]}: {exc}"
     window = MainWindow(project if project is not None else Project.new("Untitled"))
     if error:

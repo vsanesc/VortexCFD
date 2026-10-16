@@ -2,7 +2,10 @@
 
 from pathlib import Path
 
+import logging
+
 import pytest
+from PySide6.QtCore import Qt
 from pytestqt.qtbot import QtBot
 
 from tests.fakes import FakeDialogs
@@ -150,7 +153,7 @@ def test_open_replaces_project(make_window, tmp_path: Path) -> None:
     assert not window.project.observer_errors and not old.observer_errors
 
 
-def test_open_failure_keeps_project(make_window, tmp_path: Path) -> None:
+def test_open_failure_keeps_project(make_window, tmp_path: Path, caplog) -> None:
     bad = tmp_path / "bad.json"
     bad.write_text("not json")
     window, _ = make_window(open_path=bad)
@@ -158,6 +161,9 @@ def test_open_failure_keeps_project(make_window, tmp_path: Path) -> None:
     window.act_open.trigger()
     assert window.project is old
     assert "Could not open" in window.statusBar().currentMessage()
+    assert any(
+        "Could not open project" in r.getMessage() and r.exc_info for r in caplog.records
+    )
 
 
 def test_close_dirty_cancel_keeps_window(make_window) -> None:
@@ -213,3 +219,60 @@ def test_new_project_asks_when_dirty(make_window) -> None:
     dialogs.discard = "discard"
     window.act_new.trigger()
     assert window.project.sim.name == "Untitled"
+
+
+def test_add_part_selects_new_part(make_window) -> None:
+    window, _ = make_window()
+    window.act_add_part.trigger()
+    window.act_add_part.trigger()
+    assert window.tree.currentItem().text(0) == "Part 2"
+    assert window.properties.name_edit.text() == "Part 2"
+    assert not window.project.observer_errors
+
+
+def test_delete_key_only_applies_with_tree_focus(make_window, qtbot: QtBot) -> None:
+    window, _ = make_window()
+    window.act_add_part.trigger()
+    _select_part(window, 0)
+    edit = window.properties.name_edit
+    edit.setFocus()
+    qtbot.waitUntil(edit.hasFocus)
+    edit.setCursorPosition(0)
+    qtbot.keyClick(edit, Qt.Key.Key_Delete)
+    assert edit.text() == "art 1"
+    assert [i.text(0) for i in _part_items(window)] == ["Part 1"]
+    window.tree.setFocus()
+    qtbot.waitUntil(window.tree.hasFocus)
+    steps = len(window.project._undo)
+    qtbot.keyClick(window.tree, Qt.Key.Key_Delete)
+    assert _part_items(window) == []
+    assert len(window.project._undo) == steps + 1
+    window.act_undo.trigger()
+    assert [i.text(0) for i in _part_items(window)] == ["art 1"]  # the earlier edit committed
+    assert not window.project.observer_errors
+
+
+@pytest.mark.parametrize("use_click", [False, True])
+def test_pending_edit_commits_when_selection_changes(
+    make_window, qtbot: QtBot, use_click: bool
+) -> None:
+    window, _ = make_window()
+    window.act_add_part.trigger()
+    window.act_add_part.trigger()
+    _select_part(window, 0)
+    edit = window.properties.name_edit
+    edit.selectAll()
+    qtbot.keyClicks(edit, "Wing")  # no Enter
+    steps = len(window.project._undo)
+    if use_click:
+        item = _part_items(window)[1]
+        qtbot.mouseClick(
+            window.tree.viewport(), Qt.MouseButton.LeftButton, pos=window.tree.visualItemRect(item).center()
+        )
+    else:
+        _select_part(window, 1)
+    names = [p.name for p in window.project.sim.geometry.parts]
+    assert names == ["Wing", "Part 2"]
+    assert len(window.project._undo) == steps + 1
+    assert window.properties.name_edit.text() == "Part 2"
+    assert not window.project.observer_errors
