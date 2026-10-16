@@ -5,6 +5,7 @@ Run on the real display (WSLg) so the OpenGL viewer renders:
 Offscreen (QT_QPA_PLATFORM=offscreen) works only for the tree/panels; the viewer stays empty.
 """
 
+import logging
 import os
 import sys
 import tempfile
@@ -33,7 +34,7 @@ def main() -> int:
         project.add_part(Part(name=name, source_file=f"{name.lower()}.stl", units=units))
 
     window = MainWindow(project, with_viewer=True)  # placeholder viewer shows a sphere
-    window.resize(1400, 850)
+    window.resize(1600, 1000)
     window.show()
     OUT.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
@@ -49,17 +50,11 @@ def main() -> int:
         window.plotter.screenshot(str(plotter_path))
         paths.append(plotter_path)
 
-    for size in (11, 14):
-        window.set_point_size(size)
-        window.search.setText("")
-        window.properties.card_source.set_collapsed(False)
-        window.tree.setCurrentItem(window._items[("part", 1)])
-        shot(f"font{size}.png")
-        window.search.setText("wing")
-        shot(f"font{size}_search.png")
-        window.search.setText("")
-        window.properties.card_source.set_collapsed(True)
-        shot(f"font{size}_card_collapsed.png")
+    logging.getLogger("vortexcfd.screenshots").info("Loaded %d parts", len(project.sim.geometry.parts))
+    logging.getLogger("vortexcfd.screenshots").warning("Example warning line")
+    window.set_point_size(11)
+    window.tree.setCurrentItem(window._items[("part", 0)])
+    shot("v2.png")
     for p in paths:
         print(p)
     sys.stdout.flush()

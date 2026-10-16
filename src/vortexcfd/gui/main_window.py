@@ -1,4 +1,4 @@
-"""Main window bound to a Project: simulation tree, properties panel, menus."""
+"""Main window bound to a Project, laid out after docs/design/design_preview.png."""
 
 import logging
 import sys
@@ -9,6 +9,7 @@ from PySide6.QtGui import (
     QAction,
     QCloseEvent,
     QColor,
+    QIcon,
     QKeySequence,
     QPainter,
     QPalette,
@@ -17,69 +18,83 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QHBoxLayout,
     QLabel,
-    QVBoxLayout,
     QMainWindow,
     QSizePolicy,
     QSplitter,
     QSplitterHandle,
+    QStatusBar,
     QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
     QTreeWidget,
     QTreeWidgetItem,
+    QVBoxLayout,
     QWidget,
 )
 
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
+from vortexcfd.gui import console as console_log
+from vortexcfd.gui.console import ConsolePanel
 from vortexcfd.gui.dialogs import Dialogs
-from vortexcfd.gui.icons import ICON_TOKENS, make_icon
+from vortexcfd.gui.icons import make_glyph
+from vortexcfd.gui.monitors import MonitorsPanel
 from vortexcfd.gui.properties_panel import PropertiesPanel
-from vortexcfd.gui.widgets import ProjectHeader, SearchField, StagePill, ViewPill, make_strip
 from vortexcfd.gui.theme import (
     DEFAULT_POINT_SIZE,
-    Theme,
+    LAYOUT,
+    LIMITS_U,
     Metrics,
+    Theme,
     apply_theme,
     clamp_point_size,
     load_appearance,
     metrics,
+    mono_font,
     save_appearance,
-    section_title_font,
 )
+from vortexcfd.gui.topbar import TopBar
+from vortexcfd.gui.widgets import SearchField, SectionHeader
 
 log = logging.getLogger(__name__)
 
-_NODE_ROLE = Qt.ItemDataRole.UserRole
-_SECTIONS = (
-    ("geometry", "Geometry"),
-    ("mesh", "Mesh"),
-    ("physics", "Physics"),
-    ("solvers", "Solvers"),
-    ("reports", "Reports"),
-)
+ROLE_NODE = Qt.ItemDataRole.UserRole  # (kind, part index)
+ROLE_EYE = Qt.ItemDataRole.UserRole + 1  # None, or the part's visibility (bool)
 
 Selection = tuple[str, int | None]  # (node kind, part index)
 
+# Message level -> logging level (info/success lines are logged by the actions themselves).
+_LOGGED_LEVELS = {"warning": logging.WARNING, "error": logging.ERROR}
+MESSAGE_TIMEOUT_MS = 8000
+EMPTY = "\u2014"
+
 
 class _RowDelegate(QStyledItemDelegate):
-    """Tree rows: fixed height, full-width hover/selection fill, 2px accent bar on the left
-    edge of the selected row and a drawn chevron slot for rows with children."""
+    """Tree rows: fixed height, full-width hover/selection fill, 2px accent_secondary bar on the
+    left edge of the selected row, drawn chevrons for rows with children and an eye for parts."""
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
         self._metrics: Metrics | None = None
         self._theme: Theme | None = None
+        self._eye = {True: QIcon(), False: QIcon()}
 
-    def configure(self, m: Metrics, theme: Theme) -> None:
+    def configure(self, m: Metrics, theme: Theme, eye_on: QIcon, eye_off: QIcon) -> None:
         self._metrics = m
         self._theme = theme
+        self._eye = {True: eye_on, False: eye_off}
 
     @property
     def slot(self) -> int:
         """Width reserved for the chevron at the left of every row."""
         return self._metrics.u if self._metrics else 0
+
+    @property
+    def eye_zone(self) -> int:
+        """Width of the clickable eye area at the right edge of a row."""
+        return self._metrics.u + 2 * self._metrics.s3 if self._metrics else 0
 
     def sizeHint(self, option, index) -> QSize:
         hint = super().sizeHint(option, index)
@@ -98,14 +113,20 @@ class _RowDelegate(QStyledItemDelegate):
         selected = bool(opt.state & QStyle.StateFlag.State_Selected)
         hover = bool(opt.state & QStyle.StateFlag.State_MouseOver)
         r = opt.rect
-        row = QRect(0, r.top(), opt.widget.viewport().width(), r.height())
+        width = opt.widget.viewport().width()
+        row = QRect(0, r.top(), width, r.height())
         if selected:
             painter.fillRect(row, QColor(t.selection))
-            painter.fillRect(QRect(0, r.top(), m.bar, r.height()), QColor(t.accent))
+            painter.fillRect(QRect(0, r.top(), m.bar, r.height()), QColor(t.accent_secondary))
         elif hover:
             painter.fillRect(row, QColor(t.elevated))
         if index.model().hasChildren(index):
             self._draw_chevron(painter, r, bool(opt.state & QStyle.StateFlag.State_Open), hover, m, t)
+        eye = index.data(ROLE_EYE)
+        if eye is not None:
+            side = m.u
+            box = QRect(width - m.s3 - side, r.center().y() - side // 2, side, side)
+            self._eye[bool(eye)].paint(painter, box)
         opt.state &= ~(
             QStyle.StateFlag.State_Selected
             | QStyle.StateFlag.State_MouseOver
@@ -115,7 +136,7 @@ class _RowDelegate(QStyledItemDelegate):
         super().paint(painter, opt, index)
 
     def _draw_chevron(self, painter, r, expanded: bool, hover: bool, m: Metrics, t: Theme) -> None:
-        pen = QPen(QColor(t.accent if hover else t.muted_text), max(1.2, m.u / 12))
+        pen = QPen(QColor(t.accent_secondary if hover else t.muted_text), max(1.2, m.u / 12))
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         painter.save()
@@ -131,41 +152,58 @@ class _RowDelegate(QStyledItemDelegate):
 
 
 class _Tree(QTreeWidget):
-    """Tree whose chevron slot toggles expansion without changing the selection."""
+    """Tree whose chevron slot toggles expansion and whose eye zone toggles part visibility."""
+
+    from PySide6.QtCore import Signal as _Signal
+
+    eye_clicked = _Signal(object)
 
     def mousePressEvent(self, event) -> None:
         item = self.itemAt(event.position().toPoint())
         delegate = self.itemDelegate()
-        if item is not None and item.childCount() and isinstance(delegate, _RowDelegate):
+        if item is not None and isinstance(delegate, _RowDelegate):
+            x = event.position().x()
             rect = self.visualItemRect(item)
-            if rect.left() <= event.position().x() < rect.left() + delegate.slot:
+            if item.data(0, ROLE_EYE) is not None and x >= self.viewport().width() - delegate.eye_zone:
+                self.eye_clicked.emit(item)
+                return
+            if item.childCount() and rect.left() <= x < rect.left() + delegate.slot:
                 item.setExpanded(not item.isExpanded())
                 return
         super().mousePressEvent(event)
 
 
 class _Handle(QSplitterHandle):
-    """Splitter handle with a wide hit area and a single 1px divider line."""
+    """Splitter handle with a wide hit area and a single 1px divider line in `border`."""
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.fillRect(self.rect(), self.palette().color(QPalette.ColorRole.Window))
         line = metrics().line
         color = self.palette().color(QPalette.ColorRole.Mid)
-        # The 1px line sits on the edge facing the viewer (the center column, index 1).
         splitter = self.splitter()
-        on_right = splitter is not None and splitter.indexOf(self) == 1
-        x = self.width() - line if on_right else 0
-        painter.fillRect(QRect(x, 0, line, self.height()), color)
+        edge = getattr(splitter, "line_edge", "center")
+        if self.orientation() == Qt.Orientation.Horizontal:
+            x = {"start": 0, "end": self.width() - line}.get(edge, (self.width() - line) // 2)
+            painter.fillRect(QRect(x, 0, line, self.height()), color)
+        else:
+            y = {"start": 0, "end": self.height() - line}.get(edge, (self.height() - line) // 2)
+            painter.fillRect(QRect(0, y, self.width(), line), color)
 
 
 class _Splitter(QSplitter):
+    line_edge = "center"  # where the 1px line sits in the handle: start, center or end
+
+    def __init__(self, orientation: Qt.Orientation, parent: QWidget | None = None) -> None:
+        super().__init__(orientation, parent)
+        self.setChildrenCollapsible(False)
+
     def createHandle(self) -> QSplitterHandle:
         return _Handle(self.orientation(), self)
 
 
 class MainWindow(QMainWindow):
-    """Main window with a simulation tree, a properties panel and a 3D viewer placeholder.
+    """Top bar, left column (tree + properties), scene, monitors and console.
 
     All changes go through the Project edit API. Only the GUI thread may call Project methods
     (Project is not thread-safe).
@@ -182,64 +220,82 @@ class MainWindow(QMainWindow):
         self._project = project
         self._unsubscribe = None
         self._selection: Selection | None = None
+        self._items: dict[Selection, QTreeWidgetItem] = {}
+        self._root_item: QTreeWidgetItem | None = None
+        self._filter = ""
+        self._first_show = True
+        self._saved_sizes: dict[str, list[int]] = {}
+        # GUI-side visibility of each part (by name); Task 2.2 wires it to the viewer.
+        self.part_visibility: dict[str, bool] = {}
+        self.telemetry_text = ""
+        self._mesh_actor = None
         self.dialogs = dialogs if dialogs is not None else Dialogs(self)
         self._theme, self._point_size = load_appearance()
         apply_theme(self._theme, self._point_size)
         self._apply_default_size()
-        self._first_show = True
 
+        # -- tree + properties -------------------------------------------------------
         self.tree = _Tree()
         self.tree.setHeaderHidden(True)
         self.tree.setRootIsDecorated(False)  # chevrons are drawn by the delegate
         self.tree.setMouseTracking(True)
         self._delegate = _RowDelegate(self.tree)
         self.tree.setItemDelegate(self._delegate)
-        self._root_item: QTreeWidgetItem | None = None
-        self._filter = ""
-        self._sidebar_sizes: list[int] | None = None
+        self.tree.eye_clicked.connect(self._on_eye_clicked)
         self.properties = PropertiesPanel(project)
         self.properties.message.connect(lambda text: self.show_message(text, "warning"))
         self.properties.pending_changed.connect(self._update_actions)
         self._build_actions()
 
-        # Left sidebar: project header, search, tree.
-        self.header = ProjectHeader(
-            [self.act_new, self.act_open, None, self.act_save, self.act_save_as]
-        )
-        self.header.name_clicked.connect(self._select_root)
-        self.header.collapse_clicked.connect(self.act_toggle_sidebars.trigger)
-        self.search = SearchField()
+        self.tree_header = SectionHeader("Simulation Tree")
+        self.node_badge = self.tree_header.add_badge("0 Nodes")
+        self.search = SearchField("Filter nodes...")
         self.search.textChanged.connect(self._set_filter)
         self._search_row = QWidget()
-        search_layout = QVBoxLayout(self._search_row)
-        search_layout.addWidget(self.search)
-        self._search_layout = search_layout
+        self._search_layout = QHBoxLayout(self._search_row)
+        self._search_layout.addWidget(self.search)
+        tree_section = self._panel(self.tree_header, self._search_row, self.tree)
+
+        self.props_header = SectionHeader("Properties \u2014")
+        self.props_name = QLabel()
+        self.props_name.setObjectName("accent2")
+        self.props_header.row.insertWidget(1, self.props_name)
+        props_section = self._panel(self.props_header, self.properties)
+
+        self._left_split = _Splitter(Qt.Orientation.Vertical)
+        self._left_split.addWidget(tree_section)
+        self._left_split.addWidget(props_section)
+        self._left_split.setStretchFactor(0, 1)
+        self._left_split.setStretchFactor(1, 0)
+        self._status_bar = QStatusBar()
+        self._status_bar.setSizeGripEnabled(False)
+        self._selection_label = QLabel()
+        self._status_bar.addWidget(self._selection_label, 1)
         self._left = QWidget()
-        self._left.setObjectName("pane")
+        self._left.setObjectName("panel")
         self._left.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         left_layout = QVBoxLayout(self._left)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(0)
-        left_layout.addWidget(self.header)
-        left_layout.addWidget(self._search_row)
-        left_layout.addWidget(self.tree, 1)
+        left_layout.addWidget(self._left_split, 1)
+        left_layout.addWidget(self._status_bar)
 
-        self._titles: list[QLabel] = []
-        self._layouts: list[QVBoxLayout] = []
-        self._right = self._pane("Properties", self.properties)
-        splitter = _Splitter(Qt.Orientation.Horizontal)
-        splitter.setChildrenCollapsible(False)
-        splitter.addWidget(self._left)
-
-        # Center column: stage strip, viewer, view strip (strips never overlay the viewer).
-        self.stage_pill = StagePill()
-        self.stage_pill.stage_clicked.connect(self._select_stage)
-        self.view_pill = ViewPill(lambda: self.viewer)
+        # -- center: scene tab bar + viewer (no widget is overlaid on the viewer) -----
         self._center = QWidget()
+        self._center.setObjectName("panel")
         center_layout = QVBoxLayout(self._center)
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.setSpacing(0)
-        center_layout.addWidget(make_strip(self.stage_pill, "stripTop"))
+        self._tab_bar = QWidget()
+        self._tab_bar.setObjectName("tabBar")
+        self._tab_bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        tab_row = QHBoxLayout(self._tab_bar)
+        tab_row.setContentsMargins(0, 0, 0, 0)
+        self.scene_tab = QLabel("Geometry Scene")
+        self.scene_tab.setObjectName("sceneTab")
+        tab_row.addWidget(self.scene_tab)
+        tab_row.addStretch(1)
+        center_layout.addWidget(self._tab_bar)
         self.viewer = None
         if with_viewer:
             # Placeholder from the spike; Task 2.2 replaces it.
@@ -248,7 +304,7 @@ class MainWindow(QMainWindow):
 
             self.viewer = QtInteractor(self._center)
             self.plotter = self.viewer
-            self.viewer.add_mesh(pv.Sphere(), color="lightblue", show_edges=True)
+            self._mesh_actor = self.viewer.add_mesh(pv.Sphere(), color="lightblue", show_edges=True)
             self.viewer.reset_camera()
             canvas: QWidget = self.viewer
         else:
@@ -257,28 +313,70 @@ class MainWindow(QMainWindow):
             canvas.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._canvas = canvas
         center_layout.addWidget(canvas, 1)
-        center_layout.addWidget(make_strip(self.view_pill, "stripBottom"))
-        self.view_pill.setEnabled(self.viewer is not None)
-        # Ignored: no widget may drive column or window width through its size hint.
-        for w in (self.tree, self._left, self._right, self._center, canvas):
+
+        # -- right: monitors, bottom: console ----------------------------------------
+        self.monitors = MonitorsPanel()
+        self.console = ConsolePanel()
+        self._console_handler = console_log.attach(self.console)
+        handler = self._console_handler
+        self.destroyed.connect(lambda *_: console_log.detach(handler))
+
+        self._inner = _Splitter(Qt.Orientation.Horizontal)
+        self._inner.addWidget(self._center)
+        self._inner.addWidget(self.monitors)
+        self._inner.setStretchFactor(0, 1)
+        self._inner.setStretchFactor(1, 0)
+        self._right_split = _Splitter(Qt.Orientation.Vertical)
+        self._right_split.addWidget(self._inner)
+        self._right_split.addWidget(self.console)
+        self._right_split.setStretchFactor(0, 1)
+        self._right_split.setStretchFactor(1, 0)
+        self._outer = _Splitter(Qt.Orientation.Horizontal)
+        self._outer.line_edge = "end"  # the line faces the scene
+        self._right_split.line_edge = "start"  # the line faces the scene
+        self._outer.addWidget(self._left)
+        self._outer.addWidget(self._right_split)
+        self._outer.setStretchFactor(0, 0)
+        self._outer.setStretchFactor(1, 1)
+        # Ignored: no widget may drive column or window size through its size hint.
+        for w in (self.tree, self._left, self._center, canvas, self.monitors, self.console,
+                  tree_section, props_section):
             w.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
-        splitter.addWidget(self._center)
-        splitter.addWidget(self._right)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        splitter.setStretchFactor(2, 0)
-        for i in range(3):
-            splitter.setCollapsible(i, False)
-        self._splitter = splitter
-        self.setCentralWidget(splitter)
 
-        self._parts_label = QLabel()
-        self.statusBar().setSizeGripEnabled(False)
-        self.statusBar().addPermanentWidget(self._parts_label)
+        # -- top bar + central widget ------------------------------------------------
+        self.top_bar = TopBar()
+        self.top_bar.name_clicked.connect(self._select_root)
+        self.top_bar.view_requested.connect(self._view)
+        self.top_bar.wireframe_toggled.connect(self._set_wireframe)
+        self.top_bar.set_viewer_enabled(self.viewer is not None)
+        central = QWidget()
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        central_layout.addWidget(self.top_bar)
+        central_layout.addWidget(self._outer, 1)
+        self.setCentralWidget(central)
+
         self._apply_appearance()
-
         self.tree.currentItemChanged.connect(self._on_current_item_changed)
         self.set_project(project)
+        log.info("VortexCFD started")
+
+    @staticmethod
+    def _panel(header: QWidget, *body: QWidget) -> QWidget:
+        panel = QWidget()
+        panel.setObjectName("panel")
+        panel.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(header)
+        for i, widget in enumerate(body):
+            layout.addWidget(widget, 1 if i == len(body) - 1 else 0)
+        return panel
+
+    def statusBar(self) -> QStatusBar:  # the status line lives in the left column
+        return self._status_bar
 
     # -- project binding -----------------------------------------------------
 
@@ -302,31 +400,22 @@ class MainWindow(QMainWindow):
             self._refresh()
         except Exception as exc:
             log.exception("UI refresh failed")
-            self.show_message(f"Internal error refreshing the UI: {exc}", "error")
+            self.show_message(f"Internal error refreshing the UI: {exc}", "error", log_it=False)
 
-    def show_message(self, text: str, level: str = "info") -> None:
-        """Show ``text`` in the status bar; level is info, success, warning or error."""
+    def show_message(self, text: str, level: str = "info", log_it: bool = True) -> None:
+        """Show ``text`` in the status line; level is info, success, warning or error.
+
+        Warnings and errors are also written to the console unless ``log_it`` is False.
+        """
         bar = self.statusBar()
         bar.setProperty("level", level)
         bar.style().unpolish(bar)
         bar.style().polish(bar)
-        bar.showMessage(text)
+        bar.showMessage(text, MESSAGE_TIMEOUT_MS)
+        if log_it and level in _LOGGED_LEVELS:
+            log.log(_LOGGED_LEVELS[level], text)
 
     # -- appearance ----------------------------------------------------------
-
-    def _pane(self, title: str, body: QWidget) -> QWidget:
-        pane = QWidget()
-        pane.setObjectName("pane")
-        pane.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        label = QLabel(title.upper())
-        label.setObjectName("sectionTitle")
-        layout = QVBoxLayout(pane)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        layout.addWidget(label)
-        layout.addWidget(body, 1)
-        self._titles.append(label)
-        return pane
 
     @property
     def theme(self) -> Theme:
@@ -338,46 +427,59 @@ class MainWindow(QMainWindow):
 
     def set_point_size(self, size: int) -> None:
         self._point_size = clamp_point_size(size)
-        self._persist_and_apply()
-
-    def _persist_and_apply(self) -> None:
         save_appearance(self._theme, self._point_size)
         self._apply_appearance()
 
     def _apply_appearance(self) -> None:
         apply_theme(self._theme, self._point_size)
         m = metrics()
-        for label in self._titles:
-            label.setFont(section_title_font(QApplication.font()))
-            label.setFixedHeight(m.header)
         t = self._theme
-        self.properties.apply_metrics(m, t)
-        self._delegate.configure(m, t)
-        self.header.configure(m, t)
+        self.top_bar.configure(m, t)
+        self.tree_header.configure(m)
+        self.props_header.configure(m)
+        self.props_name.setFont(mono_font(QApplication.font(), 0.9))
         self.search.configure(m, t)
         self._search_layout.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
+        self.properties.apply_metrics(m, t)
+        self.monitors.configure(m, t)
+        self.console.configure(m, t)
+        self.node_badge.setFont(mono_font(QApplication.font(), 0.8))
+        self._delegate.configure(
+            m, t,
+            make_glyph("eye", QColor(t.muted_text), m.u, self.devicePixelRatioF()),
+            make_glyph("eye_off", QColor(t.muted_text), m.u, self.devicePixelRatioF()),
+        )
         self.tree.setIndentation(m.u)
-        for strip_pill in (self.stage_pill, self.view_pill):
-            strip_pill.configure(m)
-        for pane in (self._center,):
-            for strip in pane.findChildren(QWidget, "stripTop") + pane.findChildren(QWidget, "stripBottom"):
-                strip.setFixedHeight(m.strip)
-        self.menuBar().setFixedHeight(m.menubar)
-        self.statusBar().setFixedHeight(m.status)
-        self._splitter.setHandleWidth(m.hit)
-        self._left.setMinimumWidth(11 * m.u)
-        self._left.setMaximumWidth(22 * m.u)
-        self._center.setMinimumWidth(20 * m.u)
-        self._right.setMinimumWidth(14 * m.u)
-        self._right.setMaximumWidth(28 * m.u)
-        self.statusBar().setContentsMargins(m.s3, 0, m.s3, 0)
         self.tree.setIconSize(QSize(m.u, m.u))
+        self.tree.setFont(QApplication.font())
+        self._tab_bar.setFixedHeight(m.tab_bar)
+        self.scene_tab.setFixedHeight(m.tab_bar - m.line)
+        self.menuBar().setFixedHeight(m.menubar)
+        self._status_bar.setFixedHeight(m.status)
+        self._selection_label.setFont(mono_font(QApplication.font(), 0.85))
+        self._selection_label.setContentsMargins(m.s3, 0, m.s3, 0)
+        for splitter in (self._outer, self._inner, self._right_split, self._left_split):
+            splitter.setHandleWidth(m.hit)
+        self._apply_limits(m)
         if self.viewer is not None:
             self._style_viewer()
         if self._unsubscribe is not None:
-            self._refresh()  # rebuild tree icons for the new size
+            self._refresh()  # rebuild icons for the new size
         if not self._first_show:
             self._apply_initial_sizes()
+
+    def _apply_limits(self, m: Metrics) -> None:
+        def width(widget: QWidget, key: str) -> None:
+            lo, hi = LIMITS_U[key]
+            widget.setMinimumWidth(lo * m.u)
+            widget.setMaximumWidth(hi * m.u if hi is not None else 16777215)
+
+        width(self._left, "left")
+        width(self.monitors, "monitors")
+        width(self._center, "center")
+        self.console.setMinimumHeight(LIMITS_U["console"][0] * m.u)
+        self._left_split.widget(0).setMinimumHeight(LIMITS_U["tree"][0] * m.u)
+        self._left_split.widget(1).setMinimumHeight(LIMITS_U["properties"][0] * m.u)
 
     def _style_viewer(self) -> None:
         t = self._theme
@@ -393,6 +495,7 @@ class MainWindow(QMainWindow):
             line_width=max(2, round(m.u / 9)), viewport=(0, 0, frac, frac),
             label_size=(0.4, 0.16),
         )
+        self._update_telemetry()
         self.viewer.render()
 
     def _apply_default_size(self) -> None:
@@ -406,24 +509,27 @@ class MainWindow(QMainWindow):
         self.resize(w, h)
 
     def _apply_initial_sizes(self) -> None:
-        u = metrics().u
-        width = self._splitter.width()
-        left, right = 14 * u, 17 * u
-        self._splitter.setSizes([left, max(0, width - left - right), right])
+        """Region sizes from the fractions measured on the mockup (using the real size)."""
+        width, height = self.width(), self.height()
+        left = round(LAYOUT.left * width)
+        monitors = round(LAYOUT.monitors * width)
+        console = round(LAYOUT.console * height)
+        self._outer.setSizes([left, max(0, width - left)])
+        right_w = max(0, width - left)
+        self._inner.setSizes([max(0, right_w - monitors), monitors])
+        right_h = self._right_split.height()
+        self._right_split.setSizes([max(0, right_h - console), console])
+        column_h = self._left.height()
+        tree = round(LAYOUT.tree_split * column_h)
+        self._left_split.setSizes([tree, max(0, self._left_split.height() - tree)])
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
         if self._first_show:
             self._first_show = False
-            self._apply_initial_sizes()  # needs the real width
+            self._apply_initial_sizes()  # needs the real size
             if self.viewer is not None:
                 self._style_viewer()  # axes viewport depends on the real viewer size
-
-    def _icon(self, kind: str):
-        color = QColor(getattr(self._theme, ICON_TOKENS[kind]))
-        size = self.tree.iconSize().height()
-        # Same tint when selected (Qt would otherwise auto-tint the selected variant).
-        return make_icon(kind, color, size, self.devicePixelRatioF(), color)
 
     # -- refresh -------------------------------------------------------------
 
@@ -431,26 +537,50 @@ class MainWindow(QMainWindow):
         sim = self._project.sim
         self._rebuild_tree(sim.name, [p.name for p in sim.geometry.parts])
         self.properties.show_node(*(self._selection or ("root", None)))
-        self._parts_label.setText(f"Parts: {len(sim.geometry.parts)}")
+        self._update_selection_views()
         self._update_actions()
         self._update_title(sim.name)
 
+    def _node_icon(self, glyph: str, token: str) -> QIcon:
+        color = QColor(getattr(self._theme, token))
+        return make_glyph(glyph, color, self.tree.iconSize().height(), self.devicePixelRatioF())
+
     def _rebuild_tree(self, name: str, part_names: list[str]) -> None:
         wanted = self._selection
+        t = self._theme
         self.tree.blockSignals(True)
         try:
             self.tree.clear()
-            root = self._make_item(self.tree, name, ("root", None))
-            items: dict[Selection, QTreeWidgetItem] = {("root", None): root}
-            for kind, label in _SECTIONS:
-                node = self._make_item(root, label, (kind, None))
-                items[(kind, None)] = node
-                if kind == "geometry":
-                    for i, part_name in enumerate(part_names):
-                        items[("part", i)] = self._make_item(node, part_name, ("part", i))
+            items: dict[Selection, QTreeWidgetItem] = {}
+
+            def add(parent, kind: str, index: int | None, text: str, glyph: str, token: str,
+                    eye: bool | None = None, muted: bool = False) -> QTreeWidgetItem:
+                item = QTreeWidgetItem(parent, [text])
+                item.setData(0, ROLE_NODE, (kind, index))
+                item.setData(0, ROLE_EYE, eye)
+                item.setIcon(0, self._node_icon(glyph, token))
+                if muted:
+                    item.setForeground(0, QColor(t.muted_text))
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                items[(kind, index)] = item
+                return item
+
+            root = add(self.tree, "root", None, name, "dot", "text")
+            geometry = add(root, "geometry", None, "Geometry", "folder", "text")
+            parts = add(geometry, "parts", None, "Parts", "folder", "text")
+            for i, part_name in enumerate(part_names):
+                add(parts, "part", i, part_name, "dot", "accent_secondary",
+                    eye=self.part_visibility.get(part_name, True))
+            continua = add(root, "continua", None, "Continua", "folder", "text")
+            add(continua, "mesh", None, "Mesh", "dot", "accent_secondary")
+            add(continua, "physics", None, "Physics", "dot", "accent")
+            regions = add(root, "regions", None, "Regions", "folder", "text")
+            add(regions, "none", None, "(none yet)", "dot", "muted_text", muted=True)
+            add(root, "solvers", None, "Solvers", "folder", "text")
+            add(root, "reports", None, "Reports & Monitors", "folder", "text")
             self.tree.expandAll()
             self._root_item = root
-            self.tree.setRootIndex(self.tree.indexFromItem(root))  # the header shows the root
+            self.tree.setRootIndex(self.tree.indexFromItem(root))  # hide the root row
             self._items = items
             if wanted not in items:
                 wanted = ("root", None)
@@ -458,25 +588,67 @@ class MainWindow(QMainWindow):
             self.tree.setCurrentItem(items[wanted])
         finally:
             self.tree.blockSignals(False)
+        self.node_badge.setText(f"{self.node_count()} Nodes")
         self._apply_filter()
-        self._update_stage()
+
+    def node_count(self) -> int:
+        """Real tree nodes shown (the hidden root and the "(none yet)" row are not counted)."""
+        return len(self._items) - 2
+
+    def _on_eye_clicked(self, item: QTreeWidgetItem) -> None:
+        kind, index = item.data(0, ROLE_NODE)
+        if kind != "part" or index is None:
+            return
+        name = self._project.sim.geometry.parts[index].name
+        visible = not self.part_visibility.get(name, True)
+        self.part_visibility[name] = visible
+        item.setData(0, ROLE_EYE, visible)
+        self.tree.viewport().update()
 
     def _select_root(self) -> None:
         if self._root_item is not None:
             self.tree.setCurrentItem(self._root_item)
 
-    def _select_stage(self, kind: str) -> None:
-        item = self._items.get((kind, None))
-        if item is not None:
-            item.setExpanded(True)
-            self.tree.setCurrentItem(item)
+    def _selected_name(self) -> str:
+        kind, index = self._selection or ("root", None)
+        if kind == "root":
+            return self._project.sim.name
+        item = self._items.get((kind, index))
+        return item.text(0) if item is not None else EMPTY
 
-    def _update_stage(self) -> None:
-        kind = self._selection[0] if self._selection else "root"
-        if kind == "part":
-            kind = "geometry"
-        if kind in self.stage_pill._by_kind:  # the root selection keeps the previous stage
-            self.stage_pill.set_stage(kind)
+    def _update_selection_views(self) -> None:
+        name = self._selected_name()
+        self.props_name.setText(name)
+        self._selection_label.setText(f"Active selection: {name}")
+        self._update_telemetry()
+
+    def _update_telemetry(self) -> None:
+        """Real values only; drawn inside the viewport by VTK."""
+        parts = len(self._project.sim.geometry.parts)
+        self.telemetry_text = (
+            "VIEWPORT TELEMETRY\n"
+            f"Parts:    {parts}\n"
+            f"Selected: {self._selected_name()}\n"
+            f"Cells:    {EMPTY}"
+        )
+        if self.viewer is not None:
+            size = max(7, round(self._point_size * 0.75))
+            self.viewer.add_text(
+                self.telemetry_text, position="upper_left", font_size=size,
+                color=self._theme.text, font="courier", name="telemetry", render=False,
+            )
+            self.viewer.render()
+
+    def _view(self, method: str) -> None:
+        if self.viewer is None:
+            return
+        getattr(self.viewer, method)()
+        self.viewer.render()
+
+    def _set_wireframe(self, on: bool) -> None:
+        if self._mesh_actor is not None:
+            self._mesh_actor.prop.style = "wireframe" if on else "surface"
+            self.viewer.render()
 
     def _set_filter(self, text: str) -> None:
         self._filter = text.strip().casefold()
@@ -498,37 +670,52 @@ class MainWindow(QMainWindow):
         for i in range(self._root_item.childCount()):
             visit(self._root_item.child(i))
 
-    def _toggle_sidebars(self) -> None:
-        """Hide/show both side panels, restoring the previous widths."""
-        if self._left.isHidden():
-            self._left.show()
-            self._right.show()
-            if self._sidebar_sizes:
-                self._splitter.setSizes(self._sidebar_sizes)
-        else:
-            self._sidebar_sizes = self._splitter.sizes()
-            self._left.hide()
-            self._right.hide()
+    # -- region toggles ------------------------------------------------------
 
-    def _make_item(self, parent, text: str, node: Selection) -> QTreeWidgetItem:
-        item = QTreeWidgetItem(parent, [text])
-        item.setData(0, _NODE_ROLE, node)
-        item.setIcon(0, self._icon(node[0]))
-        return item
+    def _toggle_region(self, key: str, widgets: list[QWidget], splitters: list[QSplitter]) -> None:
+        """Hide/show regions, restoring the previous sizes of ``splitters`` when shown."""
+        if widgets[0].isVisibleTo(self):  # currently visible -> hide
+            self._saved_sizes[key] = [s for sp in splitters for s in sp.sizes()]
+            for w in widgets:
+                w.hide()
+        else:
+            for w in widgets:
+                w.show()
+            saved = self._saved_sizes.get(key)
+            if saved:
+                pos = 0
+                for sp in splitters:
+                    n = sp.count()
+                    sp.setSizes(saved[pos:pos + n])
+                    pos += n
+
+    def _toggle_sidebars(self) -> None:
+        """Hide/show the left column and the monitors panel together."""
+        self._toggle_region("sidebars", [self._left, self.monitors], [self._outer, self._inner])
+        self.act_toggle_monitors.setChecked(self.monitors.isVisibleTo(self))
+
+    def _toggle_monitors(self) -> None:
+        self._toggle_region("monitors", [self.monitors], [self._inner])
+        self.act_toggle_monitors.setChecked(self.monitors.isVisibleTo(self))
+
+    def _toggle_console(self) -> None:
+        self._toggle_region("console", [self.console], [self._right_split])
+        self.act_toggle_console.setChecked(self.console.isVisibleTo(self))
 
     def _on_current_item_changed(self, current, _previous) -> None:
         if current is None:
             return
-        self._selection = current.data(0, _NODE_ROLE)
+        self._selection = current.data(0, ROLE_NODE)
         self.properties.show_node(*self._selection)
-        self._update_stage()
+        self._update_selection_views()
         self._update_actions()
 
     def _update_title(self, name: str) -> None:
         path = self._project.path
-        self.setWindowTitle(f"{name}[*] - {path.name if path else 'Untitled'} - VortexCFD")
+        file_name = path.name if path else "Untitled"
+        self.setWindowTitle(f"{name}[*] - {file_name} - VortexCFD")
         self.setWindowModified(self._project.dirty)
-        self.header.set_name(name, self._project.dirty)
+        self.top_bar.set_project(file_name, self._project.dirty)
 
     # -- actions -------------------------------------------------------------
 
@@ -562,6 +749,11 @@ class MainWindow(QMainWindow):
         )
 
         self.act_toggle_sidebars = action("Toggle &Sidebars", self._toggle_sidebars, "Ctrl+B")
+        self.act_toggle_monitors = action("&Monitors Panel", self._toggle_monitors)
+        self.act_toggle_console = action("&Console", self._toggle_console)
+        for act in (self.act_toggle_monitors, self.act_toggle_console):
+            act.setCheckable(True)
+            act.setChecked(True)
 
         file_menu = self.menuBar().addMenu("&File")
         file_menu.addActions([self.act_new, self.act_open])
@@ -577,6 +769,7 @@ class MainWindow(QMainWindow):
         view_menu.addActions([self.act_zoom_in, self.act_zoom_out, self.act_zoom_reset])
         view_menu.addSeparator()
         view_menu.addAction(self.act_toggle_sidebars)
+        view_menu.addActions([self.act_toggle_monitors, self.act_toggle_console])
 
     def _update_actions(self) -> None:
         p = self._project
@@ -652,6 +845,7 @@ class MainWindow(QMainWindow):
         except (OSError, ValueError) as exc:
             self.show_message(f"Save failed: {exc}", "error")
             return False
+        log.info("Saved %s", self._project.path)
         self.show_message(f"Saved {self._project.path}", "success")
         return True
 
@@ -679,9 +873,10 @@ class MainWindow(QMainWindow):
             project = Project.open(path)
         except Exception as exc:  # ProjectFileError, OSError, ...
             log.exception("Could not open project %s", path)
-            self.show_message(f"Could not open {path}: {exc}", "error")
+            self.show_message(f"Could not open {path}: {exc}", "error", log_it=False)
             return
         self.set_project(project)
+        log.info("Opened %s", path)
         self.show_message(f"Opened {path}")
 
     def closeEvent(self, event: QCloseEvent) -> None:
@@ -690,6 +885,7 @@ class MainWindow(QMainWindow):
             return
         if self.viewer is not None:
             self.viewer.close()  # release VTK interactor resources
+        console_log.detach(self._console_handler)
         super().closeEvent(event)
 
 

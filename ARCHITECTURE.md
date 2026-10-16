@@ -51,8 +51,11 @@ src/vortexcfd/
 - **`gui/`**:
   - Implements UI components, main window, and 3D visualization using PySide6 and PyVista/pyvistaqt.
   - `gui/theme.py`: design tokens (`Theme`), Fusion palette/stylesheet and font zoom; `gui/icons.py` draws tree icons in code.
-  - `gui/widgets.py`: sidebar project header, search field, stage/view pills and collapsible property cards.
-  - `gui/properties_panel.py`: properties form for the selected node, built from cards; `gui/dialogs.py`: injectable file/confirm dialogs.
+  - `gui/widgets.py`: shared pieces (section header, badge, search field, glyph pixmaps).
+  - `gui/topbar.py`: top bar (brand, project file and state, camera buttons, wireframe, disabled Generate Mesh / Run Solver).
+  - `gui/monitors.py`: right column (empty log-scale residual chart drawn with QPainter, KPI cards).
+  - `gui/console.py`: output console fed by a logging handler on the `vortexcfd` logger.
+  - `gui/properties_panel.py`: properties rows (label left, mono value box right) for the selected node; `gui/dialogs.py`: injectable file/confirm dialogs.
   - May import `core` and `foam`.
 - **Enforcement Rule**: `core` and `foam` must never import `gui`. This guarantees that simulation data manipulation, case generation, and solver execution remain fully decoupled from the graphical user interface, enabling headless automation and CLI operation.
 

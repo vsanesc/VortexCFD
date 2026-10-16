@@ -123,9 +123,6 @@ class Metrics:
     tab_bar: int  # scene tab bar height (1.6u)
     button: int  # top bar button height (1.7u)
     hit: int  # splitter hit area (0.5u)
-    strip: int = 0  # TEMPORARY (old layout), removed with the new window
-    pill_h: int = 0
-    sidebar_header: int = 0
     line: int = 1  # divider / border width
     bar: int = 2  # accent bar on the selected row
 
@@ -142,7 +139,6 @@ def metrics(u: int | None = None) -> Metrics:
         u=u, s1=k(0.25), s2=k(0.5), s3=k(0.75), s4=k(1), s5=k(1.5), s6=k(2),
         header=k(2), row=k(1.8), field=k(2), radius_s=k(0.25), radius_m=k(0.5),
         menubar=k(2), status=k(2), top_bar=k(2.4), tab_bar=k(1.6), button=k(1.7), hit=k(0.5),
-        strip=k(3.4), pill_h=k(2.4), sidebar_header=k(3),
     )
 
 

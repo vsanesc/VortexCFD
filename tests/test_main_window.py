@@ -27,8 +27,8 @@ def make_window(qtbot: QtBot):
 
 
 def _part_items(window: MainWindow):
-    geometry = window.tree.topLevelItem(0).child(0)
-    return [geometry.child(i) for i in range(geometry.childCount())]
+    parts = window.tree.topLevelItem(0).child(0).child(0)  # Geometry > Parts
+    return [parts.child(i) for i in range(parts.childCount())]
 
 
 def _select_part(window: MainWindow, index: int) -> None:
@@ -54,7 +54,7 @@ def test_tree_updates_after_add_part(make_window) -> None:
     window.act_add_part.trigger()
     window.act_add_part.trigger()
     assert [i.text(0) for i in _part_items(window)] == ["Part 1", "Part 2"]
-    assert window._parts_label.text() == "Parts: 2"
+    assert window.node_badge.text() == f"{window.node_count()} Nodes"
     window.project.remove_part(0)
     window.act_add_part.trigger()
     assert [i.text(0) for i in _part_items(window)] == ["Part 2", "Part 1"]

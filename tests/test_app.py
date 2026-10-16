@@ -19,7 +19,7 @@ def test_main_window_creates_viewer(qtbot: QtBot) -> None:
     assert window.viewer.isVisible()
     root = window.tree.topLevelItem(0)
     assert [root.child(i).text(0) for i in range(root.childCount())] == [
-        "Geometry", "Mesh", "Physics", "Solvers", "Reports",
+        "Geometry", "Continua", "Regions", "Solvers", "Reports & Monitors",
     ]
     assert not project.observer_errors
     window.close()
