@@ -15,10 +15,25 @@ from PySide6.QtWidgets import (
 
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
-from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font
+from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, part_status, report_for_part
+from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
 
 # Allowed units are read from the model so the two never drift apart.
 ALLOWED_UNITS: tuple[str, ...] = get_args(Part.model_fields["units"].annotation)
+
+
+# Rows of the read-only Checks group: (key, label).
+CHECK_ROWS = (
+    ("triangles", "Triangles"),
+    ("points", "Points"),
+    ("size", "Size"),
+    ("open", "Open edges"),
+    ("non_manifold", "Non-manifold edges"),
+    ("degenerate", "Degenerate triangles"),
+    ("duplicates", "Duplicate faces"),
+    ("orientation", "Flipped normals"),
+    ("watertight", "Watertight"),
+)
 
 
 class PropertiesPanel(QWidget):
@@ -58,6 +73,19 @@ class PropertiesPanel(QWidget):
             ("units", "Units", self.units_combo),
         ):
             self._layout.addWidget(self._make_row(key, text, field))
+        # File status and the read-only "Checks" group (surface report) for a Part.
+        self.status_value = QLabel()
+        self.status_value.setObjectName("checkValue")
+        self._layout.addWidget(self._make_row("status", "File", self.status_value))
+        self.checks_title = QLabel("CHECKS")
+        self.checks_title.setObjectName("sectionTitle")
+        self._layout.addWidget(self.checks_title)
+        self.check_values: dict[str, QLabel] = {}
+        for key, text in CHECK_ROWS:
+            value = QLabel()
+            value.setObjectName("checkValue")
+            self.check_values[key] = value
+            self._layout.addWidget(self._make_row(f"check_{key}", text, value))
         self._layout.addWidget(self.info_label)
         self._layout.addStretch(1)
         self.apply_metrics(metrics(), DARK)
@@ -86,7 +114,11 @@ class PropertiesPanel(QWidget):
         for box in self._row_layouts:
             box.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
             box.setSpacing(m.s3)
+        self.checks_title.setFont(section_title_font(QApplication.font()))
+        self.checks_title.setContentsMargins(m.s3, m.s3, m.s3, m.s2)
         mono = mono_font(QApplication.font(), 0.9)
+        for label in (*self.check_values.values(), self.status_value):
+            label.setFont(mono)
         for widget in (self.name_edit, self.source_label, self.units_combo):
             widget.setFont(mono)
         self.info_label.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
@@ -125,8 +157,46 @@ class PropertiesPanel(QWidget):
                 widget.blockSignals(False)
         for key in ("source", "units"):
             self._rows[key].setVisible(part is not None)
+        self._refresh_file_info(part)
         self._rows["name"].setVisible(show_name)
         self.info_label.setVisible(not show_name)
+
+    def _refresh_file_info(self, part: Part | None) -> None:
+        """File status and the Checks group (shown only for a Part with a loadable file)."""
+        status = part_status(self._project, part) if part is not None else NONE
+        message = {MISSING: "File not found"}.get(status, "")
+        report = report_for_part(self._project, part) if part is not None and status == OK else None
+        if status == OK and report is None:
+            status, message = ERROR, "Cannot load file"
+        self.status_value.setText(message)
+        self._set_warn(self.status_value, bool(message))
+        self._rows["status"].setVisible(bool(message))
+        self.checks_title.setVisible(report is not None)
+        for key, _ in CHECK_ROWS:
+            self._rows[f"check_{key}"].setVisible(report is not None)
+        if report is None:
+            return
+        size = " \u00d7 ".join(f"{v:.4g}" for v in report.size)
+        values = {
+            "triangles": (str(report.n_triangles), False),
+            "points": (str(report.n_points), False),
+            "size": (f"{size} m", False),
+            "open": (str(report.open_edges), report.open_edges > 0),
+            "non_manifold": (str(report.non_manifold_edges), report.non_manifold_edges > 0),
+            "degenerate": (str(report.degenerate_triangles), False),
+            "duplicates": (str(report.duplicate_faces), False),
+            "orientation": (str(report.inconsistent_orientation), False),
+            "watertight": ("yes" if report.watertight else "no", not report.watertight),
+        }
+        for key, (text, warn) in values.items():
+            self.check_values[key].setText(text)
+            self._set_warn(self.check_values[key], warn)
+
+    @staticmethod
+    def _set_warn(label: QLabel, warn: bool) -> None:
+        label.setProperty("warn", "true" if warn else "false")
+        label.style().unpolish(label)
+        label.style().polish(label)
 
     def commit_pending(self) -> None:
         """Commit an uncommitted name edit through the Project API (idempotent).

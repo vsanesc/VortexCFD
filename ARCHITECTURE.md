@@ -61,6 +61,7 @@ src/vortexcfd/
   - `gui/monitors.py`: right column (empty log-scale residual chart drawn with QPainter, KPI cards).
   - `gui/viewport.py`: VTK-drawn viewport pieces (ground grid, empty-scene message, telemetry card) and telemetry settings.
   - `gui/settings_store.py`: the shared `QSettings` accessor.
+  - `gui/scene.py`: one VTK actor per Part kept in sync with the Project (picking, visibility, selection colour), part file status and cached surface reports.
   - `gui/console.py`: output console fed by a logging handler on the `vortexcfd` logger.
   - `gui/properties_panel.py`: properties rows (label left, mono value box right) for the selected node; `gui/dialogs.py`: injectable file/confirm dialogs.
   - May import `core` and `foam`.

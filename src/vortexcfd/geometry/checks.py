@@ -46,6 +46,17 @@ def _triangles(mesh: pv.PolyData) -> np.ndarray:
     return np.asarray(tri.faces).reshape(-1, 4)[:, 1:]
 
 
+def _group_counts(rows: np.ndarray, n_points: int) -> np.ndarray:
+    """Occurrence count of each distinct row (rows of point ids, each < ``n_points``)."""
+    width = rows.shape[1]
+    if n_points ** width < np.iinfo(np.int64).max:  # pack each row into one integer: fast
+        key = np.zeros(len(rows), dtype=np.int64)
+        for col in range(width):
+            key = key * n_points + rows[:, col]
+        return np.unique(key, return_counts=True)[1]
+    return np.unique(rows, axis=0, return_counts=True)[1]
+
+
 def _orientation_conflicts(mesh: pv.PolyData) -> int:
     """Triangles that disagree with an auto-oriented copy (the smaller side of the split)."""
     n = mesh.n_cells
@@ -76,9 +87,10 @@ def check_surface(mesh: pv.PolyData) -> SurfaceReport:
     if n_tri == 0:
         return SurfaceReport(0, mesh.n_points, bounds, size, 0, 0, 0, 0, 0, False)
 
+    n_points = int(mesh.n_points)
     edges = np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [2, 0]]])
     edges.sort(axis=1)
-    _, counts = np.unique(edges, axis=0, return_counts=True)
+    counts = _group_counts(edges, n_points)
     open_edges = int(np.count_nonzero(counts == 1))
     non_manifold = int(np.count_nonzero(counts > 2))
 
@@ -89,7 +101,7 @@ def check_surface(mesh: pv.PolyData) -> SurfaceReport:
     degenerate = int(np.count_nonzero(areas <= DEGENERATE_AREA_TOLERANCE * diag2))
 
     sorted_tris = np.sort(tris, axis=1)
-    duplicates = n_tri - len(np.unique(sorted_tris, axis=0))
+    duplicates = n_tri - len(_group_counts(sorted_tris, n_points))
 
     tri_mesh = mesh if mesh.is_all_triangles else mesh.triangulate()
     return SurfaceReport(

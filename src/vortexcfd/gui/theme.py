@@ -52,6 +52,9 @@ class Theme:
     accent_secondary_hover: str
     accent_secondary_dim: str  # accent_secondary at 15% over base
     selection: str  # selected tree row: accent_secondary_dim over base
+    part_surface: str  # imported part faces in the viewer
+    part_edge: str  # imported part edges
+    part_selected: str  # selected part (= accent_secondary)
     success: str
     warning: str
     error: str
@@ -85,6 +88,9 @@ DARK = Theme(
     accent_secondary_hover="#14C8B6",
     accent_secondary_dim=blend(_ACCENT_SECONDARY, _BASE, DIM_ALPHA),
     selection=blend(_ACCENT_SECONDARY, _BASE, DIM_ALPHA),
+    part_surface=blend("#94A3B8", "#0A0D12", 0.6),  # muted_text over canvas (proposed, not in owner table)
+    part_edge=blend("#94A3B8", "#0A0D12", 0.25),  # darker than the surface (proposed)
+    part_selected=_ACCENT_SECONDARY,
     success="#10B981",
     warning="#FACC15",
     error="#F43F5E",
@@ -132,6 +138,7 @@ TELEMETRY_FONT_U = 0.85  # card body font size in px per u (VTK Courier)
 TELEMETRY_LINE_SPACING = 1.35  # VTK line spacing of the card text
 TELEMETRY_TITLE_SCALE = 0.8  # card title size relative to the body
 TELEMETRY_GAP_CHARS = 2  # characters between the label and value columns
+PICK_MOVE_TOLERANCE_PX = 4  # a press/release closer than this is a click, not a camera drag
 GRID_HALF_LINES = 10  # ground grid: lines on each side of the origin
 GRID_SPACING = 1.0  # ground grid spacing (scene units)
 GRID_MAJOR_EVERY = 5  # every Nth grid line is brighter
@@ -299,6 +306,9 @@ QWidget#kpiRow {{ background: {t.base}; border-top: {ln}px solid {t.border}; }}
 QWidget#kpiCell {{ background: {t.base}; border-right: {ln}px solid {t.border}; }}
 QWidget#kpiCell[last="true"] {{ border-right: none; }}
 QLabel#kpiTitle {{ color: {t.muted_text}; background: transparent; }}
+QLabel#checkValue {{ color: {t.text}; background: transparent; }}
+QLabel#checkValue[warn="true"] {{ color: {t.warning}; }}
+QLabel#statusWarn {{ color: {t.warning}; }}
 QLabel#kpiValue {{ color: {t.text}; background: transparent; }}
 QWidget#propRow {{ background: transparent; border-bottom: {ln}px solid {t.border}; }}
 QTreeView {{ background: {t.base}; border: none; outline: 0; }}
