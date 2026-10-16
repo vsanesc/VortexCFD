@@ -4,13 +4,16 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
+import numpy as np
+import pyvista as pv
 from vtkmodules.vtkRenderingCore import vtkPropPicker
 
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
 from vortexcfd.geometry.checks import SurfaceReport, surface_report
+from vortexcfd.geometry.domain import DomainBox, compute_domain, face_corners
 from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
-from vortexcfd.gui.theme import PICK_MOVE_TOLERANCE_PX, Theme
+from vortexcfd.gui.theme import DOMAIN_OPACITY, HIGHLIGHT_OPACITY, PICK_MOVE_TOLERANCE_PX, Theme
 
 log = logging.getLogger(__name__)
 
@@ -60,6 +63,7 @@ class PartScene:
         self.on_pick = on_pick
         self.records: list[_Record] = []
         self._counter = 0
+        self.enabled = True  # False hides every part actor (e.g. in the mesh scene)
         self._press: tuple[int, int] | None = None
 
     @property
@@ -117,7 +121,7 @@ class PartScene:
     def apply_visibility(self, visibility: dict[str, bool]) -> None:
         for rec in self.records:
             if rec.actor is not None:
-                rec.actor.SetVisibility(visibility.get(rec.name, True))
+                rec.actor.SetVisibility(self.enabled and visibility.get(rec.name, True))
 
     def set_selected(self, index: int | None) -> None:
         for i, rec in enumerate(self.records):
@@ -177,3 +181,137 @@ class PartScene:
         picker = vtkPropPicker()
         if picker.Pick(x, y, 0, self.plotter.renderer):
             self.pick_actor(picker.GetActor())
+
+
+# -- far-field domain -----------------------------------------------------------------------
+
+
+def domain_box_for(project: Project) -> DomainBox:
+    """The domain box for the project's loadable parts (their bounds in metres)."""
+    bounds, names = [], []
+    for part in project.sim.geometry.parts:
+        path = part_file(project, part)
+        if path is None or not path.is_file():
+            continue
+        try:
+            bounds.append(tuple(float(b) for b in load_surface(path, part.units).bounds))
+            names.append(part.name)
+        except (OSError, SurfaceLoadError):
+            continue
+    return compute_domain(bounds, project.sim.domain, names)
+
+
+class DomainView:
+    """The domain box as a translucent wireframe, plus a highlighted boundary face."""
+
+    BOX = "domain_box"
+    HIGHLIGHT = "domain_highlight"
+
+    def __init__(self, plotter, theme: Theme) -> None:
+        self.plotter = plotter
+        self.theme = theme
+        self.box_actor = None
+        self.highlight_actor = None
+
+    def update(self, box: DomainBox | None, visible: bool, boundary: str | None) -> None:
+        """Show the box (edges only) when ``visible``; highlight ``boundary``'s faces."""
+        self._clear()
+        if box is None or box.bounds is None or not visible:
+            return
+        t = self.theme
+        self.box_actor = self.plotter.add_mesh(
+            pv.Box(bounds=box.bounds), style="wireframe", color=t.border_active, line_width=1,
+            opacity=DOMAIN_OPACITY, lighting=False, pickable=False, reset_camera=False,
+            render=False, name=self.BOX,
+        )
+        faces = box.boundaries.get(boundary or "", ())
+        if faces:
+            quads = [pv.PolyData(np.array(face_corners(box.bounds, axis, side)), faces=[4, 0, 1, 2, 3])
+                     for axis, side in faces]
+            merged = quads[0] if len(quads) == 1 else quads[0].merge(quads[1:])
+            self.highlight_actor = self.plotter.add_mesh(
+                merged, color=t.accent_secondary, opacity=HIGHLIGHT_OPACITY, lighting=False,
+                pickable=False, reset_camera=False, render=False, name=self.HIGHLIGHT,
+            )
+
+    def _clear(self) -> None:
+        for name in (self.BOX, self.HIGHLIGHT):
+            self.plotter.remove_actor(name, render=False)
+        self.box_actor = self.highlight_actor = None
+
+
+# -- mesh view ----------------------------------------------------------------------------------
+
+
+class MeshView:
+    """Boundary surfaces of the part patches of a generated mesh, drawn with their edges."""
+
+    def __init__(self, plotter, theme: Theme) -> None:
+        self.plotter = plotter
+        self.theme = theme
+        self.actors: list = []
+        self.n_faces = 0
+        self.stale = False
+        self._font_size = 12
+        self._visible = True
+
+    @property
+    def has_mesh(self) -> bool:
+        return bool(self.actors)
+
+    def load(self, case_dir: Path, patch_names) -> bool:
+        """Read <case_dir>/case.foam and show the given patches. False if nothing was shown."""
+        self.clear()
+        reader = pv.OpenFOAMReader(str(Path(case_dir) / "case.foam"))
+        reader.disable_all_patch_arrays()
+        for name in patch_names:
+            reader.enable_patch_array(f"patch/{name}")
+        boundary = reader.read()["boundary"]
+        t = self.theme
+        for name in patch_names:
+            if name not in boundary.keys():
+                continue
+            surface = boundary[name].extract_surface(algorithm="dataset_surface")
+            self.n_faces += surface.n_cells
+            self.actors.append(self.plotter.add_mesh(
+                surface, color=t.part_surface, show_edges=True, edge_color=t.part_edge, line_width=1,
+                pickable=False, reset_camera=False, render=False, name=f"mesh_{name}",
+            ))
+        return self.has_mesh
+
+    def bounds(self):
+        boxes = [a.GetBounds() for a in self.actors]
+        if not boxes:
+            return None
+        return (min(b[0] for b in boxes), max(b[1] for b in boxes), min(b[2] for b in boxes),
+                max(b[3] for b in boxes), min(b[4] for b in boxes), max(b[5] for b in boxes))
+
+    STALE_NAME = "mesh_stale"
+    STALE_TEXT = "MESH OUT OF DATE"
+
+    def set_stale(self, stale: bool, font_size: int) -> None:
+        """Warn inside the viewport (VTK text) that the shown mesh no longer matches the inputs."""
+        self.stale = stale
+        self._font_size = font_size
+        self._apply_stale()
+
+    def _apply_stale(self) -> None:
+        self.plotter.remove_actor(self.STALE_NAME, render=False)
+        if self.stale and self.actors and self._visible:
+            self.plotter.add_text(
+                self.STALE_TEXT, position="upper_right", font_size=self._font_size,
+                color=self.theme.warning, font="courier", name=self.STALE_NAME, render=False,
+            )
+
+    def set_visible(self, visible: bool) -> None:
+        self._visible = visible
+        for actor in self.actors:
+            actor.SetVisibility(visible)
+        self._apply_stale()
+
+    def clear(self) -> None:
+        for actor in self.actors:
+            self.plotter.remove_actor(actor, render=False)
+        self.actors = []
+        self.n_faces = 0
+        self._apply_stale()

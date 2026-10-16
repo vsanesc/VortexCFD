@@ -28,6 +28,7 @@ TELEMETRY_FIELDS = (
     ("selected", "Selected node"),
     ("triangles", "Triangles"),
     ("cells", "Cells"),
+    ("domain", "Domain"),
     ("view", "View"),
 )
 EMPTY_MESSAGE = "No geometry yet"
@@ -114,6 +115,9 @@ class EmptySceneMessage:
 
     def set_visible(self, visible: bool) -> None:
         self.actor.SetVisibility(visible)
+
+    def set_text(self, text: str) -> None:
+        self.actor.SetInput(text)
 
 
 # -- telemetry card ---------------------------------------------------------------

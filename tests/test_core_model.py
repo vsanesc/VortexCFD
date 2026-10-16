@@ -221,7 +221,153 @@ def test_save_simulation_atomic_cleanup(tmp_path: Path) -> None:
     assert directory_files == [project_path]
 
 
-def test_migrate_placeholder() -> None:
-    """Verify migrate placeholder returns input unchanged."""
-    test_dict = {"schema_version": 1, "custom": "data"}
-    assert migrate(test_dict) == test_dict
+def test_migrate_v1_to_v2_and_current_unchanged() -> None:
+    """v1 gains the default domain and version 2; current data is returned unchanged."""
+    assert migrate({"schema_version": 1, "custom": "data"}) == {
+        "schema_version": 2, "custom": "data", "domain": {}, "mesh": {},
+    }
+    current = {"schema_version": 2, "custom": "data"}
+    assert migrate(current) == current
+
+
+# -- domain and schema v2 ---------------------------------------------------------------
+
+import json
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+from vortexcfd.core.model import CURRENT_SCHEMA_VERSION, Domain, Simulation
+from vortexcfd.core.project import Project
+from vortexcfd.core.project_io import ProjectFileError, load_simulation, save_simulation
+
+V1_FIXTURE = Path(__file__).parent / "data" / "project_v1.json"
+
+
+def test_domain_defaults() -> None:
+    d = Domain()
+    assert (d.enabled, d.upstream, d.downstream, d.lateral, d.vertical, d.symmetry) == (
+        True, 5.0, 10.0, 5.0, 5.0, "none",
+    )
+    assert Simulation(name="x").domain == d
+    assert CURRENT_SCHEMA_VERSION == 2
+
+
+@pytest.mark.parametrize("field", ["upstream", "downstream", "lateral", "vertical"])
+@pytest.mark.parametrize("value", [0, -1.0])
+def test_domain_multipliers_must_be_positive(field: str, value: float) -> None:
+    with pytest.raises(ValidationError):
+        Domain(**{field: value})
+
+
+def test_domain_rejects_unknown_symmetry_and_fields() -> None:
+    with pytest.raises(ValidationError):
+        Domain(symmetry="z_min")
+    with pytest.raises(ValidationError):
+        Domain(bogus=1)
+
+
+def test_v1_fixture_opens_as_v2_with_default_domain() -> None:
+    sim = load_simulation(V1_FIXTURE)
+    assert sim.schema_version == 2
+    assert sim.domain == Domain()
+    assert [p.name for p in sim.geometry.parts] == ["Wing"]
+
+
+def test_v2_round_trip(tmp_path: Path) -> None:
+    sim = Simulation(name="rt", domain=Domain(upstream=3, symmetry="y_min", enabled=False))
+    path = tmp_path / "p.json"
+    save_simulation(sim, path)
+    assert json.loads(path.read_text())["schema_version"] == 2
+    assert load_simulation(path) == sim
+
+
+def test_future_version_is_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "p.json"
+    path.write_text(json.dumps({"schema_version": 3, "name": "x"}))
+    with pytest.raises(ProjectFileError, match="Unsupported schema_version"):
+        load_simulation(path)
+
+
+def test_invalid_domain_in_file_is_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "p.json"
+    path.write_text(json.dumps({"schema_version": 2, "name": "x", "domain": {"upstream": -2}}))
+    with pytest.raises(ProjectFileError, match="Validation failed"):
+        load_simulation(path)
+
+
+def test_update_domain_is_one_undoable_step() -> None:
+    p = Project.new("d")
+    p.update_domain(upstream=7.0, symmetry="y_min")
+    assert p.sim.domain.upstream == 7.0 and p.sim.domain.symmetry == "y_min"
+    assert len(p._undo) == 1 and p.undo_label == "Edit domain (upstream, symmetry)"
+    p.undo()
+    assert p.sim.domain == Domain()
+    p.redo()
+    assert p.sim.domain.upstream == 7.0
+
+
+def test_update_domain_validates_and_noop_leaves_no_trace() -> None:
+    p = Project.new("d")
+    with pytest.raises(ValidationError):
+        p.update_domain(upstream=0)
+    with pytest.raises(ValidationError):
+        p.update_domain(nonsense=1)
+    p.update_domain(upstream=5.0)  # same value: no-op
+    assert not p.can_undo and p.sim.domain == Domain()
+    seen = []
+    p.subscribe(lambda proj: seen.append(1))
+    p.update_domain(enabled=False)
+    assert seen == [1] and p.sim.domain.enabled is False
+
+
+# -- mesh controls (schema v2) ------------------------------------------------------------
+
+from vortexcfd.core.model import Mesh
+
+
+def test_mesh_defaults() -> None:
+    m = Mesh()
+    assert (m.base_size, m.surface_level_min, m.surface_level_max) == (None, None, None)
+    assert (m.background_cells_target, m.target_surface_size) == (100_000, 0.01)
+    assert (m.feature_angle, m.layers, m.expansion_ratio) == (30.0, 3, 1.2)
+    assert (m.final_layer_thickness, m.min_thickness) == (0.5, 0.1)
+    assert Simulation(name="x").mesh == m
+
+
+@pytest.mark.parametrize("fields", [
+    {"base_size": 0}, {"base_size": -1.0}, {"surface_level_min": -1}, {"background_cells_target": 0},
+    {"target_surface_size": 0}, {"feature_angle": 0},
+    {"feature_angle": 181}, {"layers": -1}, {"expansion_ratio": 0.9}, {"final_layer_thickness": 0},
+    {"min_thickness": -0.1}, {"surface_level_min": 4, "surface_level_max": 2}, {"bogus": 1},
+])
+def test_mesh_rejects_invalid_values(fields: dict) -> None:
+    with pytest.raises(ValidationError):
+        Mesh(**fields)
+
+
+def test_v1_fixture_gets_default_mesh_and_round_trips(tmp_path: Path) -> None:
+    sim = load_simulation(V1_FIXTURE)
+    assert sim.mesh == Mesh()
+    sim = sim.model_copy(update={"mesh": Mesh(base_size=0.25, layers=0)})
+    path = tmp_path / "m.json"
+    save_simulation(sim, path)
+    assert load_simulation(path).mesh == Mesh(base_size=0.25, layers=0)
+
+
+def test_update_mesh_is_one_undoable_step_and_validates() -> None:
+    p = Project.new("m")
+    p.update_mesh(layers=5, base_size=0.1)
+    assert p.sim.mesh.layers == 5 and p.sim.mesh.base_size == 0.1
+    assert len(p._undo) == 1 and p.undo_label == "Edit mesh (layers, base_size)"
+    p.undo()
+    assert p.sim.mesh == Mesh()
+    with pytest.raises(ValidationError):
+        p.update_mesh(layers=-1)
+    p.update_mesh(surface_level_max=2)
+    with pytest.raises(ValidationError):
+        p.update_mesh(surface_level_min=9)  # above the explicit max of 2
+    p.undo()
+    p.update_mesh(layers=3)  # unchanged: no trace
+    assert not p.can_undo

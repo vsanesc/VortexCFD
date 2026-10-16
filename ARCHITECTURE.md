@@ -43,6 +43,10 @@ src/vortexcfd/
   - `foam/dictfile.py`: thin wrapper encapsulating `foamlib` for OpenFOAM dictionary reading and writing.
   - `foam/case_writer.py`: orchestrates writing complete OpenFOAM case directory trees from file dictionaries.
   - `foam/reference_cases/`: generators for standard reference cases (e.g. cavity).
+  - `foam/mesh_case.py`: meshing dictionaries (blockMeshDict, surfaceFeatureExtractDict, snappyHexMeshDict, controlDict, fvSchemes/fvSolution) from plain data, `locationInMesh`, and the marker-protected case directory.
+  - `foam/mesh_run.py`: `MeshRun` runs blockMesh, surfaceFeatureExtract, snappyHexMesh -overwrite and checkMesh in sequence on a worker thread through `FoamRun`.
+  - `foam/mesh_report.py`: `parse_check_mesh` turns checkMesh output into a `MeshReport`; `parse_layer_table` reads snappyHexMesh's final layer table (per-patch `LayerCoverage`, overall extruded-face share).
+  - `foam/mesh_record.py`: `case/vortexcfd_mesh.json`, the last `MeshReport` plus the hash of the meshing inputs (used to flag an out-of-date mesh).
   - `foam/runner.py`: process execution via `run_foam` and streaming runner `FoamRun` returning `RunResult`. Clean stop works for single-process solvers launched through `FoamRun` with `clean_stop=True`.
   - `foam/logparse.py`: incremental solver log parsing via `LogParser` recording `TimeStep` events.
   - `SolverCrash` (logparse): event for an OpenFOAM `[stack trace]` block. A diverging solver dies with SIGFPE and prints no nan residuals, so the process exit code is the reliable failure signal.
@@ -53,6 +57,7 @@ src/vortexcfd/
   - Surface geometry; may import numpy and pyvista, must **NOT** import Qt, pyvistaqt or `vortexcfd.gui`; `core/` must not import it.
   - `geometry/loader.py`: `load_surface(path, units)` reads STL/OBJ/PLY as a triangulated PyVista mesh in metres (cached by path, mtime and units).
   - `geometry/checks.py`: `check_surface(mesh)` returns a `SurfaceReport` (open and non-manifold edges, degenerate and duplicate triangles, orientation, watertightness).
+  - `geometry/domain.py`: `compute_domain(parts_bounds, domain)` returns the far-field `DomainBox` (reference length L, named boundaries, warnings).
 - **`gui/`**:
   - Implements UI components, main window, and 3D visualization using PySide6 and PyVista/pyvistaqt.
   - `gui/theme.py`: design tokens (`Theme`), Fusion palette/stylesheet and font zoom; `gui/icons.py` draws tree icons in code.
@@ -61,7 +66,10 @@ src/vortexcfd/
   - `gui/monitors.py`: right column (empty log-scale residual chart drawn with QPainter, KPI cards).
   - `gui/viewport.py`: VTK-drawn viewport pieces (ground grid, empty-scene message, telemetry card) and telemetry settings.
   - `gui/settings_store.py`: the shared `QSettings` accessor.
-  - `gui/scene.py`: one VTK actor per Part kept in sync with the Project (picking, visibility, selection colour), part file status and cached surface reports.
+  - `gui/scene.py`: one VTK actor per Part kept in sync with the Project (picking, visibility, selection colour), part file status, cached surface reports, and the translucent domain box (`DomainView`).
+  - `gui/meshing.py`: Qt-free orchestration joining core, geometry and foam (it cannot live in `foam/`, which must not depend on `geometry/`): `readiness(project)` says why a project cannot be meshed and `prepare_job(project)` writes <project>/case (dictionaries and part STLs in metres).
+  - `foam/mesh_estimate.py`: `estimate_mesh` gives background cells, refinement levels and surface cell size from the sizing targets (limit 2,000,000 background cells).
+  - `gui/mesh_worker.py`: Qt wrapper around `MeshRun`; the worker and reader threads only emit signals, slots run in the GUI thread. `gui/scene.py` also holds `MeshView` (part patches of the generated mesh with edges).
   - `gui/console.py`: output console fed by a logging handler on the `vortexcfd` logger.
   - `gui/properties_panel.py`: properties rows (label left, mono value box right) for the selected node; `gui/dialogs.py`: injectable file/confirm dialogs.
   - May import `core` and `foam`.

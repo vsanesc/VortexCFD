@@ -90,17 +90,16 @@ def test_tree_structure_and_node_count(make_window) -> None:
     assert [parts.child(i).text(0) for i in range(parts.childCount())] == ["Part 1", "Part 2", "Part 3"]
     continua = w._items[("continua", None)]
     assert [continua.child(i).text(0) for i in range(continua.childCount())] == ["Mesh", "Physics"]
-    assert w._items[("none", None)].text(0) == "(none yet)"
-    # Geometry, Parts, 3 parts, Continua, Mesh, Physics, Regions, Solvers, Reports = 11
-    assert w.node_count() == 11 and w.node_badge.text() == "11 Nodes"
+    fluid = w._items[("fluid_domain", None)]
+    assert fluid.text(0) == "Fluid Domain" and fluid.parent() is w._items[("regions", None)]
+    assert [fluid.child(i).text(0) for i in range(fluid.childCount())] == [
+        "inlet", "outlet", "sides", "top", "bottom", "Part 1 (wall)", "Part 2 (wall)", "Part 3 (wall)",
+    ]
+    # Geometry, Parts, 3 parts, Continua, Mesh, Physics, Regions, Fluid Domain, 5 boundaries,
+    # 3 walls, Solvers, Reports = 20
+    assert w.node_count() == 20 and w.node_badge.text() == "20 Nodes"
     w.act_add_part.trigger()
-    assert w.node_badge.text() == "12 Nodes"
-
-
-def test_placeholder_row_is_not_selectable(make_window) -> None:
-    w = make_window()
-    item = w._items[("none", None)]
-    assert not item.flags() & Qt.ItemFlag.ItemIsSelectable
+    assert w.node_badge.text() == "22 Nodes"  # a part and its wall
 
 
 def test_header_name_selects_root(make_window) -> None:
@@ -156,8 +155,8 @@ def test_properties_header_and_rows(make_window) -> None:
     w.tree.setCurrentItem(w._items[("part", 0)])
     assert p._rows["name"].isVisible() and p._rows["source"].isVisible() and p._rows["units"].isVisible()
     assert w.props_name.text() == "Part 1"
-    w.tree.setCurrentItem(w._items[("mesh", None)])
-    assert w.props_name.text() == "Mesh"
+    w.tree.setCurrentItem(w._items[("solvers", None)])
+    assert w.props_name.text() == "Solvers"
     assert not p._rows["name"].isVisible() and p.info_label.isVisible()
     w._select_root()
     assert p._rows["name"].isVisible() and not p._rows["source"].isVisible()
@@ -166,7 +165,7 @@ def test_properties_header_and_rows(make_window) -> None:
 def test_future_actions_are_disabled_with_tooltips(make_window) -> None:
     w = make_window()
     assert not w.top_bar.mesh_button.isEnabled() and not w.top_bar.run_button.isEnabled()
-    assert "Phase 5" in w.top_bar.mesh_button.toolTip()
+    assert w.top_bar.mesh_button.toolTip()  # says why (readiness is tested in test_mesh_gui)
     assert "Phase 4" in w.top_bar.run_button.toolTip()
     assert w.top_bar.mesh_button.text() == "Generate Mesh" and w.top_bar.run_button.text() == "Run Solver"
 
@@ -228,7 +227,7 @@ def test_telemetry_rows_real_values_in_order(make_window) -> None:
     w.tree.setCurrentItem(w._items[("part", 1)])
     assert w.telemetry_rows == [
         ("Parts", "3"), ("Selected node", "Part 2"), ("Triangles", "\u2014"),
-        ("Cells", "\u2014"), ("View", "ISO"),
+        ("Cells", "\u2014"), ("Domain", "\u2014"), ("View", "ISO"),
     ]
 
 
@@ -239,6 +238,7 @@ def test_telemetry_follows_checked_fields_and_persists(make_window, qtbot) -> No
     w.act_tel_fields["selected"].trigger()  # uncheck
     w.act_tel_fields["view"].trigger()
     w.act_tel_fields["triangles"].trigger()
+    w.act_tel_fields["domain"].trigger()
     assert [label for label, _ in w.telemetry_rows] == ["Parts", "Cells"]
     assert w.telemetry.visible and "Selected" not in w.telemetry.labels.GetInput()
     for key in ("parts", "cells"):
@@ -362,7 +362,7 @@ def test_disabled_actions_keep_style_cursor_and_tooltip(make_window) -> None:
     t = w._theme
     assert "QPushButton#runBtn:disabled" in sheet and "QPushButton#meshBtn:disabled" in sheet
     assert t.disabled_text in sheet  # reduced-contrast text
-    for button, phase in ((w.top_bar.mesh_button, "Phase 5"), (w.top_bar.run_button, "Phase 4")):
+    for button, phase in ((w.top_bar.mesh_button, "Save the project"), (w.top_bar.run_button, "Phase 4")):
         assert not button.isEnabled()
         assert button.cursor().shape() == Qt.CursorShape.ForbiddenCursor
         assert phase in button.toolTip()

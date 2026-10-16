@@ -62,6 +62,10 @@ class ConsolePanel(QWidget):
         self.view.setFont(mono_font(QApplication.font(), 0.85))
         self.clear_button.setFont(mono_font(QApplication.font(), 0.85))
 
+    def append_output(self, text: str) -> None:
+        """Append one line of tool output verbatim (mono, normal text colour)."""
+        self.view.appendHtml(f'<span style="color:{self._theme.text}">{html.escape(text)}</span>')
+
     def clear(self) -> None:
         self.view.clear()
 

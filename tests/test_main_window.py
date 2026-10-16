@@ -8,6 +8,7 @@ import pytest
 from PySide6.QtCore import Qt
 from pytestqt.qtbot import QtBot
 
+from tests.conftest import focus_widget
 from tests.fakes import FakeDialogs
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
@@ -235,14 +236,12 @@ def test_delete_key_only_applies_with_tree_focus(make_window, qtbot: QtBot) -> N
     window.act_add_part.trigger()
     _select_part(window, 0)
     edit = window.properties.name_edit
-    edit.setFocus()
-    qtbot.waitUntil(edit.hasFocus)
+    focus_widget(qtbot, window, edit)
     edit.setCursorPosition(0)
     qtbot.keyClick(edit, Qt.Key.Key_Delete)
     assert edit.text() == "art 1"
     assert [i.text(0) for i in _part_items(window)] == ["Part 1"]
-    window.tree.setFocus()
-    qtbot.waitUntil(window.tree.hasFocus)
+    focus_widget(qtbot, window, window.tree)
     steps = len(window.project._undo)
     qtbot.keyClick(window.tree, Qt.Key.Key_Delete)
     assert _part_items(window) == []
@@ -261,6 +260,7 @@ def test_pending_edit_commits_when_selection_changes(
     window.act_add_part.trigger()
     _select_part(window, 0)
     edit = window.properties.name_edit
+    focus_widget(qtbot, window, edit)
     edit.selectAll()
     qtbot.keyClicks(edit, "Wing")  # no Enter
     steps = len(window.project._undo)
@@ -280,7 +280,7 @@ def test_pending_edit_commits_when_selection_changes(
 
 def _type_name(window: MainWindow, text: str, qtbot: QtBot) -> None:
     edit = window.properties.name_edit
-    edit.setFocus()
+    focus_widget(qtbot, window, edit)
     edit.selectAll()
     qtbot.keyClicks(edit, text)  # no Enter
 
@@ -316,7 +316,7 @@ def test_empty_pending_name_keeps_previous_and_reports(make_window, qtbot: QtBot
     target = tmp_path / "p.json"
     window, _ = make_window(save_path=target)
     edit = window.properties.name_edit
-    edit.setFocus()
+    focus_widget(qtbot, window, edit)
     edit.selectAll()
     qtbot.keyClick(edit, Qt.Key.Key_Delete)
     window.save()
@@ -329,7 +329,6 @@ def test_empty_pending_name_keeps_previous_and_reports(make_window, qtbot: QtBot
 def test_save_shortcut_key_event(make_window, qtbot: QtBot, tmp_path: Path) -> None:
     target = tmp_path / "k.json"
     window, _ = make_window(save_path=target)
-    qtbot.waitUntil(window.isActiveWindow)
     _type_name(window, "Keyed", qtbot)
     qtbot.keyClick(window.properties.name_edit, Qt.Key.Key_S, Qt.KeyboardModifier.ControlModifier)
     assert target.exists() and Project.open(target).sim.name == "Keyed"

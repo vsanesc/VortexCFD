@@ -22,7 +22,9 @@ from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
+    QButtonGroup,
     QMainWindow,
+    QPushButton,
     QSizePolicy,
     QSplitter,
     QSplitterHandle,
@@ -46,7 +48,23 @@ from vortexcfd.gui.monitors import MonitorsPanel
 from vortexcfd.geometry.checks import surface_report
 from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.gui.properties_panel import PropertiesPanel
-from vortexcfd.gui.scene import ERROR, MISSING, PartScene, part_status, report_for_part
+from vortexcfd.geometry.domain import BOUNDARY_NAMES
+from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError
+from vortexcfd.foam.mesh_estimate import estimate_mesh
+from vortexcfd.foam.mesh_report import MeshReport
+from vortexcfd.gui.mesh_worker import MeshWorker
+from vortexcfd.foam.mesh_record import MeshRecord, read_mesh_record, write_mesh_record
+from vortexcfd.gui.meshing import MeshingNotReady, case_dir_for, inputs_hash, prepare_job, readiness
+from vortexcfd.gui.scene import (
+    ERROR,
+    MISSING,
+    DomainView,
+    MeshView,
+    PartScene,
+    domain_box_for,
+    part_status,
+    report_for_part,
+)
 from vortexcfd.gui.theme import (
     DEFAULT_POINT_SIZE,
     LAYOUT,
@@ -60,9 +78,11 @@ from vortexcfd.gui.theme import (
     metrics,
     mono_font,
     save_appearance,
+    settings,
 )
 from vortexcfd.gui.topbar import FIT_METHOD, VIEW_BUTTONS, TopBar
 from vortexcfd.gui.viewport import (
+    EMPTY_MESSAGE,
     TELEMETRY_FIELDS,
     EmptySceneMessage,
     TelemetryCard,
@@ -250,6 +270,19 @@ class MainWindow(QMainWindow):
         self.telemetry = None
         self._empty_message = None
         self._grid_actors: list = []
+        self.mesh_report: MeshReport | None = None
+        self.mesh_stale = False
+        self._mesh_hash: str | None = None  # inputs hash of the mesh being shown
+        self._run_hash: str | None = None  # inputs hash at the start of the running mesh
+        self.mesh_view: MeshView | None = None
+        self._scene_mode = "geometry"
+        self._mesh_patches: tuple[str, ...] = ()
+        self.mesh_worker = MeshWorker(self)
+        self.mesh_worker.line.connect(self._on_mesh_line)
+        self.mesh_worker.step.connect(self._on_mesh_step)
+        self.mesh_worker.finished.connect(self._on_mesh_done)
+        self.domain_view: DomainView | None = None
+        self._domain_box = None
         self._framed_visibility = False
         self.dialogs = dialogs if dialogs is not None else Dialogs(self)
         self._theme, self._point_size = load_appearance()
@@ -289,6 +322,7 @@ class MainWindow(QMainWindow):
         self._left_split.addWidget(props_section)
         self._left_split.setStretchFactor(0, 1)
         self._left_split.setStretchFactor(1, 0)
+        self._left_split.splitterMoved.connect(self._save_left_split)
         self._status_bar = QStatusBar()
         self._status_bar.setSizeGripEnabled(False)
         self._selection_label = QLabel()
@@ -313,9 +347,17 @@ class MainWindow(QMainWindow):
         self._tab_bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         tab_row = QHBoxLayout(self._tab_bar)
         tab_row.setContentsMargins(0, 0, 0, 0)
-        self.scene_tab = QLabel("Geometry Scene")
-        self.scene_tab.setObjectName("sceneTab")
-        tab_row.addWidget(self.scene_tab)
+        self.scene_tab = QPushButton("Geometry Scene")  # kept name: the geometry tab
+        self.mesh_tab = QPushButton("Mesh Scene")
+        self._tab_group = QButtonGroup(self)
+        for button, mode in ((self.scene_tab, "geometry"), (self.mesh_tab, "mesh")):
+            button.setObjectName("sceneTabBtn")
+            button.setCheckable(True)
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            self._tab_group.addButton(button)
+            button.clicked.connect(lambda _=False, m=mode: self._set_scene_mode(m))
+            tab_row.addWidget(button)
+        self.scene_tab.setChecked(True)
         tab_row.addStretch(1)
         center_layout.addWidget(self._tab_bar)
         self.viewer = None
@@ -323,7 +365,7 @@ class MainWindow(QMainWindow):
             # Placeholder from the spike; Task 2.2 replaces it.
             from pyvistaqt import QtInteractor
 
-            self.viewer = QtInteractor(self._center)
+            self.viewer = QtInteractor(self._center, auto_update=False)  # explicit renders only
             self.plotter = self.viewer
             # Placeholder scene: ground grid and a centered "No geometry yet" (no mesh).
             self._grid_actors = add_ground_grid(self.viewer, self._theme)
@@ -332,6 +374,8 @@ class MainWindow(QMainWindow):
             self.viewer.view_isometric()
             self.viewer.reset_camera()
             self.scene = PartScene(self.viewer, self._theme, self._on_viewer_pick)
+            self.domain_view = DomainView(self.viewer, self._theme)
+            self.mesh_view = MeshView(self.viewer, self._theme)
             try:
                 self.scene.install_picking()
             except Exception:  # pragma: no cover - interactor without observers
@@ -385,6 +429,7 @@ class MainWindow(QMainWindow):
         self.top_bar.name_clicked.connect(self._select_root)
         self.top_bar.view_requested.connect(self._view)
         self.top_bar.wireframe_toggled.connect(self._set_wireframe)
+        self.top_bar.mesh_clicked.connect(self.generate_mesh)
         self.top_bar.set_viewer_enabled(self.viewer is not None)
         central = QWidget()
         central_layout = QVBoxLayout(central)
@@ -428,7 +473,15 @@ class MainWindow(QMainWindow):
             self._unsubscribe()
         self._project = project
         self._selection = None
+        if self.mesh_worker.is_running():  # a mesh of the old project is of no use any more
+            self.mesh_worker.request_stop()
+        self.mesh_report = None
+        self.properties.set_mesh_report(None)
+        if self.mesh_view is not None:
+            self.mesh_view.clear()
+            self._set_scene_mode("geometry")
         self.properties.set_project(project)
+        self._load_mesh_record(project)
         self._unsubscribe = project.subscribe(self._on_project_changed)
         self._refresh()
 
@@ -492,7 +545,8 @@ class MainWindow(QMainWindow):
         self.tree.setIconSize(QSize(m.u, m.u))
         self.tree.setFont(QApplication.font())
         self._tab_bar.setFixedHeight(m.tab_bar)
-        self.scene_tab.setFixedHeight(m.tab_bar - m.line)
+        for tab in (self.scene_tab, self.mesh_tab):
+            tab.setFixedHeight(m.tab_bar - m.line)
         self.menuBar().setFixedHeight(m.menubar)
         self._status_bar.setFixedHeight(m.status)
         self._selection_label.setFont(mono_font(QApplication.font(), 0.85))
@@ -549,6 +603,7 @@ class MainWindow(QMainWindow):
         if obj is self.viewer and event.type() == QEvent.Type.Resize and self.telemetry is not None:
             self._style_axes()
             self._layout_telemetry()
+            self.viewer.render()  # auto-update is off: every visible change renders explicitly
         return super().eventFilter(obj, event)
 
     def _layout_telemetry(self) -> None:
@@ -577,8 +632,27 @@ class MainWindow(QMainWindow):
         right_h = self._right_split.height()
         self._right_split.setSizes([max(0, right_h - console), console])
         column_h = self._left.height()
-        tree = round(LAYOUT.tree_split * column_h)
+        tree = round(self._saved_tree_fraction() * column_h)
         self._left_split.setSizes([tree, max(0, self._left_split.height() - tree)])
+
+    LEFT_SPLIT_KEY = "layout/left_tree_fraction"
+
+    def _saved_tree_fraction(self) -> float:
+        """Tree share of the left column: the user's last split, else the default (40 %)."""
+        try:
+            value = float(settings().value(self.LEFT_SPLIT_KEY, LAYOUT.tree_split))
+        except (TypeError, ValueError):
+            return LAYOUT.tree_split
+        return value if 0.05 < value < 0.95 else LAYOUT.tree_split
+
+    def _save_left_split(self, *_args) -> None:
+        """Remember the tree/properties split after the user drags the handle."""
+        column_h = self._left.height()
+        if column_h > 0:
+            tree_h = self._left_split.sizes()[0]
+            s = settings()
+            s.setValue(self.LEFT_SPLIT_KEY, tree_h / column_h)
+            s.sync()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -592,12 +666,15 @@ class MainWindow(QMainWindow):
 
     def _refresh(self) -> None:
         sim = self._project.sim
+        self._domain_box = domain_box_for(self._project)
         self._rebuild_tree(sim.name, list(sim.geometry.parts))
         self.properties.show_node(*(self._selection or ("root", None)))
         self._sync_scene()
         self._update_selection_views()
         self._update_actions()
         self._update_title(sim.name)
+        self._update_mesh_stale()
+        self._update_mesh_button()
 
     def _node_icon(self, glyph: str, token: str) -> QIcon:
         color = QColor(getattr(self._theme, token))
@@ -638,7 +715,15 @@ class MainWindow(QMainWindow):
             add(continua, "mesh", None, "Mesh", "dot", "accent_secondary")
             add(continua, "physics", None, "Physics", "dot", "accent")
             regions = add(root, "regions", None, "Regions", "folder", "text")
-            add(regions, "none", None, "(none yet)", "dot", "muted_text", muted=True)
+            fluid = add(regions, "fluid_domain", None, "Fluid Domain", "folder", "text")
+            domain = self._project.sim.domain
+            if domain.enabled:
+                for bname in BOUNDARY_NAMES:
+                    if bname == "symmetry" and domain.symmetry != "y_min":
+                        continue
+                    add(fluid, f"boundary_{bname}", None, bname, "dot", "accent")
+            for i, part in enumerate(parts):  # one wall patch per part
+                add(fluid, "wall", i, f"{part.name} (wall)", "dot", "accent")
             add(root, "solvers", None, "Solvers", "folder", "text")
             add(root, "reports", None, "Reports & Monitors", "folder", "text")
             self.tree.expandAll()
@@ -658,8 +743,8 @@ class MainWindow(QMainWindow):
         return report_for_part(self._project, part) is not None
 
     def node_count(self) -> int:
-        """Real tree nodes shown (the hidden root and the "(none yet)" row are not counted)."""
-        return len(self._items) - 2
+        """Real tree nodes shown (the hidden root row is not counted)."""
+        return len(self._items) - 1
 
     def _on_eye_clicked(self, item: QTreeWidgetItem) -> None:
         kind, index = item.data(0, ROLE_NODE)
@@ -713,13 +798,31 @@ class MainWindow(QMainWindow):
 
     def _update_empty_state(self) -> None:
         """Hide the empty-scene grid and message when any part (or extra actor) is visible."""
-        has_geometry = (self.scene is not None and self.scene.has_visible()) or bool(self.scene_actors)
+        if self._scene_mode == "mesh":
+            has_content = self.mesh_view is not None and self.mesh_view.has_mesh
+        else:
+            has_content = (self.scene is not None and self.scene.has_visible()) or bool(self.scene_actors)
         for actor in self._grid_actors:
-            actor.SetVisibility(not has_geometry)
+            actor.SetVisibility(not has_content)
         if self._empty_message is not None:
-            self._empty_message.set_visible(not has_geometry)
+            self._empty_message.set_text("No mesh yet" if self._scene_mode == "mesh" else EMPTY_MESSAGE)
+            self._empty_message.set_visible(not has_content)
+
+    def _selected_boundary(self) -> str | None:
+        kind = (self._selection or ("root", None))[0]
+        return kind.removeprefix("boundary_") if kind.startswith("boundary_") else None
+
+    def _sync_domain(self) -> None:
+        """Draw the domain box (if enabled and toggled on) and highlight the selected boundary."""
+        if self.domain_view is None:
+            return
+        visible = (self.act_toggle_domain.isChecked() and self._project.sim.domain.enabled
+                   and self._scene_mode == "geometry")
+        self.domain_view.update(self._domain_box, visible, self._selected_boundary())
+        self.viewer.render()
 
     def _update_selection_views(self) -> None:
+        self._sync_domain()
         if self.scene is not None:
             self.scene.set_selected(self._selected_part_index())
             self.viewer.render()
@@ -734,7 +837,8 @@ class MainWindow(QMainWindow):
             "parts": str(len(self._project.sim.geometry.parts)),
             "selected": self._selected_name(),
             "triangles": self._selected_triangles(),
-            "cells": EMPTY,
+            "cells": str(self.mesh_report.cells) if self.mesh_report and self.mesh_report.cells else EMPTY,
+            "domain": self._domain_text(),
             "view": self.current_view,
         }
         self.telemetry_rows = [
@@ -745,6 +849,147 @@ class MainWindow(QMainWindow):
         if self.telemetry is not None:
             self.telemetry.set_rows(self.telemetry_rows)
             self._layout_telemetry()
+            self.viewer.render()
+
+    def _domain_text(self) -> str:
+        box = self._domain_box
+        if box is None or box.bounds is None or not self._project.sim.domain.enabled:
+            return EMPTY
+        return " \u00d7 ".join(f"{v:.3g}" for v in box.size) + " m"
+
+    # -- meshing ---------------------------------------------------------------------
+
+    def _update_mesh_button(self) -> None:
+        running = self.mesh_worker.is_running()
+        self.top_bar.set_mesh_state(None if running else readiness(self._project), running)
+
+    def generate_mesh(self) -> None:
+        """Generate Mesh / Stop: write the meshing case and run it in the background."""
+        if self.mesh_worker.is_running():
+            self.show_message("Stopping meshing...", "warning", log_it=False)
+            log.warning("Stopping meshing at the user's request")
+            self.mesh_worker.request_stop()
+            return
+        self._flush_edits()
+        try:
+            job = prepare_job(self._project)
+        except (MeshingNotReady, CaseDirectoryNotOursError) as exc:
+            self.show_message(str(exc), "error")
+            return
+        except OSError as exc:
+            self.show_message(f"Could not prepare the meshing case: {exc}", "error")
+            return
+        self._mesh_patches = job.inputs.parts
+        self._run_hash = inputs_hash(self._project)
+        self.mesh_report = None
+        self._mesh_hash = None
+        self.properties.set_mesh_report(None)
+        self.top_bar.set_run_state("Meshing")
+        est = estimate_mesh(job.inputs.domain_bounds, job.inputs.reference_length, job.inputs.mesh)
+        log.info("Meshing %s: background %d cells (base size %.4g m), surface levels %d-%d "
+                 "(surface cells %.4g m)", job.case_dir, est.total_cells, est.base_size,
+                 est.level_min, est.level_max, est.surface_size)
+        self.mesh_worker.start(job.case_dir)
+        self._update_mesh_stale()
+        self._update_mesh_button()
+        self._update_telemetry()
+
+    def _load_mesh_record(self, project: Project) -> None:
+        """Show the last saved mesh of ``project`` (case/vortexcfd_mesh.json), if there is one."""
+        self.mesh_stale = False
+        self._mesh_hash = None
+        case_dir = case_dir_for(project)
+        record = read_mesh_record(case_dir) if case_dir is not None else None
+        if record is None:
+            return
+        self.mesh_report = record.report
+        self._mesh_hash = record.inputs_hash
+        self._mesh_patches = record.patches
+        self.properties.set_mesh_report(record.report)
+        log.info("Loaded the last mesh: %s", record.report.summary())
+        if self.mesh_view is not None:
+            try:
+                self.mesh_view.load(case_dir, record.patches)
+                self.mesh_view.set_visible(self._scene_mode == "mesh")
+            except Exception:
+                log.exception("Could not load the saved mesh into the viewer")
+
+    def _update_mesh_stale(self) -> None:
+        """A shown mesh is out of date when the meshing inputs no longer match its hash."""
+        stale = (
+            self.mesh_report is not None and self._mesh_hash is not None
+            and not self.mesh_worker.is_running() and inputs_hash(self._project) != self._mesh_hash
+        )
+        if stale == self.mesh_stale and self.properties._mesh_stale == stale:
+            return
+        self.mesh_stale = stale
+        self.top_bar.set_mesh_stale(stale)
+        self.properties.set_mesh_stale(stale)
+        if self.mesh_view is not None:
+            self.mesh_view.set_stale(stale, max(7, round(self._point_size * 0.75)))
+            self.viewer.render()
+
+    def _on_mesh_line(self, text: str) -> None:
+        self.console.append_output(text)  # runs in the GUI thread (queued signal)
+
+    def _on_mesh_step(self, name: str) -> None:
+        log.info("Running %s", name)
+
+    def _on_mesh_done(self, result) -> None:
+        self.top_bar.set_run_state(None)
+        if result.stopped:
+            log.warning("Meshing stopped")
+            self.show_message("Meshing stopped", "warning", log_it=False)
+        elif not result.success:
+            step = result.failed_step or "meshing"
+            log.error("Meshing failed in %s (exit codes: %s)", step, result.exit_codes)
+            self.show_message(f"Meshing failed in {step}; see the console", "error", log_it=False)
+        else:
+            report = result.report
+            self.mesh_report = report
+            self._mesh_hash = self._run_hash
+            self.properties.set_mesh_report(report)
+            log.info("Mesh: %s", report.summary())
+            if report.layers:
+                low = [c for c in report.layers if c.below_threshold]
+                (log.warning if low else log.info)("Layers: %s", report.layer_summary())
+            try:
+                write_mesh_record(case_dir_for(self._project), MeshRecord(
+                    report, self._run_hash or "", self._mesh_patches))
+            except OSError as exc:
+                log.warning("Could not save the mesh record: %s", exc)
+            level = "success" if report.mesh_ok else "warning"
+            self.show_message(f"Mesh generated: {report.summary()}", level, log_it=False)
+            self._load_mesh_view()
+        self._update_mesh_stale()
+        self._update_mesh_button()
+        self._update_telemetry()
+
+    def _load_mesh_view(self) -> None:
+        if self.mesh_view is None:
+            return
+        try:
+            shown = self.mesh_view.load(case_dir_for(self._project), self._mesh_patches)
+        except Exception:  # VTK reader errors: the report is still valid
+            log.exception("Could not load the mesh into the viewer")
+            return
+        if shown:
+            self._set_scene_mode("mesh")
+
+    def _set_scene_mode(self, mode: str) -> None:
+        """Switch between the geometry scene and the mesh scene (tab bar)."""
+        self._scene_mode = mode
+        self.scene_tab.setChecked(mode == "geometry")
+        self.mesh_tab.setChecked(mode == "mesh")
+        if self.scene is not None:
+            self.scene.enabled = mode == "geometry"
+            self.scene.apply_visibility(self.part_visibility)
+            self.mesh_view.set_visible(mode == "mesh")
+            self._update_empty_state()
+            self._sync_domain()
+            bounds = self.mesh_view.bounds() if mode == "mesh" else self.scene.visible_bounds()
+            if bounds is not None:
+                self.viewer.reset_camera(render=False, bounds=bounds)
             self.viewer.render()
 
     def _selected_triangles(self) -> str:
@@ -919,6 +1164,10 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         view_menu.addAction(self.act_toggle_sidebars)
         view_menu.addActions([self.act_toggle_monitors, self.act_toggle_console])
+        self.act_toggle_domain = action("Domain &Box", lambda checked=False: self._sync_domain())
+        self.act_toggle_domain.setCheckable(True)
+        self.act_toggle_domain.setChecked(True)
+        view_menu.addAction(self.act_toggle_domain)
         view_menu.addSeparator()
         tel_menu = view_menu.addMenu("Viewport &Telemetry")
         self.act_tel_show = action("Show telemetry", lambda checked=False: self._set_telemetry(show=checked))
@@ -1105,6 +1354,8 @@ class MainWindow(QMainWindow):
         if not self._confirm_discard():
             event.ignore()
             return
+        if self.mesh_worker.is_running():
+            self.mesh_worker.request_stop()
         if self.viewer is not None:
             self.viewer.close()  # release VTK interactor resources
         console_log.detach(self._console_handler)
