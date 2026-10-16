@@ -110,15 +110,17 @@ class LayoutFractions:
     left: float = 0.181  # left column width / window width (331 px)
     tree_split: float = 0.40  # tree section height / left column height (owner: 40 % tree, 60 % properties)
     tab_bar: float = 0.0265  # scene tab bar height / window height (32 px)
-    monitors: float = 0.347  # right monitors column width / window width (637 px)
+    monitors: float = 0.25  # monitors column width / window width (mockup: 0.347; narrower so the viewer keeps >= 50 % next to the 18u sidebar)
     console: float = 0.131  # bottom console height / window height (158 px)
 
 
 LAYOUT = LayoutFractions()
 
 # Region limits in units of u (font height): (minimum, maximum or None).
+LEFT_INITIAL_U = 18  # default width of the left column, in u
+
 LIMITS_U: dict[str, tuple[int, int | None]] = {
-    "left": (11, 22),
+    "left": (14, 28),
     "monitors": (14, 40),
     "center": (20, None),
     "console": (4, None),

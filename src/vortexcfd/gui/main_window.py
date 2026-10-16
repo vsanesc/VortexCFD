@@ -69,6 +69,7 @@ from vortexcfd.gui.scene import (
 from vortexcfd.gui.theme import (
     DEFAULT_POINT_SIZE,
     LAYOUT,
+    LEFT_INITIAL_U,
     LIMITS_U,
     SECTION_SLIDER_STEPS,
     WINDOW_ICON_SIZES,
@@ -675,7 +676,9 @@ class MainWindow(QMainWindow):
     def _apply_initial_sizes(self) -> None:
         """Region sizes from the fractions measured on the mockup (using the real size)."""
         width, height = self.width(), self.height()
-        left = round(LAYOUT.left * width)
+        u = metrics().u
+        lo, hi = LIMITS_U["left"]
+        left = min(max(LEFT_INITIAL_U * u, lo * u), hi * u)
         monitors = round(LAYOUT.monitors * width)
         console = round(LAYOUT.console * height)
         self._outer.setSizes([left, max(0, width - left)])

@@ -78,6 +78,15 @@ def main() -> int:
         window.set_point_size(size)
         window.tree.setCurrentItem(window._items[("mesh", None)])
         shot(f"v3_mesh_font{size}.png")
+        # Widen the left column to 24u: the property rows go side by side (>= 20u).
+        from vortexcfd.gui.theme import metrics as _metrics
+
+        u = _metrics().u
+        window._outer.setSizes([24 * u, window._outer.width() - 24 * u])
+        for _ in range(5):
+            app.processEvents()
+        shot(f"v5_mesh_side_by_side_font{size}.png")
+        window._apply_initial_sizes()
         window.tree.setCurrentItem(window._items[("fluid_domain", None)])
         shot(f"v3_domain_font{size}.png")
     # Real meshing of the sphere part with the default settings, then the Mesh Scene section.

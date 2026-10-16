@@ -11,7 +11,7 @@ from tests.fakes import FakeDialogs
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
 from vortexcfd.gui.main_window import ROLE_EYE, MainWindow
-from vortexcfd.gui.theme import LAYOUT, metrics
+from vortexcfd.gui.theme import LAYOUT, LEFT_INITIAL_U, LIMITS_U, metrics
 
 
 @pytest.fixture
@@ -44,8 +44,10 @@ def test_region_proportions_at_1400x850(make_window, with_viewer: bool) -> None:
     W, H = w.width(), w.height()
     assert (W, H) == (1400, 850)
     tol = 0.03
+    u = metrics().u
+    assert abs(w._left.width() - LEFT_INITIAL_U * u) <= 0.5 * u  # the left column starts at 18u
+    assert LIMITS_U["left"] == (14, 28)
     measured = {
-        "left": w._left.width() / W,
         "monitors": w.monitors.width() / W,
         "console": w.console.height() / H,
         "top_bar": w.top_bar.height() / H,
@@ -55,6 +57,26 @@ def test_region_proportions_at_1400x850(make_window, with_viewer: bool) -> None:
     print({k: round(v, 3) for k, v in measured.items()})
     for key, value in measured.items():
         assert abs(value - getattr(LAYOUT, key)) <= tol, (key, value, getattr(LAYOUT, key))
+
+
+@pytest.mark.parametrize("font", [11, 14, 18])
+@pytest.mark.parametrize("with_viewer", [False, True])
+def test_center_keeps_half_of_the_window_at_78u(make_window, font: int, with_viewer: bool, qtbot: QtBot) -> None:
+    w = make_window(with_viewer)
+    w.set_point_size(font)
+    u = metrics().u
+    width, height = 78 * u, 47 * u
+    w.resize(width, height)
+    w._apply_initial_sizes()  # the default layout for this window size
+    qtbot.wait(60)
+    left, right = w._left.width(), w.monitors.width()
+    center = w._center.width()
+    print(f"font {font} u={u}: left={left} center={center} monitors={right} of {w.width()}")
+    lo, hi = LIMITS_U["left"]
+    assert lo * u <= left <= hi * u
+    assert abs(left - LEFT_INITIAL_U * u) <= 0.5 * u
+    assert center >= 0.5 * w.width()
+    assert w.width() <= width and w.height() <= height
 
 
 def test_toggles_hide_and_restore_regions(make_window, qtbot: QtBot) -> None:
