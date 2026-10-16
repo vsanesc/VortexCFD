@@ -300,6 +300,11 @@ QPushButton#flatBtn:hover {{ color: {t.text}; background: {t.elevated}; }}
 QWidget#tabBar {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
 QLabel#sceneTab {{ color: {t.text}; background: {t.elevated}; border: none;
     border-bottom: {m.bar}px solid {t.accent_secondary}; padding: 0 {m.s4}px; }}
+QPushButton#sceneTabBtn {{ color: {t.muted_text}; background: transparent; border: none;
+    border-bottom: {m.bar}px solid transparent; padding: 0 {m.s4}px; border-radius: 0; }}
+QPushButton#sceneTabBtn:hover {{ color: {t.text}; }}
+QPushButton#sceneTabBtn:checked {{ color: {t.text}; background: {t.elevated};
+    border-bottom-color: {t.accent_secondary}; }}
 QWidget#consoleBar {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
 QLabel#consoleTab {{ color: {t.text}; background: transparent; border: none;
     border-bottom: {m.bar}px solid {t.accent_secondary}; padding: 0 {m.s3}px; }}

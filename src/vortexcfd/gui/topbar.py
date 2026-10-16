@@ -29,6 +29,7 @@ class TopBar(QWidget):
     name_clicked = Signal()
     view_requested = Signal(str)  # plotter method name
     wireframe_toggled = Signal(bool)
+    mesh_clicked = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -82,7 +83,10 @@ class TopBar(QWidget):
         self.wireframe_button.toggled.connect(self.wireframe_toggled)
         row.addWidget(self.wireframe_button)
         row.addStretch(1)
-        self.mesh_button = self._future_button("Generate Mesh", "meshBtn", "Available in Phase 5")
+        self.mesh_button = self._future_button("Generate Mesh", "meshBtn", "Save the project first.")
+        self.mesh_button.clicked.connect(self.mesh_clicked)
+        self._run_state: str | None = None
+        self._dirty = False
         self.run_button = self._future_button("Run Solver", "runBtn", "Available in Phase 4")
         row.addWidget(self.mesh_button)
         row.addWidget(self.run_button)
@@ -104,8 +108,38 @@ class TopBar(QWidget):
     def set_project(self, file_name: str, dirty: bool) -> None:
         self.name_button.setText(file_name)
         self._fit_name()
-        self.state_badge.setText("Modified" if dirty else "Saved")
-        self.state_badge.set_state("warning" if dirty else "success")
+        self._dirty = dirty
+        self._update_badge()
+
+    def set_run_state(self, text: str | None) -> None:
+        """Show a run state (e.g. "Meshing") in the badge instead of Saved/Modified."""
+        self._run_state = text
+        self._update_badge()
+
+    def _update_badge(self) -> None:
+        if self._run_state:
+            self.state_badge.setText(self._run_state)
+            self.state_badge.set_state("")
+        else:
+            self.state_badge.setText("Modified" if self._dirty else "Saved")
+            self.state_badge.set_state("warning" if self._dirty else "success")
+
+    def set_mesh_state(self, reason: str | None, running: bool) -> None:
+        """Generate Mesh: "Stop" while running, enabled when ``reason`` is None, else disabled
+        with the reason as tooltip."""
+        button = self.mesh_button
+        if running:
+            button.setText("Stop")
+            button.setEnabled(True)
+            button.setToolTip("Stop meshing")
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            button.setText("Generate Mesh")
+            button.setEnabled(reason is None)
+            button.setToolTip("Generate the mesh with snappyHexMesh" if reason is None else reason)
+            button.setCursor(
+                Qt.CursorShape.PointingHandCursor if reason is None else Qt.CursorShape.ForbiddenCursor
+            )
 
     def set_active_view(self, name: str | None) -> None:
         """Mark the segment called ``name`` active (None or "Custom": none is active)."""

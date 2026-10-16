@@ -155,8 +155,8 @@ def test_properties_header_and_rows(make_window) -> None:
     w.tree.setCurrentItem(w._items[("part", 0)])
     assert p._rows["name"].isVisible() and p._rows["source"].isVisible() and p._rows["units"].isVisible()
     assert w.props_name.text() == "Part 1"
-    w.tree.setCurrentItem(w._items[("mesh", None)])
-    assert w.props_name.text() == "Mesh"
+    w.tree.setCurrentItem(w._items[("solvers", None)])
+    assert w.props_name.text() == "Solvers"
     assert not p._rows["name"].isVisible() and p.info_label.isVisible()
     w._select_root()
     assert p._rows["name"].isVisible() and not p._rows["source"].isVisible()
@@ -165,7 +165,7 @@ def test_properties_header_and_rows(make_window) -> None:
 def test_future_actions_are_disabled_with_tooltips(make_window) -> None:
     w = make_window()
     assert not w.top_bar.mesh_button.isEnabled() and not w.top_bar.run_button.isEnabled()
-    assert "Phase 5" in w.top_bar.mesh_button.toolTip()
+    assert w.top_bar.mesh_button.toolTip()  # says why (readiness is tested in test_mesh_gui)
     assert "Phase 4" in w.top_bar.run_button.toolTip()
     assert w.top_bar.mesh_button.text() == "Generate Mesh" and w.top_bar.run_button.text() == "Run Solver"
 
@@ -362,7 +362,7 @@ def test_disabled_actions_keep_style_cursor_and_tooltip(make_window) -> None:
     t = w._theme
     assert "QPushButton#runBtn:disabled" in sheet and "QPushButton#meshBtn:disabled" in sheet
     assert t.disabled_text in sheet  # reduced-contrast text
-    for button, phase in ((w.top_bar.mesh_button, "Phase 5"), (w.top_bar.run_button, "Phase 4")):
+    for button, phase in ((w.top_bar.mesh_button, "Save the project"), (w.top_bar.run_button, "Phase 4")):
         assert not button.isEnabled()
         assert button.cursor().shape() == Qt.CursorShape.ForbiddenCursor
         assert phase in button.toolTip()

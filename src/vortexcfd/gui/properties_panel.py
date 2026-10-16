@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from vortexcfd.core.model import Domain, Part
 from vortexcfd.core.project import Project
+from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_status, report_for_part
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
 
@@ -25,6 +26,17 @@ ALLOWED_UNITS: tuple[str, ...] = get_args(Part.model_fields["units"].annotation)
 
 
 DOMAIN_SYMMETRY = get_args(Domain.model_fields["symmetry"].annotation)
+
+# Rows of the read-only mesh report on the Mesh node: (key, label).
+MESH_ROWS = (
+    ("cells", "Cells"),
+    ("faces", "Faces"),
+    ("points", "Points"),
+    ("non_ortho", "Max non-orthogonality"),
+    ("skewness", "Max skewness"),
+    ("failed", "Failed checks"),
+    ("ok", "Mesh OK"),
+)
 
 # Rows of the read-only Checks group: (key, label).
 CHECK_ROWS = (
@@ -121,6 +133,17 @@ class PropertiesPanel(QWidget):
         self._layout.addWidget(self.domain_warning)
         self.domain_enabled.toggled.connect(lambda _: self._commit_domain("enabled"))
         self.domain_symmetry.currentTextChanged.connect(lambda _: self._commit_domain("symmetry"))
+        # Mesh node: the read-only checkMesh report (or the "No mesh" empty state).
+        self._mesh_report: MeshReport | None = None
+        self.mesh_values: dict[str, QLabel] = {}
+        for key, text in MESH_ROWS:
+            value = QLabel()
+            value.setObjectName("checkValue")
+            self.mesh_values[key] = value
+            self._layout.addWidget(self._make_row(f"mesh_{key}", text, value))
+        self.mesh_empty = QLabel("No mesh")
+        self.mesh_empty.setObjectName("muted")
+        self._layout.addWidget(self.mesh_empty)
         self._layout.addWidget(self.info_label)
         self._layout.addStretch(1)
         self.apply_metrics(metrics(), DARK)
@@ -152,11 +175,12 @@ class PropertiesPanel(QWidget):
         self.checks_title.setFont(section_title_font(QApplication.font()))
         self.checks_title.setContentsMargins(m.s3, m.s3, m.s3, m.s2)
         mono = mono_font(QApplication.font(), 0.9)
-        for label in (*self.check_values.values(), self.status_value):
+        for label in (*self.check_values.values(), *self.mesh_values.values(), self.status_value):
             label.setFont(mono)
         for widget in (self.name_edit, self.source_label, self.units_combo):
             widget.setFont(mono)
         self.info_label.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
+        self.mesh_empty.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
 
     def set_project(self, project: Project) -> None:
         self._project = project
@@ -196,7 +220,37 @@ class PropertiesPanel(QWidget):
         self._rows["name"].setVisible(show_name)
         is_domain = self._kind == "fluid_domain"
         self._refresh_domain(is_domain)
-        self.info_label.setVisible(not show_name and not is_domain)
+        self._refresh_mesh(self._kind == "mesh")
+        self.info_label.setVisible(not show_name and not is_domain and self._kind != "mesh")
+
+    def set_mesh_report(self, report: MeshReport | None) -> None:
+        """The checkMesh summary shown on the Mesh node (None: no mesh yet)."""
+        self._mesh_report = report
+        self.refresh()
+
+    def _refresh_mesh(self, show: bool) -> None:
+        report = self._mesh_report
+        for key, _ in MESH_ROWS:
+            self._rows[f"mesh_{key}"].setVisible(show and report is not None)
+        self.mesh_empty.setVisible(show and report is None)
+        if not show or report is None:
+            return
+
+        def num(value, fmt: str = "{}") -> str:
+            return fmt.format(value) if value is not None else "\u2014"
+
+        values = {
+            "cells": (num(report.cells), False),
+            "faces": (num(report.faces), False),
+            "points": (num(report.points), False),
+            "non_ortho": (num(report.max_non_orthogonality, "{:.4g}\u00b0"), False),
+            "skewness": (num(report.max_skewness, "{:.4g}"), False),
+            "failed": (str(report.failed_checks), report.failed_checks > 0),
+            "ok": ("yes" if report.mesh_ok else "no", not report.mesh_ok),
+        }
+        for key, (text, warn) in values.items():
+            self.mesh_values[key].setText(text)
+            self._set_warn(self.mesh_values[key], warn)
 
     def _refresh_domain(self, show: bool) -> None:
         """Populate the domain rows from the project (no commits) and show them if ``show``."""
