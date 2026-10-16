@@ -42,7 +42,7 @@ def sphere_input(mesh: Mesh | None = None, domain: Domain | None = None, symmetr
 
 def test_safe_part_names_are_unique_and_never_reserved() -> None:
     names = safe_part_names(["Wing 1", "Wing 1", "inlet", "3d part", "ünï", "a/b"])
-    assert names == ["Wing_1", "Wing_1_2", "inlet_2", "part_3d_part", "n", "a_b"]
+    assert names == ["Wing_1", "Wing_1_1", "inlet_1", "part_3d_part", "n", "a_b"]
     assert len(set(names)) == len(names)
 
 
@@ -373,3 +373,13 @@ def test_mesh_record_round_trip_and_bad_files(tmp_path: Path) -> None:
     assert read_mesh_record(tmp_path / "missing") is None
     (tmp_path / "vortexcfd_mesh.json").write_text("{not json")
     assert read_mesh_record(tmp_path) is None
+
+
+def test_patch_names_never_collide_with_boundaries_or_each_other() -> None:
+    names = safe_part_names(["inlet", "outlet", "sides", "top", "bottom", "symmetry", "Inlet", "wing", "wing", "wing_1"])
+    assert names == ["inlet_1", "outlet_1", "sides_1", "top_1", "bottom_1", "symmetry_1",
+                     "Inlet", "wing", "wing_1", "wing_1_1"]
+    assert len(set(names)) == len(names)
+    assert not set(names) & {"inlet", "outlet", "sides", "top", "bottom", "symmetry"}
+    assert safe_part_names(["inlet", "inlet"]) == ["inlet_1", "inlet_2"]  # deterministic suffixes
+    assert safe_part_names(["inlet", "inlet"]) == safe_part_names(["inlet", "inlet"])

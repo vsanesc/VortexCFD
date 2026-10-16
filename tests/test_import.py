@@ -292,3 +292,22 @@ def test_part_edges_are_off_until_wireframe(make_window, sphere_stl: Path) -> No
     assert actor.prop.show_edges
     w.top_bar.wireframe_button.click()
     assert not actor.prop.show_edges
+
+
+def test_part_properties_show_the_read_only_patch_name(make_window, sphere_stl: Path) -> None:
+    w = make_window(import_path=sphere_stl)
+    w.act_import.trigger()
+    w.act_import.trigger()
+    w.tree.setCurrentItem(w._items[("part", 0)])
+    p = w.properties
+    assert p._rows["patch"].isVisible() and p.patch_label.isReadOnly() and p.patch_label.text() == "wing"
+    # Different part names can sanitize to the same patch name: first free suffix.
+    w.project.update_part(0, name="Wing 1")
+    w.project.update_part(1, name="Wing_1")
+    assert p.patch_label.text() == "Wing_1"
+    w.tree.setCurrentItem(w._items[("part", 1)])
+    assert p.patch_label.text() == "Wing_1_1"
+    w.project.update_part(1, name="inlet")  # a domain boundary name
+    assert p.patch_label.text() == "inlet_1"
+    w._select_root()
+    assert not p._rows["patch"].isVisible()

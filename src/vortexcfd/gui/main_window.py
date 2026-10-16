@@ -601,6 +601,7 @@ class MainWindow(QMainWindow):
         if obj is self.viewer and event.type() == QEvent.Type.Resize and self.telemetry is not None:
             self._style_axes()
             self._layout_telemetry()
+            self.viewer.render()  # auto-update is off: every visible change renders explicitly
         return super().eventFilter(obj, event)
 
     def _layout_telemetry(self) -> None:

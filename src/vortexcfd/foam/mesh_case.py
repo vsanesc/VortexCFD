@@ -76,14 +76,17 @@ class MeshCaseInput:
 
 
 def safe_part_names(names: Sequence[str]) -> list[str]:
-    """Patch/file-safe unique names: [A-Za-z0-9_], never a reserved boundary name."""
+    """Patch/file-safe unique names: [A-Za-z0-9_], never a reserved boundary name.
+
+    A name that is already taken (by an earlier part or a domain boundary) gets the first free
+    numeric suffix ``_1``, ``_2``, ... so the result is deterministic."""
     used: set[str] = set(RESERVED_PATCH_NAMES)
     result = []
     for name in names:
         base = re.sub(r"[^A-Za-z0-9_]", "_", name).strip("_") or "part"
         if base[0].isdigit():
             base = f"part_{base}"
-        candidate, n = base, 1
+        candidate, n = base, 0
         while candidate in used:
             n += 1
             candidate = f"{base}_{n}"

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from vortexcfd.core.model import Domain, Part
 from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_report import MeshReport
+from vortexcfd.foam.mesh_case import safe_part_names
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_status, report_for_part
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
@@ -112,6 +113,8 @@ class PropertiesPanel(QWidget):
         self.name_edit = QLineEdit()
         self.source_label = QLineEdit()  # read-only field (import comes in Phase 3)
         self.source_label.setReadOnly(True)
+        self.patch_label = QLineEdit()  # name of the part's patch in the mesh (read-only)
+        self.patch_label.setReadOnly(True)
         self.units_combo = QComboBox()
         self.units_combo.addItems(ALLOWED_UNITS)
         self.info_label = QLabel("No properties yet")
@@ -128,6 +131,7 @@ class PropertiesPanel(QWidget):
             ("name", "Name", self.name_edit),
             ("source", "Source file", self.source_label),
             ("units", "Units", self.units_combo),
+            ("patch", "Patch name", self.patch_label),
         ):
             self._layout.addWidget(self._make_row(key, text, field))
         # File status and the read-only "Checks" group (surface report) for a Part.
@@ -252,7 +256,8 @@ class PropertiesPanel(QWidget):
         mono = mono_font(QApplication.font(), 0.9)
         for label in (*self.check_values.values(), *self.mesh_values.values(), self.status_value):
             label.setFont(mono)
-        for widget in (self.name_edit, self.source_label, self.units_combo, *self.mesh_fields.values()):
+        for widget in (self.name_edit, self.source_label, self.units_combo, self.patch_label,
+                       *self.mesh_fields.values()):
             widget.setFont(mono)
         self.mesh_title.setFont(section_title_font(QApplication.font()))
         self.mesh_title.setContentsMargins(m.s3, m.s3, m.s3, m.s2)
@@ -293,8 +298,11 @@ class PropertiesPanel(QWidget):
         finally:
             for widget in (self.name_edit, self.source_label, self.units_combo):
                 widget.blockSignals(False)
-        for key in ("source", "units"):
+        for key in ("source", "units", "patch"):
             self._rows[key].setVisible(part is not None)
+        if part is not None:
+            patches = safe_part_names([p.name for p in sim.geometry.parts])
+            self.patch_label.setText(patches[self._index])
         self._refresh_file_info(part)
         self._rows["name"].setVisible(show_name)
         is_domain = self._kind == "fluid_domain"

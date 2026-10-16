@@ -14,7 +14,17 @@ from pathlib import Path
 
 FORBIDDEN_MODULES = ("PySide6", "pyvista", "pyvistaqt", "vortexcfd.gui")
 CORE_FORBIDDEN = FORBIDDEN_MODULES + ("vortexcfd.geometry",)
-GEOMETRY_FORBIDDEN = ("PySide6", "pyvistaqt", "vortexcfd.gui")
+# foam must stay pyvista-free even transitively, so it must not import geometry either.
+FOAM_FORBIDDEN = FORBIDDEN_MODULES + ("vortexcfd.geometry",)
+GEOMETRY_FORBIDDEN = ("PySide6", "pyvistaqt", "vortexcfd.gui", "vortexcfd.foam")
+
+# Every module under src/vortexcfd/ lives in one of these layers; gui/ is unrestricted.
+LAYER_RULES: dict[str, tuple[str, ...]] = {
+    "core": CORE_FORBIDDEN,
+    "foam": FOAM_FORBIDDEN,
+    "geometry": GEOMETRY_FORBIDDEN,
+    "gui": (),
+}
 
 
 def _is_forbidden(module_name: str, forbidden_modules: tuple[str, ...] = FORBIDDEN_MODULES) -> bool:
@@ -96,7 +106,7 @@ def test_core_and_foam_do_not_import_gui_or_viz() -> None:
     src_root = repo_root / "src"
     scanned = {
         src_root / "vortexcfd" / "core": CORE_FORBIDDEN,
-        src_root / "vortexcfd" / "foam": FORBIDDEN_MODULES,
+        src_root / "vortexcfd" / "foam": FOAM_FORBIDDEN,
     }
 
     violations: list[str] = []
@@ -124,3 +134,43 @@ def test_geometry_layer_has_no_qt_or_gui_imports() -> None:
     for py_file in files:
         violations.extend(check_file_imports(py_file, src_root, GEOMETRY_FORBIDDEN))
     assert not violations, "\n".join(violations)
+
+
+def test_every_module_belongs_to_a_known_layer_and_follows_its_rules() -> None:
+    """No module may live outside core/, foam/, geometry/ or gui/ (except the package __init__,
+    which gets the strictest rules); an unknown location fails the test."""
+    src_root = Path(__file__).resolve().parent.parent / "src"
+    package = src_root / "vortexcfd"
+    unknown: list[str] = []
+    violations: list[str] = []
+    for py_file in sorted(package.rglob("*.py")):
+        rel = py_file.relative_to(package)
+        if len(rel.parts) == 1:  # a top-level module
+            if rel.name != "__init__.py":
+                unknown.append(str(rel))
+                continue
+            rules = CORE_FORBIDDEN  # the package __init__ must stay free of Qt, pyvista and gui
+        elif rel.parts[0] in LAYER_RULES:
+            rules = LAYER_RULES[rel.parts[0]]
+        else:
+            unknown.append(str(rel))
+            continue
+        violations.extend(check_file_imports(py_file, src_root, rules))
+    assert not unknown, f"modules outside the known layers {sorted(LAYER_RULES)}: {unknown}"
+    assert not violations, "\n".join(violations)
+
+
+def test_checker_detects_violations_and_unknown_layers(tmp_path: Path) -> None:
+    """The checker itself works: forbidden imports are reported (absolute and relative)."""
+    root = tmp_path / "src"
+    mod = root / "vortexcfd" / "foam"
+    mod.mkdir(parents=True)
+    (mod / "bad.py").write_text("import pyvista\nfrom vortexcfd.geometry import loader\nfrom PySide6 import QtCore\n")
+    found = check_file_imports(mod / "bad.py", root, FOAM_FORBIDDEN)
+    assert len(found) == 3
+    (mod / "ok.py").write_text("import numpy\nfrom vortexcfd.core import model\n")
+    assert check_file_imports(mod / "ok.py", root, FOAM_FORBIDDEN) == []
+    geo = root / "vortexcfd" / "geometry"
+    geo.mkdir()
+    (geo / "bad.py").write_text("from vortexcfd.foam import mesh_case\n")
+    assert check_file_imports(geo / "bad.py", root, GEOMETRY_FORBIDDEN)
