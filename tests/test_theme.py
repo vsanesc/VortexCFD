@@ -41,6 +41,8 @@ def test_owner_values_are_exact() -> None:
         "#F1F5F9", "#94A3B8", "#526077", "#0A0D12",
     )
     assert (t.success, t.warning, t.error) == ("#10B981", "#FACC15", "#F43F5E")
+    assert (t.part_surface, t.part_edge) == ("#7F8DA3", "#2A3446")
+    assert t.part_selected == t.accent_secondary == "#00B4A2"
     # The dim tokens are the accents at alpha 0.15 over base; the selection row uses the teal one.
     assert t.accent_secondary_dim == blend("#00B4A2", t.base, 0.15)
     assert t.accent_dim == blend("#FF8800", t.base, 0.15)

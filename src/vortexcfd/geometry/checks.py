@@ -5,6 +5,8 @@ from dataclasses import dataclass
 import numpy as np
 import pyvista as pv
 
+from vortexcfd.geometry import loader
+
 # A triangle is degenerate when its area is below this fraction of the squared bbox diagonal.
 DEGENERATE_AREA_TOLERANCE = 1e-10
 
@@ -39,6 +41,28 @@ class SurfaceReport:
             problems.append(f"{self.inconsistent_orientation} inconsistently oriented triangles")
         head = f"{self.n_triangles} triangles, {self.n_points} points, watertight: {'yes' if self.watertight else 'no'}"
         return head + ("; " + ", ".join(problems) if problems else "")
+
+
+_report_cache: dict[tuple, SurfaceReport] = {}
+
+
+def surface_report(path, units: str) -> SurfaceReport:
+    """Report for a surface file, computed once per (resolved path, mtime, units).
+
+    The report is cached alongside the loader cache (``loader.clear_cache`` clears both).
+    Raises what ``load_surface`` raises.
+    """
+    from pathlib import Path
+
+    key = loader.cache_key(Path(path), units)
+    report = _report_cache.get(key)
+    if report is None:
+        report = check_surface(loader.load_surface(Path(path), units))
+        _report_cache[key] = report
+    return report
+
+
+loader._clear_hooks.append(_report_cache.clear)
 
 
 def _triangles(mesh: pv.PolyData) -> np.ndarray:

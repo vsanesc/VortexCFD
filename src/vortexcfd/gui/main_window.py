@@ -43,8 +43,8 @@ from vortexcfd.gui.console import ConsolePanel
 from vortexcfd.gui.dialogs import Dialogs
 from vortexcfd.gui.icons import logo_icon, make_glyph
 from vortexcfd.gui.monitors import MonitorsPanel
-from vortexcfd.geometry.checks import check_surface
-from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
+from vortexcfd.geometry.checks import surface_report
+from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.gui.properties_panel import PropertiesPanel
 from vortexcfd.gui.scene import ERROR, MISSING, PartScene, part_status, report_for_part
 from vortexcfd.gui.theme import (
@@ -790,6 +790,7 @@ class MainWindow(QMainWindow):
         parts = self.scene.actors if self.scene is not None else []
         for actor in (*parts, *self.scene_actors):
             actor.prop.style = "wireframe" if self.wireframe else "surface"
+            actor.prop.show_edges = self.wireframe  # edges are off unless wireframe is on
         if self.viewer is not None:
             self.viewer.render()
 
@@ -1031,7 +1032,7 @@ class MainWindow(QMainWindow):
             folder.mkdir(exist_ok=True)
             dest = self._unique_path(folder, source.name)
             shutil.copy2(source, dest)
-            report = check_surface(load_surface(dest, units))
+            report = surface_report(dest, units)
         except (OSError, SurfaceLoadError) as exc:
             if dest is not None:
                 dest.unlink(missing_ok=True)

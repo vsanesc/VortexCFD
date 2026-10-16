@@ -8,15 +8,13 @@ from vtkmodules.vtkRenderingCore import vtkPropPicker
 
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
-from vortexcfd.geometry.checks import SurfaceReport, check_surface
+from vortexcfd.geometry.checks import SurfaceReport, surface_report
 from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
 from vortexcfd.gui.theme import PICK_MOVE_TOLERANCE_PX, Theme
 
 log = logging.getLogger(__name__)
 
 NONE, OK, MISSING, ERROR = "none", "ok", "missing", "error"
-
-_reports: dict[tuple[str, int, str], SurfaceReport] = {}
 
 
 def part_file(project: Project, part: Part) -> Path | None:
@@ -42,16 +40,10 @@ def report_for_part(project: Project, part: Part) -> SurfaceReport | None:
     path = part_file(project, part)
     if path is None or not path.is_file():
         return None
-    resolved = path.resolve()
-    key = (str(resolved), resolved.stat().st_mtime_ns, part.units)
-    report = _reports.get(key)
-    if report is None:
-        try:
-            report = check_surface(load_surface(path, part.units))
-        except (OSError, SurfaceLoadError):
-            return None
-        _reports[key] = report
-    return report
+    try:
+        return surface_report(path, part.units)  # cached: never recomputed on selection
+    except (OSError, SurfaceLoadError):
+        return None
 
 
 class _Record:
@@ -118,7 +110,7 @@ class PartScene:
         self._counter += 1
         t = self.theme
         return self.plotter.add_mesh(
-            mesh, color=t.part_surface, show_edges=True, edge_color=t.part_edge, line_width=1,
+            mesh, color=t.part_surface, show_edges=False, edge_color=t.part_edge, line_width=1,
             pickable=True, reset_camera=False, render=False, name=f"part_{self._counter}",
         )
 

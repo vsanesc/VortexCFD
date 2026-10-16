@@ -266,3 +266,29 @@ def test_works_without_viewer(make_window, sphere_stl: Path) -> None:
     w.act_import.trigger()
     assert len(w.project.sim.geometry.parts) == 1 and w.scene is None
     assert w.properties.check_values["watertight"].text() == "yes"
+
+
+def test_selecting_a_part_twice_runs_the_check_once(make_window, sphere_stl: Path, monkeypatch) -> None:
+    import vortexcfd.geometry.checks as checks
+
+    calls = []
+    original = checks.check_surface
+    monkeypatch.setattr(checks, "check_surface", lambda mesh: (calls.append(1), original(mesh))[1])
+    w = make_window(import_path=sphere_stl)
+    w.act_import.trigger()  # the report is computed here
+    for _ in range(2):
+        w._select_root()
+        w.tree.setCurrentItem(w._items[("part", 0)])
+    w.properties.refresh()
+    assert len(calls) == 1
+
+
+def test_part_edges_are_off_until_wireframe(make_window, sphere_stl: Path) -> None:
+    w = make_window(import_path=sphere_stl)
+    w.act_import.trigger()
+    actor = w.scene.actors[0]
+    assert not actor.prop.show_edges
+    w.top_bar.wireframe_button.click()
+    assert actor.prop.show_edges
+    w.top_bar.wireframe_button.click()
+    assert not actor.prop.show_edges

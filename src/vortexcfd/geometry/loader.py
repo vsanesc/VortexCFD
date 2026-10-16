@@ -10,6 +10,13 @@ SUPPORTED_EXTENSIONS = (".stl", ".obj", ".ply")
 UNIT_TO_METRE: dict[str, float] = {"m": 1.0, "cm": 0.01, "mm": 0.001, "in": 0.0254, "ft": 0.3048}
 
 _cache: dict[tuple[Path, int, str], pv.PolyData] = {}
+_clear_hooks: list = []  # callables run by clear_cache (e.g. the report cache)
+
+
+def cache_key(path: Path, units: str) -> tuple[Path, int, str]:
+    """Cache key: (resolved path, mtime in ns, units). The file must exist."""
+    resolved = Path(path).resolve()
+    return resolved, resolved.stat().st_mtime_ns, units
 
 
 class SurfaceLoadError(Exception):
@@ -18,6 +25,8 @@ class SurfaceLoadError(Exception):
 
 def clear_cache() -> None:
     _cache.clear()
+    for hook in _clear_hooks:
+        hook()
 
 
 def load_surface(path: Path, units: str) -> pv.PolyData:
