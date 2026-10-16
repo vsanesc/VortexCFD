@@ -28,6 +28,7 @@ TELEMETRY_FIELDS = (
     ("selected", "Selected node"),
     ("triangles", "Triangles"),
     ("cells", "Cells"),
+    ("domain", "Domain"),
     ("view", "View"),
 )
 EMPTY_MESSAGE = "No geometry yet"

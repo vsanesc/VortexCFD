@@ -4,13 +4,16 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
+import numpy as np
+import pyvista as pv
 from vtkmodules.vtkRenderingCore import vtkPropPicker
 
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
 from vortexcfd.geometry.checks import SurfaceReport, surface_report
+from vortexcfd.geometry.domain import DomainBox, compute_domain, face_corners
 from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
-from vortexcfd.gui.theme import PICK_MOVE_TOLERANCE_PX, Theme
+from vortexcfd.gui.theme import DOMAIN_OPACITY, HIGHLIGHT_OPACITY, PICK_MOVE_TOLERANCE_PX, Theme
 
 log = logging.getLogger(__name__)
 
@@ -177,3 +180,60 @@ class PartScene:
         picker = vtkPropPicker()
         if picker.Pick(x, y, 0, self.plotter.renderer):
             self.pick_actor(picker.GetActor())
+
+
+# -- far-field domain -----------------------------------------------------------------------
+
+
+def domain_box_for(project: Project) -> DomainBox:
+    """The domain box for the project's loadable parts (their bounds in metres)."""
+    bounds, names = [], []
+    for part in project.sim.geometry.parts:
+        path = part_file(project, part)
+        if path is None or not path.is_file():
+            continue
+        try:
+            bounds.append(tuple(float(b) for b in load_surface(path, part.units).bounds))
+            names.append(part.name)
+        except (OSError, SurfaceLoadError):
+            continue
+    return compute_domain(bounds, project.sim.domain, names)
+
+
+class DomainView:
+    """The domain box as a translucent wireframe, plus a highlighted boundary face."""
+
+    BOX = "domain_box"
+    HIGHLIGHT = "domain_highlight"
+
+    def __init__(self, plotter, theme: Theme) -> None:
+        self.plotter = plotter
+        self.theme = theme
+        self.box_actor = None
+        self.highlight_actor = None
+
+    def update(self, box: DomainBox | None, visible: bool, boundary: str | None) -> None:
+        """Show the box (edges only) when ``visible``; highlight ``boundary``'s faces."""
+        self._clear()
+        if box is None or box.bounds is None or not visible:
+            return
+        t = self.theme
+        self.box_actor = self.plotter.add_mesh(
+            pv.Box(bounds=box.bounds), style="wireframe", color=t.border_active, line_width=1,
+            opacity=DOMAIN_OPACITY, lighting=False, pickable=False, reset_camera=False,
+            render=False, name=self.BOX,
+        )
+        faces = box.boundaries.get(boundary or "", ())
+        if faces:
+            quads = [pv.PolyData(np.array(face_corners(box.bounds, axis, side)), faces=[4, 0, 1, 2, 3])
+                     for axis, side in faces]
+            merged = quads[0] if len(quads) == 1 else quads[0].merge(quads[1:])
+            self.highlight_actor = self.plotter.add_mesh(
+                merged, color=t.accent_secondary, opacity=HIGHLIGHT_OPACITY, lighting=False,
+                pickable=False, reset_camera=False, render=False, name=self.HIGHLIGHT,
+            )
+
+    def _clear(self) -> None:
+        for name in (self.BOX, self.HIGHLIGHT):
+            self.plotter.remove_actor(name, render=False)
+        self.box_actor = self.highlight_actor = None

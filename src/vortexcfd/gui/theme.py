@@ -138,6 +138,8 @@ TELEMETRY_FONT_U = 0.85  # card body font size in px per u (VTK Courier)
 TELEMETRY_LINE_SPACING = 1.35  # VTK line spacing of the card text
 TELEMETRY_TITLE_SCALE = 0.8  # card title size relative to the body
 TELEMETRY_GAP_CHARS = 2  # characters between the label and value columns
+DOMAIN_OPACITY = 0.6  # translucent domain wireframe
+HIGHLIGHT_OPACITY = 0.35  # highlighted boundary face
 PICK_MOVE_TOLERANCE_PX = 4  # a press/release closer than this is a click, not a camera drag
 GRID_HALF_LINES = 10  # ground grid: lines on each side of the origin
 GRID_SPACING = 1.0  # ground grid spacing (scene units)
@@ -313,13 +315,13 @@ QLabel#kpiValue {{ color: {t.text}; background: transparent; }}
 QWidget#propRow {{ background: transparent; border-bottom: {ln}px solid {t.border}; }}
 QTreeView {{ background: {t.base}; border: none; outline: 0; }}
 QTreeView::item {{ background: transparent; }}
-QLineEdit, QComboBox {{
+QLineEdit, QComboBox, QDoubleSpinBox {{
     background: {t.elevated}; color: {t.text}; border: {ln}px solid {t.border};
     border-radius: {m.radius_s}px; padding: 0 {m.s2}px; min-height: {inner}px;
     selection-background-color: {t.accent}; selection-color: {t.accent_text};
 }}
-QLineEdit:hover, QComboBox:hover {{ border-color: {t.border_active}; }}
-QLineEdit:focus, QComboBox:focus {{ border-color: {t.accent}; }}
+QLineEdit:hover, QComboBox:hover, QDoubleSpinBox:hover {{ border-color: {t.border_active}; }}
+QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus {{ border-color: {t.accent}; }}
 QLineEdit[readOnly="true"], QLineEdit[readOnly="true"]:hover {{
     background: {t.base}; color: {t.muted_text}; border-color: transparent;
 }}

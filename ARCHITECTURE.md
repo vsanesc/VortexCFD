@@ -53,6 +53,7 @@ src/vortexcfd/
   - Surface geometry; may import numpy and pyvista, must **NOT** import Qt, pyvistaqt or `vortexcfd.gui`; `core/` must not import it.
   - `geometry/loader.py`: `load_surface(path, units)` reads STL/OBJ/PLY as a triangulated PyVista mesh in metres (cached by path, mtime and units).
   - `geometry/checks.py`: `check_surface(mesh)` returns a `SurfaceReport` (open and non-manifold edges, degenerate and duplicate triangles, orientation, watertightness).
+  - `geometry/domain.py`: `compute_domain(parts_bounds, domain)` returns the far-field `DomainBox` (reference length L, named boundaries, warnings).
 - **`gui/`**:
   - Implements UI components, main window, and 3D visualization using PySide6 and PyVista/pyvistaqt.
   - `gui/theme.py`: design tokens (`Theme`), Fusion palette/stylesheet and font zoom; `gui/icons.py` draws tree icons in code.
@@ -61,7 +62,7 @@ src/vortexcfd/
   - `gui/monitors.py`: right column (empty log-scale residual chart drawn with QPainter, KPI cards).
   - `gui/viewport.py`: VTK-drawn viewport pieces (ground grid, empty-scene message, telemetry card) and telemetry settings.
   - `gui/settings_store.py`: the shared `QSettings` accessor.
-  - `gui/scene.py`: one VTK actor per Part kept in sync with the Project (picking, visibility, selection colour), part file status and cached surface reports.
+  - `gui/scene.py`: one VTK actor per Part kept in sync with the Project (picking, visibility, selection colour), part file status, cached surface reports, and the translucent domain box (`DomainView`).
   - `gui/console.py`: output console fed by a logging handler on the `vortexcfd` logger.
   - `gui/properties_panel.py`: properties rows (label left, mono value box right) for the selected node; `gui/dialogs.py`: injectable file/confirm dialogs.
   - May import `core` and `foam`.

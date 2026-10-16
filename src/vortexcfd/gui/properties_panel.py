@@ -5,7 +5,9 @@ from typing import get_args
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -13,14 +15,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from vortexcfd.core.model import Part
+from vortexcfd.core.model import Domain, Part
 from vortexcfd.core.project import Project
-from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, part_status, report_for_part
+from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_status, report_for_part
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
 
 # Allowed units are read from the model so the two never drift apart.
 ALLOWED_UNITS: tuple[str, ...] = get_args(Part.model_fields["units"].annotation)
 
+
+DOMAIN_SYMMETRY = get_args(Domain.model_fields["symmetry"].annotation)
 
 # Rows of the read-only Checks group: (key, label).
 CHECK_ROWS = (
@@ -86,6 +90,37 @@ class PropertiesPanel(QWidget):
             value.setObjectName("checkValue")
             self.check_values[key] = value
             self._layout.addWidget(self._make_row(f"check_{key}", text, value))
+        # Far-field domain rows (Fluid Domain node): edited through Project.update_domain.
+        self.domain_enabled = QCheckBox()
+        self.domain_fields: dict[str, QDoubleSpinBox] = {}
+        self._domain_keys = ["enabled"]
+        self._layout.addWidget(self._make_row("dom_enabled", "Enabled", self.domain_enabled))
+        for key in ("upstream", "downstream", "lateral", "vertical"):
+            spin = QDoubleSpinBox()
+            spin.setRange(0.001, 10000.0)
+            spin.setDecimals(3)
+            spin.setSingleStep(0.5)
+            spin.setSuffix(" L")
+            spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+            self.domain_fields[key] = spin
+            self._domain_keys.append(key)
+            self._layout.addWidget(self._make_row(f"dom_{key}", key.capitalize(), spin))
+            spin.editingFinished.connect(lambda k=key: self._commit_domain(k))
+        self.domain_symmetry = QComboBox()
+        self.domain_symmetry.addItems(list(DOMAIN_SYMMETRY))
+        self._layout.addWidget(self._make_row("dom_symmetry", "Symmetry", self.domain_symmetry))
+        self.domain_length = QLineEdit()
+        self.domain_length.setReadOnly(True)
+        self._layout.addWidget(self._make_row("dom_length", "Reference length L", self.domain_length))
+        self.domain_size = QLineEdit()
+        self.domain_size.setReadOnly(True)
+        self._layout.addWidget(self._make_row("dom_size", "Box size", self.domain_size))
+        self.domain_warning = QLabel()
+        self.domain_warning.setObjectName("checkValue")
+        self.domain_warning.setWordWrap(True)
+        self._layout.addWidget(self.domain_warning)
+        self.domain_enabled.toggled.connect(lambda _: self._commit_domain("enabled"))
+        self.domain_symmetry.currentTextChanged.connect(lambda _: self._commit_domain("symmetry"))
         self._layout.addWidget(self.info_label)
         self._layout.addStretch(1)
         self.apply_metrics(metrics(), DARK)
@@ -159,7 +194,52 @@ class PropertiesPanel(QWidget):
             self._rows[key].setVisible(part is not None)
         self._refresh_file_info(part)
         self._rows["name"].setVisible(show_name)
-        self.info_label.setVisible(not show_name)
+        is_domain = self._kind == "fluid_domain"
+        self._refresh_domain(is_domain)
+        self.info_label.setVisible(not show_name and not is_domain)
+
+    def _refresh_domain(self, show: bool) -> None:
+        """Populate the domain rows from the project (no commits) and show them if ``show``."""
+        keys = [f"dom_{k}" for k in self._domain_keys] + ["dom_symmetry", "dom_length", "dom_size"]
+        for key in keys:
+            self._rows[key].setVisible(show)
+        self.domain_warning.setVisible(show)
+        if not show:
+            return
+        domain = self._project.sim.domain
+        widgets = [self.domain_enabled, self.domain_symmetry, *self.domain_fields.values()]
+        for w in widgets:
+            w.blockSignals(True)
+        try:
+            self.domain_enabled.setChecked(domain.enabled)
+            self.domain_symmetry.setCurrentText(domain.symmetry)
+            for key, spin in self.domain_fields.items():
+                spin.setValue(getattr(domain, key))
+        finally:
+            for w in widgets:
+                w.blockSignals(False)
+        box = domain_box_for(self._project)
+        self.domain_length.setText(f"{box.reference_length:.4g} m" if box.bounds else "\u2014")
+        self.domain_size.setText(
+            " \u00d7 ".join(f"{v:.4g}" for v in box.size) + " m" if box.bounds else "\u2014"
+        )
+        self.domain_warning.setText("\n".join(box.warnings))
+        self._set_warn(self.domain_warning, bool(box.warnings))
+
+    def _commit_domain(self, key: str) -> None:
+        if self._kind != "fluid_domain":
+            return
+        if key == "enabled":
+            value = self.domain_enabled.isChecked()
+        elif key == "symmetry":
+            value = self.domain_symmetry.currentText()
+        else:
+            value = self.domain_fields[key].value()
+        try:
+            self._project.update_domain(**{key: value})
+        except (ValueError, TypeError) as exc:  # includes pydantic errors
+            self.message.emit(str(exc))
+        self.refresh()  # reverts a rejected value
 
     def _refresh_file_info(self, part: Part | None) -> None:
         """File status and the Checks group (shown only for a Part with a loadable file)."""

@@ -46,7 +46,16 @@ from vortexcfd.gui.monitors import MonitorsPanel
 from vortexcfd.geometry.checks import surface_report
 from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.gui.properties_panel import PropertiesPanel
-from vortexcfd.gui.scene import ERROR, MISSING, PartScene, part_status, report_for_part
+from vortexcfd.geometry.domain import BOUNDARY_NAMES
+from vortexcfd.gui.scene import (
+    ERROR,
+    MISSING,
+    DomainView,
+    PartScene,
+    domain_box_for,
+    part_status,
+    report_for_part,
+)
 from vortexcfd.gui.theme import (
     DEFAULT_POINT_SIZE,
     LAYOUT,
@@ -250,6 +259,8 @@ class MainWindow(QMainWindow):
         self.telemetry = None
         self._empty_message = None
         self._grid_actors: list = []
+        self.domain_view: DomainView | None = None
+        self._domain_box = None
         self._framed_visibility = False
         self.dialogs = dialogs if dialogs is not None else Dialogs(self)
         self._theme, self._point_size = load_appearance()
@@ -332,6 +343,7 @@ class MainWindow(QMainWindow):
             self.viewer.view_isometric()
             self.viewer.reset_camera()
             self.scene = PartScene(self.viewer, self._theme, self._on_viewer_pick)
+            self.domain_view = DomainView(self.viewer, self._theme)
             try:
                 self.scene.install_picking()
             except Exception:  # pragma: no cover - interactor without observers
@@ -592,6 +604,7 @@ class MainWindow(QMainWindow):
 
     def _refresh(self) -> None:
         sim = self._project.sim
+        self._domain_box = domain_box_for(self._project)
         self._rebuild_tree(sim.name, list(sim.geometry.parts))
         self.properties.show_node(*(self._selection or ("root", None)))
         self._sync_scene()
@@ -638,7 +651,15 @@ class MainWindow(QMainWindow):
             add(continua, "mesh", None, "Mesh", "dot", "accent_secondary")
             add(continua, "physics", None, "Physics", "dot", "accent")
             regions = add(root, "regions", None, "Regions", "folder", "text")
-            add(regions, "none", None, "(none yet)", "dot", "muted_text", muted=True)
+            fluid = add(regions, "fluid_domain", None, "Fluid Domain", "folder", "text")
+            domain = self._project.sim.domain
+            if domain.enabled:
+                for bname in BOUNDARY_NAMES:
+                    if bname == "symmetry" and domain.symmetry != "y_min":
+                        continue
+                    add(fluid, f"boundary_{bname}", None, bname, "dot", "accent")
+            for i, part in enumerate(parts):  # one wall patch per part
+                add(fluid, "wall", i, f"{part.name} (wall)", "dot", "accent")
             add(root, "solvers", None, "Solvers", "folder", "text")
             add(root, "reports", None, "Reports & Monitors", "folder", "text")
             self.tree.expandAll()
@@ -658,8 +679,8 @@ class MainWindow(QMainWindow):
         return report_for_part(self._project, part) is not None
 
     def node_count(self) -> int:
-        """Real tree nodes shown (the hidden root and the "(none yet)" row are not counted)."""
-        return len(self._items) - 2
+        """Real tree nodes shown (the hidden root row is not counted)."""
+        return len(self._items) - 1
 
     def _on_eye_clicked(self, item: QTreeWidgetItem) -> None:
         kind, index = item.data(0, ROLE_NODE)
@@ -719,7 +740,20 @@ class MainWindow(QMainWindow):
         if self._empty_message is not None:
             self._empty_message.set_visible(not has_geometry)
 
+    def _selected_boundary(self) -> str | None:
+        kind = (self._selection or ("root", None))[0]
+        return kind.removeprefix("boundary_") if kind.startswith("boundary_") else None
+
+    def _sync_domain(self) -> None:
+        """Draw the domain box (if enabled and toggled on) and highlight the selected boundary."""
+        if self.domain_view is None:
+            return
+        visible = self.act_toggle_domain.isChecked() and self._project.sim.domain.enabled
+        self.domain_view.update(self._domain_box, visible, self._selected_boundary())
+        self.viewer.render()
+
     def _update_selection_views(self) -> None:
+        self._sync_domain()
         if self.scene is not None:
             self.scene.set_selected(self._selected_part_index())
             self.viewer.render()
@@ -735,6 +769,7 @@ class MainWindow(QMainWindow):
             "selected": self._selected_name(),
             "triangles": self._selected_triangles(),
             "cells": EMPTY,
+            "domain": self._domain_text(),
             "view": self.current_view,
         }
         self.telemetry_rows = [
@@ -746,6 +781,12 @@ class MainWindow(QMainWindow):
             self.telemetry.set_rows(self.telemetry_rows)
             self._layout_telemetry()
             self.viewer.render()
+
+    def _domain_text(self) -> str:
+        box = self._domain_box
+        if box is None or box.bounds is None or not self._project.sim.domain.enabled:
+            return EMPTY
+        return " \u00d7 ".join(f"{v:.3g}" for v in box.size) + " m"
 
     def _selected_triangles(self) -> str:
         part = self._selected_part()
@@ -919,6 +960,10 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         view_menu.addAction(self.act_toggle_sidebars)
         view_menu.addActions([self.act_toggle_monitors, self.act_toggle_console])
+        self.act_toggle_domain = action("Domain &Box", lambda checked=False: self._sync_domain())
+        self.act_toggle_domain.setCheckable(True)
+        self.act_toggle_domain.setChecked(True)
+        view_menu.addAction(self.act_toggle_domain)
         view_menu.addSeparator()
         tel_menu = view_menu.addMenu("Viewport &Telemetry")
         self.act_tel_show = action("Show telemetry", lambda checked=False: self._set_telemetry(show=checked))
