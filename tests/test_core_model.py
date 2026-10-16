@@ -320,3 +320,50 @@ def test_update_domain_validates_and_noop_leaves_no_trace() -> None:
     p.subscribe(lambda proj: seen.append(1))
     p.update_domain(enabled=False)
     assert seen == [1] and p.sim.domain.enabled is False
+
+
+# -- mesh controls (schema v2) ------------------------------------------------------------
+
+from vortexcfd.core.model import Mesh
+
+
+def test_mesh_defaults() -> None:
+    m = Mesh()
+    assert (m.base_size, m.surface_level_min, m.surface_level_max) == (None, 2, 3)
+    assert (m.feature_angle, m.layers, m.expansion_ratio) == (30.0, 3, 1.2)
+    assert (m.final_layer_thickness, m.min_thickness) == (0.5, 0.1)
+    assert Simulation(name="x").mesh == m
+
+
+@pytest.mark.parametrize("fields", [
+    {"base_size": 0}, {"base_size": -1.0}, {"surface_level_min": -1}, {"feature_angle": 0},
+    {"feature_angle": 181}, {"layers": -1}, {"expansion_ratio": 0.9}, {"final_layer_thickness": 0},
+    {"min_thickness": -0.1}, {"surface_level_min": 4, "surface_level_max": 2}, {"bogus": 1},
+])
+def test_mesh_rejects_invalid_values(fields: dict) -> None:
+    with pytest.raises(ValidationError):
+        Mesh(**fields)
+
+
+def test_v1_fixture_gets_default_mesh_and_round_trips(tmp_path: Path) -> None:
+    sim = load_simulation(V1_FIXTURE)
+    assert sim.mesh == Mesh()
+    sim = sim.model_copy(update={"mesh": Mesh(base_size=0.25, layers=0)})
+    path = tmp_path / "m.json"
+    save_simulation(sim, path)
+    assert load_simulation(path).mesh == Mesh(base_size=0.25, layers=0)
+
+
+def test_update_mesh_is_one_undoable_step_and_validates() -> None:
+    p = Project.new("m")
+    p.update_mesh(layers=5, base_size=0.1)
+    assert p.sim.mesh.layers == 5 and p.sim.mesh.base_size == 0.1
+    assert len(p._undo) == 1 and p.undo_label == "Edit mesh (layers, base_size)"
+    p.undo()
+    assert p.sim.mesh == Mesh()
+    with pytest.raises(ValidationError):
+        p.update_mesh(layers=-1)
+    with pytest.raises(ValidationError):
+        p.update_mesh(surface_level_min=9)  # above the default max of 3
+    p.update_mesh(layers=3)  # unchanged: no trace
+    assert not p.can_undo

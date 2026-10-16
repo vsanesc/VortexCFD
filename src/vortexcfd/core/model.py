@@ -1,7 +1,7 @@
 """Simulation tree data models."""
 
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 CURRENT_SCHEMA_VERSION: int = 2
 
@@ -27,7 +27,27 @@ class Geometry(StrictModel):
 
 
 class Mesh(StrictModel):
-    """Placeholder model for mesh controls; fields will be added by later tasks."""
+    """snappyHexMesh controls (mesher level M1).
+
+    ``base_size`` is the background cell size in metres; when unset it is L / 20 at generation
+    time (L = largest extent of the parts). ``final_layer_thickness`` and ``min_thickness`` are
+    relative to the local cell size.
+    """
+
+    base_size: float | None = Field(default=None, gt=0)
+    surface_level_min: int = Field(default=2, ge=0)
+    surface_level_max: int = Field(default=3, ge=0)
+    feature_angle: float = Field(default=30.0, gt=0, le=180)
+    layers: int = Field(default=3, ge=0)
+    expansion_ratio: float = Field(default=1.2, ge=1.0)
+    final_layer_thickness: float = Field(default=0.5, gt=0)
+    min_thickness: float = Field(default=0.1, gt=0)
+
+    @model_validator(mode="after")
+    def _levels_ordered(self) -> "Mesh":
+        if self.surface_level_max < self.surface_level_min:
+            raise ValueError("surface_level_max must be >= surface_level_min")
+        return self
 
 
 class Physics(StrictModel):

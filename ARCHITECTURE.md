@@ -43,6 +43,9 @@ src/vortexcfd/
   - `foam/dictfile.py`: thin wrapper encapsulating `foamlib` for OpenFOAM dictionary reading and writing.
   - `foam/case_writer.py`: orchestrates writing complete OpenFOAM case directory trees from file dictionaries.
   - `foam/reference_cases/`: generators for standard reference cases (e.g. cavity).
+  - `foam/mesh_case.py`: meshing dictionaries (blockMeshDict, surfaceFeatureExtractDict, snappyHexMeshDict, controlDict, fvSchemes/fvSolution) from plain data, `locationInMesh`, and the marker-protected case directory.
+  - `foam/mesh_run.py`: `MeshRun` runs blockMesh, surfaceFeatureExtract, snappyHexMesh -overwrite and checkMesh in sequence on a worker thread through `FoamRun`.
+  - `foam/mesh_report.py`: `parse_check_mesh` turns checkMesh output into a `MeshReport`.
   - `foam/runner.py`: process execution via `run_foam` and streaming runner `FoamRun` returning `RunResult`. Clean stop works for single-process solvers launched through `FoamRun` with `clean_stop=True`.
   - `foam/logparse.py`: incremental solver log parsing via `LogParser` recording `TimeStep` events.
   - `SolverCrash` (logparse): event for an OpenFOAM `[stack trace]` block. A diverging solver dies with SIGFPE and prints no nan residuals, so the process exit code is the reliable failure signal.
@@ -54,6 +57,7 @@ src/vortexcfd/
   - `geometry/loader.py`: `load_surface(path, units)` reads STL/OBJ/PLY as a triangulated PyVista mesh in metres (cached by path, mtime and units).
   - `geometry/checks.py`: `check_surface(mesh)` returns a `SurfaceReport` (open and non-manifold edges, degenerate and duplicate triangles, orientation, watertightness).
   - `geometry/domain.py`: `compute_domain(parts_bounds, domain)` returns the far-field `DomainBox` (reference length L, named boundaries, warnings).
+- **`vortexcfd/meshing.py`**: (no Qt) joins core, geometry and foam: `readiness(project)` says why a project cannot be meshed and `prepare_job(project)` writes <project>/case (dictionaries and part STLs in metres).
 - **`gui/`**:
   - Implements UI components, main window, and 3D visualization using PySide6 and PyVista/pyvistaqt.
   - `gui/theme.py`: design tokens (`Theme`), Fusion palette/stylesheet and font zoom; `gui/icons.py` draws tree icons in code.
