@@ -27,11 +27,23 @@ class LayerCoverage:
 
     @property
     def coverage_percent(self) -> float:
+        """Thickness coverage: the achieved fraction of the target layer thickness."""
         return self.thickness_percent
 
     @property
+    def layers_percent(self) -> float:
+        """Average layers present / target layers, in percent (100 when no layers were asked)."""
+        return 100.0 * self.mesh_layers / self.target_layers if self.target_layers else 100.0
+
+    @property
     def below_threshold(self) -> bool:
-        return self.coverage_percent < LAYER_WARN_PERCENT
+        """Either metric (layer count or thickness) is below 80 %."""
+        return min(self.layers_percent, self.thickness_percent) < LAYER_WARN_PERCENT
+
+    def description(self) -> str:
+        """E.g. "2.1 / 3 (70 %), thickness 64 %"."""
+        return (f"{self.mesh_layers:g} / {self.target_layers} ({self.layers_percent:.0f} %), "
+                f"thickness {self.thickness_percent:g} %")
 
 
 @dataclass(frozen=True)
@@ -66,9 +78,8 @@ class MeshReport:
         """One line about the layers ("" when none were added)."""
         if not self.layers:
             return ""
-        rows = ", ".join(f"{c.patch} {c.coverage_percent:g}% ({c.mesh_layers:g}/{c.target_layers} layers)"
-                         for c in self.layers)
-        return f"layer thickness achieved: {rows}"
+        rows = ", ".join(f"{c.patch} {c.description()}" for c in self.layers)
+        return f"layers per patch: {rows}"
 
 
 _INT = r"(\d+)"

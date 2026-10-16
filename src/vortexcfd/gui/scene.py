@@ -13,7 +13,7 @@ from vortexcfd.core.project import Project
 from vortexcfd.geometry.checks import SurfaceReport, surface_report
 from vortexcfd.geometry.domain import DomainBox, compute_domain, face_corners
 from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
-from vortexcfd.gui.theme import DOMAIN_OPACITY, HIGHLIGHT_OPACITY, PICK_MOVE_TOLERANCE_PX, Theme
+from vortexcfd.gui.theme import BOUNDARY_FACE_OPACITY, SECTION_EPS_FRACTION, DOMAIN_OPACITY, HIGHLIGHT_OPACITY, PICK_MOVE_TOLERANCE_PX, Theme
 
 log = logging.getLogger(__name__)
 
@@ -244,47 +244,200 @@ class DomainView:
 
 
 class MeshView:
-    """Boundary surfaces of the part patches of a generated mesh, drawn with their edges."""
+    """The generated mesh in the viewer.
+
+    Shows the part (wall) patches with their edges, a section plane through the VOLUME mesh
+    (a slice of the OpenFOAM internal mesh: the cut cells drawn with edges over an elevated
+    surface, showing the background cells, the refinement and the prism layers) and,
+    optionally, the domain boundary patches as translucent faces. With the section on, the part
+    patches are clipped to the side behind the plane so the plane is not hidden.
+    """
+
+    SECTION_NAME = "mesh_section"
 
     def __init__(self, plotter, theme: Theme) -> None:
         self.plotter = plotter
         self.theme = theme
-        self.actors: list = []
+        self.actors: list = []  # part patch actors
+        self.boundary_actors: list = []  # domain boundary patch actors
+        self.section_actor = None
         self.n_faces = 0
         self.stale = False
         self._font_size = 12
         self._visible = True
+        self._patch_surfaces: dict[str, pv.PolyData] = {}
+        self._patch_names: tuple[str, ...] = ()
+        self._internal = None  # the internal (volume) mesh
+        self._symmetric = False
+        self.section_enabled = True
+        self.section_axis = 1  # normal +y
+        self.section_position: float | None = None  # plane offset along the axis, metres
+        self.boundaries_enabled = False
 
     @property
     def has_mesh(self) -> bool:
         return bool(self.actors)
 
-    def load(self, case_dir: Path, patch_names) -> bool:
-        """Read <case_dir>/case.foam and show the given patches. False if nothing was shown."""
+    @property
+    def has_volume(self) -> bool:
+        return self._internal is not None and self._internal.n_cells > 0
+
+    def load(self, case_dir: Path, patch_names, symmetric: bool = False) -> bool:
+        """Read <case_dir>/case.foam: part patches, domain patches and the internal mesh.
+
+        False if no part patch was found.
+        """
         self.clear()
         reader = pv.OpenFOAMReader(str(Path(case_dir) / "case.foam"))
-        reader.disable_all_patch_arrays()
-        for name in patch_names:
-            reader.enable_patch_array(f"patch/{name}")
-        boundary = reader.read()["boundary"]
+        reader.enable_all_patch_arrays()
+        blocks = reader.read()
+        boundary = blocks["boundary"]
+        self._patch_names = tuple(patch_names)
+        self._symmetric = symmetric
         t = self.theme
-        for name in patch_names:
-            if name not in boundary.keys():
-                continue
+        for name in boundary.keys():
             surface = boundary[name].extract_surface(algorithm="dataset_surface")
-            self.n_faces += surface.n_cells
-            self.actors.append(self.plotter.add_mesh(
-                surface, color=t.part_surface, show_edges=True, edge_color=t.part_edge, line_width=1,
-                pickable=False, reset_camera=False, render=False, name=f"mesh_{name}",
-            ))
+            if name in self._patch_names:
+                self._patch_surfaces[name] = surface
+                self.n_faces += surface.n_cells
+            elif surface.n_cells:
+                self.boundary_actors.append(self.plotter.add_mesh(
+                    surface, color=t.border_active, opacity=BOUNDARY_FACE_OPACITY, lighting=False,
+                    pickable=False, reset_camera=False, render=False, name=f"mesh_domain_{name}",
+                ))
+        try:
+            internal = blocks["internalMesh"]
+            self._internal = internal if internal.n_cells else None
+        except KeyError:
+            self._internal = None
+        self.section_position = self.default_position(self.section_axis)
+        self._rebuild()
         return self.has_mesh
 
+    # -- section plane ----------------------------------------------------------------------
+
+    def volume_bounds(self):
+        return tuple(self._internal.bounds) if self._internal is not None else None
+
+    def parts_bounds(self):
+        boxes = [tuple(s.bounds) for s in self._patch_surfaces.values()]
+        if not boxes:
+            return None
+        return (min(b[0] for b in boxes), max(b[1] for b in boxes), min(b[2] for b in boxes),
+                max(b[3] for b in boxes), min(b[4] for b in boxes), max(b[5] for b in boxes))
+
+    def default_position(self, axis: int) -> float | None:
+        """Plane offset through the parts' centre; the symmetry plane for +y with symmetry on
+        (nudged a hair inside the domain so it does not coincide with the boundary face)."""
+        vol, parts = self.volume_bounds(), self.parts_bounds()
+        if vol is None or parts is None:
+            return None
+        lo, hi = vol[2 * axis], vol[2 * axis + 1]
+        if axis == 1 and self._symmetric:
+            return lo + SECTION_EPS_FRACTION * (hi - lo)
+        return (parts[2 * axis] + parts[2 * axis + 1]) / 2
+
+    def set_section(self, enabled: bool | None = None, axis: int | None = None,
+                    position: float | None = None) -> None:
+        """Change the section plane: toggle it, change its normal (offset resets to the default)
+        or move it along the normal (metres)."""
+        if enabled is not None:
+            self.section_enabled = enabled
+        if axis is not None and axis != self.section_axis:
+            self.section_axis = axis
+            position = self.default_position(axis) if position is None else position
+        if position is not None:
+            self.section_position = position
+        self._rebuild()
+
+    def set_boundaries(self, shown: bool) -> None:
+        self.boundaries_enabled = shown
+        self._apply_visibility()
+
+    def section_origin(self):
+        vol = self.volume_bounds()
+        origin = [(vol[2 * i] + vol[2 * i + 1]) / 2 for i in range(3)]
+        origin[self.section_axis] = self.section_position
+        return tuple(origin)
+
+    def normal(self):
+        n = [0.0, 0.0, 0.0]
+        n[self.section_axis] = 1.0
+        return tuple(n)
+
+    def _rebuild(self) -> None:
+        """(Re)create the section and the part patch actors for the current plane."""
+        for actor in self.actors:
+            self.plotter.remove_actor(actor, render=False)
+        self.actors = []
+        self.plotter.remove_actor(self.SECTION_NAME, render=False)
+        self.section_actor = None
+        t = self.theme
+        use_section = self.has_volume and self.section_position is not None
+        origin, normal = (self.section_origin(), self.normal()) if use_section else (None, None)
+        if use_section:
+            cut = self._internal.slice(normal=normal, origin=origin)
+            if cut.n_cells:
+                self.section_actor = self.plotter.add_mesh(
+                    cut, color=t.mesh_surface, show_edges=True, edge_color=t.mesh_edge, line_width=1,
+                    lighting=False, pickable=False, reset_camera=False, render=False,
+                    name=self.SECTION_NAME,
+                )
+        for name, surface in self._patch_surfaces.items():
+            shown = surface
+            if use_section and self.section_enabled and self.section_actor is not None:
+                # keep the side behind the plane (the camera looks along +normal)
+                shown = surface.clip(normal=normal, origin=origin, invert=False)
+                if shown.n_cells == 0:
+                    continue
+            self.actors.append(self.plotter.add_mesh(
+                shown, color=t.part_surface, show_edges=True, edge_color=t.part_edge, line_width=1,
+                pickable=False, reset_camera=False, render=False, name=f"mesh_{name}",
+            ))
+        self._apply_visibility()
+
     def bounds(self):
+        """Bounds to frame: the section if shown, else the part patches."""
+        if self.section_actor is not None and self.section_enabled:
+            return tuple(self.section_actor.GetBounds())
         boxes = [a.GetBounds() for a in self.actors]
         if not boxes:
             return None
         return (min(b[0] for b in boxes), max(b[1] for b in boxes), min(b[2] for b in boxes),
                 max(b[3] for b in boxes), min(b[4] for b in boxes), max(b[5] for b in boxes))
+
+    FOCUS_MARGIN = 0.3  # section framing: the parts' box grown by this many part extents
+
+    def focus_bounds(self):
+        """Bounds to frame: the parts' box with a margin (so the refinement and the prism layers
+        around the parts are large in the view), clamped to what is shown."""
+        shown, parts = self.bounds(), self.parts_bounds()
+        if shown is None or parts is None or not (self.section_actor and self.section_enabled):
+            return shown
+        extent = max(parts[1] - parts[0], parts[3] - parts[2], parts[5] - parts[4])
+        grown = [parts[i] + (-1 if i % 2 == 0 else 1) * self.FOCUS_MARGIN * extent for i in range(6)]
+        return tuple(max(grown[i], shown[i]) if i % 2 == 0 else min(grown[i], shown[i]) for i in range(6))
+
+    def camera_for_section(self):
+        """Camera position/focal point/up that look at the plane from its negative side."""
+        b = self.focus_bounds()
+        if b is None:
+            return None
+        center = [(b[2 * i] + b[2 * i + 1]) / 2 for i in range(3)]
+        extent = max(b[1] - b[0], b[3] - b[2], b[5] - b[4]) or 1.0
+        position = list(center)
+        position[self.section_axis] -= 2.0 * extent
+        up = (0.0, 1.0, 0.0) if self.section_axis == 2 else (0.0, 0.0, 1.0)
+        return [tuple(position), tuple(center), up]
+
+    def _apply_visibility(self) -> None:
+        for actor in self.actors:
+            actor.SetVisibility(self._visible)
+        if self.section_actor is not None:
+            self.section_actor.SetVisibility(self._visible and self.section_enabled)
+        for actor in self.boundary_actors:
+            actor.SetVisibility(self._visible and self.boundaries_enabled)
+        self._apply_stale()
 
     STALE_NAME = "mesh_stale"
     STALE_TEXT = "MESH OUT OF DATE"
@@ -305,13 +458,16 @@ class MeshView:
 
     def set_visible(self, visible: bool) -> None:
         self._visible = visible
-        for actor in self.actors:
-            actor.SetVisibility(visible)
-        self._apply_stale()
+        self._apply_visibility()
 
     def clear(self) -> None:
-        for actor in self.actors:
+        for actor in (*self.actors, *self.boundary_actors):
             self.plotter.remove_actor(actor, render=False)
-        self.actors = []
+        self.plotter.remove_actor(self.SECTION_NAME, render=False)
+        self.actors, self.boundary_actors = [], []
+        self.section_actor = None
+        self._patch_surfaces = {}
+        self._internal = None
+        self.section_position = None
         self.n_faces = 0
         self._apply_stale()

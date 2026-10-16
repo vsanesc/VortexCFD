@@ -96,6 +96,6 @@ def test_mesh_load_renders(window: MainWindow, monkeypatch) -> None:
     """Loading a mesh into the viewer ends in a render (the load itself is stubbed)."""
     window._mesh_patches = ("wing",)
     case = window.project.path.parent / "case"
-    monkeypatch.setattr(window.mesh_view, "load", lambda case_dir, patches: True)
+    monkeypatch.setattr(window.mesh_view, "load", lambda case_dir, patches, symmetric=False: True)
     assert renders_after(window, window._load_mesh_view) >= 1
     assert window._scene_mode == "mesh"

@@ -225,3 +225,36 @@ def test_tree_properties_split_defaults_to_40_60_and_is_restored(make_window, qt
     assert saved == pytest.approx(w._left_split.sizes()[0] / column, abs=0.01) and saved > 0.5
     w2 = make_window(11)
     assert abs(w2._left_split.sizes()[0] / w2._left.height() - saved) < 0.03
+
+
+@pytest.mark.parametrize("font", [11, 14])
+@pytest.mark.parametrize("kind", NODES)
+def test_side_by_side_from_20u_with_clamped_label_column_and_7u_fields(make_window, qtbot: QtBot, font: int, kind: str) -> None:
+    w = make_window(font)
+    u = metrics().u
+    w._outer.setSizes([24 * u, w._outer.width() - 24 * u])  # a left column of 24u
+    qtbot.wait(60)
+    _select(w, kind)
+    p = w.properties
+    assert p.width() >= 20 * u and not p.stacked
+    assert 8 * u <= p._label_column <= 0.5 * p.width()
+    for key, row in _visible_rows(p):
+        label, field = p._row_labels[key], p._row_fields[key]
+        lr, fr = _rect(label, p), _rect(field, p)
+        assert not lr.intersects(fr) and lr.right() < fr.left(), key  # side by side, no overlap
+        assert fr.width() >= 7 * u - 1, (key, fr.width(), u)
+        assert label.width() == p._label_column
+        assert label.text() == label.full_text() or (label.text().endswith("…") and label.toolTip())
+
+
+@pytest.mark.parametrize("font", [11, 14])
+def test_stacked_below_20u(make_window, qtbot: QtBot, font: int) -> None:
+    w = make_window(font)
+    u = metrics().u
+    w._outer.setSizes([19 * u, w._outer.width() - 19 * u])
+    qtbot.wait(60)
+    _select(w, "mesh")
+    assert w.properties.width() < 20 * u and w.properties.stacked
+    w._outer.setSizes([20 * u + 4, w._outer.width() - 20 * u - 4])
+    qtbot.wait(60)
+    assert w.properties.width() >= 20 * u and not w.properties.stacked

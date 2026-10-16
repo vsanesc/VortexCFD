@@ -28,7 +28,7 @@ def _fresh_cache():
 def make_window(qtbot: QtBot, tmp_path: Path):
     made: list[MainWindow] = []
 
-    def make(with_part=True, save=True, with_viewer=True, domain_enabled=True) -> MainWindow:
+    def make(with_part=True, save=True, with_viewer=False, domain_enabled=True) -> MainWindow:
         folder = tmp_path / "proj"
         (folder / "geometry").mkdir(parents=True, exist_ok=True)
         project = Project.new("m")
@@ -234,7 +234,7 @@ def test_failed_checks_are_warned(make_window, fake_run) -> None:
 
 
 def test_scene_tabs_switch_between_geometry_and_mesh(make_window) -> None:
-    w = make_window()
+    w = make_window(with_viewer=True)
     assert [b.text() for b in (w.scene_tab, w.mesh_tab)] == ["Geometry Scene", "Mesh Scene"]
     assert w.scene_tab.isChecked() and w.scene.actors[0].GetVisibility()
     w.mesh_tab.click()
@@ -248,8 +248,9 @@ def test_scene_tabs_switch_between_geometry_and_mesh(make_window) -> None:
 # -- real end to end through the window ------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_end_to_end_meshing_through_the_window(make_window, qtbot) -> None:
-    w = make_window()
+    w = make_window(with_viewer=True)
     w.top_bar.mesh_button.click()  # real MeshRun: blockMesh .. checkMesh on a coarse sphere
     assert w.top_bar.mesh_button.text() == "Stop"
     # The report arrives through the queued `finished` signal, after the worker thread ended.
@@ -266,9 +267,35 @@ def test_end_to_end_meshing_through_the_window(make_window, qtbot) -> None:
     assert dict(w.telemetry_rows)["Cells"] == str(w.mesh_report.cells)
     w.scene_tab.click()
     assert not w.mesh_view.actors[0].GetVisibility()
+    # Section plane controls of the Mesh Scene.
+    w.mesh_tab.click()
+    view = w.mesh_view
+    assert w.section_controls.isVisible() and w.section_toggle.isChecked() and w.axis_buttons[1].isChecked()
+    assert view.section_actor is not None and view.section_actor.GetVisibility()
+    assert 0 < w.section_slider.value() < 1000  # the plane starts through the parts' centre
+    first_y = view.section_position
+    w.section_slider.setValue(w.section_slider.value() + 100)
+    assert view.section_position > first_y
+    assert view.section_actor.GetBounds()[2] == pytest.approx(view.section_position, abs=1e-6)
+    w.axis_buttons[0].click()
+    assert view.section_axis == 0 and w.axis_buttons[0].isChecked()
+    xb = view.section_actor.GetBounds()
+    assert xb[0] == pytest.approx(xb[1], abs=1e-6)
+    w.axis_buttons[1].click()
+    w.section_toggle.click()  # off: the section disappears, the whole walls come back
+    assert not view.section_actor.GetVisibility()
+    w.section_toggle.click()
+    assert view.section_actor.GetVisibility()
+    assert all(not a.GetVisibility() for a in view.boundary_actors)
+    w.boundary_toggle.click()
+    assert view.boundary_actors and all(a.GetVisibility() for a in view.boundary_actors)
+    w.scene_tab.click()  # the controls belong to the Mesh Scene only
+    assert not w.section_controls.isVisible()
+    w.mesh_tab.click()
     # Layer coverage of the real run, shown in the Mesh properties.
     assert [c.patch for c in w.mesh_report.layers] == ["Ball"] and w.properties.layer_labels
     print("\nGUI layers:", w.properties.layer_labels[0].text())
+    assert "/" in w.properties.layer_labels[0].text() and "thickness" in w.properties.layer_labels[0].text()
     # The old mesh stays visible in the Mesh Scene with an out-of-date warning.
     w.mesh_tab.click()
     assert "mesh_stale" not in w.viewer.renderer.actors and not w.mesh_stale
@@ -388,11 +415,10 @@ def test_layer_coverage_rows_warn_below_80_percent(make_window, fake_run) -> Non
     fake_run.instances[-1].finish(MeshRunResult(True, False, exit_codes={}, report=report))
     p = w.properties
     assert len(p.layer_labels) == 2
-    assert "2/3 layers" in p.layer_labels[0].text() and "55.5 %" in p.layer_labels[0].text()
-    assert "thickness" in p.layer_labels[0].text()  # says which basis the coverage is
+    assert p.layer_labels[0].text().startswith("2 / 3 (67 %), thickness 55.5 %")  # both metrics
     assert p.layer_labels[0].property("warn") == "true" and p.layer_labels[1].property("warn") == "false"
     assert p.mesh_values["extruded"].text() == "88 %"
-    assert "Layers:" in w.console.text() and "Ball 55.5%" in w.console.text()
+    assert "Layers:" in w.console.text() and "Ball 2 / 3 (67 %), thickness 55.5 %" in w.console.text()
     assert "WARNING" in w.console.text()  # low coverage is logged as a warning
 
 

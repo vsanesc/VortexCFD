@@ -55,6 +55,8 @@ class Theme:
     part_surface: str  # imported part faces in the viewer
     part_edge: str  # imported part edges
     part_selected: str  # selected part (= accent_secondary)
+    mesh_edge: str  # cell edges of the mesh section (owner colour disabled_text, reused)
+    mesh_surface: str  # cell faces of the mesh section (= elevated)
     success: str
     warning: str
     error: str
@@ -91,6 +93,8 @@ DARK = Theme(
     part_surface="#7F8DA3",
     part_edge="#2A3446",
     part_selected=_ACCENT_SECONDARY,
+    mesh_edge="#526077",
+    mesh_surface="#1A202C",
     success="#10B981",
     warning="#FACC15",
     error="#F43F5E",
@@ -110,15 +114,17 @@ class LayoutFractions:
     left: float = 0.181  # left column width / window width (331 px)
     tree_split: float = 0.40  # tree section height / left column height (owner: 40 % tree, 60 % properties)
     tab_bar: float = 0.0265  # scene tab bar height / window height (32 px)
-    monitors: float = 0.347  # right monitors column width / window width (637 px)
+    monitors: float = 0.25  # monitors column width / window width (mockup: 0.347; narrower so the viewer keeps >= 50 % next to the 18u sidebar)
     console: float = 0.131  # bottom console height / window height (158 px)
 
 
 LAYOUT = LayoutFractions()
 
 # Region limits in units of u (font height): (minimum, maximum or None).
+LEFT_INITIAL_U = 18  # default width of the left column, in u
+
 LIMITS_U: dict[str, tuple[int, int | None]] = {
-    "left": (11, 22),
+    "left": (14, 28),
     "monitors": (14, 40),
     "center": (20, None),
     "console": (4, None),
@@ -138,6 +144,10 @@ TELEMETRY_FONT_U = 0.85  # card body font size in px per u (VTK Courier)
 TELEMETRY_LINE_SPACING = 1.35  # VTK line spacing of the card text
 TELEMETRY_TITLE_SCALE = 0.8  # card title size relative to the body
 TELEMETRY_GAP_CHARS = 2  # characters between the label and value columns
+BOUNDARY_FACE_OPACITY = 0.25  # translucent domain boundary patches in the mesh scene
+SECTION_PREVIEW_MS = 150  # while dragging the section slider, re-slice at most this often
+SECTION_SLIDER_STEPS = 1000  # resolution of the section offset slider
+SECTION_EPS_FRACTION = 0.002  # nudge of a section plane off a boundary face (fraction of the extent)
 DOMAIN_OPACITY = 0.6  # translucent domain wireframe
 HIGHLIGHT_OPACITY = 0.35  # highlighted boundary face
 PICK_MOVE_TOLERANCE_PX = 4  # a press/release closer than this is a click, not a camera drag
@@ -265,6 +275,11 @@ QScrollBar::handle:vertical {{ background: {t.border_active}; border-radius: {m.
 QScrollBar::handle:vertical:hover {{ background: {t.muted_text}; }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; border: none; }}
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
+QSlider::groove:horizontal {{ height: {m.s1}px; background: {t.border}; border-radius: {m.s1 // 2}px; }}
+QSlider::sub-page:horizontal {{ background: {t.accent_secondary}; border-radius: {m.s1 // 2}px; }}
+QSlider::handle:horizontal {{ background: {t.accent_secondary}; width: {m.s4}px; margin: -{m.s1}px 0;
+    border-radius: {m.s2}px; }}
+QSlider::handle:horizontal:hover {{ background: {t.accent_secondary_hover}; }}
 QLabel#subSection {{ color: {t.muted_text}; background: transparent; }}
 QWidget#sectionHeader {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
 QLabel#badge {{ background: {t.elevated}; color: {t.accent_secondary}; border: {ln}px solid {t.border};
@@ -276,6 +291,8 @@ QWidget#topBar {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; 
 QFrame#vsep {{ background: {t.border}; border: none; }}
 QPushButton#tbBtn, QPushButton#dotBtn {{ background: transparent; color: {t.muted_text};
     border: {ln}px solid transparent; border-radius: {btr}px; padding: 0 {m.s3}px; }}
+QPushButton#tbBtn:checked {{ color: {t.accent_secondary}; border-color: {t.accent_secondary};
+    background: {t.accent_secondary_dim}; }}
 QPushButton#dotBtn {{ padding-left: {2 * m.s3 + m.dot}px; }}
 QPushButton#tbBtn:hover, QPushButton#dotBtn:hover {{ color: {t.text}; background: {t.elevated}; }}
 QPushButton#dotBtn:checked {{ color: {t.text}; border-color: {t.accent_secondary}; background: {t.accent_secondary_dim}; }}

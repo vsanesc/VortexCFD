@@ -130,9 +130,10 @@ class ElidedLabel(QLabel):
         self.setToolTip(self._full if elided != self._full else "")
 
 
-MIN_LABEL_U = 9  # label column width bounds, in u (and a fraction of the panel width)
-MAX_LABEL_FRACTION = 0.55
-MIN_FIELD_U = 12  # narrower fields than this make the rows stack (label above field)
+MIN_LABEL_U = 8  # label column width bounds, in u (and a fraction of the panel width)
+MAX_LABEL_FRACTION = 0.50
+MIN_FIELD_U = 7  # a field is never narrower than this in the side-by-side layout
+SIDE_BY_SIDE_MIN_PANEL_U = 20  # panels at least this wide put label and field side by side
 
 # First Mesh field of each section header in the Mesh rows.
 MESH_SECTIONS = {
@@ -341,11 +342,10 @@ class PropertiesPanel(QWidget):
     def _apply_label_column(self) -> None:
         """Lay out the label column.
 
-        Side by side: label width = the widest visible label, clamped to [9u, 55 % of the
-        panel]; labels that still do not fit are elided with "…" and carry the full text as
-        a tooltip, so a label never overlaps its field. If that would leave the field narrower
-        than ``MIN_FIELD_U`` (a narrow panel), every row stacks instead: label above field,
-        full width, nothing elided.
+        Side by side (panel at least 20u wide): label width = the widest visible label, clamped
+        to [8u, 50 % of the panel] and such that the field keeps at least 7u; labels that still
+        do not fit are elided with "…" and carry the full text as a tooltip, so a label never
+        overlaps its field. Narrower panels stack every row instead: label above field.
         """
         m = metrics()
         pairs = [(self._rows[k], lab) for k, lab in self._row_labels.items() if not self._rows[k].isHidden()]
@@ -353,9 +353,10 @@ class PropertiesPanel(QWidget):
         widest = max((lab.fontMetrics().horizontalAdvance(lab.full_text()) for _, lab in pairs), default=0)
         # A scrollbar's width is always reserved, so the layout does not depend on whether it shows.
         panel_w = max(self.width() - m.s3, 1)
-        column = min(max(widest + m.s1, MIN_LABEL_U * m.u), int(MAX_LABEL_FRACTION * panel_w))
-        field_w = panel_w - 2 * m.s3 - m.s3 - column
-        self.stacked = field_w < MIN_FIELD_U * m.u
+        self.stacked = self.width() < SIDE_BY_SIDE_MIN_PANEL_U * m.u
+        room_for_field = panel_w - 3 * m.s3 - MIN_FIELD_U * m.u  # keeps the field >= 7u
+        column = max(1, min(max(widest + m.s1, MIN_LABEL_U * m.u),
+                            int(MAX_LABEL_FRACTION * panel_w), room_for_field))
         self._label_column = column
         every = [*self._rows.items(), *((None, r) for r, _ in self._layer_titles)]
         for row in (r for _, r in every):
@@ -573,10 +574,7 @@ class PropertiesPanel(QWidget):
         if report is None:
             return
         for cov in report.layers:
-            label = QLabel(
-                f"{cov.mesh_layers:g}/{cov.target_layers} layers, {cov.thickness_m:.4g} m, "
-                f"{cov.coverage_percent:g} % of target {cov.basis}"
-            )
+            label = QLabel(f"{cov.description()} ({cov.thickness_m:.4g} m)")
             label.setObjectName("checkValue")
             label.setFont(mono_font(QApplication.font(), 0.9))
             _wrap(label)

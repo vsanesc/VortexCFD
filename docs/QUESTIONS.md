@@ -32,3 +32,23 @@ Decisions taken while Vic was away (Tasks 3.4 and 5.1). Each one is reversible; 
 22. **Stylesheet quirk.** `QAbstractSpinBox::setButtonSymbols(NoButtons)` combined with a stylesheet collapses the spin box's edit field to 1 px (the "slivers" with invisible values); the buttons are now hidden by the stylesheet (`::up-button/::down-button { width: 0 }`) and the inner QLineEdit of spin boxes is unstyled, so the box is drawn once.
 23. **Tree/properties split.** The default is now 40 % / 60 % of the left column (`LAYOUT.tree_split`, previously 0.548 measured on the mockup); the user's drag is stored in QSettings (`layout/left_tree_fraction`).
 24. **Domain box size text** uses three significant digits (e.g. `16 × 11 × 11 m`) so it fits the field at font 14.
+
+## Mesh Scene section plane
+
+25. **Branch.** The previous branch (`task/3.4-domain`) was merged and `main` was checked out, so this work is on a new local branch `task/5.1-mesh-section-plane` (nothing was committed on `main`).
+26. **Section contrast.** With the owner tokens (cut cells with edges in `part_edge` #2A3446 over `elevated` #1A202C) the section is legible but low-contrast: the nested refinement boxes and the dense cells around the part are clear, the prism layers only when zoomed in. A brighter edge token (for example `border_active`) would help; I did not change the tokens.
+27. **Section framing and clipping.** The camera looks at the plane from its negative side and frames the parts' box plus 0.75 part extents; the part walls are clipped to the side behind the plane so they do not hide it (the section's hole where the part is shows the inside of the far half). With the section off the whole walls are shown.
+28. **Plane defaults.** Normal +y through the centre of the part patches; with symmetry on, the symmetry plane nudged 0.2 % of the domain inside it (a plane exactly on the boundary face gives no cut). Changing the normal resets the offset to the same default for that axis. The slider re-slices the internal mesh on every step, which is instant for the coarse meshes but may lag on multi-million-cell meshes.
+29. **Controls** are in their own strip under the scene tabs (visible in the Mesh Scene only), because they did not fit beside the tabs in the default window. The domain boundary patches (inlet, outlet, sides, top, bottom, symmetry) are translucent faces in `border_active`, off by default.
+
+## Wider left column, side-by-side rows
+
+30. **Rows are stacked at the default width.** The left column now starts at 18u (min 14u, max 28u), but the property rows only go side by side when the panel is at least 20u wide (label column clamped to [8u, 50 %], field at least 7u), so at the default 18u the rows are still stacked; they switch to side by side as soon as the column is dragged past 20u (screenshots `v5_mesh_side_by_side_font*.png` show 24u). Say if the default should be 20u instead.
+31. **Monitors column** default width is now 25 % of the window (was 34.7 % measured on the mockup) so that the viewer keeps at least 50 % at 78u next to the 18u sidebar (tests for fonts 11, 14 and 18).
+
+## Layer metric, section contrast, slider, test speed
+
+32. **Layer warning** uses both numbers per patch: layers present / target (from snappy's "mesh" layers column, an average) and the achieved thickness percentage; either below 80 % warns. They are shown as "2.1 / 3 (70 %), thickness 64 %".
+33. **Section look.** Cells use `mesh_edge` (#526077) over `mesh_surface` (#1A202C); framing is the parts' box plus 0.3 part extents, which makes the three prism layers visible as parallel bands along the wall at the default zoom (checked at 1:1 pixels on a 1 m sphere; they are 3-4 px thick).
+34. **Slider.** Dragging re-slices at most every 150 ms (leading edge, then trailing flushes) and once more on release; keyboard and programmatic changes slice at once.
+35. **Test speed.** The big slowdown was windows never being destroyed between tests (pytest-qt only calls deleteLater and nothing ran the deferred deletes), so each test got slower; an autouse fixture now flushes them. pytest-xdist is added as a dev dependency: `-n 8` passed the full suite 6 times (offscreen and real display) with the Qt and OpenFOAM tests; each worker builds its own session sphere mesh (tmp_path_factory), QSettings are per-test temp dirs, so nothing is shared. `scripts/ship.sh` still runs the plain single-process offscreen suite.

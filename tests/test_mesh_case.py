@@ -257,27 +257,17 @@ def test_parse_failed_checks_and_truncated_logs() -> None:
 # -- end to end ------------------------------------------------------------------------------------
 
 
-def test_end_to_end_coarse_sphere_meshing(tmp_path: Path) -> None:
-    case = tmp_path / "case"
-    # NEW defaults only: default domain (5/10/5/5 L), default Mesh (100k background cells,
-    # 0.01 L surface cells, 3 layers); nothing is tuned by hand.
-    inp = sphere_input(Mesh(), Domain())
-    est = estimate_mesh(inp.domain_bounds, inp.reference_length, inp.mesh)
+@pytest.mark.slow
+def test_end_to_end_coarse_sphere_meshing(sphere_mesh) -> None:
+    """The shared session mesh: the NEW defaults only, nothing tuned by hand."""
+    est, result = sphere_mesh.estimate, sphere_mesh.result
     assert abs(est.total_cells - 100_000) <= 20_000
-    prepare_case_dir(case, build_mesh_files(inp))
-    pv.Sphere(radius=0.5, theta_resolution=24, phi_resolution=24).save(str(case / TRI_SURFACE / "Sphere.stl"))
-    lines: list[str] = []
-    steps: list[str] = []
-    run = MeshRun(case, on_line=lines.append, on_step=steps.append, step_timeout_s=100)
-    run.start()
-    result = run.wait(115)
-    assert result is not None and not run.is_running()
     assert result.exit_codes == {"blockMesh": 0, "surfaceFeatureExtract": 0, "snappyHexMesh": 0, "checkMesh": 0}
     assert result.success and result.report is not None
     assert result.report.mesh_ok and result.report.failed_checks == 0 and result.report.cells > 0
-    assert steps == ["blockMesh", "surfaceFeatureExtract", "snappyHexMesh", "checkMesh"]
-    assert any("Mesh OK" in line for line in lines)
-    boundary = (case / "constant" / "polyMesh" / "boundary").read_text()
+    assert sphere_mesh.steps == ["blockMesh", "surfaceFeatureExtract", "snappyHexMesh", "checkMesh"]
+    assert any("Mesh OK" in line for line in sphere_mesh.lines)
+    boundary = (sphere_mesh.case_dir / "constant" / "polyMesh" / "boundary").read_text()
     for patch in ("inlet", "outlet", "sides", "top", "bottom", "Sphere"):
         assert patch in boundary
     print(f"\nE2E checkMesh: {result.report.summary()}")
@@ -306,6 +296,7 @@ def test_parse_layer_table_from_the_real_snappy_log() -> None:
     layers, extruded = parse_layer_table((DATA / "snappyHexMesh_sphere_default.log").read_text())
     assert layers == (LayerCoverage("Sphere", 9460, 3, 3.0, 0.0211, 100.0),)  # the FINAL table
     assert layers[0].basis == "thickness" and layers[0].coverage_percent == 100.0
+    assert layers[0].layers_percent == 100.0 and layers[0].description() == "3 / 3 (100 %), thickness 100 %"
     assert not layers[0].below_threshold
     assert extruded == 100.0  # "Extruding 9460 out of 9460 faces (100%)"
 
@@ -332,23 +323,17 @@ Layer mesh : cells:1
     assert [c.patch for c in layers] == ["wing", "tail"]
     assert layers[0].below_threshold and layers[0].thickness_percent == 55.5 and layers[0].mesh_layers == 2.5
     assert not layers[1].below_threshold and LAYER_WARN_PERCENT == 80.0
+    assert layers[0].description() == "2.5 / 3 (83 %), thickness 55.5 %"
     assert extruded == 90.0
     assert parse_layer_table("no table here") == ((), None)
 
 
-def test_mesh_run_report_carries_the_layer_coverage_end_to_end(tmp_path: Path) -> None:
-    case = tmp_path / "case"
-    inp = sphere_input(Mesh(), Domain())
-    prepare_case_dir(case, build_mesh_files(inp))
-    pv.Sphere(radius=0.5, theta_resolution=24, phi_resolution=24).save(str(case / TRI_SURFACE / "Sphere.stl"))
-    run = MeshRun(case, step_timeout_s=100)
-    run.start()
-    result = run.wait(115)
-    assert result is not None and result.success
+@pytest.mark.slow
+def test_mesh_run_report_carries_the_layer_coverage_end_to_end(sphere_mesh) -> None:
+    result, est = sphere_mesh.result, sphere_mesh.estimate
     layers = result.report.layers
     assert [c.patch for c in layers] == ["Sphere"] and layers[0].target_layers == 3
     assert result.report.extruded_percent is not None and layers[0].coverage_percent > 0
-    est = estimate_mesh(inp.domain_bounds, inp.reference_length, inp.mesh)
     print(
         f"\nDEFAULT SPHERE: background {est.cells} = {est.total_cells} cells (target 100000), "
         f"levels {est.level_min}-{est.level_max}, surface cells {est.surface_size:.4g} m; "
@@ -383,3 +368,15 @@ def test_patch_names_never_collide_with_boundaries_or_each_other() -> None:
     assert not set(names) & {"inlet", "outlet", "sides", "top", "bottom", "symmetry"}
     assert safe_part_names(["inlet", "inlet"]) == ["inlet_1", "inlet_2"]  # deterministic suffixes
     assert safe_part_names(["inlet", "inlet"]) == safe_part_names(["inlet", "inlet"])
+
+
+def test_layer_warning_uses_either_metric() -> None:
+    ok = LayerCoverage("a", 10, 3, 3.0, 0.01, 95.0)
+    few_layers = LayerCoverage("b", 10, 3, 2.1, 0.01, 95.0)  # 70 % of the layers, thickness fine
+    thin = LayerCoverage("c", 10, 3, 3.0, 0.01, 64.0)  # all layers, only 64 % of the thickness
+    assert not ok.below_threshold
+    assert few_layers.layers_percent == pytest.approx(70.0) and few_layers.below_threshold
+    assert thin.below_threshold and not thin.layers_percent < 80
+    assert few_layers.description() == "2.1 / 3 (70 %), thickness 95 %"
+    report = MeshReport(1, 1, 1, 1.0, 1.0, 0.1, 0, True, layers=(few_layers, thin))
+    assert "b 2.1 / 3 (70 %), thickness 95 %" in report.layer_summary()
