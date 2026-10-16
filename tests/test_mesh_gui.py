@@ -266,6 +266,31 @@ def test_end_to_end_meshing_through_the_window(make_window, qtbot) -> None:
     assert dict(w.telemetry_rows)["Cells"] == str(w.mesh_report.cells)
     w.scene_tab.click()
     assert not w.mesh_view.actors[0].GetVisibility()
+    # Section plane controls of the Mesh Scene.
+    w.mesh_tab.click()
+    view = w.mesh_view
+    assert w.section_controls.isVisible() and w.section_toggle.isChecked() and w.axis_buttons[1].isChecked()
+    assert view.section_actor is not None and view.section_actor.GetVisibility()
+    assert 0 < w.section_slider.value() < 1000  # the plane starts through the parts' centre
+    first_y = view.section_position
+    w.section_slider.setValue(w.section_slider.value() + 100)
+    assert view.section_position > first_y
+    assert view.section_actor.GetBounds()[2] == pytest.approx(view.section_position, abs=1e-6)
+    w.axis_buttons[0].click()
+    assert view.section_axis == 0 and w.axis_buttons[0].isChecked()
+    xb = view.section_actor.GetBounds()
+    assert xb[0] == pytest.approx(xb[1], abs=1e-6)
+    w.axis_buttons[1].click()
+    w.section_toggle.click()  # off: the section disappears, the whole walls come back
+    assert not view.section_actor.GetVisibility()
+    w.section_toggle.click()
+    assert view.section_actor.GetVisibility()
+    assert all(not a.GetVisibility() for a in view.boundary_actors)
+    w.boundary_toggle.click()
+    assert view.boundary_actors and all(a.GetVisibility() for a in view.boundary_actors)
+    w.scene_tab.click()  # the controls belong to the Mesh Scene only
+    assert not w.section_controls.isVisible()
+    w.mesh_tab.click()
     # Layer coverage of the real run, shown in the Mesh properties.
     assert [c.patch for c in w.mesh_report.layers] == ["Ball"] and w.properties.layer_labels
     print("\nGUI layers:", w.properties.layer_labels[0].text())

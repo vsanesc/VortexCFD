@@ -80,6 +80,29 @@ def main() -> int:
         shot(f"v3_mesh_font{size}.png")
         window.tree.setCurrentItem(window._items[("fluid_domain", None)])
         shot(f"v3_domain_font{size}.png")
+    # Real meshing of the sphere part with the default settings, then the Mesh Scene section.
+    import time
+
+    window.set_point_size(11)
+    window.properties.set_mesh_report(None)
+    for index in (2, 1):  # drop the placeholder parts: meshing needs real files
+        window.project.remove_part(index)
+    window.top_bar.mesh_button.click()
+    deadline = time.monotonic() + 150
+    while window.mesh_report is None and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.05)
+    if window.mesh_report is not None:
+        window.mesh_tab.click()
+        for _ in range(10):
+            app.processEvents()
+        shot("v4_mesh_section.png")
+        window.boundary_toggle.click()
+        shot("v4_mesh_section_boundaries.png")
+        window.axis_buttons[2].click()
+        shot("v4_mesh_section_z.png")
+    else:
+        print("meshing did not finish in time")
     for p in paths:
         print(p)
     sys.stdout.flush()

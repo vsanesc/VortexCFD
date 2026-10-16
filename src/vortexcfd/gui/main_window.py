@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QMainWindow,
     QPushButton,
+    QSlider,
     QSizePolicy,
     QSplitter,
     QSplitterHandle,
@@ -69,6 +70,7 @@ from vortexcfd.gui.theme import (
     DEFAULT_POINT_SIZE,
     LAYOUT,
     LIMITS_U,
+    SECTION_SLIDER_STEPS,
     WINDOW_ICON_SIZES,
     Metrics,
     Theme,
@@ -90,7 +92,7 @@ from vortexcfd.gui.viewport import (
     load_telemetry_settings,
     save_telemetry_settings,
 )
-from vortexcfd.gui.widgets import SearchField, SectionHeader
+from vortexcfd.gui.widgets import DotButton, SearchField, SectionHeader
 
 log = logging.getLogger(__name__)
 
@@ -359,7 +361,46 @@ class MainWindow(QMainWindow):
             tab_row.addWidget(button)
         self.scene_tab.setChecked(True)
         tab_row.addStretch(1)
+        # Section-plane controls of the mesh scene (hidden until a mesh is shown).
+        # They live in their own strip under the tabs, so they are never squeezed.
+        self.section_controls = QWidget()
+        self.section_controls.setObjectName("tabBar")
+        self.section_controls.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        sc_row = QHBoxLayout(self.section_controls)
+        self._section_row = sc_row
+        self.section_toggle = DotButton("Section")
+        self.section_toggle.setCheckable(True)
+        self.section_toggle.setChecked(True)
+        self.section_toggle.setToolTip("Show a section plane through the volume mesh")
+        self.section_toggle.toggled.connect(self._on_section_toggled)
+        sc_row.addWidget(self.section_toggle)
+        self.axis_buttons: dict[int, QPushButton] = {}
+        self._axis_group = QButtonGroup(self)
+        for axis, text in enumerate("XYZ"):
+            button = QPushButton(text)
+            button.setObjectName("tbBtn")
+            button.setCheckable(True)
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.setToolTip(f"Section plane normal along {text}")
+            self._axis_group.addButton(button)
+            button.clicked.connect(lambda _=False, a=axis: self._on_section_axis(a))
+            self.axis_buttons[axis] = button
+            sc_row.addWidget(button)
+        self.axis_buttons[1].setChecked(True)  # default normal +y
+        self.section_slider = QSlider(Qt.Orientation.Horizontal)
+        self.section_slider.setRange(0, SECTION_SLIDER_STEPS)
+        self.section_slider.setToolTip("Section plane offset along its normal (within the domain)")
+        self.section_slider.valueChanged.connect(self._on_section_slider)
+        sc_row.addWidget(self.section_slider)
+        self.boundary_toggle = DotButton("Boundaries")
+        self.boundary_toggle.setCheckable(True)
+        self.boundary_toggle.setToolTip("Show the domain boundary patches as translucent faces")
+        self.boundary_toggle.toggled.connect(self._on_boundaries_toggled)
+        sc_row.addWidget(self.boundary_toggle)
+        sc_row.addStretch(1)
+        self.section_controls.hide()
         center_layout.addWidget(self._tab_bar)
+        center_layout.addWidget(self.section_controls)
         self.viewer = None
         if with_viewer:
             # Placeholder from the spike; Task 2.2 replaces it.
@@ -547,6 +588,17 @@ class MainWindow(QMainWindow):
         self._tab_bar.setFixedHeight(m.tab_bar)
         for tab in (self.scene_tab, self.mesh_tab):
             tab.setFixedHeight(m.tab_bar - m.line)
+        self._section_row.setContentsMargins(m.s3, 0, m.s3, 0)
+        self.section_controls.setFixedHeight(m.tab_bar)
+        self._section_row.setSpacing(m.s2)
+        small = mono_font(QApplication.font(), 0.85)
+        control_h = m.tab_bar - 2 * m.s1
+        for button in (self.section_toggle, self.boundary_toggle, *self.axis_buttons.values()):
+            button.setFont(small)
+            button.setFixedHeight(control_h)
+        self.section_toggle.configure(m, t)
+        self.boundary_toggle.configure(m, t)
+        self.section_slider.setFixedWidth(10 * m.u)
         self.menuBar().setFixedHeight(m.menubar)
         self._status_bar.setFixedHeight(m.status)
         self._selection_label.setFont(mono_font(QApplication.font(), 0.85))
@@ -909,7 +961,7 @@ class MainWindow(QMainWindow):
         log.info("Loaded the last mesh: %s", record.report.summary())
         if self.mesh_view is not None:
             try:
-                self.mesh_view.load(case_dir, record.patches)
+                self.mesh_view.load(case_dir, record.patches, self._symmetric())
                 self.mesh_view.set_visible(self._scene_mode == "mesh")
             except Exception:
                 log.exception("Could not load the saved mesh into the viewer")
@@ -969,7 +1021,8 @@ class MainWindow(QMainWindow):
         if self.mesh_view is None:
             return
         try:
-            shown = self.mesh_view.load(case_dir_for(self._project), self._mesh_patches)
+            shown = self.mesh_view.load(case_dir_for(self._project), self._mesh_patches,
+                                        self._symmetric())
         except Exception:  # VTK reader errors: the report is still valid
             log.exception("Could not load the mesh into the viewer")
             return
@@ -988,8 +1041,67 @@ class MainWindow(QMainWindow):
             self._update_empty_state()
             self._sync_domain()
             bounds = self.mesh_view.bounds() if mode == "mesh" else self.scene.visible_bounds()
-            if bounds is not None:
+            if mode == "mesh":
+                self._aim_at_section()
+            elif bounds is not None:
                 self.viewer.reset_camera(render=False, bounds=bounds)
+            self._sync_section_controls()
+            self.viewer.render()
+
+    # -- mesh section plane -------------------------------------------------------------
+
+    def _symmetric(self) -> bool:
+        return self._project.sim.domain.symmetry == "y_min"
+
+    def _aim_at_section(self) -> None:
+        """Look at the section plane from its negative side and frame it (no render)."""
+        view = self.mesh_view
+        camera = view.camera_for_section() if view.section_enabled and view.section_actor else None
+        if camera is not None:
+            self.viewer.camera_position = camera
+        bounds = view.focus_bounds()
+        if bounds is not None:
+            self.viewer.reset_camera(render=False, bounds=bounds)
+
+    def _sync_section_controls(self) -> None:
+        """Show the controls in the mesh scene and set the slider to the plane's offset."""
+        view = self.mesh_view
+        visible = self._scene_mode == "mesh" and view is not None and view.has_volume
+        self.section_controls.setVisible(visible)
+        if not visible or view.section_position is None:
+            return
+        lo, hi = view.volume_bounds()[2 * view.section_axis: 2 * view.section_axis + 2]
+        fraction = (view.section_position - lo) / (hi - lo) if hi > lo else 0.0
+        self.section_slider.blockSignals(True)
+        self.section_slider.setValue(round(fraction * SECTION_SLIDER_STEPS))
+        self.section_slider.blockSignals(False)
+
+    def _on_section_toggled(self, on: bool) -> None:
+        if self.mesh_view is None:
+            return
+        self.mesh_view.set_section(enabled=on)
+        self._aim_at_section()
+        self.viewer.render()
+
+    def _on_section_axis(self, axis: int) -> None:
+        if self.mesh_view is None:
+            return
+        self.mesh_view.set_section(axis=axis)
+        self._aim_at_section()
+        self._sync_section_controls()
+        self.viewer.render()
+
+    def _on_section_slider(self, value: int) -> None:
+        view = self.mesh_view
+        if view is None or not view.has_volume:
+            return
+        lo, hi = view.volume_bounds()[2 * view.section_axis: 2 * view.section_axis + 2]
+        view.set_section(position=lo + value / SECTION_SLIDER_STEPS * (hi - lo))
+        self.viewer.render()
+
+    def _on_boundaries_toggled(self, on: bool) -> None:
+        if self.mesh_view is not None:
+            self.mesh_view.set_boundaries(on)
             self.viewer.render()
 
     def _selected_triangles(self) -> str:

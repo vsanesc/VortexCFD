@@ -138,6 +138,9 @@ TELEMETRY_FONT_U = 0.85  # card body font size in px per u (VTK Courier)
 TELEMETRY_LINE_SPACING = 1.35  # VTK line spacing of the card text
 TELEMETRY_TITLE_SCALE = 0.8  # card title size relative to the body
 TELEMETRY_GAP_CHARS = 2  # characters between the label and value columns
+BOUNDARY_FACE_OPACITY = 0.25  # translucent domain boundary patches in the mesh scene
+SECTION_SLIDER_STEPS = 1000  # resolution of the section offset slider
+SECTION_EPS_FRACTION = 0.002  # nudge of a section plane off a boundary face (fraction of the extent)
 DOMAIN_OPACITY = 0.6  # translucent domain wireframe
 HIGHLIGHT_OPACITY = 0.35  # highlighted boundary face
 PICK_MOVE_TOLERANCE_PX = 4  # a press/release closer than this is a click, not a camera drag
@@ -265,6 +268,11 @@ QScrollBar::handle:vertical {{ background: {t.border_active}; border-radius: {m.
 QScrollBar::handle:vertical:hover {{ background: {t.muted_text}; }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; border: none; }}
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
+QSlider::groove:horizontal {{ height: {m.s1}px; background: {t.border}; border-radius: {m.s1 // 2}px; }}
+QSlider::sub-page:horizontal {{ background: {t.accent_secondary}; border-radius: {m.s1 // 2}px; }}
+QSlider::handle:horizontal {{ background: {t.accent_secondary}; width: {m.s4}px; margin: -{m.s1}px 0;
+    border-radius: {m.s2}px; }}
+QSlider::handle:horizontal:hover {{ background: {t.accent_secondary_hover}; }}
 QLabel#subSection {{ color: {t.muted_text}; background: transparent; }}
 QWidget#sectionHeader {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
 QLabel#badge {{ background: {t.elevated}; color: {t.accent_secondary}; border: {ln}px solid {t.border};
@@ -276,6 +284,8 @@ QWidget#topBar {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; 
 QFrame#vsep {{ background: {t.border}; border: none; }}
 QPushButton#tbBtn, QPushButton#dotBtn {{ background: transparent; color: {t.muted_text};
     border: {ln}px solid transparent; border-radius: {btr}px; padding: 0 {m.s3}px; }}
+QPushButton#tbBtn:checked {{ color: {t.accent_secondary}; border-color: {t.accent_secondary};
+    background: {t.accent_secondary_dim}; }}
 QPushButton#dotBtn {{ padding-left: {2 * m.s3 + m.dot}px; }}
 QPushButton#tbBtn:hover, QPushButton#dotBtn:hover {{ color: {t.text}; background: {t.elevated}; }}
 QPushButton#dotBtn:checked {{ color: {t.text}; border-color: {t.accent_secondary}; background: {t.accent_secondary_dim}; }}
