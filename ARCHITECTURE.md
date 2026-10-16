@@ -44,6 +44,8 @@ src/vortexcfd/
   - `foam/case_writer.py`: orchestrates writing complete OpenFOAM case directory trees from file dictionaries.
   - `foam/reference_cases/`: generators for standard reference cases (e.g. cavity).
   - `foam/mesh_case.py`: meshing dictionaries (blockMeshDict, surfaceFeatureExtractDict, snappyHexMeshDict, controlDict, fvSchemes/fvSolution) from plain data, `locationInMesh`, and the marker-protected case directory.
+  - `foam/physics_case.py`: solver case files (controlDict with forceCoeffs and yPlus, fvSchemes, fvSolution, transport/turbulence properties, 0/ fields) from the physics, inflow and solver settings, and the inlet k/omega formulas.
+  - `foam/yplus.py`: first-layer thickness for a target y+ from the flat-plate skin friction, and its inverse.
   - `foam/mesh_run.py`: `MeshRun` runs blockMesh, surfaceFeatureExtract, snappyHexMesh -overwrite and checkMesh in sequence on a worker thread through `FoamRun`.
   - `foam/mesh_report.py`: `parse_check_mesh` turns checkMesh output into a `MeshReport`; `parse_layer_table` reads snappyHexMesh's final layer table (per-patch `LayerCoverage`, overall extruded-face share).
   - `foam/mesh_record.py`: `case/vortexcfd_mesh.json`, the last `MeshReport` plus the hash of the meshing inputs (used to flag an out-of-date mesh).

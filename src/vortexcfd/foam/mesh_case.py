@@ -73,6 +73,8 @@ class MeshCaseInput:
     parts_bounds: Bounds  # union of the parts' bounding boxes
     reference_length: float
     mesh: Mesh
+    # First prism-layer thickness (m) for layer_sizing "absolute_yplus" (see foam/yplus.py).
+    first_layer_thickness: float | None = None
 
 
 def safe_part_names(names: Sequence[str]) -> list[str]:
@@ -172,6 +174,22 @@ def surface_feature_extract_dict(inp: MeshCaseInput) -> FoamFileSpec:
     return FoamFileSpec(content=content)
 
 
+def _layer_sizing(inp: MeshCaseInput) -> dict:
+    """Layer size keywords: relative to the local cell, or absolute from the y+ estimate.
+
+    Absolute: relativeSizes false, firstLayerThickness = the estimator's value (with the
+    expansion ratio this fixes the other sizes) and minThickness as a fraction of it.
+    """
+    m = inp.mesh
+    if m.layer_sizing == "relative":
+        return {"relativeSizes": True, "finalLayerThickness": m.final_layer_thickness,
+                "minThickness": m.min_thickness}
+    if inp.first_layer_thickness is None:
+        raise ValueError("layer_sizing 'absolute_yplus' needs first_layer_thickness")
+    h = inp.first_layer_thickness
+    return {"relativeSizes": False, "firstLayerThickness": h, "minThickness": m.min_thickness * h}
+
+
 def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
     m = inp.mesh
     est = estimate_mesh(inp.domain_bounds, inp.reference_length, m)
@@ -214,11 +232,9 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
             "multiRegionFeatureSnap": False,
         },
         "addLayersControls": {
-            "relativeSizes": True,
+            **_layer_sizing(inp),
             "layers": layers,
             "expansionRatio": m.expansion_ratio,
-            "finalLayerThickness": m.final_layer_thickness,
-            "minThickness": m.min_thickness,
             "nGrow": 0,
             "featureAngle": 60,
             "slipFeatureAngle": 30,

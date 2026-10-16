@@ -115,3 +115,55 @@ def test_group_editors_are_hidden_on_other_nodes(window: MainWindow) -> None:
     for gkind in ("physics", "inflow", "solvers"):
         assert not any(p._rows[f"{gkind}_{k}"].isVisible() for k in p.group_fields[gkind])
     assert not p._rows["inflow_k"].isVisible() and p.info_label.isVisible()
+
+
+def _project_with_sphere(tmp_path):
+    import pyvista as pv
+
+    from vortexcfd.core.model import Part
+
+    folder = tmp_path / "proj"
+    (folder / "geometry").mkdir(parents=True)
+    pv.Sphere(radius=0.5, theta_resolution=16, phi_resolution=16).save(str(folder / "geometry" / "ball.stl"))
+    project = Project.new("y")
+    project.add_part(Part(name="Ball", source_file="geometry/ball.stl", units="m"))
+    project.save(folder / "p.json")
+    return project
+
+
+def test_mesh_properties_show_the_computed_first_layer_thickness(qtbot: QtBot, tmp_path) -> None:
+    from vortexcfd.foam.yplus import first_layer_thickness
+    from vortexcfd.gui.scene import domain_box_for
+
+    project = _project_with_sphere(tmp_path)
+    w = MainWindow(project, FakeDialogs(), with_viewer=False)
+    qtbot.addWidget(w)
+    w.show()
+    try:
+        w.tree.setCurrentItem(w._items[("mesh", None)])
+        p = w.properties
+        assert p.mesh_first_layer.text() == "relative sizing"
+        project.update_mesh(layer_sizing="absolute_yplus", target_yplus=30.0)
+        length = domain_box_for(project).reference_length
+        h = first_layer_thickness(30.0, 20.0, 1.5e-5, length)
+        assert p.mesh_first_layer.text() == f"{h:.4g} m (for y+ 30)"
+        project.update_inflow(speed=40.0)  # the computed value follows the flow
+        assert p.mesh_first_layer.text() == f"{first_layer_thickness(30.0, 40.0, 1.5e-5, length):.4g} m (for y+ 30)"
+    finally:
+        w.project.save = lambda *a, **k: None
+        w.close()
+
+
+def test_absolute_layers_make_the_mesh_depend_on_the_flow(tmp_path) -> None:
+    from vortexcfd.gui.meshing import inputs_hash
+
+    project = _project_with_sphere(tmp_path)
+    base = inputs_hash(project)
+    project.update_inflow(speed=40.0)
+    assert inputs_hash(project) == base  # relative layers do not depend on the flow
+    project.update_mesh(layer_sizing="absolute_yplus")
+    with_40 = inputs_hash(project)
+    project.update_inflow(speed=20.0)
+    assert inputs_hash(project) != with_40  # absolute layers do
+    project.update_physics(nu=2e-5)
+    assert inputs_hash(project) not in (with_40,)

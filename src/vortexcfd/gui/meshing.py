@@ -11,6 +11,7 @@ from pathlib import Path
 
 from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_estimate import estimate_mesh
+from vortexcfd.foam.yplus import first_layer_thickness
 from vortexcfd.foam.mesh_case import (
     TRI_SURFACE,
     MeshCaseInput,
@@ -98,6 +99,12 @@ def prepare_job(project: Project) -> MeshJob:
     box, names, meshes = _loaded_parts(project)
     bounds = [tuple(float(b) for b in m.bounds) for m in meshes]
     safe = safe_part_names(names)
+    first_layer = None
+    if project.sim.mesh.layer_sizing == "absolute_yplus":
+        first_layer = first_layer_thickness(
+            project.sim.mesh.target_yplus, project.sim.inflow.speed, project.sim.physics.nu,
+            box.reference_length,
+        )
     inputs = MeshCaseInput(
         domain_bounds=box.bounds,
         symmetric=project.sim.domain.symmetry == "y_min",
@@ -105,6 +112,7 @@ def prepare_job(project: Project) -> MeshJob:
         parts_bounds=union_bounds(bounds),
         reference_length=box.reference_length,
         mesh=project.sim.mesh,
+        first_layer_thickness=first_layer,
     )
     case_dir = case_dir_for(project)
     prepare_case_dir(case_dir, build_mesh_files(inputs))
@@ -142,5 +150,10 @@ def inputs_hash(project: Project) -> str:
         "parts": parts,
         "domain": project.sim.domain.model_dump(),
         "mesh": project.sim.mesh.model_dump(),
+        # Absolute (y+) layer sizes depend on the flow; relative sizes do not.
+        "yplus_inputs": (
+            [project.sim.inflow.speed, project.sim.physics.nu]
+            if project.sim.mesh.layer_sizing == "absolute_yplus" else None
+        ),
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()

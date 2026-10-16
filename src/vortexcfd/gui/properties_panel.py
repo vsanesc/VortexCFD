@@ -28,6 +28,7 @@ from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.foam.mesh_case import safe_part_names
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.physics_case import inlet_turbulence
+from vortexcfd.foam.yplus import first_layer_thickness
 from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_status, report_for_part
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
 
@@ -349,6 +350,7 @@ class PropertiesPanel(QWidget):
         self._section("mesh_estimate", "Estimate")
         self.mesh_bg_cells = self._ro_row("mset_bg_cells", "Background cells")
         self.mesh_surface_cells = self._ro_row("mset_surface_cells", "Surface cell size")
+        self.mesh_first_layer = self._ro_row("mset_first_layer", "First layer thickness")
         self.mesh_title = QLabel("LAST MESH")
         self.mesh_title.setObjectName("sectionTitle")
         self._layout.addWidget(self.mesh_title)
@@ -518,7 +520,7 @@ class PropertiesPanel(QWidget):
         self.mesh_title.setFont(section_title_font(QApplication.font()))
         self.mesh_title.setContentsMargins(m.s3, m.s3, m.s3, m.s2)
         for label in (self.mesh_base_used, self.mesh_levels_used, self.mesh_bg_cells, self.mesh_surface_cells,
-                      self.inflow_k, self.inflow_omega):
+                      self.mesh_first_layer, self.inflow_k, self.inflow_omega):
             label.setFont(mono)
         self.info_label.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
         self.mesh_empty.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
@@ -575,7 +577,8 @@ class PropertiesPanel(QWidget):
 
     def _mesh_setting_rows(self) -> list[str]:
         keys = [f"mset_{k}" for k, _, _ in MESH_SETTINGS]
-        return keys + ["mset_base_used", "mset_levels_used", "mset_bg_cells", "mset_surface_cells"]
+        return keys + ["mset_base_used", "mset_levels_used", "mset_bg_cells", "mset_surface_cells",
+                       "mset_first_layer"]
 
     def _refresh_mesh_settings(self, show: bool) -> None:
         for key in self._mesh_setting_rows():
@@ -601,6 +604,12 @@ class PropertiesPanel(QWidget):
             for w in widgets:
                 w.blockSignals(False)
         box = domain_box_for(self._project)
+        if box.bounds is not None and mesh.layer_sizing == "absolute_yplus":
+            sim = self._project.sim
+            h = first_layer_thickness(mesh.target_yplus, sim.inflow.speed, sim.physics.nu, box.reference_length)
+            self.mesh_first_layer.setText(f"{h:.4g} m (for y+ {mesh.target_yplus:g})")
+        else:
+            self.mesh_first_layer.setText("relative sizing" if mesh.layer_sizing == "relative" else "\u2014")
         if box.bounds is None:
             for label in (self.mesh_base_used, self.mesh_levels_used, self.mesh_bg_cells,
                           self.mesh_surface_cells):
