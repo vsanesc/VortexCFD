@@ -266,6 +266,15 @@ def test_end_to_end_meshing_through_the_window(make_window, qtbot) -> None:
     assert dict(w.telemetry_rows)["Cells"] == str(w.mesh_report.cells)
     w.scene_tab.click()
     assert not w.mesh_view.actors[0].GetVisibility()
+    # Layer coverage of the real run, shown in the Mesh properties.
+    assert [c.patch for c in w.mesh_report.layers] == ["Ball"] and w.properties.layer_labels
+    print("\nGUI layers:", w.properties.layer_labels[0].text())
+    # The old mesh stays visible in the Mesh Scene with an out-of-date warning.
+    w.mesh_tab.click()
+    assert "mesh_stale" not in w.viewer.renderer.actors and not w.mesh_stale
+    w.project.update_mesh(layers=2)
+    assert w.mesh_stale and w.mesh_view.has_mesh and w.mesh_view.actors[0].GetVisibility()
+    assert "mesh_stale" in w.viewer.renderer.actors
 
 
 # -- mesh settings editor and the cell budget ---------------------------------------------------------
@@ -358,3 +367,111 @@ def test_too_many_background_cells_disable_the_button_with_a_reason(make_window)
     w.project.update_mesh(background_cells_target=100_000)
     assert b.isEnabled()
     assert w.properties.mesh_bg_cells.property("warn") == "false"
+
+
+# -- layer coverage, staleness and persistence -------------------------------------------------------------
+
+
+def _report_with_layers(*coverage) -> MeshReport:
+    return MeshReport(10, 40, 99, 30.0, 10.0, 0.5, failed_checks=0, mesh_ok=True,
+                      layers=tuple(coverage), extruded_percent=88.0)
+
+
+def test_layer_coverage_rows_warn_below_80_percent(make_window, fake_run) -> None:
+    from vortexcfd.foam.mesh_report import LayerCoverage
+
+    w = make_window(with_viewer=False)
+    w.tree.setCurrentItem(w._items[("mesh", None)])
+    w.top_bar.mesh_button.click()
+    report = _report_with_layers(LayerCoverage("Ball", 100, 3, 2.0, 0.01, 55.5),
+                                 LayerCoverage("Tail", 50, 3, 3.0, 0.02, 100.0))
+    fake_run.instances[-1].finish(MeshRunResult(True, False, exit_codes={}, report=report))
+    p = w.properties
+    assert len(p.layer_labels) == 2
+    assert "2/3 layers" in p.layer_labels[0].text() and "55.5 %" in p.layer_labels[0].text()
+    assert "thickness" in p.layer_labels[0].text()  # says which basis the coverage is
+    assert p.layer_labels[0].property("warn") == "true" and p.layer_labels[1].property("warn") == "false"
+    assert p.mesh_values["extruded"].text() == "88 %"
+    assert "Layers:" in w.console.text() and "Ball 55.5%" in w.console.text()
+    assert "WARNING" in w.console.text()  # low coverage is logged as a warning
+
+
+def test_good_layer_coverage_is_not_a_warning(make_window, fake_run) -> None:
+    from vortexcfd.foam.mesh_report import LayerCoverage
+
+    w = make_window(with_viewer=False)
+    w.top_bar.mesh_button.click()
+    report = _report_with_layers(LayerCoverage("Ball", 100, 3, 3.0, 0.01, 100.0))
+    fake_run.instances[-1].finish(MeshRunResult(True, False, exit_codes={}, report=report))
+    w.tree.setCurrentItem(w._items[("mesh", None)])
+    assert w.properties.layer_labels[0].property("warn") == "false"
+
+
+def test_record_written_and_staleness_follows_the_inputs(make_window, fake_run) -> None:
+    from vortexcfd.foam.mesh_record import read_mesh_record
+    from vortexcfd.gui.meshing import inputs_hash
+
+    w = make_window(with_viewer=False)
+    w.top_bar.mesh_button.click()
+    fake_run.instances[-1].finish(MeshRunResult(True, False, exit_codes={}, report=_ready_report()))
+    record = read_mesh_record(w.project.path.parent / "case")
+    assert record is not None and record.report == _ready_report()
+    assert record.inputs_hash == inputs_hash(w.project) and record.patches == ("Ball",)
+    assert not w.mesh_stale and w.top_bar.mesh_badge.isHidden()
+    w.tree.setCurrentItem(w._items[("mesh", None)])
+    assert w.properties.mesh_values["status"].text() == "Up to date"
+    w.project.update_mesh(layers=2)  # a meshing input changed
+    assert w.mesh_stale and not w.top_bar.mesh_badge.isHidden()
+    assert w.top_bar.mesh_badge.text() == "Mesh out of date"
+    assert w.top_bar.mesh_badge.dot_color() == w._theme.warning
+    assert w.properties.mesh_values["status"].text() == "Mesh out of date"
+    assert w.properties.mesh_values["status"].property("warn") == "true"
+    w.act_undo.trigger()  # inputs match the mesh again
+    assert not w.mesh_stale and w.top_bar.mesh_badge.isHidden()
+
+
+@pytest.mark.parametrize("change", ["domain", "units", "file", "part"])
+def test_every_meshing_input_makes_the_mesh_stale(make_window, fake_run, change) -> None:
+    w = make_window(with_viewer=False)
+    w.top_bar.mesh_button.click()
+    fake_run.instances[-1].finish(MeshRunResult(True, False, exit_codes={}, report=_ready_report()))
+    assert not w.mesh_stale
+    folder = w.project.path.parent
+    if change == "domain":
+        w.project.update_domain(upstream=3.0)
+    elif change == "units":
+        w.project.update_part(0, units="mm")
+    elif change == "file":
+        pv.Sphere(radius=0.6).save(str(folder / "geometry" / "ball.stl"))  # content changed
+        w.project.update_part(0, name="Ball")  # no-op edit; force a refresh below
+        w._refresh()
+    else:
+        w.act_add_part.trigger()
+    assert w.mesh_stale
+
+
+def test_last_mesh_is_loaded_when_a_project_is_opened(make_window, fake_run, qtbot) -> None:
+    w = make_window(with_viewer=False)
+    w.top_bar.mesh_button.click()
+    fake_run.instances[-1].finish(MeshRunResult(True, False, exit_codes={}, report=_ready_report()))
+    path = w.project.path
+    reopened = MainWindow(Project.open(path), FakeDialogs(), with_viewer=False)
+    qtbot.addWidget(reopened)
+    reopened.show()
+    try:
+        assert reopened.mesh_report == _ready_report() and not reopened.mesh_stale
+        assert reopened.top_bar.mesh_badge.isHidden()
+        assert dict(reopened.telemetry_rows)["Cells"] == "1234"
+        assert "Loaded the last mesh" in reopened.console.text()
+        reopened.project.update_domain(downstream=7.0)
+        assert reopened.mesh_stale and not reopened.top_bar.mesh_badge.isHidden()
+    finally:
+        reopened.project.save = lambda *a, **k: None
+        reopened.close()
+
+
+def test_opening_a_project_without_a_record_shows_no_mesh(make_window) -> None:
+    w = make_window(with_viewer=False)
+    assert w.mesh_report is None and not w.mesh_stale
+    w.tree.setCurrentItem(w._items[("mesh", None)])
+    assert w.properties.mesh_empty.isVisible()

@@ -53,7 +53,8 @@ from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.gui.mesh_worker import MeshWorker
-from vortexcfd.gui.meshing import MeshingNotReady, case_dir_for, prepare_job, readiness
+from vortexcfd.foam.mesh_record import MeshRecord, read_mesh_record, write_mesh_record
+from vortexcfd.gui.meshing import MeshingNotReady, case_dir_for, inputs_hash, prepare_job, readiness
 from vortexcfd.gui.scene import (
     ERROR,
     MISSING,
@@ -269,6 +270,9 @@ class MainWindow(QMainWindow):
         self._empty_message = None
         self._grid_actors: list = []
         self.mesh_report: MeshReport | None = None
+        self.mesh_stale = False
+        self._mesh_hash: str | None = None  # inputs hash of the mesh being shown
+        self._run_hash: str | None = None  # inputs hash at the start of the running mesh
         self.mesh_view: MeshView | None = None
         self._scene_mode = "geometry"
         self._mesh_patches: tuple[str, ...] = ()
@@ -475,6 +479,7 @@ class MainWindow(QMainWindow):
             self.mesh_view.clear()
             self._set_scene_mode("geometry")
         self.properties.set_project(project)
+        self._load_mesh_record(project)
         self._unsubscribe = project.subscribe(self._on_project_changed)
         self._refresh()
 
@@ -646,6 +651,7 @@ class MainWindow(QMainWindow):
         self._update_selection_views()
         self._update_actions()
         self._update_title(sim.name)
+        self._update_mesh_stale()
         self._update_mesh_button()
 
     def _node_icon(self, glyph: str, token: str) -> QIcon:
@@ -852,7 +858,9 @@ class MainWindow(QMainWindow):
             self.show_message(f"Could not prepare the meshing case: {exc}", "error")
             return
         self._mesh_patches = job.inputs.parts
+        self._run_hash = inputs_hash(self._project)
         self.mesh_report = None
+        self._mesh_hash = None
         self.properties.set_mesh_report(None)
         self.top_bar.set_run_state("Meshing")
         est = estimate_mesh(job.inputs.domain_bounds, job.inputs.reference_length, job.inputs.mesh)
@@ -860,8 +868,44 @@ class MainWindow(QMainWindow):
                  "(surface cells %.4g m)", job.case_dir, est.total_cells, est.base_size,
                  est.level_min, est.level_max, est.surface_size)
         self.mesh_worker.start(job.case_dir)
+        self._update_mesh_stale()
         self._update_mesh_button()
         self._update_telemetry()
+
+    def _load_mesh_record(self, project: Project) -> None:
+        """Show the last saved mesh of ``project`` (case/vortexcfd_mesh.json), if there is one."""
+        self.mesh_stale = False
+        self._mesh_hash = None
+        case_dir = case_dir_for(project)
+        record = read_mesh_record(case_dir) if case_dir is not None else None
+        if record is None:
+            return
+        self.mesh_report = record.report
+        self._mesh_hash = record.inputs_hash
+        self._mesh_patches = record.patches
+        self.properties.set_mesh_report(record.report)
+        log.info("Loaded the last mesh: %s", record.report.summary())
+        if self.mesh_view is not None:
+            try:
+                self.mesh_view.load(case_dir, record.patches)
+                self.mesh_view.set_visible(self._scene_mode == "mesh")
+            except Exception:
+                log.exception("Could not load the saved mesh into the viewer")
+
+    def _update_mesh_stale(self) -> None:
+        """A shown mesh is out of date when the meshing inputs no longer match its hash."""
+        stale = (
+            self.mesh_report is not None and self._mesh_hash is not None
+            and not self.mesh_worker.is_running() and inputs_hash(self._project) != self._mesh_hash
+        )
+        if stale == self.mesh_stale and self.properties._mesh_stale == stale:
+            return
+        self.mesh_stale = stale
+        self.top_bar.set_mesh_stale(stale)
+        self.properties.set_mesh_stale(stale)
+        if self.mesh_view is not None:
+            self.mesh_view.set_stale(stale, max(7, round(self._point_size * 0.75)))
+            self.viewer.render()
 
     def _on_mesh_line(self, text: str) -> None:
         self.console.append_output(text)  # runs in the GUI thread (queued signal)
@@ -881,11 +925,21 @@ class MainWindow(QMainWindow):
         else:
             report = result.report
             self.mesh_report = report
+            self._mesh_hash = self._run_hash
             self.properties.set_mesh_report(report)
             log.info("Mesh: %s", report.summary())
+            if report.layers:
+                low = [c for c in report.layers if c.below_threshold]
+                (log.warning if low else log.info)("Layers: %s", report.layer_summary())
+            try:
+                write_mesh_record(case_dir_for(self._project), MeshRecord(
+                    report, self._run_hash or "", self._mesh_patches))
+            except OSError as exc:
+                log.warning("Could not save the mesh record: %s", exc)
             level = "success" if report.mesh_ok else "warning"
             self.show_message(f"Mesh generated: {report.summary()}", level, log_it=False)
             self._load_mesh_view()
+        self._update_mesh_stale()
         self._update_mesh_button()
         self._update_telemetry()
 

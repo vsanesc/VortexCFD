@@ -1,0 +1,37 @@
+"""Persisted result of the last meshing run: case/vortexcfd_mesh.json (no Qt)."""
+
+import json
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+from vortexcfd.foam.mesh_report import LayerCoverage, MeshReport
+
+RECORD_NAME = "vortexcfd_mesh.json"
+
+
+@dataclass(frozen=True)
+class MeshRecord:
+    report: MeshReport
+    inputs_hash: str  # hash of the meshing inputs the mesh was made from
+    patches: tuple[str, ...]  # part patch names present in the mesh
+
+
+def write_mesh_record(case_dir: Path, record: MeshRecord) -> None:
+    data = {
+        "report": asdict(record.report),
+        "inputs_hash": record.inputs_hash,
+        "patches": list(record.patches),
+    }
+    (Path(case_dir) / RECORD_NAME).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+def read_mesh_record(case_dir: Path) -> MeshRecord | None:
+    """The saved record, or None if it is missing or unreadable."""
+    path = Path(case_dir) / RECORD_NAME
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        report = dict(data["report"])
+        report["layers"] = tuple(LayerCoverage(**row) for row in report.get("layers", ()))
+        return MeshRecord(MeshReport(**report), str(data["inputs_hash"]), tuple(data["patches"]))
+    except (OSError, ValueError, KeyError, TypeError):
+        return None

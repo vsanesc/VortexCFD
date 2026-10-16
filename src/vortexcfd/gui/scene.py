@@ -251,6 +251,9 @@ class MeshView:
         self.theme = theme
         self.actors: list = []
         self.n_faces = 0
+        self.stale = False
+        self._font_size = 12
+        self._visible = True
 
     @property
     def has_mesh(self) -> bool:
@@ -283,12 +286,32 @@ class MeshView:
         return (min(b[0] for b in boxes), max(b[1] for b in boxes), min(b[2] for b in boxes),
                 max(b[3] for b in boxes), min(b[4] for b in boxes), max(b[5] for b in boxes))
 
+    STALE_NAME = "mesh_stale"
+    STALE_TEXT = "MESH OUT OF DATE"
+
+    def set_stale(self, stale: bool, font_size: int) -> None:
+        """Warn inside the viewport (VTK text) that the shown mesh no longer matches the inputs."""
+        self.stale = stale
+        self._font_size = font_size
+        self._apply_stale()
+
+    def _apply_stale(self) -> None:
+        self.plotter.remove_actor(self.STALE_NAME, render=False)
+        if self.stale and self.actors and self._visible:
+            self.plotter.add_text(
+                self.STALE_TEXT, position="upper_right", font_size=self._font_size,
+                color=self.theme.warning, font="courier", name=self.STALE_NAME, render=False,
+            )
+
     def set_visible(self, visible: bool) -> None:
+        self._visible = visible
         for actor in self.actors:
             actor.SetVisibility(visible)
+        self._apply_stale()
 
     def clear(self) -> None:
         for actor in self.actors:
             self.plotter.remove_actor(actor, render=False)
         self.actors = []
         self.n_faces = 0
+        self._apply_stale()

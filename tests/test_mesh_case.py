@@ -293,3 +293,83 @@ def test_mesh_run_stop_request(tmp_path: Path) -> None:
     result = run.wait(30)
     assert result is not None and result.stopped and not result.success
     assert not run.is_running()
+
+
+# -- layer table and persisted record ------------------------------------------------------------------
+
+from vortexcfd.foam.mesh_record import MeshRecord, read_mesh_record, write_mesh_record
+from vortexcfd.foam.mesh_report import LAYER_WARN_PERCENT, LayerCoverage, MeshReport, parse_layer_table
+
+
+def test_parse_layer_table_from_the_real_snappy_log() -> None:
+    """tests/data/snappyHexMesh_sphere_default.log: real log of the default-settings sphere run."""
+    layers, extruded = parse_layer_table((DATA / "snappyHexMesh_sphere_default.log").read_text())
+    assert layers == (LayerCoverage("Sphere", 9460, 3, 3.0, 0.0211, 100.0),)  # the FINAL table
+    assert layers[0].basis == "thickness" and layers[0].coverage_percent == 100.0
+    assert not layers[0].below_threshold
+    assert extruded == 100.0  # "Extruding 9460 out of 9460 faces (100%)"
+
+
+def test_layer_table_with_several_patches_and_poor_coverage() -> None:
+    text = """
+patch  faces    layers avg thickness[m]
+                       near-wall overall
+-----  -----    ------ --------- -------
+old    10       3      0.1       0.2
+
+Extruding 90 out of 100 faces (90%). Removed extrusion at 5 faces.
+Mesh with layers : cells:1  faces:1  points:1
+
+patch  faces        layers        overall thickness
+                target   mesh     [m]       [%]
+-----  -----    -----    ----     ---       ---
+wing   60       3        2.5      0.01      55.5
+tail   40       3        3        0.02      100
+
+Layer mesh : cells:1
+"""
+    layers, extruded = parse_layer_table(text)
+    assert [c.patch for c in layers] == ["wing", "tail"]
+    assert layers[0].below_threshold and layers[0].thickness_percent == 55.5 and layers[0].mesh_layers == 2.5
+    assert not layers[1].below_threshold and LAYER_WARN_PERCENT == 80.0
+    assert extruded == 90.0
+    assert parse_layer_table("no table here") == ((), None)
+
+
+def test_mesh_run_report_carries_the_layer_coverage_end_to_end(tmp_path: Path) -> None:
+    case = tmp_path / "case"
+    inp = sphere_input(Mesh(), Domain())
+    prepare_case_dir(case, build_mesh_files(inp))
+    pv.Sphere(radius=0.5, theta_resolution=24, phi_resolution=24).save(str(case / TRI_SURFACE / "Sphere.stl"))
+    run = MeshRun(case, step_timeout_s=100)
+    run.start()
+    result = run.wait(115)
+    assert result is not None and result.success
+    layers = result.report.layers
+    assert [c.patch for c in layers] == ["Sphere"] and layers[0].target_layers == 3
+    assert result.report.extruded_percent is not None and layers[0].coverage_percent > 0
+    est = estimate_mesh(inp.domain_bounds, inp.reference_length, inp.mesh)
+    print(
+        f"\nDEFAULT SPHERE: background {est.cells} = {est.total_cells} cells (target 100000), "
+        f"levels {est.level_min}-{est.level_max}, surface cells {est.surface_size:.4g} m; "
+        f"total {result.report.cells} cells; layers "
+        + "; ".join(f"{c.patch}: {c.coverage_percent:g}% thickness ({c.mesh_layers:g}/{c.target_layers})"
+                    for c in layers)
+        + f"; extruded faces {result.report.extruded_percent:g}%; {result.report.summary()}"
+    )
+    assert abs(est.total_cells - 100_000) <= 20_000 and result.report.mesh_ok
+
+
+def test_mesh_record_round_trip_and_bad_files(tmp_path: Path) -> None:
+    report = parse_check_mesh((DATA / "checkMesh_sphere_snappy.log").read_text())
+    layers, extruded = parse_layer_table((DATA / "snappyHexMesh_sphere_default.log").read_text())
+    from dataclasses import replace
+
+    report = replace(report, layers=layers, extruded_percent=extruded)
+    record = MeshRecord(report, "abc123", ("Sphere",))
+    write_mesh_record(tmp_path, record)
+    assert (tmp_path / "vortexcfd_mesh.json").is_file()
+    assert read_mesh_record(tmp_path) == record
+    assert read_mesh_record(tmp_path / "missing") is None
+    (tmp_path / "vortexcfd_mesh.json").write_text("{not json")
+    assert read_mesh_record(tmp_path) is None

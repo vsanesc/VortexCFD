@@ -6,14 +6,15 @@ from worker/reader threads, so a GUI must forward them through Qt signals only.
 
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from vortexcfd.foam.mesh_case import MESH_COMMANDS
-from vortexcfd.foam.mesh_report import MeshReport, parse_check_mesh
+from vortexcfd.foam.mesh_report import MeshReport, parse_check_mesh, parse_layer_table
 from vortexcfd.foam.runner import FoamRun
 
 CHECK_MESH = "checkMesh"
+SNAPPY = "snappyHexMesh"
 
 
 @dataclass
@@ -77,6 +78,8 @@ class MeshRun:
         log_dir = self.case_dir / "logs"
         codes: dict[str, int | None] = {}
         report: MeshReport | None = None
+        layers: tuple = ()
+        extruded: float | None = None
         failed: str | None = None
         for name, command in self._steps:
             with self._lock:
@@ -99,9 +102,12 @@ class MeshRun:
                 stopped = self._stop
             if stopped:
                 break
+            if name == SNAPPY:
+                layers, extruded = parse_layer_table(res.log_file.read_text(encoding="utf-8", errors="replace"))
             if name == CHECK_MESH:
                 # checkMesh may exit non-zero when checks fail: the report tells.
                 report = parse_check_mesh(res.log_file.read_text(encoding="utf-8", errors="replace"))
+                report = replace(report, layers=layers, extruded_percent=extruded)
             elif res.exit_code != 0:
                 failed = name
                 break

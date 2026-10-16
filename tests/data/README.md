@@ -25,3 +25,6 @@ The logs are real OpenFOAM output with the Case, Host and PID lines replaced by 
 
 ## `checkMesh_sphere_snappy.log`
 Real `checkMesh` log (ESI OpenFOAM v2606) of a coarse sphere meshed by the VortexCFD meshing pipeline (`foam/mesh_case.py` + `foam/mesh_run.py`): sphere of radius 0.5 m (24x24 resolution), `Domain(upstream=2, downstream=4, lateral=2, vertical=2)`, `Mesh(base_size=0.5, surface_level_min=1, surface_level_max=2, layers=1)`; steps blockMesh, surfaceFeatureExtract, snappyHexMesh -overwrite, checkMesh. Result: 3910 cells, 12951 faces, max non-orthogonality 28.94, max skewness 0.4556, `Mesh OK.`. The `Case`, `Host` and `PID` header lines were sanitized.
+
+## `snappyHexMesh_sphere_default.log`
+Real `snappyHexMesh -overwrite` log (ESI OpenFOAM v2606) of the end-to-end sphere test with the default sizing only: sphere of radius 0.5 m (24x24 resolution), default `Domain()` (5/10/5/5 L) and default `Mesh()` (100 000 background cells, 0.01 L surface cells, 3 layers); no manual base size. It contains both layer tables (the preliminary "avg thickness" one and the final "overall thickness" summary the parser reads) and the `Extruding 9460 out of 9460 faces (100%)` line. The `Case`, `Host` and `PID` header lines were sanitized.

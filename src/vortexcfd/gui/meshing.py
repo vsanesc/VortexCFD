@@ -4,6 +4,8 @@ Lives in gui/ although it needs no Qt: it joins core (project), geometry (surfac
 foam (case files), and foam/ must not depend on geometry/ (which imports pyvista).
 """
 
+import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -109,3 +111,36 @@ def prepare_job(project: Project) -> MeshJob:
     for name, mesh in zip(safe, meshes):
         mesh.save(str(case_dir / TRI_SURFACE / f"{name}.stl"))  # already scaled to metres
     return MeshJob(case_dir, inputs, box)
+
+
+_file_hashes: dict[tuple[str, int, int], str] = {}
+
+
+def _hash_file(path: Path) -> str:
+    """SHA-256 of a file's contents, cached by (path, mtime, size)."""
+    stat = path.stat()
+    key = (str(path.resolve()), stat.st_mtime_ns, stat.st_size)
+    digest = _file_hashes.get(key)
+    if digest is None:
+        h = hashlib.sha256()
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+        digest = _file_hashes[key] = h.hexdigest()
+    return digest
+
+
+def inputs_hash(project: Project) -> str:
+    """Hash of everything a mesh depends on: part names, file contents and units, the domain
+    and the mesh settings. A saved mesh whose hash differs from this one is out of date."""
+    parts = []
+    for part in project.sim.geometry.parts:
+        path = project.resolve_part_path(part) if part.source_file and project.path else None
+        digest = _hash_file(path) if path is not None and path.is_file() else None
+        parts.append([part.name, part.units, digest])
+    payload = {
+        "parts": parts,
+        "domain": project.sim.domain.model_dump(),
+        "mesh": project.sim.mesh.model_dump(),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()

@@ -43,6 +43,9 @@ class TopBar(QWidget):
         self.name_button.setToolTip("Select the simulation (edit its name in Properties)")
         self.name_button.clicked.connect(self.name_clicked)
         self.state_badge = Badge("Saved", with_dot=True)
+        self.mesh_badge = Badge("Mesh out of date", with_dot=True)
+        self.mesh_badge.set_state("warning")
+        self.mesh_badge.hide()
         self._pad = 0
 
         row = QHBoxLayout(self)
@@ -52,6 +55,7 @@ class TopBar(QWidget):
         row.addWidget(self._separator())
         row.addWidget(self.name_button)
         row.addWidget(self.state_badge)
+        row.addWidget(self.mesh_badge)
         row.addWidget(self._separator())
 
         # One segmented control: elevated pill, 1px border, 1px separators between segments.
@@ -111,6 +115,10 @@ class TopBar(QWidget):
         self._dirty = dirty
         self._update_badge()
 
+    def set_mesh_stale(self, stale: bool) -> None:
+        """Show the "Mesh out of date" badge (the saved mesh no longer matches the inputs)."""
+        self.mesh_badge.setHidden(not stale)
+
     def set_run_state(self, text: str | None) -> None:
         """Show a run state (e.g. "Meshing") in the badge instead of Saved/Modified."""
         self._run_state = text
@@ -169,6 +177,7 @@ class TopBar(QWidget):
         self.brand.setFont(brand)
         self.name_button.setFont(mono_font(QApplication.font(), 0.9))
         self.state_badge.configure(m, t)
+        self.mesh_badge.configure(m, t)
         self.wireframe_button.configure(m, t)
         small = mono_font(QApplication.font(), 0.85)
         self._seg_row.setContentsMargins(m.line, m.line, m.line, m.line)

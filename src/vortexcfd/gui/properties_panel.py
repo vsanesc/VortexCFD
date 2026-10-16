@@ -75,6 +75,8 @@ MESH_ROWS = (
     ("skewness", "Max skewness"),
     ("failed", "Failed checks"),
     ("ok", "Mesh OK"),
+    ("extruded", "Surface faces with layers"),
+    ("status", "Status"),
 )
 
 # Rows of the read-only Checks group: (key, label).
@@ -197,6 +199,15 @@ class PropertiesPanel(QWidget):
             value.setObjectName("checkValue")
             self.mesh_values[key] = value
             self._layout.addWidget(self._make_row(f"mesh_{key}", text, value))
+        # Layer coverage: one row per part patch, filled in by _refresh_mesh.
+        self._row_margins = (0, 0, 0, 0)
+        self._layer_rows: list[QWidget] = []
+        self.layer_labels: list[QLabel] = []
+        self._layer_box = QVBoxLayout()
+        self._layer_box.setContentsMargins(0, 0, 0, 0)
+        self._layer_box.setSpacing(0)
+        self._layout.addLayout(self._layer_box)
+        self._mesh_stale = False
         self.mesh_empty = QLabel("No mesh")
         self.mesh_empty.setObjectName("muted")
         self._layout.addWidget(self.mesh_empty)
@@ -232,6 +243,7 @@ class PropertiesPanel(QWidget):
 
     def apply_metrics(self, m: Metrics, theme: Theme) -> None:
         """Paddings and fonts derived from the font height."""
+        self._row_margins = (m.s3, m.s2, m.s3, m.s2)
         for box in self._row_layouts:
             box.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
             box.setSpacing(m.s3)
@@ -358,6 +370,7 @@ class PropertiesPanel(QWidget):
             self._rows[f"mesh_{key}"].setVisible(show and report is not None)
         self.mesh_empty.setVisible(show and report is None)
         if not show or report is None:
+            self._fill_layer_rows(None)
             return
 
         def num(value, fmt: str = "{}") -> str:
@@ -371,10 +384,48 @@ class PropertiesPanel(QWidget):
             "skewness": (num(report.max_skewness, "{:.4g}"), False),
             "failed": (str(report.failed_checks), report.failed_checks > 0),
             "ok": ("yes" if report.mesh_ok else "no", not report.mesh_ok),
+            "extruded": (num(report.extruded_percent, "{:g} %"), False),
+            "status": (("Mesh out of date", True) if self._mesh_stale else ("Up to date", False)),
         }
         for key, (text, warn) in values.items():
             self.mesh_values[key].setText(text)
             self._set_warn(self.mesh_values[key], warn)
+        self._rows["mesh_extruded"].setVisible(show and report.extruded_percent is not None)
+        self._fill_layer_rows(report)
+
+    def _fill_layer_rows(self, report: MeshReport | None) -> None:
+        """One row per part patch: layers, thickness and coverage (warning below 80 %)."""
+        for row in self._layer_rows:
+            self._layer_box.removeWidget(row)
+            row.deleteLater()
+        self._layer_rows, self.layer_labels = [], []
+        if report is None:
+            return
+        for cov in report.layers:
+            label = QLabel(
+                f"{cov.mesh_layers:g}/{cov.target_layers} layers, {cov.thickness_m:.4g} m, "
+                f"{cov.coverage_percent:g} % of target {cov.basis}"
+            )
+            label.setObjectName("checkValue")
+            label.setFont(mono_font(QApplication.font(), 0.9))
+            self._set_warn(label, cov.below_threshold)
+            row = QWidget()
+            row.setObjectName("propRow")
+            row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            box = QHBoxLayout(row)
+            box.setContentsMargins(*self._row_margins)
+            title = QLabel(f"Layers: {cov.patch}")
+            title.setObjectName("muted")
+            box.addWidget(title, 2)
+            box.addWidget(label, 3)
+            self._layer_box.addWidget(row)
+            self._layer_rows.append(row)
+            self.layer_labels.append(label)
+
+    def set_mesh_stale(self, stale: bool) -> None:
+        """The shown mesh no longer matches the project's meshing inputs."""
+        self._mesh_stale = stale
+        self.refresh()
 
     def _refresh_domain(self, show: bool) -> None:
         """Populate the domain rows from the project (no commits) and show them if ``show``."""
