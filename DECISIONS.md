@@ -68,6 +68,9 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-050 | 2026-10-17 | forceCoeffs projection checked against a forces function object | Accepted |
 | D-051 | 2026-10-17 | A new mesh deletes the previous results | Accepted |
 | D-052 | 2026-10-17 | Lost-part guard, thin-part warning, per-part levels and seed lines (schema v5) | Proposed |
+| D-053 | 2026-10-17 | Results Scene | Proposed |
+| D-054 | 2026-10-17 | Colormaps from matplotlib | Proposed |
+| D-055 | 2026-10-17 | Open in ParaView | Proposed |
 
 ---
 
@@ -446,4 +449,25 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   - Per-part refinement: Part gains optional surface_level_min / surface_level_max (None = the Mesh levels; only the max set gives min = max - 1; shown as "auto" in the Part properties); its refinementSurfaces entry and its feature level use them; they are meshing inputs (mesh hash). Schema v5 with migration (hand-written v4 fixture).
   - Seed lines: a part with a level override that is small by the criterion above also gets constant/triSurface/<part>_seed.eMesh, three axis-aligned lines through the centre of its bounding box reaching 20 % beyond it, added to `features` at the part's maximum level. Explicit feature refinement runs before surface refinement and needs no intersection, so the cells along the lines are refined and the surface is then found. On the reproduced case with Pod levels (4 5): Pod 1304 faces, checkMesh Mesh OK, guard passes; default levels: lost.
 - Alternatives considered: raising the part's surface level only (no effect, see Context); a distance-mode refinementRegion around the part (applied after surface refinement: 40 faces); a finer background everywhere (costly, 16 faces at 0.375 m); seeding every small part automatically (not done: it changes default meshing; docs/QUESTIONS.md item 55).
-- Consequences: a lost part can no longer reach the solver; the user is warned before meshing and fixes it with the part's levels. Seed lines add a thin column of refined cells inside the part (removed with the part interior).
+- Consequences: a lost part can no longer reach the solver; the user is warned before meshing and fixes it with the part's levels. Seed lines add a thin column of refined cells inside the part (removed with the part interior). Test bound: the real meshing tests that build their own mesh (tests/test_lost_parts.py, tests/test_force_projection.py) allow 240 s per OpenFOAM step and 600 s in total instead of the 120 s of D-043, because under `-n 8` they run next to every worker's session sphere mesh and timed out once.
+
+## D-053 Results Scene
+- Status: Proposed (Task 6.2 Part B, recorded while Vic was away)
+- Context: PLAN 6.2 scalar scenes: field selector, colormaps, range modes, legend bar.
+- Decision: a "Results Scene" tab is shown only when the case has results (a time directory after 0 holding files). Entering it reads the latest time with PyVista's OpenFOAM reader (case.foam, written if missing) on a worker thread (always, so a large case never blocks the GUI); the data reaches the GUI through Qt signals. The wall (part) patches are coloured by the selected field (cell values). Fields: p (kinematic, m2/s2), Cp = p / (0.5 U_ref^2) (U_ref = the inflow speed, p_ref = 0, the outlet value), |U|, Ux, Uy, Uz, k, omega, nut, y+ and |wallShearStress| (kinematic), each listed only when its file in the latest time directory is a volume field of the right kind (default Cp). Range: auto (data range), fixed (min/max fields, seeded with the current range) or symmetric about zero. One vertical VTK scalar bar with "<field> [<units>]", title and labels in the theme `text` colour, font size 1.25 x the UI point size in px (labels at least 10 px). Display Walls / Section / Both: the section uses the Mesh Scene's plane controls (normal buttons and slider; the section and boundary toggles are hidden here) and, as in the Mesh Scene, clips the walls behind the plane. Telemetry gains a checkable "Field range" row (min - max and units of what is shown), present only in the Results Scene. "Results out of date" (the run record's hash, D-046) is a warning strip in the scene's control row. A new mesh removes the results (D-051) and the tab.
+- Alternatives considered: point data (interpolated, smoother but not the solver's face values); reading on the GUI thread for small cases (a second code path for little gain).
+- Consequences: scene definitions are not saved in the project yet (PLAN 6.2 acceptance) and there is no image export; slices, iso-surfaces and streamlines are not started.
+
+## D-054 Colormaps from matplotlib
+- Status: Proposed (Task 6.2 Part B; the dependency exception of the task)
+- Context: the Results Scene needs viridis, plasma, turbo, coolwarm and grayscale. matplotlib 3.11.2 is already in .venv: PyVista 0.49 requires it (pip: "Required-by: pyvista, vtk").
+- Decision: use matplotlib's lookup tables, in one module (gui/colormaps.py: names, 256-entry RGB tables, the name passed to PyVista), and declare matplotlib in pyproject.toml dependencies because the app now imports it directly. Licences: matplotlib (PSF-style matplotlib licence), viridis/plasma CC0, turbo Apache-2.0; all GPL-3 compatible.
+- Alternatives considered: tables built in code from published control points (more code to maintain and verify, same result); relying on matplotlib only through PyVista (an undeclared direct import, like the numpy debt).
+- Consequences: no new package is installed; the colormap list is one dictionary to extend.
+
+## D-055 Open in ParaView
+- Status: Proposed (Task 6.2 Part B)
+- Context: D-005 promises that every case opens in ParaView; the owner runs the Windows ParaView next to WSL.
+- Decision: the Results Scene has "Open in ParaView": it writes case.foam, converts its path with `wslpath -w` and starts paraview.exe with it, detached (new session, no pipes, the GUI never waits). The executable is a setting (Edit > Preferences, QSettings key paraview/executable); when unset, the newest /mnt/c/Program Files/ParaView*/bin/paraview.exe (by the version in the folder name) is used. Without an executable the button is disabled and its tooltip says how to set the path.
+- Alternatives considered: a Linux ParaView inside WSL (not installed; slower through WSLg); pvpython scripting (not needed to open a case).
+- Consequences: works only when a Windows ParaView is installed or configured (none is installed on the development machine today).

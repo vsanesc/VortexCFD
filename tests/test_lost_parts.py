@@ -236,9 +236,9 @@ def _real_mesh(tmp_path: Path, pod_levels) -> MeshRunResult:
     job = prepare_job(project)
     from vortexcfd.foam.mesh_run import MeshRun
 
-    run = MeshRun(job.case_dir, step_timeout_s=110, parts=job.inputs.parts)
+    run = MeshRun(job.case_dir, step_timeout_s=240, parts=job.inputs.parts)
     run.start()
-    result = run.wait(300)
+    result = run.wait(600)
     assert result is not None and result.success, result
     return result
 

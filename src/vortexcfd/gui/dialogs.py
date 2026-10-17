@@ -46,6 +46,15 @@ class Dialogs:
         )
         return units if ok else None
 
+    def ask_paraview_path(self, current: str, detected: Path | None) -> str | None:
+        """Preferences: the ParaView executable (empty text = detect automatically)."""
+        hint = f"Detected: {detected}" if detected else "Not detected under /mnt/c/Program Files/ParaView*"
+        text, ok = QInputDialog.getText(
+            self.parent, "Preferences",
+            f"ParaView executable (paraview.exe, WSL path; empty = detect).\n{hint}", text=current,
+        )
+        return text if ok else None
+
     def confirm_discard(self) -> DiscardChoice:
         box = QMessageBox(self.parent)
         box.setIcon(QMessageBox.Icon.Warning)

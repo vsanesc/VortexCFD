@@ -276,7 +276,8 @@ def test_telemetry_follows_checked_fields_and_persists(make_window, qtbot) -> No
     assert str(s.value("telemetry/field_selected")).lower() == "false"
     other = make_window(with_viewer=True)  # a new window restores the choices
     assert not other.act_tel_show.isChecked()
-    assert [k for k, a in other.act_tel_fields.items() if a.isChecked()] == ["parts"]
+    # "field_range" stays checked: it is a Results Scene row only
+    assert [k for k, a in other.act_tel_fields.items() if a.isChecked()] == ["parts", "field_range"]
 
 
 def test_telemetry_card_actors_use_token_colors(make_window) -> None:

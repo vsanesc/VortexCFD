@@ -3,6 +3,7 @@
 import logging
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -20,6 +21,8 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
+    QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
     QButtonGroup,
@@ -58,6 +61,10 @@ from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam.run_record import RunRecord, read_run_record, write_run_record
 from vortexcfd.gui import solving
 from vortexcfd.gui.solver_worker import SolverWorker
+from vortexcfd.foam.results import latest_result_time
+from vortexcfd.gui import paraview
+from vortexcfd.gui.colormaps import COLORMAPS, DEFAULT_COLORMAP
+from vortexcfd.gui.results_scene import DISPLAY_MODES, RANGE_MODES, ResultsLoader, ResultsView
 from vortexcfd.foam.mesh_record import MeshRecord, read_mesh_record, write_mesh_record
 from vortexcfd.gui.meshing import (
     MeshingNotReady,
@@ -373,8 +380,10 @@ class MainWindow(QMainWindow):
         tab_row.setContentsMargins(0, 0, 0, 0)
         self.scene_tab = QPushButton("Geometry Scene")  # kept name: the geometry tab
         self.mesh_tab = QPushButton("Mesh Scene")
+        self.results_tab = QPushButton("Results Scene")
         self._tab_group = QButtonGroup(self)
-        for button, mode in ((self.scene_tab, "geometry"), (self.mesh_tab, "mesh")):
+        for button, mode in ((self.scene_tab, "geometry"), (self.mesh_tab, "mesh"),
+                             (self.results_tab, "results")):
             button.setObjectName("sceneTabBtn")
             button.setCheckable(True)
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -429,7 +438,14 @@ class MainWindow(QMainWindow):
         self.section_controls.hide()
         center_layout.addWidget(self._tab_bar)
         center_layout.addWidget(self.section_controls)
+        self._build_results_controls()
+        center_layout.addWidget(self.results_controls)
         self.viewer = None
+        self.results_view: ResultsView | None = None
+        self.results_loader = ResultsLoader(self)
+        self.results_loader.loaded.connect(self._on_results_loaded)
+        self.results_loader.failed.connect(self._on_results_failed)
+        self._results_shown_time: str | None = None  # time of the data in results_view
         if with_viewer:
             # Placeholder from the spike; Task 2.2 replaces it.
             from pyvistaqt import QtInteractor
@@ -445,6 +461,7 @@ class MainWindow(QMainWindow):
             self.scene = PartScene(self.viewer, self._theme, self._on_viewer_pick)
             self.domain_view = DomainView(self.viewer, self._theme)
             self.mesh_view = MeshView(self.viewer, self._theme)
+            self.results_view = ResultsView(self.viewer, self._theme)
             try:
                 self.scene.install_picking()
             except Exception:  # pragma: no cover - interactor without observers
@@ -619,8 +636,19 @@ class MainWindow(QMainWindow):
         self.tree.setIconSize(QSize(m.u, m.u))
         self.tree.setFont(QApplication.font())
         self._tab_bar.setFixedHeight(m.tab_bar)
-        for tab in (self.scene_tab, self.mesh_tab):
+        for tab in (self.scene_tab, self.mesh_tab, self.results_tab):
             tab.setFixedHeight(m.tab_bar - m.line)
+        self._results_row.setContentsMargins(m.s3, 0, m.s3, 0)
+        self._results_row.setSpacing(m.s2)
+        self.results_controls.setFixedHeight(m.tab_bar)
+        for w in self._results_widgets():
+            w.setFont(mono_font(QApplication.font(), 0.85))
+            w.setFixedHeight(m.tab_bar - 2 * m.s1)
+        pad = 4 * m.s3
+        self.paraview_button.setMinimumWidth(
+            self.paraview_button.fontMetrics().horizontalAdvance(self.paraview_button.text()) + pad)
+        if self.results_view is not None:
+            self.results_view.font_size = self._point_size
         self._section_row.setContentsMargins(m.s3, 0, m.s3, 0)
         self.section_controls.setFixedHeight(m.tab_bar)
         self._section_row.setSpacing(m.s2)
@@ -765,6 +793,7 @@ class MainWindow(QMainWindow):
         self._update_results_stale()
         self._update_run_button()
         self.monitors.set_assignments(list(sim.reports.slots))
+        self._update_results_tab()
 
     def _node_icon(self, glyph: str, token: str) -> QIcon:
         color = QColor(getattr(self._theme, token))
@@ -892,12 +921,15 @@ class MainWindow(QMainWindow):
         """Hide the empty-scene grid and message when any part (or extra actor) is visible."""
         if self._scene_mode == "mesh":
             has_content = self.mesh_view is not None and self.mesh_view.has_mesh
+        elif self._scene_mode == "results":
+            has_content = self.results_view is not None and self.results_view.has_results
         else:
             has_content = (self.scene is not None and self.scene.has_visible()) or bool(self.scene_actors)
         for actor in self._grid_actors:
             actor.SetVisibility(not has_content)
         if self._empty_message is not None:
-            self._empty_message.set_text("No mesh yet" if self._scene_mode == "mesh" else EMPTY_MESSAGE)
+            self._empty_message.set_text({"mesh": "No mesh yet", "results": "Loading results"}.get(
+                self._scene_mode, EMPTY_MESSAGE))
             self._empty_message.set_visible(not has_content)
 
     def _selected_boundary(self) -> str | None:
@@ -932,16 +964,28 @@ class MainWindow(QMainWindow):
             "cells": str(self.mesh_report.cells) if self.mesh_report and self.mesh_report.cells else EMPTY,
             "domain": self._domain_text(),
             "view": self.current_view,
+            "field_range": self._field_range_text(),
         }
         self.telemetry_rows = [
             (label, values[key])
             for key, label in TELEMETRY_FIELDS
             if self._telemetry_show and self._telemetry_fields.get(key, False)
+            and (key != "field_range" or self._scene_mode == "results")  # a results-only row
         ]
         if self.telemetry is not None:
             self.telemetry.set_rows(self.telemetry_rows)
             self._layout_telemetry()
             self.viewer.render()
+
+    def _field_range_text(self) -> str:
+        view = self.results_view
+        if self._scene_mode != "results" or view is None or view.field() is None:
+            return EMPTY
+        rng = view.field_range()
+        if rng is None:
+            return EMPTY
+        units = f" {view.field().units}" if view.field().units else ""
+        return f"{rng[0]:.4g} \u2013 {rng[1]:.4g}{units}"
 
     def _domain_text(self) -> str:
         box = self._domain_box
@@ -1160,6 +1204,7 @@ class MainWindow(QMainWindow):
             return
         self.results_stale = stale
         self.top_bar.set_results_stale(stale)
+        self.results_stale_label.setVisible(stale and self._scene_mode == "results")
         self.properties.set_run_record(record, stale)
 
     def _on_solver_line(self, text: str) -> None:
@@ -1194,6 +1239,8 @@ class MainWindow(QMainWindow):
         self._update_results_stale(force=True)
         self._update_run_button()
         self._update_mesh_button()
+        self._results_shown_time = None  # new results on disk
+        self._update_results_tab()
 
     def _clear_results_after_meshing(self) -> None:
         """A new mesh makes the previous solver results meaningless: delete them (D-051)."""
@@ -1208,6 +1255,7 @@ class MainWindow(QMainWindow):
         self.properties.set_run_record(None)
         self.monitors.clear()
         self._update_results_stale(force=True)
+        self._update_results_tab()
 
     def _load_mesh_view(self) -> None:
         if self.mesh_view is None:
@@ -1222,23 +1270,224 @@ class MainWindow(QMainWindow):
             self._set_scene_mode("mesh")
 
     def _set_scene_mode(self, mode: str) -> None:
-        """Switch between the geometry scene and the mesh scene (tab bar)."""
+        """Switch between the geometry, mesh and results scenes (tab bar)."""
         self._scene_mode = mode
         self.scene_tab.setChecked(mode == "geometry")
         self.mesh_tab.setChecked(mode == "mesh")
+        self.results_tab.setChecked(mode == "results")
+        self.results_controls.setVisible(mode == "results")
+        if mode == "results":
+            self.results_stale_label.setVisible(self.results_stale)
+            self._update_paraview_button()
         if self.scene is not None:
             self.scene.enabled = mode == "geometry"
             self.scene.apply_visibility(self.part_visibility)
             self.mesh_view.set_visible(mode == "mesh")
+            self.results_view.set_visible(mode == "results")
+            if mode == "results" and self._results_shown_time != self.results_time():
+                self._load_results()
             self._update_empty_state()
             self._sync_domain()
-            bounds = self.mesh_view.bounds() if mode == "mesh" else self.scene.visible_bounds()
+            if mode == "mesh":
+                bounds = self.mesh_view.bounds()
+            elif mode == "results":
+                bounds = self.results_view.bounds()
+            else:
+                bounds = self.scene.visible_bounds()
             if mode == "mesh":
                 self._aim_at_section()
             elif bounds is not None:
                 self.viewer.reset_camera(render=False, bounds=bounds)
             self._sync_section_controls()
+            self._update_telemetry()
             self.viewer.render()
+
+    # -- results scene ---------------------------------------------------------------------
+
+    def _build_results_controls(self) -> None:
+        """Field, colormap, range, display mode, the stale strip and Open in ParaView (results only)."""
+        self.results_controls = QWidget()
+        self.results_controls.setObjectName("tabBar")
+        self.results_controls.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        row = QHBoxLayout(self.results_controls)
+        self._results_row = row
+        self.field_combo = QComboBox()
+        self.field_combo.setToolTip("Field shown on the walls and the section")
+        self.colormap_combo = QComboBox()
+        self.colormap_combo.addItems(list(COLORMAPS))
+        self.colormap_combo.setCurrentText(DEFAULT_COLORMAP)
+        self.colormap_combo.setToolTip("Colormap")
+        self.range_combo = QComboBox()
+        self.range_combo.addItems(list(RANGE_MODES))
+        self.range_combo.setToolTip("Colour range: auto (data), fixed (min/max) or symmetric about zero")
+        self.range_min = QDoubleSpinBox()
+        self.range_max = QDoubleSpinBox()
+        for spin, tip in ((self.range_min, "Fixed range minimum"), (self.range_max, "Fixed range maximum")):
+            spin.setRange(-1e12, 1e12)
+            spin.setDecimals(6)
+            spin.setToolTip(tip)
+            spin.setVisible(False)
+        self.display_combo = QComboBox()
+        self.display_combo.addItems(list(DISPLAY_MODES))
+        self.display_combo.setToolTip("Show the field on the walls, on the section plane, or both")
+        for combo in (self.field_combo, self.colormap_combo, self.range_combo, self.display_combo):
+            # shrinkable down to 5 characters so Open in ParaView always fits beside them
+            combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(5)
+            combo.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.results_stale_label = QLabel("Results out of date: run the solver again")
+        self.results_stale_label.setObjectName("statusWarn")
+        self.results_stale_label.setVisible(False)
+        self.paraview_button = QPushButton("Open in ParaView")
+        self.paraview_button.setObjectName("tbBtn")
+        self.paraview_button.clicked.connect(self.open_in_paraview)
+        for widget in (self.field_combo, self.colormap_combo, self.range_combo, self.range_min,
+                       self.range_max, self.display_combo):
+            row.addWidget(widget)
+        row.addWidget(self.results_stale_label)
+        row.addStretch(1)
+        row.addWidget(self.paraview_button)
+        for combo in (self.field_combo, self.colormap_combo, self.range_combo, self.display_combo):
+            combo.currentTextChanged.connect(lambda _t: self._apply_results_controls())
+        for spin in (self.range_min, self.range_max):
+            spin.editingFinished.connect(self._apply_results_controls)
+        self.results_controls.hide()
+
+    def _results_widgets(self) -> list[QWidget]:
+        return [self.field_combo, self.colormap_combo, self.range_combo, self.range_min, self.range_max,
+                self.display_combo, self.paraview_button]
+
+    def results_time(self) -> str | None:
+        """The latest time directory with results in the project's case, or None."""
+        case_dir = case_dir_for(self._project)
+        return latest_result_time(case_dir) if case_dir is not None else None
+
+    def _update_results_tab(self) -> None:
+        """Show the Results Scene tab only when the case has results; refresh its controls."""
+        time = self.results_time()
+        self.results_tab.setVisible(time is not None)
+        if time is None:
+            self._results_shown_time = None
+            if self.results_view is not None:
+                self.results_view.clear()
+            if self._scene_mode == "results":
+                self._set_scene_mode("geometry")
+            return
+        self._fill_field_combo(time)
+        self.results_stale_label.setVisible(self.results_stale)
+        self._update_paraview_button()
+        if self._scene_mode == "results" and time != self._results_shown_time:
+            self._load_results()
+
+    def _fill_field_combo(self, time: str) -> None:
+        from vortexcfd.foam.results import available_fields
+
+        fields = available_fields(case_dir_for(self._project), time)
+        labels = [f.label for f in fields]
+        self._field_keys = {f.label: f.key for f in fields}
+        if [self.field_combo.itemText(i) for i in range(self.field_combo.count())] == labels:
+            return
+        current = self.field_combo.currentText()
+        self.field_combo.blockSignals(True)
+        self.field_combo.clear()
+        self.field_combo.addItems(labels)
+        if current in labels:
+            self.field_combo.setCurrentText(current)
+        elif "Cp" in labels:
+            self.field_combo.setCurrentText("Cp")
+        self.field_combo.blockSignals(False)
+
+    def field_list(self) -> list[str]:
+        return [self.field_combo.itemText(i) for i in range(self.field_combo.count())]
+
+    def _load_results(self) -> None:
+        """Read the latest results on a worker thread (the view is filled when they arrive)."""
+        time = self.results_time()
+        if time is None or self.results_view is None or self.results_loader.is_running():
+            return
+        self.show_message(f"Loading results (time {time})...", log_it=False)
+        self._results_loading_time = time
+        self.results_loader.start(case_dir_for(self._project), time, self._mesh_patches)
+
+    def _on_results_loaded(self, data) -> None:
+        if self.results_view is None:
+            return
+        self._results_shown_time = data.time
+        self._apply_results_controls(data)
+        log.info("Results loaded: time %s, fields %s", data.time, ", ".join(f.label for f in data.fields))
+        self.show_message(f"Results at time {data.time}", "success", log_it=False)
+        if self._scene_mode == "results":
+            self._set_scene_mode("results")
+
+    def _on_results_failed(self, message: str) -> None:
+        log.error("Could not load the results: %s", message)
+        self.show_message("Could not load the results; see the console", "error", log_it=False)
+
+    def _apply_results_controls(self, data=None) -> None:
+        """Push the strip's choices into the view and redraw."""
+        fixed = self.range_combo.currentText() == "fixed"
+        self.range_min.setVisible(fixed)
+        self.range_max.setVisible(fixed)
+        view = self.results_view
+        if view is None:
+            return
+        state = dict(
+            field_key=getattr(self, "_field_keys", {}).get(self.field_combo.currentText()),
+            colormap=self.colormap_combo.currentText(),
+            range_mode=self.range_combo.currentText(),
+            fixed_range=(self.range_min.value(), self.range_max.value()) if fixed else None,
+            display=self.display_combo.currentText(),
+            u_ref=self._project.sim.inflow.speed,
+            font_size=self._point_size,
+        )
+        if data is not None:
+            view.data = None
+            for key, value in state.items():
+                setattr(view, key, value)
+            view.set_data(data)
+        else:
+            view.configure(**state)
+        if fixed is False and view.has_results:  # seed the fixed limits with the current range
+            rng = view.field_range()
+            if rng is not None:
+                for spin, value in zip((self.range_min, self.range_max), rng):
+                    spin.blockSignals(True)
+                    spin.setValue(value)
+                    spin.blockSignals(False)
+        self._sync_section_controls()
+        self._update_telemetry()
+        if self.viewer is not None:
+            self.viewer.render()
+
+    def _update_paraview_button(self) -> None:
+        exe = paraview.executable()
+        has = self.results_time() is not None
+        self.paraview_button.setEnabled(exe is not None and has)
+        self.paraview_button.setToolTip(
+            paraview.NOT_FOUND_TIP if exe is None else f"Open the case in ParaView ({exe})")
+
+    def open_in_paraview(self) -> None:
+        """Write case.foam and launch the Windows ParaView on it, detached."""
+        exe = paraview.executable()
+        case_dir = case_dir_for(self._project)
+        if exe is None or case_dir is None:
+            self.show_message(paraview.NOT_FOUND_TIP, "warning")
+            return
+        try:
+            paraview.launch(exe, case_dir)
+        except (OSError, subprocess.SubprocessError) as exc:
+            self.show_message(f"Could not start ParaView: {exc}", "error")
+            return
+        log.info("Opened %s in ParaView (%s)", case_dir / "case.foam", exe)
+
+    def edit_preferences(self) -> None:
+        """Edit > Preferences: the ParaView executable (empty = detect)."""
+        path = self.dialogs.ask_paraview_path(paraview.configured(), paraview.detect())
+        if path is None:
+            return
+        paraview.set_configured(path.strip())
+        self._update_paraview_button()
+        log.info("ParaView executable: %s", path.strip() or "detect automatically")
 
     # -- mesh section plane -------------------------------------------------------------
 
@@ -1255,11 +1504,22 @@ class MainWindow(QMainWindow):
         if bounds is not None:
             self.viewer.reset_camera(render=False, bounds=bounds)
 
+    def _section_view(self):
+        """The view the section controls drive: the mesh view, or the results view in that scene."""
+        return self.results_view if self._scene_mode == "results" else self.mesh_view
+
     def _sync_section_controls(self) -> None:
-        """Show the controls in the mesh scene and set the slider to the plane's offset."""
-        view = self.mesh_view
-        visible = self._scene_mode == "mesh" and view is not None and view.has_volume
+        """Show the controls in the mesh scene (and in the results scene when a section is shown)
+        and set the slider to the plane's offset."""
+        view = self._section_view()
+        if self._scene_mode == "results":
+            visible = (view is not None and view.volume_bounds() is not None
+                       and view.display in ("Section", "Both"))
+        else:
+            visible = self._scene_mode == "mesh" and view is not None and view.has_volume
         self.section_controls.setVisible(visible)
+        self.section_toggle.setVisible(self._scene_mode == "mesh")
+        self.boundary_toggle.setVisible(self._scene_mode == "mesh")
         if not visible or view.section_position is None:
             return
         lo, hi = view.volume_bounds()[2 * view.section_axis: 2 * view.section_axis + 2]
@@ -1277,6 +1537,12 @@ class MainWindow(QMainWindow):
 
     def _on_section_axis(self, axis: int) -> None:
         if self.mesh_view is None:
+            return
+        if self._scene_mode == "results":
+            self.results_view.set_section(axis=axis)
+            self._sync_section_controls()
+            self._update_telemetry()
+            self.viewer.render()
             return
         self.mesh_view.set_section(axis=axis)
         self._aim_at_section()
@@ -1306,11 +1572,13 @@ class MainWindow(QMainWindow):
         self._slice_at(self.section_slider.value())  # the final, full re-slice
 
     def _slice_at(self, value: int) -> None:
-        view = self.mesh_view
-        if view is None or not view.has_volume:
+        view = self._section_view()
+        if view is None or view.volume_bounds() is None:
             return
         lo, hi = view.volume_bounds()[2 * view.section_axis: 2 * view.section_axis + 2]
         view.set_section(position=lo + value / SECTION_SLIDER_STEPS * (hi - lo))
+        if view is self.results_view:
+            self._update_telemetry()
         self.viewer.render()
 
     def _on_boundaries_toggled(self, on: bool) -> None:
@@ -1485,6 +1753,9 @@ class MainWindow(QMainWindow):
         edit_menu.addActions([self.act_undo, self.act_redo])
         edit_menu.addSeparator()
         edit_menu.addActions([self.act_add_part, self.act_remove_part])
+        edit_menu.addSeparator()
+        self.act_preferences = action("&Preferences...", self.edit_preferences)
+        edit_menu.addAction(self.act_preferences)
         view_menu = self.menuBar().addMenu("&View")
         view_menu.addActions([self.act_zoom_in, self.act_zoom_out, self.act_zoom_reset])
         view_menu.addSeparator()

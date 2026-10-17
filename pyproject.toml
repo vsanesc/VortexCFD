@@ -15,6 +15,7 @@ dependencies = [
     "pyvistaqt",
     "pydantic>=2.0",
     "foamlib>=1.8.1",
+    "matplotlib",  # colormaps of the Results Scene (already installed with PyVista; D-054)
 ]
 
 [project.scripts]

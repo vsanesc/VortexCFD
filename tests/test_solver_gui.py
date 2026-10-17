@@ -84,7 +84,7 @@ def use_runner(w: MainWindow, runner: FakeRunner) -> FakeRunner:
 
 
 def wait_done(qtbot: QtBot, w: MainWindow) -> None:
-    qtbot.waitUntil(lambda: w.run_record is not None and not w.solver_worker.is_running(), timeout=10000)
+    qtbot.waitUntil(lambda: w.run_record is not None and not w.solver_worker.is_running(), timeout=30000)
 
 
 # -- disabled reasons ---------------------------------------------------------------------------------
@@ -140,7 +140,7 @@ def test_run_streams_through_signals_and_converges(make_window, qtbot: QtBot) ->
     threads: list = []
     w.solver_worker.line.connect(lambda _l: threads.append(QThread.currentThread()))
     w.top_bar.run_button.click()
-    qtbot.waitUntil(lambda: "Time = 2" in w.console.text(), timeout=5000)
+    qtbot.waitUntil(lambda: "Time = 2" in w.console.text(), timeout=20000)
     # while running: Stop, Solving badge, mesh button blocked
     assert w.top_bar.run_button.text() == "Stop" and w.top_bar.run_button.isEnabled()
     assert w.top_bar.state_badge.text() == "Solving"

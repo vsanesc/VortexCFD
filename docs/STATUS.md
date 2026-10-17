@@ -6,8 +6,9 @@ task (CLAUDE.md).
 ## Current branch
 
 **task/6.2-results** (not yet published). Part A done: lost-part guard, thin-part warning, per-part
-surface levels and seed lines (D-052, Proposed, [NUMERICS-REVIEW]; schema v5). Next on it: Task 6.2
-Results Scene and Open in ParaView.
+surface levels and seed lines (D-052, Proposed, [NUMERICS-REVIEW]; schema v5). Part B done: Results
+Scene with field, colormap and range selection, scalar bar, section display, field-range telemetry,
+stale strip, and Open in ParaView (D-053 to D-055, Proposed). Next on it: docs (Part C).
 
 ## Phases
 
@@ -21,7 +22,7 @@ Results Scene and Open in ParaView.
 | 1.3 | Runner and log parsing | done for single-process runs (parallel not supported); solver run states (D-046) |
 | 1.4 | Headless integration test | done (cavity) |
 | 2.1 | Main window | done |
-| 2.2 | 3D viewer | done for parts, picking, visibility and the mesh scene; scalar fields not started |
+| 2.2 | 3D viewer | done for parts, picking, visibility, the mesh scene and the results scene (scalar fields on walls and section) |
 | 2.3 | Console and live monitors | done: console streams the solver log (crash block in the error colour), live residual chart (D-048, D-049) |
 | 3.1 | Surface mesh import and checks | done (self-intersections not detected) |
 | 3.2 | CAD import (STEP/IGES/BREP) | not started (spike pending) |
@@ -39,7 +40,7 @@ Results Scene and Open in ParaView.
 | 5.4 | M4: prism layer robustness | not started |
 | 5.5 | M5: own mesher (go/no-go) | not started |
 | 6.1 | Monitors and reports | report slots with Cd, Cl, Cm pitch and wall y+ (D-048); reference values (D-047); convergence banner not started |
-| 6.2 | Scenes and derived parts | not started (the mesh section plane exists) |
+| 6.2 | Scenes and derived parts | scalar scenes done (D-053): field/colormap/range selection, scalar bar, section; scene saving, image export, iso-surfaces and streamlines not started |
 | 6.3 | Data export and reports | not started |
 | 7.1-7.3 | Coupled solver analysis | not started |
 | 8.1-8.5 | Moving meshes | not started |
@@ -62,7 +63,6 @@ Results Scene and Open in ParaView.
 - Total cell estimate: only background cells are estimated today.
 - Per-part surface size (one target surface size for all parts today).
 - Task 0.1 (STAR-CCM+ feature inventory) not done.
-- Scalar scenes with field and colormap selection (Phase 6.2).
 - Convergence banner (Phase 6.1); the run state is in the Solvers node and the status line.
 - Solver restart from the latest time: every run starts from 0 (D-046).
 - The mesh scene is read on the GUI thread after meshing (MeshView.load): a multi-million-cell mesh
