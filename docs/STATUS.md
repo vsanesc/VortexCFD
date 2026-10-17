@@ -9,11 +9,14 @@ task (CLAUDE.md).
 schema v3 with editors, solver case files (D-022, D-023), y+ estimator (D-024), layer count from y+
 (D-026), residual control (D-027), flat plate validation (D-036), decision records and this file.
 
+Done on it on 2026-10-17: TMR-based flat plate verification (PASS WITH NOTE, -3.3 % vs the TMR
+incompressible SST reference, D-036), k wall BC sensitivity (no effect at y+ 0.23), minTetQuality relaxed
+only in `relaxed` (D-044). Full study in scripts/validation/flat_plate_study.py (about 80 min; 2 h with --k-wall);
+the pytest `validation` test runs the coarse and medium grids (about 20 min).
+
 Pending on it:
-- TMR-based flat plate verification (wall-normal grid study, wall BC sensitivity) and the relaxed
-  minTetQuality (docs/QUESTIONS.md items 40 and 41).
-- Vic's review of D-022, D-023, D-024, D-027 and D-036 (Proposed) and of docs/QUESTIONS.md items 37
-  and 38.
+- Vic's review of D-022, D-023, D-024 and D-027 (Proposed) and docs/QUESTIONS.md items 37, 38 and 46
+  (y+ 30 sphere layer coverage 13 % with nRelaxedIter 20; the sphere test is a strict xfail).
 - Run Solver in the GUI is still disabled ("Available in Phase 4"): the solver files are generated
   and tested, but not run from the app yet.
 
@@ -38,7 +41,7 @@ Pending on it:
 | 3.5 | Surface-to-patch assignment | not started (one patch per part) |
 | 4.1 | Physics continua | in progress on task/4a-physics (steady incompressible RANS only) |
 | 4.2 | Boundary condition library | in progress on task/4a-physics (external-aerodynamics set, D-022) |
-| 4.3 | Turbulence module | in progress on task/4a-physics (kOmegaSST, y+ estimator, flat plate); docs/reference/turbulence_mapping.md not written |
+| 4.3 | Turbulence module | in progress on task/4a-physics (kOmegaSST, y+ estimator, flat plate verified against TMR: PASS WITH NOTE); docs/reference/turbulence_mapping.md not written |
 | 4.4 | Numerics presets | in progress on task/4a-physics (preset "robust" only) |
 | 5.0 | Meshing benchmark suite | not started |
 | 5.1 | M1: GUI over snappyHexMesh | done (published in PR #11 and #12); y+ layer sizing in progress on task/4a-physics |

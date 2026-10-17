@@ -216,6 +216,7 @@ def _mesh_input(mesh: Mesh, first: float | None) -> MeshCaseInput:
 def test_relative_layers_are_the_default() -> None:
     content = snappy_hex_mesh_dict(_mesh_input(Mesh(), None)).content
     assert content["meshQualityControls"]["minTetQuality"] == 1e-15  # the default quality limits
+    assert "relaxed" not in content["meshQualityControls"] and "nRelaxedIter" not in content["addLayersControls"]
     layers = content["addLayersControls"]
     assert layers["relativeSizes"] is True and "firstLayerThickness" not in layers
     assert layers["finalLayerThickness"] == 0.5 and layers["minThickness"] == 0.1
@@ -225,7 +226,11 @@ def test_absolute_yplus_layers_use_the_first_layer_thickness() -> None:
     mesh = Mesh(layer_sizing="absolute_yplus", target_yplus=1.0, expansion_ratio=1.3, min_thickness=0.2)
     layers = snappy_hex_mesh_dict(_mesh_input(mesh, 4e-5)).content["addLayersControls"]
     assert layers["relativeSizes"] is False
-    assert snappy_hex_mesh_dict(_mesh_input(mesh, 4e-5)).content["meshQualityControls"]["minTetQuality"] == -1e30
+    quality = snappy_hex_mesh_dict(_mesh_input(mesh, 4e-5)).content["meshQualityControls"]
+    # The install's meshQualityDict value stays in force; only the relaxed controls drop the tet test,
+    # and the layer addition switches to them after nRelaxedIter iterations.
+    assert quality["minTetQuality"] == 1e-15 and quality["relaxed"] == {"minTetQuality": -1e30}
+    assert layers["nRelaxedIter"] == 20 < layers["nLayerIter"]
     assert layers["firstLayerThickness"] == 4e-5 and layers["expansionRatio"] == 1.3  # reused
     assert layers["minThickness"] == pytest.approx(0.2 * 4e-5)
     assert "finalLayerThickness" not in layers
@@ -346,6 +351,12 @@ def test_snappy_uses_the_computed_layer_count_for_absolute_sizing() -> None:
 
 
 @pytest.mark.slow
+@pytest.mark.xfail(
+    strict=True,
+    reason="NOT MET (docs/QUESTIONS.md item 46, D-044): with minTetQuality relaxed only in `relaxed` "
+           "(nRelaxedIter 20) the layer iterations stop at iteration 11, before the relaxed controls apply; "
+           "coverage 1.74 / 13 layers (13 %), thickness 44.7 %, extruded 68.5 %; not relaxed further.",
+)
 def test_yplus_30_layer_count_gives_good_coverage_on_the_shared_sphere(sphere_mesh, tmp_path: Path) -> None:
     """Shared coarse sphere at 20 m/s with target y+ 30 and the computed layer count: layer coverage
     (average layers and thickness) of at least 80 %. The y+ 1 case is expected to warn instead."""

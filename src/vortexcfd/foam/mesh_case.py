@@ -193,14 +193,20 @@ def _layer_sizing(inp: MeshCaseInput) -> dict:
     return {"relativeSizes": False, "firstLayerThickness": h, "minThickness": m.min_thickness * h}
 
 
+# Layer iterations with the main quality controls before snappyHexMesh switches to the `relaxed`
+# ones (the value of etc/caseDicts/annotated/snappyHexMeshDict; the v2606 default never switches).
+RELAXED_AFTER_LAYER_ITER = 20
+
+
 def _quality_controls(m: Mesh) -> dict:
-    """meshQualityControls. With absolute (y+) layers the face-decomposition tet-quality test is
-    switched off (minTetQuality -1e30): a stack of thin, high-aspect layers trips it on perfectly
-    usable meshes (2436 faces on the coarse sphere, which removed 30 % of the layers) while every
-    other check stays; checkMesh still judges the final mesh. [NUMERICS-REVIEW]"""
+    """meshQualityControls: the install's meshQualityDict values for every sizing. With absolute (y+)
+    layers the face-decomposition tet-quality test is relaxed only in the `relaxed` sub-dictionary
+    (minTetQuality -1e30), which the layer addition uses after RELAXED_AFTER_LAYER_ITER iterations: a
+    stack of thin, high-aspect layers trips that test on usable meshes, while every other check keeps
+    the main values; checkMesh still judges the final mesh. [NUMERICS-REVIEW]"""
     controls = dict(MESH_QUALITY)
     if m.layer_sizing == "absolute_yplus":
-        controls["minTetQuality"] = -1e30
+        controls["relaxed"] = {"minTetQuality": -1e30}
     return controls
 
 
@@ -264,6 +270,7 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
             "minMedialAxisAngle": 90,
             "nBufferCellsNoExtrude": 0,
             "nLayerIter": 50,
+            **({"nRelaxedIter": RELAXED_AFTER_LAYER_ITER} if m.layer_sizing == "absolute_yplus" else {}),
         },
         "meshQualityControls": _quality_controls(m),
         "mergeTolerance": 1e-6,

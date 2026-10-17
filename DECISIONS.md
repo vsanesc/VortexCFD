@@ -41,7 +41,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-023 | 2026-10-16 | Inlet turbulence from intensity and viscosity ratio | Proposed |
 | D-024 | 2026-10-16 | y+ estimator and absolute layer sizing | Proposed |
 | D-025 | 2026-10-16 | Validation marker and policy | Accepted |
-| D-026 | 2026-10-16 | Layer count from the y+ first layer | Accepted |
+| D-026 | 2026-10-16 | Layer count from the y+ first layer | Accepted; minTetQuality part superseded by D-044 |
 | D-027 | 2026-10-16 | Residual targets as SIMPLE residualControl | Proposed |
 | D-028 | 2026-10-16 | Part patch names | Accepted |
 | D-029 | 2026-10-16 | Regions tree layout | Accepted |
@@ -51,7 +51,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-033 | 2026-10-16 | Mesh staleness and persistence | Accepted |
 | D-034 | 2026-10-16 | Properties panel and column defaults | Accepted |
 | D-035 | 2026-10-16 | Mesh Scene section plane | Accepted |
-| D-036 | 2026-10-16 | Flat plate validation cases and criterion | Proposed |
+| D-036 | 2026-10-16 | Flat plate validation cases and criterion | Accepted (updated 2026-10-17) |
 | D-037 | 2026-10-17 | Workflow: task branches, ship.sh run only by Vic | Accepted |
 | D-038 | 2026-10-17 | Review of numerics; validation failures are reported | Accepted |
 | D-039 | 2026-10-17 | No fake data in the UI | Accepted |
@@ -59,6 +59,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-041 | 2026-10-17 | Visual language: owner palette and mockup layout | Accepted |
 | D-042 | 2026-10-17 | Meshing defaults | Accepted |
 | D-043 | 2026-10-17 | Test conventions | Accepted |
+| D-044 | 2026-10-17 | minTetQuality relaxed only in `relaxed` | Accepted |
 
 ---
 
@@ -238,7 +239,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: a numerics change must be accompanied by a validation run.
 
 ## D-026 Layer count from the y+ first layer
-- Status: Accepted (layer count confirmed by D-042). The minTetQuality part is still under review (docs/QUESTIONS.md item 41).
+- Status: Accepted (layer count confirmed by D-042). The minTetQuality part is superseded by D-044.
 - Context: Task 4A; thin y+ layers on coarse surfaces collapse.
 - Decision: with absolute y+ sizing, n = ceil(ln(0.5 h / t1) / ln r) + 1 clamped to [1, 30] (t1 first layer, r expansion, h surface cell size); the Mesh panel and Generate Mesh warn when 30 layers do not reach 0.5 h. For this sizing minTetQuality is set to -1e30.
 - Alternatives considered: a user-entered layer count.
@@ -313,11 +314,11 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: prism layers are visible as bands at the default zoom on a 1 m sphere.
 
 ## D-036 Flat plate validation cases and criterion
-- Status: Proposed (Task 4A, [NUMERICS-REVIEW])
-- Context: PLAN validation policy: turbulence setup logic is validated on a flat plate (Cf, y+). docs/validation/flat_plate/README.md.
-- Decision: Case A (U = 10 m/s, Re_L = 1.3e6) is informative only (the boundary layer is still developing its turbulence over that Re_x range). Case B (TMR-like, Re = 5e6 per metre, plate 0 to 2 m) is the arbiter, against White's law 0.455 / ln^2(0.06 Re_x) for Re_x in [1e6, 1e7] with mean <= 5 % and max <= 8 %, and the y+ estimator within 30 % at mid-plate.
-- Alternatives considered: the power law 0.0592 Re_x^-0.2 (reported, not used as the criterion).
-- Consequences: Case B did not meet the criterion (Cf(0.97) = 2.556e-3, -11 % vs White); see docs/QUESTIONS.md item 40.
+- Status: Accepted (updated 2026-10-17: reference changed from White's law to the NASA TMR SST results, decided in the review chat; docs/QUESTIONS.md items 39 and 40)
+- Context: PLAN validation policy: turbulence setup logic is validated on a flat plate (Cf, y+). The first Case B failed a 5 % criterion against White's law (Cf(0.97) = 2.556e-3, -11 %). The TMR SST page shows the case is a VERIFICATION case and that verified codes are themselves 5-7 % below White's law at x = 0.97, so White is not a valid pass/fail reference for SST. docs/validation/flat_plate/README.md.
+- Decision: Case A (U = 10 m/s, Re_L = 1.3e6) is informative only. Case B (TMR 2D zero pressure gradient flat plate, Re = 5e6 per metre, plate 0 to 2 m) is the arbiter: a wall-normal grid study on three nested grids (first-cell y+ about 1, 0.5, 0.25, at least 30 cells across the boundary layer), Cf(x = 0.97) extrapolated with the Celik GCI procedure, compared with the TMR incompressible SST reference (2.7214e-3, tests/data/tmr/). Bands: |error| <= 3 % PASS; 3-5 % PASS WITH NOTE (citing the TMR note on OpenFOAM's SST implementation); > 5 % FAIL. The validation test asserts the recorded band (a strict xfail only for FAIL). White's law and the TMR Cf(x) distribution are informative. The y+ estimator must be within 30 % at mid-plate. Split in two: the full study (three grids, GCI, TMR distribution, optional k wall BC diagnostic) is `scripts/validation/flat_plate_study.py` (about 80 min, 2 h with --k-wall; writes the Case B files and the README tables, committed); the pytest `validation` test runs Case A and the coarse and medium grids only (about 20 min) and asserts the medium grid within 5 % of the reference, a decreasing error from coarse to medium, reproduction of the committed study within 0.1 %, and the recorded verdict band with the committed finest grid.
+- Alternatives considered: White's law 0.455 / ln^2(0.06 Re_x) with mean <= 5 % / max <= 8 % (the first criterion); the power law 0.0592 Re_x^-0.2.
+- Consequences: result of 2026-10-17: extrapolated Cf(0.97) = 2.6314e-3 (GCI 0.035 %), -3.31 %: PASS WITH NOTE. After a numerics change the full study must be re-run and its results committed, or the pytest reproduction check fails.
 
 ## D-037 Workflow: task branches, ship.sh run only by Vic
 - Status: Accepted
@@ -367,3 +368,10 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Decision: markers `slow` (above about 5 s) and `validation` (D-025); validation runs explicitly per numerics change; an autouse fixture flushes pending Qt deferred deletes between tests; pytest-xdist is allowed for local runs (`-n 8`); scripts/ship.sh runs the plain single-process offscreen suite. No pytest-timeout: OpenFOAM tests bound their waits (MeshRun step_timeout_s, wait()/waitUntil() <= 120 s).
 - Alternatives considered: pytest-timeout (not installed, no new dependencies).
 - Consequences: iterate with `-m "not slow and not validation"`; run the full suite offscreen and on the real display before each commit.
+
+## D-044 minTetQuality relaxed only in `relaxed`
+- Status: Accepted (supersedes the minTetQuality part of D-026; decided in the review chat, docs/QUESTIONS.md item 41)
+- Context: D-026 set minTetQuality -1e30 in the main meshQualityControls for absolute y+ layers, which relaxed the tet-quality check for snapping and every layer iteration.
+- Decision: the main meshQualityControls keep the install's etc/caseDicts/meshQualityDict values (minTetQuality 1e-15) for every sizing. With absolute y+ layers, only the `relaxed` sub-dictionary sets minTetQuality -1e30, and addLayersControls sets nRelaxedIter 20 (the value of the annotated v2606 snappyHexMeshDict; v2606's default, labelMax, never switches to `relaxed`).
+- Alternatives considered: minTetQuality -1e30 in the main controls (D-026); not relaxing at all.
+- Consequences: on the coarse test sphere at y+ 30 (13 layers) the layer iterations converge at iteration 11, before nRelaxedIter, so the relaxed controls never apply: coverage 1.74 / 13 layers (13 %), thickness 44.7 %, 68.5 % of faces extruded; checkMesh OK. Not relaxed further; the test is a strict xfail and the options are in docs/QUESTIONS.md item 46.

@@ -1,0 +1,79 @@
+{
+  "grids": [
+    {
+      "cells_normal": 128,
+      "first_cell_m": 1.0558109762431802e-05,
+      "expansion": 1.0713206600695866,
+      "yplus_0.97": 0.943349,
+      "delta99_m": 0.0124538,
+      "cells_in_delta99": 65,
+      "cf_0.97": 0.0025560675013357992,
+      "error": -0.06074579432801448,
+      "iterations": 881,
+      "converged": true,
+      "wall_time_s": 171.0
+    },
+    {
+      "cells_normal": 256,
+      "first_cell_m": 5.188142511184586e-06,
+      "expansion": 1.0350462115623569,
+      "yplus_0.97": 0.469662,
+      "delta99_m": 0.0126671,
+      "cells_in_delta99": 130,
+      "cf_0.97": 0.002623927288418801,
+      "error": -0.035809993383631944,
+      "iterations": 3395,
+      "converged": true,
+      "wall_time_s": 1320.0
+    },
+    {
+      "cells_normal": 512,
+      "first_cell_m": 2.5717329148008113e-06,
+      "expansion": 1.0173722089591188,
+      "yplus_0.97": 0.233092,
+      "delta99_m": 0.0127764,
+      "cells_in_delta99": 260,
+      "cf_0.97": 0.002630650055943024,
+      "error": -0.0333396409114919,
+      "iterations": 7208,
+      "converged": true,
+      "wall_time_s": 7483.0
+    }
+  ],
+  "order": 3.3354297368344,
+  "monotonic": true,
+  "extrapolated": 0.0026313893069485673,
+  "gci_fine": 0.00035126821784661055,
+  "approx_error": 0.002555553715339491,
+  "extrapolated_error": 0.000280935627271536,
+  "reference": 0.0027213798840613882,
+  "reference_finest_grids": 0.0027164695736666667,
+  "error": -0.03306799526221196,
+  "error_fine_grid": -0.0333396409114919,
+  "verdict": "PASS WITH NOTE",
+  "distribution_fine_grid": {
+    "faces": 245,
+    "mean_abs": 0.018764096886089803,
+    "max_abs": 0.039459523264979104,
+    "mean_signed": -0.018764096886089803,
+    "white_mean_abs": 0.09095459773691987,
+    "white_max_abs": 0.1182255724599168
+  },
+  "k_wall": {
+    "kqRWallFunction (default)": {
+      "cf_0.97": 0.002630650055943024,
+      "error": -0.0333396409114919,
+      "iterations": 7208
+    },
+    "kLowReWallFunction": {
+      "cf_0.97": 0.0026306480899617444,
+      "error": -0.033340363332235584,
+      "iterations": 7208
+    },
+    "fixedValue 1e-10": {
+      "cf_0.97": 0.0026306480899617444,
+      "error": -0.033340363332235584,
+      "iterations": 7208
+    }
+  }
+}

@@ -6,7 +6,8 @@ leading edge, then the plate (no-slip wall) from x = 0. The wall-normal grading 
 first cell height of the y+ estimator.
 """
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from vortexcfd.core.model import Inflow, Physics, Solvers
@@ -41,16 +42,21 @@ class PlateSetup:
     yplus_target: float = 2.0  # estimator target: the cell-CENTRE y+ is about half of it at yplus_length
     yplus_length: float = 2.0  # the station (length) at which the estimator is evaluated
     max_iterations: int = MAX_ITERATIONS
+    first_cell: float | None = None  # explicit first wall-normal cell height (overrides the estimator)
 
 
 CASE_A = PlateSetup()
-# Case B: TMR-like, Re = 5e6 per metre, Re_L = 1e7, Menter's SST free stream (see the README).
+# Case B: TMR-like, Re = 5e6 per metre, Re_L = 1e7, Menter's SST free stream (see the README). This is
+# the coarse grid of the wall-normal grid study (CASE_B_GRIDS).
 CASE_B = PlateSetup(
-    speed=75.0, slip_length=0.3, height=1.0, cells_plate=300, cells_slip=30, cells_normal=150,
+    speed=75.0, slip_length=0.3, height=1.0, cells_plate=300, cells_slip=30, cells_normal=128,
     x_grading=10.0,
-    intensity=(1.5e-6 * 75.0**2 / 1.5) ** 0.5 / 75.0,  # k = 1e-6 U^2 = 1.5 (U I)^2
-    viscosity_ratio=1.0,  # omega = 5 U / L = 375 1/s then gives nut / nu = k / (omega nu) = 1.0
+    # (U I)^2 = 1e-6 U^2, so k = 1.5 (U I)^2 = 1.5e-6 U^2 = 8.4375e-3 m2/s2 (the earlier comment said
+    # 1e-6 U^2; the case was always run with 8.4375e-3, written in 0/k).
+    intensity=(1.5e-6 * 75.0**2 / 1.5) ** 0.5 / 75.0,
+    viscosity_ratio=1.0,  # omega = k / nu = 562.5 1/s = 7.5 U / L, nut / nu = 1.0
     yplus_target=2.0, yplus_length=1.0,  # cell-centre y+ about 1 at x = 1 m
+    max_iterations=10000,  # the finest grid needs about 5000 iterations to reach the residual targets
 )
 
 
@@ -76,7 +82,25 @@ def growth_ratio(first: float, total: float, n: int) -> float:
 
 
 def first_cell_height(setup: PlateSetup) -> float:
+    if setup.first_cell is not None:
+        return setup.first_cell
     return first_layer_thickness(setup.yplus_target, setup.speed, setup.nu, setup.yplus_length)
+
+
+def wall_normal_family(coarse: PlateSetup, levels: int = 3) -> list[PlateSetup]:
+    """Nested wall-normal refinements of ``coarse`` (coarse first), streamwise cells unchanged.
+
+    Each level splits every wall-normal cell of the previous one in two geometrically: twice the
+    cells, growth ratio sqrt(r) and first cell h1 / (1 + sqrt(r)) (about half, so the first-cell y+
+    halves too). The domain height is filled exactly, so the grids are nested and the refinement
+    ratio is exactly 2 in the wall-normal direction.
+    """
+    family = [replace(coarse, first_cell=first_cell_height(coarse))]
+    for _ in range(levels - 1):
+        prev = family[-1]
+        r = math.sqrt(growth_ratio(prev.first_cell, prev.height, prev.cells_normal))
+        family.append(replace(prev, cells_normal=2 * prev.cells_normal, first_cell=prev.first_cell / (1 + r)))
+    return family
 
 
 def block_mesh_dict(setup: PlateSetup = CASE_A) -> FoamFileSpec:
@@ -124,9 +148,12 @@ def block_mesh_dict(setup: PlateSetup = CASE_A) -> FoamFileSpec:
     })
 
 
-def build_plate_case(case_dir: Path, setup: PlateSetup = CASE_A) -> PlateCase:
+def build_plate_case(case_dir: Path, setup: PlateSetup = CASE_A, k_wall: dict | None = None) -> PlateCase:
     """Write the case: blockMeshDict from this module, every solver file from the app's builder
-    (sides become `empty` for the 2D case; the stopping criterion is the app's residualControl)."""
+    (sides become `empty` for the 2D case; the stopping criterion is the app's residualControl).
+
+    ``k_wall`` replaces the plate's k boundary condition (wall-BC sensitivity diagnostics only; the
+    app's default, kqRWallFunction, is used when it is None)."""
     inp = SolverCaseInput(
         physics=Physics(nu=setup.nu),
         inflow=Inflow(speed=setup.speed, turbulence_intensity=setup.intensity,
@@ -140,11 +167,16 @@ def build_plate_case(case_dir: Path, setup: PlateSetup = CASE_A) -> PlateCase:
     files = build_solver_files(inp)
     for name in ("0/U", "0/p", "0/k", "0/omega", "0/nut"):
         files[name].content["boundaryField"]["sides"] = {"type": "empty"}
+    if k_wall is not None:
+        files["0/k"].content["boundaryField"]["plate"] = dict(k_wall)
     files["system/blockMeshDict"] = block_mesh_dict(setup)
     write_case(case_dir, files)
     first = first_cell_height(setup)
     r = growth_ratio(first, setup.height, setup.cells_normal)
     return PlateCase(case_dir, first, r ** (setup.cells_normal - 1), r, setup)
+
+
+CASE_B_GRIDS = wall_normal_family(CASE_B)  # first-cell y+ about 1, 0.5, 0.25 (coarse first)
 
 
 @dataclass(frozen=True)
@@ -164,12 +196,8 @@ def latest_time_dir(case_dir: Path) -> Path:
 
 def run_plate_case(case: PlateCase, timeout_s: float = 600.0) -> PlateResult:
     """blockMesh, checkMesh, simpleFoam to convergence, then wallShearStress and cell centres."""
-    import re
     import time
 
-    import numpy as np
-
-    from vortexcfd.foam.dictfile import read_foam_file
     from vortexcfd.foam.runner import FoamRun
 
     def run(command: list[str], name: str, timeout: float) -> str:
@@ -186,12 +214,28 @@ def run_plate_case(case: PlateCase, timeout_s: float = 600.0) -> PlateResult:
     # A wall-resolved boundary-layer mesh legitimately trips the aspect ratio check (limit 1000).
     assert "Mesh OK" in check or (check.count("***") == 1 and "High aspect ratio" in check), check[-800:]
     t0 = time.monotonic()
-    log = run(["simpleFoam"], "simpleFoam", timeout_s)
+    run(["simpleFoam"], "simpleFoam", timeout_s)
     wall = time.monotonic() - t0
-    match = re.search(r"SIMPLE solution converged in (\d+) iterations", log)
-    last = re.findall(r"^Time = (\d+)", log, re.MULTILINE)
     run(["simpleFoam", "-postProcess", "-func", "wallShearStress", "-latestTime"], "wallShearStress", 120)
     run(["postProcess", "-func", "writeCellCentres", "-latestTime"], "writeCellCentres", 120)
+    return read_plate_result(case, wall)
+
+
+def read_plate_result(case: PlateCase, wall_time_s: float | None = None) -> PlateResult:
+    """The result of a finished case (simpleFoam, wallShearStress and writeCellCentres have run):
+    Cf, y+ and face centres at the latest time, iterations from log.simpleFoam. Without
+    ``wall_time_s`` the last ClockTime of the log is used."""
+    import re
+
+    import numpy as np
+
+    from vortexcfd.foam.dictfile import read_foam_file
+
+    log = (case.case_dir / "log.simpleFoam").read_text()
+    match = re.search(r"SIMPLE solution converged in (\d+) iterations", log)
+    last = re.findall(r"^Time = (\d+)", log, re.MULTILINE)
+    if wall_time_s is None:
+        wall_time_s = float(re.findall(r"ClockTime = ([\d.]+) s", log)[-1])
     latest = latest_time_dir(case.case_dir)
 
     def plate(field: str):
@@ -200,7 +244,22 @@ def run_plate_case(case: PlateCase, timeout_s: float = 600.0) -> PlateResult:
     tau = plate("wallShearStress")
     cf = np.linalg.norm(tau, axis=1) / (0.5 * case.setup.speed**2)  # kinematic shear / (0.5 U^2)
     return PlateResult(plate("C")[:, 0], cf, plate("yPlus"),
-                       int(match.group(1)) if match else int(last[-1]), bool(match), wall)
+                       int(match.group(1)) if match else int(last[-1]), bool(match), wall_time_s)
+
+
+def case_matches(case_dir: Path, setup: PlateSetup, k_wall: dict | None = None) -> bool:
+    """True when ``case_dir`` holds a finished run of exactly this set-up: every file the builder
+    writes (system/, constant/, 0/) is identical to a fresh build, and the post-processing ran."""
+    import filecmp
+    import tempfile
+
+    if not (case_dir / "log.writeCellCentres").is_file():
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        fresh = build_plate_case(Path(tmp) / "case", setup, k_wall=k_wall).case_dir
+        files = [f.relative_to(fresh) for f in fresh.rglob("*") if f.is_file()]
+        return all((case_dir / f).is_file() and filecmp.cmp(fresh / f, case_dir / f, shallow=False)
+                   for f in files)
 
 
 def laws(x, setup: PlateSetup = CASE_A):
@@ -248,3 +307,29 @@ def diagnose(case: PlateCase, result: PlateResult, stations=(3e5, 6e5, 1e6, 1.3e
         "k_decay": float(k[idx] / k_in), "omega_decay": float(omega[idx] / omega_in),
         "probe": (float(centres[idx, 0]), float(centres[idx, 2])),
     }
+
+
+def cf_at(result: PlateResult, x: float) -> float:
+    """Cf linearly interpolated between the plate face centres at ``x``."""
+    import numpy as np
+
+    order = np.argsort(result.x)
+    return float(np.interp(x, result.x[order], result.cf[order]))
+
+
+def boundary_layer_cells(case: PlateCase, x: float) -> tuple[float, int]:
+    """(delta99, number of cells below it) in the cell column nearest to ``x``: delta99 is the first
+    cell-centre height where Ux reaches 0.99 U (latest time; needs the written cell centres)."""
+    import numpy as np
+
+    from vortexcfd.foam.dictfile import read_foam_file
+
+    latest = latest_time_dir(case.case_dir)
+    centres = np.asarray(read_foam_file(latest / "C")["internalField"])
+    u = np.asarray(read_foam_file(latest / "U")["internalField"])
+    column = np.isclose(centres[:, 0], centres[np.argmin(np.abs(centres[:, 0] - x)), 0])
+    z, ux = centres[column, 2], u[column, 0]
+    order = np.argsort(z)
+    z, ux = z[order], ux[order]
+    i = int(np.argmax(ux >= 0.99 * case.setup.speed))
+    return float(z[i]), i + 1
