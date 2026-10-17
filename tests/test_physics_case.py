@@ -137,12 +137,17 @@ def test_reference_value_overrides_replace_the_bounding_box_values() -> None:
     assert (auto.l_ref, auto.a_ref, auto.cofr) == (2.0, 4.0, (1.0, 0.0, 0.25))
     assert auto.l_auto and auto.a_auto and auto.cofr_auto
     inp = SolverCaseInput(Physics(), Inflow(), Solvers(), ("Wing",), BOUNDS, False,
-                          Reports(reference_area=1.5, center_of_rotation=(0.5, 0.0, 0.0)))
+                          Reports(reference_area_basis="custom", reference_area=1.5,
+                                  center_of_rotation=(0.5, 0.0, 0.0)))
     fc = build_solver_files(inp)["system/controlDict"].content["functions"]["forceCoeffs1"]
     assert fc["Aref"] == 1.5 and fc["CofR"] == [0.5, 0.0, 0.0]
     assert fc["lRef"] == 2.0  # not overridden: still the x extent
     ref = reference_values(BOUNDS, inp.reports)
-    assert not ref.a_auto and ref.l_auto and not ref.cofr_auto
+    assert not ref.a_auto and ref.l_auto and not ref.cofr_auto and ref.a_basis == "custom"
+    # BOUNDS = 2 x 2 x 0.5 m: planform 4.0, frontal 2 * 0.5 = 1.0
+    frontal = reference_values(BOUNDS, Reports(reference_area_basis="frontal"))
+    assert frontal.a_ref == 1.0 and frontal.a_auto and frontal.a_basis == "frontal"
+    assert reference_values(BOUNDS, Reports()).a_ref == 4.0
 
 
 def test_schemes_and_solution_follow_the_motorbike_tutorial() -> None:

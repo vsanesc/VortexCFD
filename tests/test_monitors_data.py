@@ -116,7 +116,7 @@ def test_yplus_rows_from_the_real_file() -> None:
     assert tail.series("average")[-1] == (20.0, 172.1799)
 
 
-def test_yplus_combines_several_wall_patches(tmp_path: Path) -> None:
+def test_yplus_combines_several_wall_patches_without_counts(tmp_path: Path) -> None:
     path = tmp_path / YPLUS_FILE
     path.write_text("# y+ ()\n# Time\tpatch\tmin\tmax\taverage\n"
                     "5\tWing\t1\t50\t20\n5\tTail\t0.5\t30\t10\n7\tWing\t2")  # last row partial
@@ -145,3 +145,55 @@ def test_report_monitor_finds_the_files_in_the_case(tmp_path: Path) -> None:
     assert monitor.series("yplus_avg")[-1] == (20.0, 172.1799)
     with pytest.raises(KeyError):
         monitor.series("bogus")
+
+
+# -- y+ across several walls (real two-wall run, tests/data/two_walls/) ---------------------------------------
+
+TWO = Path(__file__).parent / "data" / "two_walls"
+
+
+def test_patch_face_counts_from_the_real_boundary_file(tmp_path: Path) -> None:
+    from vortexcfd.foam.postprocessing import patch_face_counts
+
+    case = tmp_path / "case"
+    (case / "constant" / "polyMesh").mkdir(parents=True)
+    assert patch_face_counts(case) == {}  # no boundary file
+    shutil.copy(TWO / "boundary", case / "constant" / "polyMesh" / "boundary")
+    counts = patch_face_counts(case)
+    assert counts["Ball"] == 2032 and counts["Pod"] == 856 and set(counts) >= {"inlet", "outlet", "sides"}
+
+
+def test_yplus_aggregation_over_two_real_walls_is_face_weighted(tmp_path: Path) -> None:
+    """min of the minima, max of the maxima, and the face-count-weighted average, which equals the
+    mean over all wall faces of the real yPlus field written at the same time."""
+    import numpy as np
+
+    from vortexcfd.foam.dictfile import read_foam_file
+
+    case = tmp_path / "case"
+    (case / "constant" / "polyMesh").mkdir(parents=True)
+    (case / "postProcessing" / YPLUS / "0").mkdir(parents=True)
+    shutil.copy(TWO / "boundary", case / "constant" / "polyMesh" / "boundary")
+    shutil.copy(TWO / YPLUS_FILE, case / "postProcessing" / YPLUS / "0")
+    monitor = ReportMonitor(case)
+    assert monitor.poll()
+    field = read_foam_file(TWO / "yPlus")["boundaryField"]
+    ball, pod = np.asarray(field["Ball"]["value"]), np.asarray(field["Pod"]["value"])
+    all_faces = np.concatenate([ball, pod])
+    assert monitor.series("yplus_min") == [(10.0, 28.7742)]
+    assert monitor.series("yplus_max") == [(10.0, 1185.594)]
+    # the field is written with writePrecision 6, the .dat file with 7 digits
+    assert min(ball.min(), pod.min()) == pytest.approx(28.7742, rel=1e-5)
+    assert max(ball.max(), pod.max()) == pytest.approx(1185.594, rel=1e-5)
+    (t, avg), = monitor.series("yplus_avg")
+    assert avg == pytest.approx((2032 * 353.1563 + 856 * 206.1641) / (2032 + 856))
+    assert avg == pytest.approx(all_faces.mean(), rel=1e-5)
+    plain = (353.1563 + 206.1641) / 2  # the unweighted mean would be about 10 % high
+    assert abs(plain - avg) / avg > 0.05
+
+
+def test_yplus_average_falls_back_without_face_counts(tmp_path: Path) -> None:
+    tail = YPlusTail(TWO / YPLUS_FILE)
+    tail.poll()
+    assert tail.series("average") == [(10.0, pytest.approx((353.1563 + 206.1641) / 2))]
+    assert tail.series("average", {"Ball": 2032}) == tail.series("average")  # Pod missing: plain mean

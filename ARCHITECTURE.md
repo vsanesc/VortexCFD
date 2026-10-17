@@ -48,13 +48,14 @@ src/vortexcfd/
   - `foam/yplus.py`: first-layer thickness for a target y+ from the flat-plate skin friction, and its inverse.
   - `foam/mesh_run.py`: `MeshRun` runs blockMesh, surfaceFeatureExtract, snappyHexMesh -overwrite and checkMesh in sequence on a worker thread through `FoamRun`.
   - `foam/mesh_report.py`: `parse_check_mesh` turns checkMesh output into a `MeshReport`; `parse_layer_table` reads snappyHexMesh's final layer table (per-patch `LayerCoverage`, overall extruded-face share).
+  - `foam/mesh_case.remove_results`: deletes the solver results (time directories after 0, postProcessing/, the run record) of a marker-protected case after a successful mesh.
   - `foam/mesh_record.py`: `case/vortexcfd_mesh.json`, the last `MeshReport` plus the hash of the meshing inputs (used to flag an out-of-date mesh).
   - `foam/runner.py`: process execution via `run_foam` and streaming runner `FoamRun` returning `RunResult`. Clean stop works for single-process solvers launched through `FoamRun` with `clean_stop=True`.
   - `foam/logparse.py`: incremental solver log parsing via `LogParser` recording `TimeStep` events (and `Converged` when the SIMPLE residualControl is reached).
   - `foam/solver_run.py`: `SolverRun` runs simpleFoam through `FoamRun(clean_stop=True)` on a worker thread, parses the log and classifies the end state (converged, iteration limit, stopped, crashed).
   - `foam/run_record.py`: `case/vortexcfd_run.json`, the last run's state, iterations, final residuals and results inputs hash.
   - `foam/residuals.py`: `ResidualHistory` (initial residual per field and iteration) and `decimate` (at most about 2000 points per series).
-  - `foam/postprocessing.py`: tails the forceCoeffs (`coefficient.dat`) and yPlus (`yPlus.dat`) output files (`ReportMonitor`, `TailReader`), tolerating a partial last line.
+  - `foam/postprocessing.py`: tails the forceCoeffs (`coefficient.dat`), forces (`force.dat`) and yPlus (`yPlus.dat`) output files (`ReportMonitor`, `TailReader`), tolerating a partial last line; y+ across walls is face-count weighted from `constant/polyMesh/boundary`; `project_coefficients` projects a force onto the drag and lift directions.
   - `foam/physics_case.py` also resolves the forceCoeffs reference values (`reference_values`: overrides from `Reports` or the parts' bounding box).
   - `SolverCrash` (logparse): event for an OpenFOAM `[stack trace]` block. A diverging solver dies with SIGFPE and prints no nan residuals, so the process exit code is the reliable failure signal.
   - `FoamRun.is_running()` is False and `FoamRun.wait()` raises `RuntimeError` before `start()` has been called.

@@ -105,18 +105,37 @@ REPORT_IDS = ("Cd", "Cl", "CmPitch", "yplus_min", "yplus_avg", "yplus_max")
 class Reports(StrictModel):
     """Reference values for the force coefficients and the report slot assignment.
 
-    The reference area (m2), length (m) and centre of rotation (m) are optional overrides:
-    None means "auto" from the parts' bounding box (see foam/physics_case.reference_values).
-    The reference density is Physics.rho_ref and the reference speed is the inflow speed.
-    ``slots`` holds one report id (REPORT_IDS) or None ("Not assigned") per monitor slot.
+    ``reference_area_basis`` picks A_ref: "planform" (bounding box x * y, the default), "frontal"
+    (bounding box y * z) or "custom" (``reference_area``, m2, which is set exactly for "custom").
+    The reference length (m) and centre of rotation (m) are optional overrides: None means "auto"
+    from the parts' bounding box (see foam/physics_case.reference_values). The reference density is
+    Physics.rho_ref and the reference speed is the inflow speed. ``slots`` holds one report id
+    (REPORT_IDS) or None ("Not assigned") per monitor slot.
     """
 
+    reference_area_basis: Literal["planform", "frontal", "custom"] = "planform"
     reference_area: float | None = Field(default=None, gt=0)
     reference_length: float | None = Field(default=None, gt=0)
     center_of_rotation: tuple[float, float, float] | None = None
     slots: list[Literal["Cd", "Cl", "CmPitch", "yplus_min", "yplus_avg", "yplus_max"] | None] = Field(
         default_factory=lambda: [None] * REPORT_SLOTS, min_length=REPORT_SLOTS, max_length=REPORT_SLOTS,
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _area_without_basis_is_custom(cls, data):
+        # v4 files written before the basis existed (unpublished) carried only reference_area.
+        if isinstance(data, dict) and data.get("reference_area") is not None and "reference_area_basis" not in data:
+            data = {**data, "reference_area_basis": "custom"}
+        return data
+
+    @model_validator(mode="after")
+    def _custom_area(self) -> "Reports":
+        if self.reference_area_basis == "custom" and self.reference_area is None:
+            raise ValueError("reference_area_basis 'custom' needs reference_area")
+        if self.reference_area_basis != "custom" and self.reference_area is not None:
+            raise ValueError("reference_area is set only with reference_area_basis 'custom'")
+        return self
 
 
 class Domain(StrictModel):

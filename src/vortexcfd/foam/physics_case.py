@@ -54,38 +54,63 @@ def flow_direction(alpha_deg: float) -> tuple[float, float, float]:
     return math.cos(a), 0.0, math.sin(a)
 
 
+# A_ref bases: label of the auto value (stated exactly in the GUI).
+AREA_BASIS_LABELS = {
+    "planform": "auto: bounding-box planform, x * y",
+    "frontal": "auto: bounding-box frontal, y * z",
+}
+LENGTH_AUTO_LABEL = "auto: bounding-box length, x extent"
+CENTRE_AUTO_LABEL = "auto: bounding-box centre"
+
+
 @dataclass(frozen=True)
 class ReferenceValues:
-    """forceCoeffs reference values and whether each one is the bounding-box default ("auto").
+    """forceCoeffs reference values and how each was obtained.
 
-    Auto values: l_ref = x extent, A_ref = x extent * y extent (planform for a body along +x with
-    the span along y), CofR = the centre of the parts' bounding box. [NUMERICS-REVIEW]
+    A_ref by basis: planform = x extent * y extent, frontal = y extent * z extent of the parts'
+    bounding box, or the user's custom value; l_ref = x extent and CofR = the box centre unless
+    overridden. [NUMERICS-REVIEW] (D-047)
     """
 
     l_ref: float
     a_ref: float
     cofr: tuple[float, float, float]
+    a_basis: str = "planform"  # planform, frontal or custom
     l_auto: bool = True
-    a_auto: bool = True
     cofr_auto: bool = True
+
+    @property
+    def a_auto(self) -> bool:
+        return self.a_basis != "custom"
+
+
+def bounding_box_area(parts_bounds: Bounds, basis: str) -> float:
+    b = parts_bounds
+    dx, dy, dz = b[1] - b[0], b[3] - b[2], b[5] - b[4]
+    if basis == "planform":
+        return dx * dy
+    if basis == "frontal":
+        return dy * dz
+    raise ValueError(f"no bounding-box area for basis {basis!r}")
 
 
 def auto_reference(parts_bounds: Bounds) -> ReferenceValues:
     b = parts_bounds
-    l_ref = b[1] - b[0]
-    return ReferenceValues(l_ref, l_ref * (b[3] - b[2]),
+    return ReferenceValues(b[1] - b[0], bounding_box_area(b, "planform"),
                            ((b[0] + b[1]) / 2, (b[2] + b[3]) / 2, (b[4] + b[5]) / 2))
 
 
 def reference_values(parts_bounds: Bounds, reports: Reports) -> ReferenceValues:
-    """The user's overrides where set, the bounding-box values otherwise."""
+    """The user's choices where set, the bounding-box values otherwise."""
     auto = auto_reference(parts_bounds)
+    basis = reports.reference_area_basis
+    area = reports.reference_area if basis == "custom" else bounding_box_area(parts_bounds, basis)
     return ReferenceValues(
         l_ref=reports.reference_length if reports.reference_length is not None else auto.l_ref,
-        a_ref=reports.reference_area if reports.reference_area is not None else auto.a_ref,
+        a_ref=area,
         cofr=tuple(reports.center_of_rotation) if reports.center_of_rotation is not None else auto.cofr,
+        a_basis=basis,
         l_auto=reports.reference_length is None,
-        a_auto=reports.reference_area is None,
         cofr_auto=reports.center_of_rotation is None,
     )
 
@@ -118,6 +143,25 @@ def _force_coeffs(inp: SolverCaseInput) -> dict:
     }
 
 
+def _forces(inp: SolverCaseInput) -> dict:
+    """Total, pressure and viscous force and moment on the part walls in the GLOBAL axes (CofR with
+    no direction entries: e1 = x, e3 = z), next to forceCoeffs so its projection can be checked
+    (D-050). Output: postProcessing/forces1/<start time>/force.dat and moment.dat (N and N m with
+    rho = rhoInf)."""
+    ref = reference_values(inp.parts_bounds, inp.reports)
+    return {
+        "type": "forces",
+        "libs": ["forces"],
+        "writeControl": "timeStep",
+        "writeInterval": 1,
+        "log": False,
+        "patches": list(inp.patches),
+        "rho": "rhoInf",
+        "rhoInf": inp.physics.rho_ref,
+        "CofR": list(ref.cofr),
+    }
+
+
 def control_dict(inp: SolverCaseInput) -> FoamFileSpec:
     return FoamFileSpec(content={
         "application": "simpleFoam",
@@ -137,6 +181,7 @@ def control_dict(inp: SolverCaseInput) -> FoamFileSpec:
         "runTimeModifiable": True,
         "functions": {
             "forceCoeffs1": _force_coeffs(inp),
+            "forces1": _forces(inp),
             "yPlus1": {
                 "type": "yPlus",
                 "libs": ["fieldFunctionObjects"],

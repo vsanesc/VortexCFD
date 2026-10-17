@@ -14,7 +14,7 @@ from vortexcfd.foam.dictfile import read_foam_file
 from vortexcfd.foam.logparse import TimeStep
 from vortexcfd.gui import solving
 from vortexcfd.gui.monitors import ResidualChart, nice_ticks
-from vortexcfd.gui.properties_panel import AUTO_BBOX, REFERENCE_NOTE, parse_vector
+from vortexcfd.gui.properties_panel import REFERENCE_NOTE, parse_vector
 from vortexcfd.gui.theme import DARK, RESIDUAL_STYLES, residual_style
 
 RUN = Path(__file__).parent / "data" / "sphere_run"
@@ -158,23 +158,59 @@ def test_reference_values_node_defaults_are_auto(make_window) -> None:
     assert item.parent() is w._items[("reports", None)] and item.text(0) == "Reference Values"
     _select(w, "reference_values")
     p = w.properties
-    assert all(p._rows[k].isVisible() for k in ("ref_rho", "ref_u", "ref_area", "ref_length", "ref_cofr"))
+    assert all(p._rows[k].isVisible() for k in ("ref_rho", "ref_u", "ref_basis", "ref_area", "ref_length",
+                                                "ref_cofr"))
     assert p.ref_rho.value() == pytest.approx(1.225)
     assert p.ref_u.text() == "20 m/s (inflow speed)"
+    assert p.ref_basis.currentText() == "planform" and not p.ref_area.isEnabled()
     assert p.ref_area.text() == "auto" and p.ref_length.text() == "auto" and p.ref_cofr.text() == ""
-    # sphere of radius 0.5 (12 x 12 facets): bounding box about 1 x 1 x 1 m
-    assert p.ref_area_used.text().endswith(f"m² — {AUTO_BBOX}")
-    assert p.ref_length_used.text().endswith(f"m — {AUTO_BBOX}") and AUTO_BBOX in p.ref_cofr_used.text()
+    # the auto labels state the basis exactly
+    assert p.ref_area_used.text().endswith("m\u00b2 \u2014 auto: bounding-box planform, x * y")
+    assert p.ref_length_used.text().endswith("m \u2014 auto: bounding-box length, x extent")
+    assert p.ref_cofr_used.text().endswith("\u2014 auto: bounding-box centre")
     assert p.ref_note.isVisible() and p.ref_note.text() == REFERENCE_NOTE and p.ref_note.objectName() == "muted"
     assert not p.info_label.isVisible()
     _select(w, "solvers")
     assert not p._rows["ref_area"].isVisible() and not p.ref_note.isVisible()
 
 
+def test_area_basis_frontal_and_custom(make_window) -> None:
+    from vortexcfd.foam.physics_case import bounding_box_area
+    from vortexcfd.gui.meshing import parts_layout
+
+    w = make_window()
+    _, _, bounds = parts_layout(w.project)
+    planform, frontal = bounding_box_area(bounds, "planform"), bounding_box_area(bounds, "frontal")
+    _select(w, "reference_values")
+    p = w.properties
+    p.ref_basis.setCurrentText("frontal")
+    reports = w.project.sim.reports
+    assert reports.reference_area_basis == "frontal" and reports.reference_area is None
+    assert p.ref_area_used.text() == f"{frontal:.4g} m\u00b2 \u2014 auto: bounding-box frontal, y * z"
+    case = solving.prepare_solver_case(w.project)
+    fc = read_foam_file(case / "system" / "controlDict")["functions"]["forceCoeffs1"]
+    assert fc["Aref"] == pytest.approx(frontal) and frontal != pytest.approx(planform, rel=1e-6)
+    # custom starts from the area in use and makes the field editable
+    p.ref_basis.setCurrentText("custom")
+    assert w.project.sim.reports.reference_area == pytest.approx(frontal) and p.ref_area.isEnabled()
+    p.ref_area.setValue(0.785)
+    p.ref_area.editingFinished.emit()
+    assert w.project.sim.reports == Reports(reference_area_basis="custom", reference_area=0.785)
+    assert p.ref_area_used.text() == "0.785 m\u00b2 (set)"
+    p.ref_area.setValue(p.ref_area.minimum())  # "auto" is not a custom area: rejected, reverted
+    p.ref_area.editingFinished.emit()
+    assert w.project.sim.reports.reference_area == 0.785 and "custom" in w.statusBar().currentMessage()
+    p.ref_basis.setCurrentText("planform")
+    assert w.project.sim.reports == Reports()
+    w.act_undo.trigger()
+    assert w.project.sim.reports.reference_area == 0.785 and p.ref_basis.currentText() == "custom"
+
+
 def test_reference_overrides_are_stored_and_used_by_force_coeffs(make_window) -> None:
     w = make_window()
     _select(w, "reference_values")
     p = w.properties
+    p.ref_basis.setCurrentText("custom")
     p.ref_area.setValue(0.785)
     p.ref_area.editingFinished.emit()
     p.ref_length.setValue(1.0)
@@ -184,14 +220,17 @@ def test_reference_overrides_are_stored_and_used_by_force_coeffs(make_window) ->
     p.ref_rho.setValue(1.0)
     p.ref_rho.editingFinished.emit()
     sim = w.project.sim
-    assert sim.reports == Reports(reference_area=0.785, reference_length=1.0, center_of_rotation=(0.25, 0, 0))
+    assert sim.reports == Reports(reference_area_basis="custom", reference_area=0.785, reference_length=1.0,
+                                  center_of_rotation=(0.25, 0, 0))
     assert sim.physics.rho_ref == 1.0
-    assert p.ref_area_used.text() == "0.785 m² (set)" and p.ref_cofr_used.text() == "(0.25 0 0) m (set)"
+    assert p.ref_area_used.text() == "0.785 m\u00b2 (set)" and p.ref_cofr_used.text() == "(0.25 0 0) m (set)"
     assert not p.ref_note.isVisible()  # both A_ref and l_ref are set
     assert w.results_stale is False  # no run yet
     case = solving.prepare_solver_case(w.project)
-    fc = read_foam_file(case / "system" / "controlDict")["functions"]["forceCoeffs1"]
+    functions = read_foam_file(case / "system" / "controlDict")["functions"]
+    fc = functions["forceCoeffs1"]
     assert fc["Aref"] == 0.785 and fc["lRef"] == 1.0 and list(fc["CofR"]) == [0.25, 0, 0] and fc["rhoInf"] == 1.0
+    assert list(functions["forces1"]["CofR"]) == [0.25, 0, 0]
     # invalid text reverts with a message; empty text goes back to auto
     p.ref_cofr.setText("1 2")
     p.ref_cofr.editingFinished.emit()
@@ -199,18 +238,18 @@ def test_reference_overrides_are_stored_and_used_by_force_coeffs(make_window) ->
     assert "three numbers" in w.statusBar().currentMessage()
     p.ref_cofr.setText("")
     p.ref_cofr.editingFinished.emit()
-    p.ref_area.setValue(p.ref_area.minimum())
-    p.ref_area.editingFinished.emit()
-    assert w.project.sim.reports.center_of_rotation is None and w.project.sim.reports.reference_area is None
-    assert p.ref_note.isVisible() and AUTO_BBOX in p.ref_area_used.text()
+    p.ref_length.setValue(p.ref_length.minimum())
+    p.ref_length.editingFinished.emit()
+    assert w.project.sim.reports.center_of_rotation is None and w.project.sim.reports.reference_length is None
+    assert p.ref_note.isVisible() and "auto: bounding-box length" in p.ref_length_used.text()
 
 
 def test_reference_values_change_the_results_hash(make_window) -> None:
     w = make_window()
     base = solving.results_hash(w.project)
-    w.project.update_reports(reference_area=2.0)
+    w.project.update_reports(reference_area_basis="frontal")
     assert solving.results_hash(w.project) != base
-    w.project.update_reports(reference_area=None, slots=["Cd", None, None])
+    w.project.update_reports(reference_area_basis="planform", slots=["Cd", None, None])
     assert solving.results_hash(w.project) == base
 
 

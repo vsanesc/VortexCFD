@@ -380,3 +380,32 @@ def test_layer_warning_uses_either_metric() -> None:
     assert few_layers.description() == "2.1 / 3 (70 %), thickness 95 %"
     report = MeshReport(1, 1, 1, 1.0, 1.0, 0.1, 0, True, layers=(few_layers, thin))
     assert "b 2.1 / 3 (70 %), thickness 95 %" in report.layer_summary()
+
+
+# -- results removed by a new mesh (D-051) ------------------------------------------------------------------
+
+
+def test_remove_results_deletes_only_results_in_a_marked_case(tmp_path: Path) -> None:
+    from vortexcfd.foam.mesh_case import MARKER_NAME, MARKER_TEXT, RUN_RECORD_FILE, remove_results
+    from vortexcfd.foam.run_record import RUN_RECORD_NAME
+
+    assert RUN_RECORD_FILE == RUN_RECORD_NAME
+    case = tmp_path / "case"
+    for d in ("0", "30", "60", "1e-05", "postProcessing/forceCoeffs1/0", "constant/polyMesh", "system", "logs",
+              "constant/triSurface", "notes"):
+        (case / d).mkdir(parents=True)
+    (case / "60" / "U").write_text("u")
+    (case / "0" / "U").write_text("u0")
+    (case / RUN_RECORD_NAME).write_text("{}")
+    (case / "vortexcfd_mesh.json").write_text("{}")
+    (case / "log.simpleFoam").write_text("log")
+    with pytest.raises(CaseDirectoryNotOursError):
+        remove_results(case)  # no marker: nothing is deleted
+    assert (case / "60" / "U").is_file()
+    (case / MARKER_NAME).write_text(MARKER_TEXT)
+    assert remove_results(case) == ["1e-05", "30", "60", "postProcessing", RUN_RECORD_NAME]
+    left = sorted(p.name for p in case.iterdir())
+    assert left == sorted([MARKER_NAME, "0", "constant", "system", "logs", "notes", "vortexcfd_mesh.json",
+                           "log.simpleFoam"])
+    assert (case / "0" / "U").read_text() == "u0" and (case / "constant" / "polyMesh").is_dir()
+    assert remove_results(case) == []  # nothing left to remove

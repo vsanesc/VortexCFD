@@ -501,3 +501,29 @@ def test_opening_a_project_without_a_record_shows_no_mesh(make_window) -> None:
     assert w.mesh_report is None and not w.mesh_stale
     w.tree.setCurrentItem(w._items[("mesh", None)])
     assert w.properties.mesh_empty.isVisible()
+
+
+def test_successful_mesh_removes_the_previous_results(make_window, fake_run) -> None:
+    """D-051: results of the old mesh are deleted (and logged) after a successful Generate Mesh."""
+    from vortexcfd.foam.run_record import RunRecord, write_run_record
+
+    w = make_window(with_viewer=False)
+    case = w.project.path.parent / "case"
+    w.top_bar.mesh_button.click()  # writes the marker-protected case
+    (case / "60").mkdir()
+    (case / "postProcessing" / "forceCoeffs1" / "0").mkdir(parents=True)
+    write_run_record(case, RunRecord("converged", 60, {"p": 1e-5}, "old", 0))
+    fake_run.instances[-1].finish(MeshRunResult(True, False, exit_codes={}, report=_ready_report()))
+    assert not (case / "60").exists() and not (case / "postProcessing").exists()
+    assert not (case / "vortexcfd_run.json").exists() and (case / "system" / "snappyHexMeshDict").is_file()
+    assert "Removed the previous results for the new mesh: 60, postProcessing, vortexcfd_run.json" in w.console.text()
+    assert w.run_record is None and w.top_bar.results_badge.isHidden()
+
+
+def test_failed_mesh_keeps_the_previous_results(make_window, fake_run) -> None:
+    w = make_window(with_viewer=False)
+    case = w.project.path.parent / "case"
+    w.top_bar.mesh_button.click()
+    (case / "60").mkdir()
+    fake_run.instances[-1].finish(MeshRunResult(False, False, "snappyHexMesh", {"snappyHexMesh": 1}))
+    assert (case / "60").is_dir() and "Removed the previous results" not in w.console.text()

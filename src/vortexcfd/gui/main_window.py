@@ -50,7 +50,7 @@ from vortexcfd.geometry.checks import surface_report
 from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.gui.properties_panel import PropertiesPanel
 from vortexcfd.geometry.domain import BOUNDARY_NAMES
-from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError
+from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError, remove_results
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.gui.mesh_worker import MeshWorker
@@ -1057,6 +1057,7 @@ class MainWindow(QMainWindow):
                     report, self._run_hash or "", self._mesh_patches))
             except OSError as exc:
                 log.warning("Could not save the mesh record: %s", exc)
+            self._clear_results_after_meshing()
             level = "success" if report.mesh_ok else "warning"
             self.show_message(f"Mesh generated: {report.summary()}", level, log_it=False)
             self._load_mesh_view()
@@ -1178,6 +1179,20 @@ class MainWindow(QMainWindow):
         self._update_results_stale(force=True)
         self._update_run_button()
         self._update_mesh_button()
+
+    def _clear_results_after_meshing(self) -> None:
+        """A new mesh makes the previous solver results meaningless: delete them (D-051)."""
+        try:
+            removed = remove_results(case_dir_for(self._project))
+        except (OSError, CaseDirectoryNotOursError) as exc:
+            log.warning("Could not remove the previous results: %s", exc)
+            return
+        if removed:
+            log.info("Removed the previous results for the new mesh: %s", ", ".join(removed))
+        self.run_record = None
+        self.properties.set_run_record(None)
+        self.monitors.clear()
+        self._update_results_stale(force=True)
 
     def _load_mesh_view(self) -> None:
         if self.mesh_view is None:

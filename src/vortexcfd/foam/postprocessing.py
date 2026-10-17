@@ -7,19 +7,28 @@ app's own controlDict, fixtures in tests/data/sphere_run/):
   time>/coefficient.dat``; comment header lines start with ``#``, the last one is ``# Time`` followed
   by the tab-separated coefficient names in sorted order (Cd, Cd(f), Cd(r), Cl, Cl(f), Cl(r),
   CmPitch, CmRoll, CmYaw, Cs, Cs(f), Cs(r)); one row per time step.
+- forces (src/functionObjects/forces/forces): ``postProcessing/forces1/<start time>/force.dat``;
+  header ``# Time  total_x total_y total_z  pressure_x ... viscous_z``; forces in N (rho = rhoInf)
+  in the global axes (D-050).
 - yPlus (src/functionObjects/field/yPlus): ``postProcessing/yPlus1/<start time>/yPlus.dat``;
   header ``# Time  patch  min  max  average``; one row per wall patch at every write time
-  (executeControl/writeControl writeTime). ``average`` is the unweighted mean over the patch faces.
+  (executeControl/writeControl writeTime). ``average`` is the mean over the patch's faces; across
+  several walls the average is weighted by each patch's face count (constant/polyMesh/boundary).
 
 The files are tailed: each poll reads only the bytes appended since the last one and keeps an
 incomplete last line for the next poll.
 """
 
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from vortexcfd.foam.dictfile import read_foam_file
+
 FORCE_COEFFS = "forceCoeffs1"
 FORCE_COEFFS_FILE = "coefficient.dat"
+FORCES = "forces1"
+FORCES_FILE = "force.dat"
 YPLUS = "yPlus1"
 YPLUS_FILE = "yPlus.dat"
 
@@ -123,6 +132,40 @@ class ForceCoeffsTail:
 
 
 @dataclass
+class ForcesTail:
+    """Total force vectors from force.dat: [(time, (Fx, Fy, Fz))] in the global axes."""
+
+    path: Path
+    total: list[tuple[float, tuple[float, float, float]]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self._reader = TailReader(self.path)
+
+    def poll(self) -> int:
+        added = 0
+        for line in self._reader.read_lines():
+            text = line.strip()
+            if not text or text.startswith("#"):
+                continue
+            values = _floats(text.replace("(", " ").replace(")", " ").split())
+            if values is None or len(values) < 10:
+                continue
+            self.total.append((values[0], (values[1], values[2], values[3])))
+            added += 1
+        return added
+
+
+def project_coefficients(force: tuple[float, float, float], alpha_deg: float, rho: float, speed: float,
+                         area: float) -> tuple[float, float]:
+    """(Cd, Cl) of a global force vector: its components along dragDir = (cos a, 0, sin a) and
+    liftDir = (-sin a, 0, cos a) divided by 0.5 rho U^2 A_ref (the app's forceCoeffs axes)."""
+    a = math.radians(alpha_deg)
+    q = 0.5 * rho * speed**2 * area
+    fx, _fy, fz = force
+    return (fx * math.cos(a) + fz * math.sin(a)) / q, (-fx * math.sin(a) + fz * math.cos(a)) / q
+
+
+@dataclass
 class YPlusTail:
     """y+ statistics from yPlus.dat. ``rows``: time -> {patch: (min, max, average)}."""
 
@@ -149,20 +192,41 @@ class YPlusTail:
             added += 1
         return added
 
-    def series(self, stat: str) -> list[tuple[float, float]]:
-        """Over all wall patches per write time: the minimum of the minima, the maximum of the
-        maxima, or the mean of the patch averages ("min", "max", "average")."""
+    def series(self, stat: str, face_counts: dict[str, int] | None = None) -> list[tuple[float, float]]:
+        """Over all wall patches per write time: the minimum of the minima ("min"), the maximum of
+        the maxima ("max"), or the face-count-weighted average of the patch averages ("average",
+        i.e. the mean over all wall faces). Without a face count for every patch the average falls
+        back to the plain mean of the patch averages."""
         out = []
         for t in sorted(self.rows):
-            patches = self.rows[t].values()
+            patches = self.rows[t]
             if stat == "min":
-                value = min(p[0] for p in patches)
+                value = min(p[0] for p in patches.values())
             elif stat == "max":
-                value = max(p[1] for p in patches)
+                value = max(p[1] for p in patches.values())
+            elif face_counts and all(face_counts.get(name, 0) > 0 for name in patches):
+                total = sum(face_counts[name] for name in patches)
+                value = sum(face_counts[name] * p[2] for name, p in patches.items()) / total
             else:
-                value = sum(p[2] for p in patches) / len(patches)
+                value = sum(p[2] for p in patches.values()) / len(patches)
             out.append((t, value))
         return out
+
+
+def patch_face_counts(case_dir: Path) -> dict[str, int]:
+    """nFaces of every patch in constant/polyMesh/boundary ({} when it cannot be read)."""
+    try:
+        data = read_foam_file(Path(case_dir) / "constant" / "polyMesh" / "boundary")
+    except Exception:  # missing file or foamlib parser errors
+        return {}
+    entries = data.get(None, []) if isinstance(data, dict) else []
+    counts = {}
+    for entry in entries if isinstance(entries, list) else []:
+        if isinstance(entry, (list, tuple)) and len(entry) == 2 and isinstance(entry[1], dict):
+            n = entry[1].get("nFaces")
+            if isinstance(n, int):
+                counts[str(entry[0])] = n
+    return counts
 
 
 class ReportMonitor:
@@ -172,6 +236,7 @@ class ReportMonitor:
         self.case_dir = Path(case_dir)
         self._forces: ForceCoeffsTail | None = None
         self._yplus: YPlusTail | None = None
+        self._face_counts: dict[str, int] = {}
 
     def poll(self) -> bool:
         """Read whatever was appended; True if anything new arrived."""
@@ -181,6 +246,8 @@ class ReportMonitor:
         if self._yplus is None:
             path = output_file(self.case_dir, YPLUS, YPLUS_FILE)
             self._yplus = YPlusTail(path) if path is not None else None
+            if self._yplus is not None:
+                self._face_counts = patch_face_counts(self.case_dir)
         added = 0
         for tail in (self._forces, self._yplus):
             if tail is not None:
@@ -192,5 +259,7 @@ class ReportMonitor:
         if report_id in FORCE_REPORTS:
             return list(self._forces.series.get(report_id, [])) if self._forces is not None else []
         if report_id in YPLUS_REPORTS:
-            return self._yplus.series(YPLUS_REPORTS[report_id]) if self._yplus is not None else []
+            if self._yplus is None:
+                return []
+            return self._yplus.series(YPLUS_REPORTS[report_id], self._face_counts)
         raise KeyError(report_id)

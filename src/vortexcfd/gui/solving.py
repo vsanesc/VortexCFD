@@ -15,9 +15,8 @@ from vortexcfd.core.model import Simulation
 from vortexcfd.core.project import Project
 from vortexcfd.foam.case_writer import enable_clean_stop
 from vortexcfd.foam.dictfile import write_foam_file
-from vortexcfd.foam.mesh_case import MARKER_NAME
+from vortexcfd.foam.mesh_case import MARKER_NAME, remove_results
 from vortexcfd.foam.physics_case import SolverCaseInput, build_solver_files, reference_values
-from vortexcfd.foam.run_record import remove_run_record
 from vortexcfd.gui.meshing import MeshingNotReady, case_dir_for, inputs_hash, parts_layout
 
 
@@ -71,21 +70,15 @@ def solver_input(project: Project) -> SolverCaseInput:
                            sim.domain.symmetry == "y_min", sim.reports)
 
 
-def _is_result_time(name: str) -> bool:
-    try:
-        return float(name) > 0
-    except ValueError:
-        return False
-
-
-def clear_results(case_dir: Path) -> None:
-    """Remove the previous run's outputs: time directories after 0, postProcessing/, the 0/
-    directory (rewritten), the solver log and the run record. constant/polyMesh is never touched."""
-    for child in case_dir.iterdir():
-        if child.is_dir() and (_is_result_time(child.name) or child.name in ("postProcessing", "0")):
-            shutil.rmtree(child)
+def clear_results(case_dir: Path) -> list[str]:
+    """Remove the previous run's outputs before a run: the results (mesh_case.remove_results: time
+    directories after 0, postProcessing/, the run record), plus 0/ (rewritten) and the solver log.
+    constant/polyMesh is never touched."""
+    removed = remove_results(case_dir)
+    if (case_dir / "0").is_dir():
+        shutil.rmtree(case_dir / "0")
     (case_dir / "log.simpleFoam").unlink(missing_ok=True)
-    remove_run_record(case_dir)
+    return removed
 
 
 def prepare_solver_case(project: Project) -> Path:

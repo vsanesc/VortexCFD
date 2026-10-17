@@ -475,6 +475,7 @@ def test_v3_fixture_migrates_to_v4_with_unset_reports_and_keeps_its_data() -> No
     assert sim.schema_version == 4
     assert sim.reports == Reports()
     assert sim.reports.reference_area is None and sim.reports.reference_length is None
+    assert sim.reports.reference_area_basis == "planform"
     assert sim.reports.center_of_rotation is None and sim.reports.slots == [None] * REPORT_SLOTS
     assert (sim.physics.nu, sim.physics.rho_ref) == (1.6e-05, 1.2)
     assert (sim.inflow.speed, sim.inflow.alpha_deg) == (35.0, 4.0)
@@ -484,19 +485,24 @@ def test_v3_fixture_migrates_to_v4_with_unset_reports_and_keeps_its_data() -> No
 
 
 def test_reports_validation() -> None:
-    r = Reports(reference_area=0.5, reference_length=0.2, center_of_rotation=(0.25, 0, 0),
-                slots=["Cd", None, "yplus_avg"])
+    r = Reports(reference_area_basis="custom", reference_area=0.5, reference_length=0.2,
+                center_of_rotation=(0.25, 0, 0), slots=["Cd", None, "yplus_avg"])
     assert r.center_of_rotation == (0.25, 0.0, 0.0)
-    for bad in ({"reference_area": 0}, {"reference_length": -1}, {"slots": ["Cd"]},
-                {"slots": ["Cd", "bogus", None]}, {"center_of_rotation": (1, 2)}):
+    assert Reports().reference_area_basis == "planform" and Reports(reference_area_basis="frontal").reference_area is None
+    # an unpublished v4 file with only reference_area reads as custom
+    assert Reports.model_validate({"reference_area": 0.7}).reference_area_basis == "custom"
+    for bad in ({"reference_area_basis": "custom", "reference_area": 0}, {"reference_length": -1},
+                {"slots": ["Cd"]}, {"slots": ["Cd", "bogus", None]}, {"center_of_rotation": (1, 2)},
+                {"reference_area_basis": "custom"}, {"reference_area_basis": "frontal", "reference_area": 1.0},
+                {"reference_area_basis": "wetted"}):
         with pytest.raises(ValidationError):
             Reports(**bad)
 
 
 def test_update_reports_is_undoable_and_saved(tmp_path: Path) -> None:
     p = Project.new("r")
-    p.update_reports(reference_area=0.75, slots=["Cl", None, None])
-    assert p.undo_label == "Edit reports (reference_area, slots)"
+    p.update_reports(reference_area_basis="custom", reference_area=0.75, slots=["Cl", None, None])
+    assert p.undo_label == "Edit reports (reference_area_basis, reference_area, slots)"
     path = tmp_path / "r.json"
     p.save(path)
     loaded = Project.open(path)
@@ -505,3 +511,5 @@ def test_update_reports_is_undoable_and_saved(tmp_path: Path) -> None:
     assert p.sim.reports == Reports()
     with pytest.raises(ValidationError):
         p.update_reports(reference_length=0.0)
+    with pytest.raises(ValidationError):
+        p.update_reports(reference_area=1.0)  # a custom area needs the custom basis

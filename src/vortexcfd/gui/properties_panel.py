@@ -28,7 +28,13 @@ from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.foam.run_record import RunRecord
 from vortexcfd.foam.mesh_case import safe_part_names
 from vortexcfd.foam.mesh_estimate import estimate_mesh
-from vortexcfd.foam.physics_case import inlet_turbulence, reference_values
+from vortexcfd.foam.physics_case import (
+    AREA_BASIS_LABELS,
+    CENTRE_AUTO_LABEL,
+    LENGTH_AUTO_LABEL,
+    inlet_turbulence,
+    reference_values,
+)
 from vortexcfd.gui.meshing import MeshingNotReady, parts_layout, plan_layers_for
 from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_status, report_for_part
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
@@ -125,8 +131,8 @@ MESH_SETTINGS = (
 MESH_OPTIONAL = frozenset({"base_size", "surface_level_min", "surface_level_max"})
 # Reference Values node (D-047): the note under the auto (bounding box) values.
 REFERENCE_NOTE = "set the wing area and mean chord for aircraft"
-AUTO_BBOX = "auto (bounding box)"
-REFERENCE_ROWS = ("ref_rho", "ref_u", "ref_area", "ref_length", "ref_cofr", "ref_area_used",
+AREA_BASES = ("planform", "frontal", "custom")
+REFERENCE_ROWS = ("ref_rho", "ref_u", "ref_basis", "ref_area", "ref_length", "ref_cofr", "ref_area_used",
                   "ref_length_used", "ref_cofr_used")
 
 
@@ -444,6 +450,11 @@ class PropertiesPanel(QWidget):
         self._layout.addWidget(self._make_row("ref_rho", "Reference density", self.ref_rho))
         self.ref_rho.editingFinished.connect(self._commit_rho)
         self.ref_u = self._ro_row("ref_u", "Reference speed U_ref")
+        self.ref_basis = _combo(AREA_BASES)
+        self.ref_basis.setToolTip("A_ref: bounding-box planform (x * y), bounding-box frontal (y * z) "
+                                  "or a custom value")
+        self._layout.addWidget(self._make_row("ref_basis", "A_ref basis", self.ref_basis))
+        self.ref_basis.currentTextChanged.connect(lambda _t: self._commit_basis())
         self.ref_area = _dspin(0.0, 1e6, 6, " m\u00b2", "auto")
         self._layout.addWidget(self._make_row("ref_area", "Reference area A_ref", self.ref_area))
         self.ref_area.editingFinished.connect(lambda: self._commit_reference("reference_area"))
@@ -844,11 +855,12 @@ class PropertiesPanel(QWidget):
             return
         sim = self._project.sim
         rep = sim.reports
-        widgets = (self.ref_rho, self.ref_area, self.ref_length, self.ref_cofr)
+        widgets = (self.ref_rho, self.ref_basis, self.ref_area, self.ref_length, self.ref_cofr)
         for w in widgets:
             w.blockSignals(True)
         try:
             self.ref_rho.setValue(sim.physics.rho_ref)
+            self.ref_basis.setCurrentText(rep.reference_area_basis)
             self.ref_area.setValue(rep.reference_area if rep.reference_area is not None else self.ref_area.minimum())
             self.ref_length.setValue(
                 rep.reference_length if rep.reference_length is not None else self.ref_length.minimum())
@@ -856,6 +868,7 @@ class PropertiesPanel(QWidget):
         finally:
             for w in widgets:
                 w.blockSignals(False)
+        self.ref_area.setEnabled(rep.reference_area_basis == "custom")
         self.ref_u.setText(f"{sim.inflow.speed:.4g} m/s (inflow speed)")
         try:
             _box, _names, bounds = parts_layout(self._project)
@@ -867,12 +880,12 @@ class PropertiesPanel(QWidget):
             return
         ref = reference_values(bounds, rep)
 
-        def tag(auto: bool) -> str:
-            return f" \u2014 {AUTO_BBOX}" if auto else " (set)"
+        def tag(auto: bool, label: str) -> str:
+            return f" \u2014 {label}" if auto else " (set)"
 
-        self.ref_area_used.setText(f"{ref.a_ref:.4g} m\u00b2" + tag(ref.a_auto))
-        self.ref_length_used.setText(f"{ref.l_ref:.4g} m" + tag(ref.l_auto))
-        self.ref_cofr_used.setText(f"({format_vector(ref.cofr)}) m" + tag(ref.cofr_auto))
+        self.ref_area_used.setText(f"{ref.a_ref:.4g} m\u00b2" + tag(ref.a_auto, AREA_BASIS_LABELS.get(ref.a_basis, "")))
+        self.ref_length_used.setText(f"{ref.l_ref:.4g} m" + tag(ref.l_auto, LENGTH_AUTO_LABEL))
+        self.ref_cofr_used.setText(f"({format_vector(ref.cofr)}) m" + tag(ref.cofr_auto, CENTRE_AUTO_LABEL))
         self.ref_note.setVisible(ref.a_auto or ref.l_auto)
 
     def _commit_rho(self) -> None:
@@ -880,6 +893,25 @@ class PropertiesPanel(QWidget):
             return
         try:
             self._project.update_physics(rho_ref=self.ref_rho.value())
+        except (ValueError, TypeError) as exc:
+            self.message.emit(str(exc))
+        self.refresh()
+
+    def _commit_basis(self) -> None:
+        """A_ref basis: "custom" starts from the area in use, the others clear the custom value."""
+        if self._kind != "reference_values":
+            return
+        basis = self.ref_basis.currentText()
+        area = None
+        if basis == "custom":
+            try:
+                _box, _names, bounds = parts_layout(self._project)
+            except MeshingNotReady:
+                bounds = None
+            area = reference_values(bounds, self._project.sim.reports).a_ref if bounds is not None else 1.0
+            area = area if area > 0 else 1.0
+        try:
+            self._project.update_reports(reference_area_basis=basis, reference_area=area)
         except (ValueError, TypeError) as exc:
             self.message.emit(str(exc))
         self.refresh()

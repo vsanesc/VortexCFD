@@ -36,7 +36,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-018 | 2026-10-16 | geometry/ layer | Accepted |
 | D-019 | 2026-10-16 | Far-field domain box from multipliers of L | Accepted |
 | D-020 | 2026-10-16 | Schema v2 adds the domain, with migration | Accepted |
-| D-021 | 2026-10-16 | Marker-protected meshing case, background runs | Accepted |
+| D-021 | 2026-10-16 | Marker-protected meshing case, background runs | Accepted; results part extended by D-051 |
 | D-022 | 2026-10-16 | External-aerodynamics BCs and motorBike numerics | Accepted |
 | D-023 | 2026-10-16 | Inlet turbulence from intensity and viscosity ratio | Accepted |
 | D-024 | 2026-10-16 | y+ estimator and absolute layer sizing | Accepted |
@@ -61,10 +61,12 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-043 | 2026-10-17 | Test conventions | Accepted |
 | D-044 | 2026-10-17 | minTetQuality relaxed only in `relaxed` | Accepted; nRelaxedIter part superseded by D-045 |
 | D-045 | 2026-10-17 | Relaxed controls from the first layer iteration for y+ layers | Accepted |
-| D-046 | 2026-10-17 | Running the solver: run states, run record, results staleness | Proposed |
-| D-047 | 2026-10-17 | Reference values for the force coefficients (schema v4) | Proposed |
-| D-048 | 2026-10-17 | Live residuals and report slots | Proposed |
-| D-049 | 2026-10-17 | Residual chart palette | Proposed |
+| D-046 | 2026-10-17 | Running the solver: run states, run record, results staleness | Accepted |
+| D-047 | 2026-10-17 | Reference values for the force coefficients (schema v4) | Accepted (with the A_ref basis) |
+| D-048 | 2026-10-17 | Live residuals and report slots | Accepted (face-weighted y+ average) |
+| D-049 | 2026-10-17 | Residual chart palette | Accepted |
+| D-050 | 2026-10-17 | forceCoeffs projection checked against a forces function object | Accepted |
+| D-051 | 2026-10-17 | A new mesh deletes the previous results | Accepted |
 
 ---
 
@@ -209,7 +211,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: the migration hook is the single upgrade point (schema v3 added the physics in Task 4A).
 
 ## D-021 Marker-protected meshing case, background runs
-- Status: Accepted
+- Status: Accepted (the results part is extended by D-051: a successful Generate Mesh also deletes the previous solver results)
 - Context: Task 5.1.
 - Decision: the meshing case lives in <project dir>/case with a marker file .vortexcfd-case; regeneration replaces only constant/polyMesh and generated dictionaries and refuses a non-empty directory without the marker; meshing steps run through FoamRun in the background and reach the GUI only through Qt signals.
 - Alternatives considered: not recorded.
@@ -389,7 +391,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: the y+ 30 test sphere gets 13 / 13 layers (100 %), thickness 100 % (26.2 mm), 100 % of the faces extruded, checkMesh "Mesh OK" (286820 cells, max non-orthogonality 41.3, max skewness 0.652); the test asserts coverage >= 80 % (both metrics) and "Mesh OK" instead of a strict xfail. checkMesh still judges every final mesh.
 
 ## D-046 Running the solver: run states, run record, results staleness
-- Status: Proposed (Task 4B.1, recorded on task/4a-physics while Vic was away)
+- Status: Accepted (reviewed 2026-10-17 in the review chat; recorded as Proposed on task/4a-physics). The old results left by Generate Mesh are now deleted by D-051.
 - Context: Task 4B.1 runs simpleFoam from the GUI on the meshed case.
 - Decision:
   - Run Solver is enabled when the project is saved, no meshing is running, a mesh exists (case/vortexcfd_mesh.json loaded), the mesh is not out of date (D-033) and the physics is valid; otherwise it is disabled with the reason as tooltip ("Save the project first.", "Meshing is running.", "Generate the mesh first.", "The mesh is out of date: generate it again.", or the physics problem). "Physics valid" means: the Simulation validates again (a project edited outside the Project API) and the forceCoeffs reference length and area are positive (a flat part with no y extent has a zero bounding-box area). While the solver runs Generate Mesh is disabled ("The solver is running: stop it first.").
@@ -400,22 +402,36 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: every run starts from 0 with a clean case. Parallel runs are still not supported (D-010).
 
 ## D-047 Reference values for the force coefficients (schema v4)
-- Status: Proposed (Task 4B.2, [NUMERICS-REVIEW], recorded while Vic was away)
+- Status: Accepted (reviewed 2026-10-17 in the review chat, [NUMERICS-REVIEW]; updated in the same review with the A_ref basis, docs/QUESTIONS.md item 49)
 - Context: forceCoeffs needs magUInf, lRef, Aref and a centre of rotation; Task 4A wrote the bounding-box values with no way to change them. The v2606 forceCoeffs reads, with CofR, liftDir as e3 and dragDir as e1 of the coefficient axes and takes the pitch axis as e2 = e3 x e1 (+y at any angle of attack); the `pitchAxis` keyword is not read (src/functionObjects/forces/forces/forces.C setCoordinateSystem, forceCoeffs.C). Output: postProcessing/forceCoeffs1/<start time>/coefficient.dat, columns Time then Cd, Cd(f), Cd(r), Cl, Cl(f), Cl(r), CmPitch, CmRoll, CmYaw, Cs, Cs(f), Cs(r) (checked on a real run, tests/data/sphere_run/).
-- Decision: a "Reference Values" node under Reports & Monitors shows rho_ref (Physics.rho_ref, editable there too), U_ref (the inflow speed, read-only), A_ref, l_ref and CofR. A_ref, l_ref and CofR are optional overrides stored in `Reports` (reference_area, reference_length, center_of_rotation; None = auto); the auto values come from the union of the parts' bounding boxes: l_ref = x extent, A_ref = x extent x y extent (planform for a body along +x with the span along y), CofR = the box centre. Auto values are shown as "auto (bounding box)" with the muted note "set the wing area and mean chord for aircraft". forceCoeffs uses the resolved values. Schema v4 also adds `Reports.slots` (D-048); v3 files migrate with all overrides unset and empty slots (hand-written fixture tests/data/project_v3.json). Reference values are results inputs (D-046 hash); the slot choice is not.
-- Alternatives considered: frontal area (y x z extent) as the default (natural for bluff bodies, wrong for wings); no defaults (Run Solver blocked until the user enters them).
-- Consequences: coefficients of a bluff body with the auto planform area differ from the usual frontal-area convention (the default sphere: Aref 0.995 m2 against pi r^2 = 0.785 m2); the user overrides A_ref. A flat part with a zero auto area or length blocks Run Solver until A_ref / l_ref is set (D-046).
+- Decision: a "Reference Values" node under Reports & Monitors shows rho_ref (Physics.rho_ref, editable there too), U_ref (the inflow speed, read-only), A_ref, l_ref and CofR. A_ref has a basis (`Reports.reference_area_basis`): "planform" (bounding box x * y, the default), "frontal" (bounding box y * z) or "custom" (`Reports.reference_area`, set exactly for custom; choosing custom starts from the area in use). l_ref and CofR are optional overrides (reference_length, center_of_rotation; None = auto: l_ref = x extent, CofR = the box centre of the union of the parts' bounding boxes). The auto labels state the basis exactly ("auto: bounding-box planform, x * y", "auto: bounding-box frontal, y * z", "auto: bounding-box length, x extent", "auto: bounding-box centre"), with the muted note "set the wing area and mean chord for aircraft". The basis was added inside schema v4 (unpublished); a v4 file with only reference_area reads as custom. forceCoeffs uses the resolved values. Schema v4 also adds `Reports.slots` (D-048); v3 files migrate with all overrides unset and empty slots (hand-written fixture tests/data/project_v3.json). Reference values are results inputs (D-046 hash); the slot choice is not.
+- Alternatives considered: frontal area as the only default (wrong for wings); a single override without a basis (the first version of this entry); no defaults (Run Solver blocked until the user enters them).
+- Consequences: a bluff body uses the frontal basis (the default sphere: planform 0.995 m2, frontal about 0.99 m2 for its box; a true pi r^2 = 0.785 m2 needs custom). A flat part with a zero auto area or length blocks Run Solver until A_ref / l_ref is set (D-046).
 
 ## D-048 Live residuals and report slots
-- Status: Proposed (Task 4B.2, recorded while Vic was away)
+- Status: Accepted (reviewed 2026-10-17 in the review chat; updated in the same review: the y+ average across walls is face-count weighted, docs/QUESTIONS.md item 51)
 - Context: the monitors column had empty states only (D-039).
-- Decision: the residual chart plots the initial residual of every solved field per iteration (the first solve of the field in the iteration), log10 y axis whose decades widen to fit the data (at least 1e0..1e-6), iteration on x always ending at the latest iteration (autoscroll), one line per field, a legend row above the plot, and at most about 2000 points per series (min/max bucket decimation, first and last points kept). Iterations arrive through the SolverWorker step signal. The report slot chevron opens a menu: Not assigned, Cd, Cl, Cm (pitch) (forceCoeffs columns Cd, Cl, CmPitch) and y+ min / avg / max on the walls (yPlus function object, postProcessing/yPlus1/<start time>/yPlus.dat: over all wall patches the minimum of the minima, the maximum of the maxima, the mean of the patch averages). The assignment is saved in the project (Reports.slots, undoable). Values come from tailing the postProcessing files every 250 ms on the GUI thread (only the appended bytes are read; an incomplete last line waits for the next poll) and show the last value (4 significant digits) and a sparkline of the last 200 values. A finished run is shown again when the project is opened (its log and postProcessing files). Without a run the chart keeps its empty state and the values show "—".
+- Decision: the residual chart plots the initial residual of every solved field per iteration (the first solve of the field in the iteration), log10 y axis whose decades widen to fit the data (at least 1e0..1e-6), iteration on x always ending at the latest iteration (autoscroll), one line per field, a legend row above the plot, and at most about 2000 points per series (min/max bucket decimation, first and last points kept). Iterations arrive through the SolverWorker step signal. The report slot chevron opens a menu: Not assigned, Cd, Cl, Cm (pitch) (forceCoeffs columns Cd, Cl, CmPitch) and y+ min / avg / max on the walls (yPlus function object, postProcessing/yPlus1/<start time>/yPlus.dat: over all wall patches the minimum of the minima, the maximum of the maxima, and the average weighted by each patch's face count from constant/polyMesh/boundary, i.e. the mean over all wall faces; checked against the yPlus field of a real two-wall run, tests/data/two_walls/). The assignment is saved in the project (Reports.slots, undoable). Values come from tailing the postProcessing files every 250 ms on the GUI thread (only the appended bytes are read; an incomplete last line waits for the next poll) and show the last value (4 significant digits) and a sparkline of the last 200 values. A finished run is shown again when the project is opened (its log and postProcessing files). Without a run the chart keeps its empty state and the values show "—".
 - Alternatives considered: polling the files on the worker thread (more signals, no gain for files of a few kB per minute); a plotting library (no new dependencies).
 - Consequences: y+ values change only at write times (the yPlus function object runs at writeTime, unchanged from Task 4A).
 
 ## D-049 Residual chart palette
-- Status: Proposed (Task 4B.2, recorded while Vic was away; colours are the owner's call, D-041)
+- Status: Accepted (reviewed 2026-10-17 in the review chat; colours remain the owner's call, D-041)
 - Context: the chart needs one colour per field and the rule is that only owner tokens are used. No set of six owner tokens passes the dataviz palette checks on the dark canvas: every token is lighter than the dark lightness band (OKLCH L 0.48-0.67), text and muted text read as gray, and red / amber and teal / green are too close (normal-vision and CVD separation).
 - Decision: three hues derived from owner tokens, each blended over `canvas` (#0A0D12) at the largest weight that puts it at OKLCH L <= 0.66: p = accent at 0.84 (#D87403), Ux / Uy / Uz = axis_z at 0.82 (#309DCF; solid / dashed / dotted), k / omega = axis_y at 0.83 (#28AC61; solid / dashed). Any other field: muted_text, dash-dot. Lines are 2 px; the legend names every series in text colour. Status colours (success, warning, error) are not used. Validator result (all pairs, dark, canvas): lightness, chroma, contrast and normal-vision separation pass; CVD separation WARN (deutan 7.9 between green and amber), allowed because the families also differ by line style and the legend names them. Values in gui/theme.py (RESIDUAL_STYLES), asserted in tests/test_monitors_gui.py.
 - Alternatives considered: six separate hues from the tokens (fails the separation checks); the raw tokens (outside the lightness band, too bright on the canvas).
 - Consequences: velocity components share one hue; the owner may replace the palette with explicit chart tokens.
+
+## D-050 forceCoeffs projection checked against a forces function object
+- Status: Accepted (review of Task 4B on 2026-10-17, [NUMERICS-REVIEW]; docs/QUESTIONS.md item 53)
+- Context: v2606 forceCoeffs does not read `pitchAxis`; the review asked whether it also ignores liftDir and dragDir. Source: forces::setCoordinateSystem (with CofR it reads e3 from liftDir and e1 from dragDir, both mandatory) and the coefficient.dat header, which prints the axes it uses.
+- Decision: controlDict gets a `forces1` function object next to forceCoeffs1 (same patches, rho rhoInf, CofR, no direction entries, so its force.dat is in the global axes, written every iteration). The check: a flattened ellipsoid (semi-axes 0.5 x 0.5 x 0.15 m, default mesh, 192458 cells) at alpha = 10 deg, 150 iterations; Cd and Cl of forceCoeffs against the total force of forces1 projected onto dragDir = (cos a, 0, sin a) and liftDir = (-sin a, 0, cos a) and divided by 0.5 rho U^2 A_ref. Result at iteration 150: Cd 0.0357514 vs 0.0357514, Cl 0.04125657 vs 0.04125655 (difference below 1e-4 %); every one of the 150 iterations agrees within 0.5 %. The forceCoeffs dictionary did not have to change. The `pitchAxis` entry stays as documentation (the pitch axis is e3 x e1 = +y). Tests: tests/test_force_projection.py on the real output (tests/data/projection_run/) and a slow test that re-meshes the body and repeats the check on 40 iterations.
+- Alternatives considered: switching forceCoeffs to an explicit coordinateSystem (not needed: the keywords are read).
+- Consequences: one more postProcessing file per run (force.dat and moment.dat, a few kB per 100 iterations).
+
+## D-051 A new mesh deletes the previous results
+- Status: Accepted (review of Task 4B on 2026-10-17; docs/QUESTIONS.md item 48)
+- Context: Generate Mesh replaced constant/polyMesh but left the old solver results (time directories, postProcessing/), which no longer match the mesh and could be opened in ParaView.
+- Decision: after a successful Generate Mesh, the time directories after 0, postProcessing/ and case/vortexcfd_run.json are deleted inside the marker-protected case directory only (foam/mesh_case.remove_results refuses a directory without the marker; 0/, constant/, system/, logs and other files stay), and the console logs what was removed ("Removed the previous results for the new mesh: ..."). The shown run, its monitors and the results badge are cleared. A failed or stopped meshing run deletes nothing.
+- Alternatives considered: deleting before meshing (a failed mesh would lose results for nothing); keeping them flagged out of date (the earlier behaviour, D-046).
+- Consequences: results always belong to the current mesh; a Run Solver after meshing starts from a clean case.
