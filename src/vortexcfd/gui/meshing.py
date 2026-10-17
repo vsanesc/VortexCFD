@@ -16,8 +16,11 @@ from vortexcfd.foam.mesh_case import (
     TRI_SURFACE,
     MeshCaseInput,
     build_mesh_files,
+    needs_seeding,
+    part_level_range,
     prepare_case_dir,
     safe_part_names,
+    write_seed_edge_meshes,
 )
 from vortexcfd.geometry.domain import DomainBox, compute_domain, union_bounds
 from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
@@ -146,12 +149,44 @@ def prepare_job(project: Project) -> MeshJob:
         mesh=project.sim.mesh,
         first_layer_thickness=first_layer,
         layer_count=layer_count,
+        part_bounds=tuple(bounds),
+        part_levels=_part_overrides(project),
     )
     case_dir = case_dir_for(project)
     prepare_case_dir(case_dir, build_mesh_files(inputs))
     for name, mesh in zip(safe, meshes):
         mesh.save(str(case_dir / TRI_SURFACE / f"{name}.stl"))  # already scaled to metres
+    write_seed_edge_meshes(case_dir, inputs)
     return MeshJob(case_dir, inputs, box)
+
+
+def _part_overrides(project: Project) -> tuple[tuple[int | None, int | None], ...]:
+    return tuple((p.surface_level_min, p.surface_level_max) for p in project.sim.geometry.parts)
+
+
+SEEDED_TEXT = "is small relative to the background mesh: refinement seeded automatically"
+
+
+def thin_part_warnings(project: Project) -> list[str]:
+    """Pre-mesh notes, one per part flagged by mesh_case.needs_seeding (small relative to the
+    background cells, or thinner than THIN_SURFACE_CELLS surface cells at its maximum level). Such
+    parts are seeded automatically (D-052); the lost-part guard still checks the result.
+    Empty when the parts cannot be loaded (readiness says why)."""
+    try:
+        box, names, meshes = _loaded_parts(project)
+    except MeshingNotReady:
+        return []
+    if box.bounds is None:
+        return []
+    est = estimate_mesh(box.bounds, box.reference_length, project.sim.mesh)
+    out = []
+    for part, name, surf in zip(project.sim.geometry.parts, names, meshes):
+        bounds = tuple(float(b) for b in surf.bounds)
+        override = (part.surface_level_min, part.surface_level_max)
+        _lo, hi = part_level_range(est.level_min, est.level_max, override)
+        if needs_seeding(bounds, est.base_size, hi):
+            out.append(f"Part {name} {SEEDED_TEXT}")
+    return out
 
 
 _file_hashes: dict[tuple[str, int, int], str] = {}
@@ -178,7 +213,7 @@ def inputs_hash(project: Project) -> str:
     for part in project.sim.geometry.parts:
         path = project.resolve_part_path(part) if part.source_file and project.path else None
         digest = _hash_file(path) if path is not None and path.is_file() else None
-        parts.append([part.name, part.units, digest])
+        parts.append([part.name, part.units, digest, part.surface_level_min, part.surface_level_max])
     payload = {
         "parts": parts,
         "domain": project.sim.domain.model_dump(),

@@ -25,6 +25,14 @@ class SurfaceReport:
     duplicate_faces: int
     inconsistent_orientation: int  # triangles to flip to make orientation consistent
     watertight: bool
+    # Signed volume (m3) enclosed by the triangles, from their orientation: negative for a closed
+    # surface whose normals point inward. Meaningful only when watertight.
+    signed_volume: float = 0.0
+
+    @property
+    def normals_inward(self) -> bool:
+        """A closed surface whose normals point inward (negative signed volume). Not flipped."""
+        return self.watertight and self.signed_volume < 0
 
     def summary(self) -> str:
         """One-line summary for logs."""
@@ -39,6 +47,8 @@ class SurfaceReport:
             problems.append(f"{self.duplicate_faces} duplicate faces")
         if self.inconsistent_orientation:
             problems.append(f"{self.inconsistent_orientation} inconsistently oriented triangles")
+        if self.normals_inward:
+            problems.append("normals point inward")
         head = f"{self.n_triangles} triangles, {self.n_points} points, watertight: {'yes' if self.watertight else 'no'}"
         return head + ("; " + ", ".join(problems) if problems else "")
 
@@ -102,7 +112,8 @@ def check_surface(mesh: pv.PolyData) -> SurfaceReport:
     """Check a triangulated surface.
 
     Reports open and non-manifold edges, degenerate triangles, duplicate faces and
-    inconsistent orientation. Self-intersections are NOT checked (Phase 3.3).
+    inconsistent orientation, and the signed volume (negative: normals point inward).
+    Self-intersections are NOT checked (Phase 3.3).
     """
     tris = _triangles(mesh)
     n_tri = len(tris)
@@ -139,4 +150,5 @@ def check_surface(mesh: pv.PolyData) -> SurfaceReport:
         duplicate_faces=duplicates,
         inconsistent_orientation=_orientation_conflicts(tri_mesh),
         watertight=open_edges == 0 and non_manifold == 0,
+        signed_volume=float(np.einsum("ij,ij->i", a, np.cross(b, c)).sum() / 6.0),
     )

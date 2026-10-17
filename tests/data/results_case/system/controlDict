@@ -1,0 +1,114 @@
+FoamFile
+{
+    version 2.0;
+    format ascii;
+    class dictionary;
+    location "system";
+    object controlDict;
+}
+
+application simpleFoam;
+
+startFrom startTime;
+
+startTime 0;
+
+stopAt endTime;
+
+endTime 5;
+
+deltaT 1;
+
+writeControl timeStep;
+
+writeInterval 5;
+
+purgeWrite 0;
+
+writeFormat ascii;
+
+writePrecision 6;
+
+writeCompression no;
+
+timeFormat general;
+
+timePrecision 6;
+
+runTimeModifiable yes;
+
+functions
+{
+    forceCoeffs1
+    {
+    
+        type forceCoeffs;
+    
+        libs (forces);
+    
+        writeControl timeStep;
+    
+        writeInterval 1;
+    
+        log yes;
+    
+        patches (Ball);
+    
+        rho rhoInf;
+    
+        rhoInf 1.225;
+    
+        liftDir (-0.0 0.0 1.0);
+    
+        dragDir (1.0 0.0 0.0);
+    
+        CofR (1.0 0.0 0.05);
+    
+        pitchAxis (0.0 1.0 0.0);
+    
+        magUInf 20.0;
+    
+        lRef 1.0;
+    
+        Aref 1.0;
+    }
+    forces1
+    {
+    
+        type forces;
+    
+        libs (forces);
+    
+        writeControl timeStep;
+    
+        writeInterval 1;
+    
+        log no;
+    
+        patches (Ball);
+    
+        rho rhoInf;
+    
+        rhoInf 1.225;
+    
+        CofR (1.0 0.0 0.05);
+    }
+    yPlus1
+    {
+    
+        type yPlus;
+    
+        libs (fieldFunctionObjects);
+    
+        writeFields yes;
+    
+        executeControl writeTime;
+    
+        writeControl writeTime;
+    }
+}
+
+OptimisationSwitches
+{
+    stopAtWriteNowSignal 10;
+}

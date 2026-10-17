@@ -2,6 +2,9 @@
 
 Working name: VortexCFD. Target: a STAR-CCM+-style workflow (single simulation tree, integrated geometry → mesh → physics → solve → post) running on OpenFOAM as the numerical backend.
 
+Progress marks after the sub-phase titles (*done*, *partly done*) follow docs/STATUS.md, which is the
+source of truth for the state of each sub-phase.
+
 ## 0. Ground rules (apply to every task)
 
 **Scope principles**
@@ -46,7 +49,7 @@ Working name: VortexCFD. Target: a STAR-CCM+-style workflow (single simulation t
 - Deliverable: `docs/reference/oss_survey.md` with per-tool: purpose, license, last activity, strengths, weaknesses, integration effort, recommendation.
 - Acceptance: every gap marked P1/P2 in 0.1 has a recommended source (reuse/wrap/build).
 
-### 0.3 Repo, environment, architecture
+### 0.3 Repo, environment, architecture — *done*
 - Deliverables: repo skeleton, `ARCHITECTURE.md`, `DECISIONS.md`, agent rules file, pytest + CI, dev environment script (WSL + OpenFOAM detection), smoke test that runs a trivial OpenFOAM tutorial case from Python.
 - Proposed stack (revisable after 0.2): Python 3.11+, PySide6, PyVista/VTK, Jinja2, pydantic for the case model.
 - Acceptance: `pytest` green; smoke test runs `blockMesh` + a solver on the cavity and returns exit code 0 with parsed log.
@@ -55,19 +58,19 @@ Working name: VortexCFD. Target: a STAR-CCM+-style workflow (single simulation t
 
 ## Phase 1 — Core: case model, writer, runner
 
-### 1.1 Simulation data model
+### 1.1 Simulation data model — *done*
 - Goal: internal representation of the simulation tree (Geometry, Regions/Parts, Mesh, Physics, Solvers, Monitors, Reports), serializable to JSON/YAML and versioned.
 - Acceptance: round-trip save/load tests; schema version field; migration stub.
 
-### 1.2 Case writer (templates → OpenFOAM dictionaries)
+### 1.2 Case writer (templates → OpenFOAM dictionaries) — *partly done (cavity reference case)*
 - Goal: generate `controlDict`, `fvSchemes`, `fvSolution`, `transportProperties`/`physicalProperties`, `turbulenceProperties`/`momentumTransport`, BC files in `0/`, `snappyHexMeshDict`, etc., with differences between OpenFOAM flavours isolated in one adapter layer.
 - Acceptance: for 3 reference cases (cavity, external flow around a cylinder, wing), generated dictionaries match hand-written reference cases (normalized diff test); `checkMesh` and a short solver run pass.
 
-### 1.3 Runner and log parsing
+### 1.3 Runner and log parsing — *done for single-process runs*
 - Goal: run meshing/solver as subprocesses, stream logs, stop/restart, parallel decomposition, parse residuals, courant, force coefficients.
 - Acceptance: unit tests on recorded logs; stopping a run cleanly writes a restartable time.
 
-### 1.4 Integration test
+### 1.4 Integration test — *done (cavity)*
 - Goal: model → case → mesh → solve → parsed results, headless (no GUI).
 - Acceptance: cavity end-to-end headless in CI.
 
@@ -75,15 +78,15 @@ Working name: VortexCFD. Target: a STAR-CCM+-style workflow (single simulation t
 
 ## Phase 2 — GUI shell and 3D viewer
 
-### 2.1 Main window
+### 2.1 Main window — *done*
 - Simulation tree (STAR-style), property panel bound to the data model, undo/redo, project save/load.
 - Acceptance: editing a property updates the model; undo/redo covers at least property edits and add/remove nodes.
 
-### 2.2 3D viewer
+### 2.2 3D viewer — *done (parts, mesh scene, results scene)*
 - PyVista/VTK embedded: geometry, surface/volume mesh, clip/slice, scalar fields, part visibility, picking surfaces.
 - Acceptance: loads 1M-triangle STL interactively; picking returns the selected surface/patch id.
 
-### 2.3 Console and live monitors
+### 2.3 Console and live monitors — *done*
 - Log console, residual plot, coefficient plots updating while the solver runs.
 - Acceptance: plots update at least every few seconds on a running case without freezing the UI (solver runs in a separate process/thread).
 
@@ -91,7 +94,7 @@ Working name: VortexCFD. Target: a STAR-CCM+-style workflow (single simulation t
 
 ## Phase 3 — CAD import and geometry (priority 1 from the gap analysis)
 
-### 3.1 Surface mesh import
+### 3.1 Surface mesh import — *done*
 - STL (ASCII/binary), OBJ, PLY; units selection; multi-part/multi-solid STL splitting.
 - Checks: watertightness, non-manifold edges, inverted normals, self-intersections, tiny/degenerate triangles, duplicate faces. Report in GUI with highlight in viewer.
 - Acceptance: test corpus of clean and deliberately broken STLs; each defect type detected.
@@ -104,7 +107,7 @@ Working name: VortexCFD. Target: a STAR-CCM+-style workflow (single simulation t
 - Automated repair pipeline (e.g., hole filling, normal fixing, optional robust remesh via fTetWild-style approaches, per 0.2). Always keep the original and show a before/after report.
 - Acceptance: a defined fraction of the broken-STL corpus ends up watertight and snappyHexMesh-ready; failures give actionable messages.
 
-### 3.4 Domain and boundary definition
+### 3.4 Domain and boundary definition — *done*
 - Box/cylinder far-field domain builder from body bounding box with size multipliers; symmetry planes; named boundaries (inlet, outlet, wall, symmetry, far-field).
 - Acceptance: domain generated for a wing and a VTOL STL; boundaries exported as patches consistent with the case writer.
 
@@ -116,23 +119,23 @@ Working name: VortexCFD. Target: a STAR-CCM+-style workflow (single simulation t
 
 ## Phase 4 — Physics, boundary templates, turbulence
 
-### 4.1 Physics continua
+### 4.1 Physics continua — *done for steady incompressible RANS*
 - Presets: steady incompressible RANS, transient incompressible, compressible steady/transient, with energy on/off; fluid properties (air with Sutherland/ideal gas, constants), reference values.
 - Solver selection logic: continuum choices → OpenFOAM solver + required fields.
 - Acceptance: each preset generates a runnable case on a reference geometry.
 
-### 4.2 Boundary condition library
+### 4.2 Boundary condition library — *done for external aerodynamics*
 - Inlet (velocity, mass flow, total pressure), outlet (static pressure), walls (no-slip, slip, moving), symmetry, far-field, with the correct OpenFOAM BC per variable and flavour.
 - Acceptance: BC table (GUI choice → OpenFOAM BC for U, p, T, k, omega, epsilon, nut, nuTilda) covered by unit tests. `[NUMERICS-REVIEW]`
 
-### 4.3 Turbulence module (STAR-like model selection)
+### 4.3 Turbulence module (STAR-like model selection) — *done for kOmegaSST*
 - Goal: model + wall-treatment selector with sane defaults, plus automatic estimate of freestream k/omega/epsilon/nuTilda from turbulence intensity and length scale or viscosity ratio.
 - Includes a y+ estimator that proposes first-cell height and layer settings for a target y+.
 - Model coverage to map (verify availability in the chosen OpenFOAM version): k-epsilon variants, k-omega SST, Spalart-Allmaras, transition (SST-based), LES/DES options.
 - Deliverable: `docs/reference/turbulence_mapping.md` stating, per STAR model/wall treatment, the closest OpenFOAM equivalent and where behaviour differs (e.g., STAR "All y+" vs OpenFOAM wall-function combinations).
 - Acceptance: flat-plate case with the generated setup gives Cf and y+ in the expected range. `[NUMERICS-REVIEW]`
 
-### 4.4 Numerics presets
+### 4.4 Numerics presets — *partly done (preset robust)*
 - Schemes/relaxation/linear-solver presets (robust / accurate / fast) per physics type.
 - Acceptance: presets converge on the reference cases; any preset change recorded in `DECISIONS.md`. `[NUMERICS-REVIEW]`
 
@@ -147,7 +150,7 @@ Reality check: "as powerful as STAR-CCM+" is not a deliverable that can be verif
 - Metrics: success/failure, wall time, cell count, `checkMesh` (non-orthogonality, skewness, aspect ratio, negative volumes), prism-layer coverage %, first-cell y+ distribution, solver convergence on the resulting mesh.
 - Acceptance: one command runs the suite and outputs a comparison table.
 
-### 5.1 Level M1 — GUI over snappyHexMesh
+### 5.1 Level M1 — GUI over snappyHexMesh — *done*
 - STAR-like mesh controls: base size, surface target/min size relative to base, per-surface and per-volume refinement, feature-edge refinement, wake refinement boxes, prism-layer parameters (number, growth, total thickness or first-cell height), automatic `snappyHexMeshDict` + `blockMeshDict` generation, `checkMesh` report in GUI.
 - Acceptance: wing and VTOL meshed from the GUI without editing text files; benchmark results recorded as baseline.
 
@@ -173,12 +176,12 @@ Reality check: "as powerful as STAR-CCM+" is not a deliverable that can be verif
 
 ## Phase 6 — Post-processing (in-GUI)
 
-### 6.1 Monitors and reports
+### 6.1 Monitors and reports — *partly done (report slots, reference values; no convergence banner)*
 - Residuals, force/moment coefficients (CL, CD, CM with reference area/length/axes defined in GUI), probes, surface integrals, mass flow; convergence criteria and auto-stop.
 - Acceptance: coefficients match OpenFOAM `forceCoeffs` output on reference cases.
 - Monitor report slots: the residuals panel shows N report slots; the user assigns any defined report (forces, coefficients, probes, y+) to a slot; convergence banner shown only when stopping criteria exist.
 
-### 6.2 Scenes and derived parts
+### 6.2 Scenes and derived parts — *partly done (scalar scenes, section; no scene saving or image export)*
 - Slices, clips, iso-surfaces, streamlines, scalar/vector fields on surfaces, Cp plots along sections, y+ on walls, mesh quality displays.
 - Acceptance: scene definitions saved in the project and reproducible; image export.
 - Scalar scenes: field selector (p, |U|, Mach, k, omega, nut, y+, any written field), colormap selector with several perceptual maps (e.g. viridis, plasma, turbo, coolwarm, grayscale), range auto/fixed/symmetric, legend bar with field name and units.

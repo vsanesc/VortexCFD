@@ -11,6 +11,7 @@ from pathlib import Path
 
 from vortexcfd.foam.mesh_case import MESH_COMMANDS
 from vortexcfd.foam.mesh_report import MeshReport, parse_check_mesh, parse_layer_table
+from vortexcfd.foam.postprocessing import patch_face_counts
 from vortexcfd.foam.runner import FoamRun
 
 CHECK_MESH = "checkMesh"
@@ -29,6 +30,13 @@ class MeshRunResult:
     log_dir: Path | None = None
 
 
+def lost_parts(case_dir: Path, parts: tuple[str, ...]) -> tuple[str, ...]:
+    """Part patches missing from constant/polyMesh/boundary or with 0 faces (D-052). An unreadable
+    boundary file loses every part."""
+    counts = patch_face_counts(case_dir)
+    return tuple(p for p in parts if counts.get(p, 0) <= 0)
+
+
 class MeshRun:
     """Runs the meshing steps one after another on a background thread."""
 
@@ -41,10 +49,12 @@ class MeshRun:
         on_done: Callable[[MeshRunResult], None] | None = None,
         steps: tuple[tuple[str, list[str]], ...] = MESH_COMMANDS,
         step_timeout_s: float | None = 3600.0,
+        parts: tuple[str, ...] = (),
     ) -> None:
         self.case_dir = Path(case_dir)
         self._on_line, self._on_step, self._on_done = on_line, on_step, on_done
         self._steps = steps
+        self._parts = tuple(parts)  # part patches that must be in the final mesh (lost-part guard)
         self._timeout = step_timeout_s
         self._lock = threading.Lock()
         self._stop = False
@@ -107,7 +117,8 @@ class MeshRun:
             if name == CHECK_MESH:
                 # checkMesh may exit non-zero when checks fail: the report tells.
                 report = parse_check_mesh(res.log_file.read_text(encoding="utf-8", errors="replace"))
-                report = replace(report, layers=layers, extruded_percent=extruded)
+                report = replace(report, layers=layers, extruded_percent=extruded,
+                                 lost_parts=lost_parts(self.case_dir, self._parts))
             elif res.exit_code != 0:
                 failed = name
                 break

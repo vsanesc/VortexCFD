@@ -5,28 +5,20 @@ task (CLAUDE.md).
 
 ## Current branch
 
-**task/4a-physics** (not yet published). Task 4A is **done**: physics model and schema v3 with editors,
-solver case files (D-022, D-023), y+ estimator (D-024), layer count from y+ (D-026), residual control
-(D-027), flat plate verification against TMR (PASS WITH NOTE, -3.3 %, D-036), minTetQuality relaxed only
-in `relaxed` (D-044) with the relaxed controls used from the first layer iteration for y+ layers
-(D-045: the y+ 30 sphere gets 100 % layer coverage, Mesh OK). D-022, D-023, D-024 and D-027 were
-accepted in the review chat on 2026-10-17. Full flat plate study in scripts/validation/flat_plate_study.py
-(about 80 min); the pytest `validation` test runs the coarse and medium grids (about 20 min).
+**task/6.2-results** (not yet published; Tasks 4A and 4B were merged in PR #13). Done on it:
+- Lost parts in meshing (D-052; schema v5): post-mesh guard (a part patch with 0 faces fails the mesh
+  and blocks Run Solver), automatic seed lines for small or thin parts, per-part surface levels.
+- Task 6.2 (D-053 to D-055): Results Scene with field, colormap and range selection, scalar
+  bar, walls/section display, field-range telemetry and the stale strip; Open in ParaView with a
+  Preferences path.
 
-Task 4B.1 is **done** on it (D-046, Proposed): Run Solver writes the solver files into the meshed case
-and runs simpleFoam on a worker thread with clean stop; end states Converged / Iteration limit / Stopped /
-Crashed; case/vortexcfd_run.json with a results hash ("Results out of date" badge), loaded at project open.
+Review of 2026-10-17 applied: D-052 to D-055 Accepted; small parts are seeded automatically (the item 54
+case now meshes with both parts with default settings); inward-normals warning at import (D-056);
+wrapping Results Scene strip and upstream camera (D-053); status bar messages left, selection right
+(D-057).
 
-Task 4B.2 is **done** on it (D-047 [NUMERICS-REVIEW], D-048, D-049, all Proposed): Reference Values
-node with bounding-box defaults and overrides (schema v4), live residual chart, report slots (Cd, Cl,
-Cm pitch, y+ min/avg/max) tailed from postProcessing. Task 4B is done.
-
-Review of Task 4B done on it (2026-10-17): D-046 to D-049 Accepted; force projection checked (D-050,
-forceCoeffs reads liftDir/dragDir, agreement below 1e-4 %); A_ref basis planform / frontal / custom
-(D-047); a new mesh deletes the previous results (D-051); face-weighted y+ average (D-048). Open:
-docs/QUESTIONS.md item 54 (a part missing from a two-part mesh, not investigated).
-
-Next step: Phase 6.2 scalar scenes (field and colormap selection on the solved case).
+Next steps: a convergence banner and restarting a run from the latest time (Phase 6.1 / D-046), and a
+total cell estimate (today only background cells are estimated). No open QUESTIONS items from this branch.
 
 ## Phases
 
@@ -40,25 +32,25 @@ Next step: Phase 6.2 scalar scenes (field and colormap selection on the solved c
 | 1.3 | Runner and log parsing | done for single-process runs (parallel not supported); solver run states (D-046) |
 | 1.4 | Headless integration test | done (cavity) |
 | 2.1 | Main window | done |
-| 2.2 | 3D viewer | done for parts, picking, visibility and the mesh scene; scalar fields not started |
+| 2.2 | 3D viewer | done for parts, picking, visibility, the mesh scene and the results scene (scalar fields on walls and section) |
 | 2.3 | Console and live monitors | done: console streams the solver log (crash block in the error colour), live residual chart (D-048, D-049) |
 | 3.1 | Surface mesh import and checks | done (self-intersections not detected) |
 | 3.2 | CAD import (STEP/IGES/BREP) | not started (spike pending) |
 | 3.3 | Geometry repair | not started |
 | 3.4 | Domain and boundary definition | done |
 | 3.5 | Surface-to-patch assignment | not started (one patch per part) |
-| 4.1 | Physics continua | done for steady incompressible RANS (task/4a-physics) |
-| 4.2 | Boundary condition library | done for the external-aerodynamics set (D-022, task/4a-physics) |
-| 4.3 | Turbulence module | done for kOmegaSST (y+ estimator, flat plate verified against TMR: PASS WITH NOTE; task/4a-physics); docs/reference/turbulence_mapping.md not written |
-| 4.4 | Numerics presets | preset "robust" only (task/4a-physics) |
+| 4.1 | Physics continua | done for steady incompressible RANS (merged in PR #13) |
+| 4.2 | Boundary condition library | done for the external-aerodynamics set (D-022) |
+| 4.3 | Turbulence module | done for kOmegaSST (y+ estimator, flat plate verified against TMR: PASS WITH NOTE); docs/reference/turbulence_mapping.md not written |
+| 4.4 | Numerics presets | preset "robust" only (merged in PR #13) |
 | 5.0 | Meshing benchmark suite | not started |
-| 5.1 | M1: GUI over snappyHexMesh | done (published in PR #11 and #12); y+ layer sizing done on task/4a-physics (D-024, D-026, D-045) |
+| 5.1 | M1: GUI over snappyHexMesh | done (published in PR #11 and #12); y+ layer sizing done (D-024, D-026, D-045) |
 | 5.2 | M2: surface preparation | not started |
 | 5.3 | M3: alternative volume mesher | not started (cfMesh build spike pending) |
 | 5.4 | M4: prism layer robustness | not started |
 | 5.5 | M5: own mesher (go/no-go) | not started |
 | 6.1 | Monitors and reports | report slots with Cd, Cl, Cm pitch and wall y+ (D-048); reference values (D-047); convergence banner not started |
-| 6.2 | Scenes and derived parts | not started (the mesh section plane exists) |
+| 6.2 | Scenes and derived parts | scalar scenes done (D-053): field/colormap/range selection, scalar bar, section; scene saving, image export, iso-surfaces and streamlines not started |
 | 6.3 | Data export and reports | not started |
 | 7.1-7.3 | Coupled solver analysis | not started |
 | 8.1-8.5 | Moving meshes | not started |
@@ -81,7 +73,6 @@ Next step: Phase 6.2 scalar scenes (field and colormap selection on the solved c
 - Total cell estimate: only background cells are estimated today.
 - Per-part surface size (one target surface size for all parts today).
 - Task 0.1 (STAR-CCM+ feature inventory) not done.
-- Scalar scenes with field and colormap selection (Phase 6.2).
 - Convergence banner (Phase 6.1); the run state is in the Solvers node and the status line.
 - Solver restart from the latest time: every run starts from 0 (D-046).
 - The mesh scene is read on the GUI thread after meshing (MeshView.load): a multi-million-cell mesh
@@ -89,4 +80,3 @@ Next step: Phase 6.2 scalar scenes (field and colormap selection on the solved c
 - Flat plate Cf is 3.3 % below the TMR incompressible SST reference (grid-extrapolated Cf(0.97),
   D-036) and the gap is not explained. Candidates: the omegaWallFunction blending, OpenFOAM's SST
   implementation (TMR's note on standard OpenFOAM), nutUSpaldingWallFunction.
-- A part can end up with 0 faces in the mesh without a warning (docs/QUESTIONS.md item 54).

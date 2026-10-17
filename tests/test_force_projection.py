@@ -112,18 +112,18 @@ def test_projection_agrees_on_a_real_run(tmp_path: Path) -> None:
     case = tmp_path / "case"
     prepare_case_dir(case, build_mesh_files(inputs))
     body.save(str(case / TRI_SURFACE / "Body.stl"))
-    mesh = MeshRun(case, step_timeout_s=110)
+    mesh = MeshRun(case, step_timeout_s=240)  # generous: the suite runs meshes in parallel
     mesh.start()
-    result = mesh.wait(300)
+    result = mesh.wait(600)
     assert result is not None and result.success, result
     inp = SolverCaseInput(Physics(rho_ref=RHO), Inflow(speed=SPEED, alpha_deg=ALPHA),
                           Solvers(iterations=40, write_interval=40), inputs.parts, inputs.parts_bounds, False)
     for rel, spec in enable_clean_stop(build_solver_files(inp)).items():
         write_foam_file(case / rel, spec.content, object_name=Path(rel).name, class_name=spec.class_name)
     run = FoamRun()
-    run.start(["simpleFoam"], case, case / "log.simpleFoam", timeout_s=110, clean_stop=True)
+    run.start(["simpleFoam"], case, case / "log.simpleFoam", timeout_s=240, clean_stop=True)
     try:
-        assert run.wait(120)
+        assert run.wait(250)
     finally:
         if run.is_running():
             run.stop(grace_s=5)

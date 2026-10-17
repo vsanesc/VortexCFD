@@ -60,6 +60,17 @@ class MeshReport:
     mesh_ok: bool
     layers: tuple[LayerCoverage, ...] = ()
     extruded_percent: float | None = None  # share of surface faces that got layers (overall)
+    # Part patches with no faces in constant/polyMesh/boundary (D-052): checkMesh can still say
+    # "Mesh OK" when a whole part was never meshed.
+    lost_parts: tuple[str, ...] = ()
+
+    @property
+    def valid(self) -> bool:
+        """checkMesh passed AND every part is in the mesh ("Mesh OK" alone is not enough)."""
+        return self.mesh_ok and not self.lost_parts
+
+    def lost_messages(self) -> list[str]:
+        return [lost_part_message(name) for name in self.lost_parts]
 
     def summary(self) -> str:
         parts = []
@@ -72,6 +83,7 @@ class MeshReport:
         if self.max_skewness is not None:
             parts.append(f"max skewness {self.max_skewness:g}")
         parts.append("Mesh OK" if self.mesh_ok else f"{self.failed_checks} failed checks")
+        parts.extend(self.lost_messages())
         return ", ".join(parts)
 
     def layer_summary(self) -> str:
@@ -80,6 +92,10 @@ class MeshReport:
             return ""
         rows = ", ".join(f"{c.patch} {c.description()}" for c in self.layers)
         return f"layers per patch: {rows}"
+
+
+def lost_part_message(name: str) -> str:
+    return f"Part {name} was lost during meshing"
 
 
 _INT = r"(\d+)"

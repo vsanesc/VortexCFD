@@ -47,6 +47,8 @@ class TopBar(QWidget):
         self.mesh_badge = Badge("Mesh out of date", with_dot=True)
         self.mesh_badge.set_state("warning")
         self.mesh_badge.hide()
+        self._mesh_stale = False
+        self._mesh_error: str | None = None
         self.results_badge = Badge("Results out of date", with_dot=True)
         self.results_badge.set_state("warning")
         self.results_badge.hide()
@@ -123,7 +125,24 @@ class TopBar(QWidget):
 
     def set_mesh_stale(self, stale: bool) -> None:
         """Show the "Mesh out of date" badge (the saved mesh no longer matches the inputs)."""
-        self.mesh_badge.setHidden(not stale)
+        self._mesh_stale = stale
+        self._update_mesh_badge()
+
+    def set_mesh_error(self, text: str | None) -> None:
+        """An invalid mesh (e.g. a part was lost, D-052): the mesh badge shows ``text`` in the error
+        colour; it takes precedence over "Mesh out of date"."""
+        self._mesh_error = text
+        self._update_mesh_badge()
+
+    def _update_mesh_badge(self) -> None:
+        error = self._mesh_error
+        if error:
+            self.mesh_badge.setText(error)
+            self.mesh_badge.set_state("error")
+        else:
+            self.mesh_badge.setText("Mesh out of date")
+            self.mesh_badge.set_state("warning")
+        self.mesh_badge.setHidden(not (error or self._mesh_stale))
 
     def set_results_stale(self, stale: bool) -> None:
         """Show the "Results out of date" badge (the saved results no longer match the inputs)."""

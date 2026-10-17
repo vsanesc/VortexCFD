@@ -5,6 +5,7 @@ The keywords follow the ESI v2606 tutorial incompressible/simpleFoam/motorBike
 [NUMERICS-REVIEW] mesh controls and quality limits are meshing numerics.
 """
 
+import math
 import re
 import shutil
 from collections.abc import Sequence
@@ -78,6 +79,10 @@ class MeshCaseInput:
     # Number of layers for layer_sizing "absolute_yplus" (foam/yplus.plan_layers); mesh.layers is
     # used for relative sizing only.
     layer_count: int | None = None
+    # Per part, in the order of ``parts``: its bounding box (metres) and its (surface_level_min,
+    # surface_level_max) overrides (None = the mesh's levels). Empty: no per-part data.
+    part_bounds: tuple[Bounds, ...] = ()
+    part_levels: tuple[tuple[int | None, int | None], ...] = ()
 
 
 def safe_part_names(names: Sequence[str]) -> list[str]:
@@ -98,6 +103,104 @@ def safe_part_names(names: Sequence[str]) -> list[str]:
         used.add(candidate)
         result.append(candidate)
     return result
+
+
+# snappyHexMesh finds a surface only where a segment between two neighbouring cell centres crosses
+# it. Those segments form a lattice of lines spaced one background cell apart, so a convex part is
+# certain to be pierced only if its projection along its thinnest axis holds a disc of this many
+# background cells in diameter (a disc of diameter sqrt(2) h always contains a lattice point). The
+# check uses the part's second-largest bounding-box extent as that diameter (D-052).
+SEED_BACKGROUND_CELLS = math.sqrt(2.0)
+SEED_EXTENSION = 0.2  # seed lines reach this fraction of the extent beyond the part's box
+
+
+def part_level_range(level_min: int, level_max: int, override: tuple[int | None, int | None]) -> tuple[int, int]:
+    """A part's (min, max) surface levels: its overrides, otherwise the mesh's levels. As for the
+    mesh, setting only the max gives min = max - 1; setting only the min raises the max to it."""
+    lo_o, hi_o = override
+    hi = hi_o if hi_o is not None else max(level_max, lo_o if lo_o is not None else 0)
+    if lo_o is not None:
+        lo = lo_o
+    elif hi_o is not None:
+        lo = max(hi - 1, 0)
+    else:
+        lo = level_min
+    return min(lo, hi), hi
+
+
+def min_extent(bounds: Bounds) -> float:
+    return min(bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4])
+
+
+def section_extent(bounds: Bounds) -> float:
+    """The second-largest extent of a box (the smaller side of its largest projection)."""
+    return sorted((bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4]))[1]
+
+
+def needs_seed(bounds: Bounds, base_size: float) -> bool:
+    """True when the part may fall between the background cell-centre lines (see
+    SEED_BACKGROUND_CELLS)."""
+    return section_extent(bounds) < SEED_BACKGROUND_CELLS * base_size
+
+
+def seed_file_name(part: str) -> str:
+    return f"{part}_seed.eMesh"
+
+
+# A part thinner than this many surface cells (at its maximum level) is also seeded (D-052).
+THIN_SURFACE_CELLS = 3.0
+
+
+def needs_seeding(bounds: Bounds, base_size: float, level_max: int) -> bool:
+    """The pre-mesh criterion: the part may fall between the background cell-centre lines
+    (needs_seed) or is thinner than THIN_SURFACE_CELLS surface cells at its maximum level."""
+    return needs_seed(bounds, base_size) or min_extent(bounds) < THIN_SURFACE_CELLS * base_size / 2 ** level_max
+
+
+def seeded_parts(inp: "MeshCaseInput", base_size: float, level_min: int, level_max: int) -> list[int]:
+    """Indices of the parts that get seed lines automatically: every part flagged by
+    needs_seeding at its own levels (overrides if set, otherwise the mesh's). [NUMERICS-REVIEW]"""
+    out = []
+    for i, bounds in enumerate(inp.part_bounds):
+        override = inp.part_levels[i] if i < len(inp.part_levels) else (None, None)
+        _lo, hi = part_level_range(level_min, level_max, override)
+        if needs_seeding(bounds, base_size, hi):
+            out.append(i)
+    return out
+
+
+def seed_edge_mesh_text(part: str, bounds: Bounds) -> str:
+    """A featureEdgeMesh with three axis-aligned lines through the centre of the part's box, each
+    reaching SEED_EXTENSION of its extent beyond the box. snappyHexMesh's explicit feature refinement
+    (which runs before surface refinement and needs no surface intersection) refines the cells along
+    them, so the part's surface is then found by the finer cells."""
+    centre = [(bounds[2 * a] + bounds[2 * a + 1]) / 2 for a in range(3)]
+    points = []
+    for axis in range(3):
+        half = (bounds[2 * axis + 1] - bounds[2 * axis]) / 2 * (1 + SEED_EXTENSION)
+        for sign in (-1, 1):
+            p = list(centre)
+            p[axis] += sign * half
+            points.append(p)
+    rows = "\n".join(f"({x:.9g} {y:.9g} {z:.9g})" for x, y, z in points)
+    return (
+        "FoamFile\n{\n    version     2.0;\n    format      ascii;\n    class       featureEdgeMesh;\n"
+        f"    object      {seed_file_name(part)};\n}}\n"
+        f"// Seed lines for part {part} (VortexCFD, D-052)\n"
+        f"6\n(\n{rows}\n)\n3\n(\n(0 1)\n(2 3)\n(4 5)\n)\n"
+    )
+
+
+def write_seed_edge_meshes(case_dir: Path, inp: "MeshCaseInput") -> list[str]:
+    """Write the seed eMesh of every seeded part into constant/triSurface; returns the part names."""
+    est = estimate_mesh(inp.domain_bounds, inp.reference_length, inp.mesh)
+    names = []
+    for i in seeded_parts(inp, est.base_size, est.level_min, est.level_max):
+        name = inp.parts[i]
+        (Path(case_dir) / TRI_SURFACE / seed_file_name(name)).write_text(
+            seed_edge_mesh_text(name, inp.part_bounds[i]), encoding="utf-8")
+        names.append(name)
+    return names
 
 
 def block_cells(bounds: Bounds, size: float) -> tuple[int, int, int]:
@@ -217,13 +320,21 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
     est = estimate_mesh(inp.domain_bounds, inp.reference_length, m)
     cells = est.cells
     geometry = {f"{n}.stl": {"type": "triSurfaceMesh", "name": n} for n in inp.parts}
+    levels = [
+        part_level_range(est.level_min, est.level_max,
+                         inp.part_levels[i] if i < len(inp.part_levels) else (None, None))
+        for i in range(len(inp.parts))
+    ]
     refinement_surfaces = {
         n: {
-            "level": [est.level_min, est.level_max],
+            "level": list(levels[i]),
             "patchInfo": {"type": "wall", "inGroups": [f"{n}Group"]},
         }
-        for n in inp.parts
+        for i, n in enumerate(inp.parts)
     }
+    features = [{"file": f'"{n}.eMesh"', "level": levels[i][1]} for i, n in enumerate(inp.parts)]
+    features += [{"file": f'"{seed_file_name(inp.parts[i])}"', "level": levels[i][1]}
+                 for i in seeded_parts(inp, est.base_size, est.level_min, est.level_max)]
     n_layers = m.layers
     if m.layer_sizing == "absolute_yplus" and inp.layer_count is not None:
         n_layers = inp.layer_count
@@ -239,7 +350,7 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
             "minRefinementCells": 10,
             "maxLoadUnbalance": 0.10,
             "nCellsBetweenLevels": 3,
-            "features": [{"file": f'"{n}.eMesh"', "level": est.level_max} for n in inp.parts],
+            "features": features,
             "refinementSurfaces": refinement_surfaces,
             "resolveFeatureAngle": m.feature_angle,
             "refinementRegions": {},

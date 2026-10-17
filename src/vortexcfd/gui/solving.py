@@ -16,6 +16,7 @@ from vortexcfd.core.project import Project
 from vortexcfd.foam.case_writer import enable_clean_stop
 from vortexcfd.foam.dictfile import write_foam_file
 from vortexcfd.foam.mesh_case import MARKER_NAME, remove_results
+from vortexcfd.foam.mesh_report import lost_part_message
 from vortexcfd.foam.physics_case import SolverCaseInput, build_solver_files, reference_values
 from vortexcfd.gui.meshing import MeshingNotReady, case_dir_for, inputs_hash, parts_layout
 
@@ -50,7 +51,8 @@ def physics_problem(project: Project) -> str | None:
     return None
 
 
-def readiness(project: Project, *, has_mesh: bool, mesh_stale: bool, meshing: bool) -> str | None:
+def readiness(project: Project, *, has_mesh: bool, mesh_stale: bool, meshing: bool,
+              lost_parts: tuple[str, ...] = ()) -> str | None:
     """Why Run Solver is disabled, or None when the solver can run."""
     if project.path is None:
         return "Save the project first."
@@ -58,6 +60,8 @@ def readiness(project: Project, *, has_mesh: bool, mesh_stale: bool, meshing: bo
         return "Meshing is running."
     if not has_mesh:
         return "Generate the mesh first."
+    if lost_parts:
+        return lost_part_message(lost_parts[0]) + ": raise its refinement and generate the mesh again."
     if mesh_stale:
         return "The mesh is out of date: generate it again."
     return physics_problem(project)

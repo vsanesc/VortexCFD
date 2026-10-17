@@ -1,8 +1,9 @@
 """Small composite widgets shared by the main window panels."""
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QPoint, QRect, QSize, Qt
 from PySide6.QtGui import QAction, QColor, QPainter
 from PySide6.QtWidgets import (
+    QLayout,
     QApplication,
     QHBoxLayout,
     QLabel,
@@ -36,7 +37,7 @@ class Badge(QLabel):
         self.setProperty("dot", "true" if with_dot else "false")
 
     def set_state(self, state: str) -> None:
-        """state: '' (accent_secondary), 'success' or 'warning'."""
+        """state: '' (accent_secondary), 'success', 'warning' or 'error'."""
         self._state = state
         self.setProperty("state", state)
         self.style().unpolish(self)
@@ -47,7 +48,8 @@ class Badge(QLabel):
         """Token color of the dot for the current state (None if no dot)."""
         if not self._with_dot or self._theme is None:
             return None
-        return {"success": self._theme.success, "warning": self._theme.warning}.get(
+        return {"success": self._theme.success, "warning": self._theme.warning,
+                "error": self._theme.error}.get(
             self._state, self._theme.accent_secondary
         )
 
@@ -146,3 +148,79 @@ class SearchField(QLineEdit):
             make_glyph("search", QColor(t.muted_text), m.u, self.devicePixelRatioF())
         )
         self.setFont(mono_font(QApplication.font(), 0.85))
+
+
+class FlowLayout(QLayout):
+    """Left-to-right layout that wraps its items onto further rows when they do not fit (the Qt
+    flow layout example). Items keep their size hints; ``stretch_last`` pushes the last item to the
+    right end of its row (used for a trailing button)."""
+
+    def __init__(self, parent: QWidget | None = None, stretch_last: bool = False) -> None:
+        super().__init__(parent)
+        self._items: list = []
+        self._stretch_last = stretch_last
+        self._hspace = 0
+        self._vspace = 0
+
+    def set_spacing(self, horizontal: int, vertical: int) -> None:
+        self._hspace, self._vspace = horizontal, vertical
+        self.invalidate()
+
+    def addItem(self, item) -> None:  # noqa: N802 (Qt API)
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, index: int):  # noqa: N802
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index: int):  # noqa: N802
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def expandingDirections(self):  # noqa: N802
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802
+        return self._layout(QRect(0, 0, width, 0), apply=False)
+
+    def setGeometry(self, rect) -> None:  # noqa: N802
+        super().setGeometry(rect)
+        self._layout(rect, apply=True)
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:  # noqa: N802
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        m = self.contentsMargins()
+        return size + QSize(m.left() + m.right(), m.top() + m.bottom())
+
+    def _visible(self) -> list:
+        return [i for i in self._items if not (i.widget() is not None and i.widget().isHidden())]
+
+    def _layout(self, rect, apply: bool) -> int:
+        m = self.contentsMargins()
+        area = rect.adjusted(m.left(), m.top(), -m.right(), -m.bottom())
+        x, y, row_h = area.x(), area.y(), 0
+        rows: list[list] = [[]]
+        for item in self._visible():
+            hint = item.sizeHint()
+            if x > area.x() and x + hint.width() > area.right() + 1:
+                x, y, row_h = area.x(), y + row_h + self._vspace, 0
+                rows.append([])
+            rows[-1].append((item, QPoint(x, y), hint))
+            x += hint.width() + self._hspace
+            row_h = max(row_h, hint.height())
+        if apply:
+            for row in rows:
+                for k, (item, pos, hint) in enumerate(row):
+                    if self._stretch_last and row is rows[-1] and k == len(row) - 1 and item is self._visible()[-1]:
+                        pos = QPoint(max(pos.x(), area.right() + 1 - hint.width()), pos.y())
+                    item.setGeometry(QRect(pos, hint))
+        return y + row_h - rect.y() + m.bottom()

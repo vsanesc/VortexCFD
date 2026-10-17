@@ -5,7 +5,8 @@ from pathlib import Path
 
 class FakeDialogs:
     def __init__(self, open_path=None, save_path=None, discard="discard", import_path=None,
-                 units="m") -> None:
+                 units="m", paraview_path=None) -> None:
+        self.paraview_path = paraview_path
         self.import_path = import_path
         self.units = units
         self.open_path: Path | None = open_path
@@ -28,3 +29,6 @@ class FakeDialogs:
     def confirm_discard(self):
         self.confirm_calls += 1
         return self.discard
+
+    def ask_paraview_path(self, current, detected):
+        return self.paraview_path

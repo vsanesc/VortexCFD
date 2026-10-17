@@ -30,6 +30,7 @@ TELEMETRY_FIELDS = (
     ("cells", "Cells"),
     ("domain", "Domain"),
     ("view", "View"),
+    ("field_range", "Field range"),
 )
 EMPTY_MESSAGE = "No geometry yet"
 
