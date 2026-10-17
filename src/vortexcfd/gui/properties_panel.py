@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from vortexcfd.core.model import Domain, Part
 from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_report import MeshReport
+from vortexcfd.foam.run_record import RunRecord
 from vortexcfd.foam.mesh_case import safe_part_names
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.physics_case import inlet_turbulence
@@ -404,6 +405,18 @@ class PropertiesPanel(QWidget):
         self._section("inflow_computed", "Computed")
         self.inflow_k = self._ro_row("inflow_k", "Turbulence k")
         self.inflow_omega = self._ro_row("inflow_omega", "Turbulence omega")
+        # Solvers node: the last run (case/vortexcfd_run.json), or "No solver run yet".
+        self._run_record: RunRecord | None = None
+        self._results_stale = False
+        self._section("run_last", "Last run")
+        self.run_state = self._ro_row("run_state", "State")
+        self.run_iterations = self._ro_row("run_iterations", "Iterations")
+        self.run_residuals = self._ro_row("run_residuals", "Final residuals")
+        self.run_status = self._ro_row("run_status", "Status")
+        self.run_empty = QLabel("No solver run yet")
+        self.run_empty.setObjectName("muted")
+        _wrap(self.run_empty)
+        self._layout.addWidget(self.run_empty)
         self._layout.addWidget(self.info_label)
         self._layout.addStretch(1)
         self.apply_metrics(metrics(), DARK)
@@ -582,6 +595,7 @@ class PropertiesPanel(QWidget):
         is_domain = self._kind == "fluid_domain"
         self._refresh_domain(is_domain)
         self._refresh_groups()
+        self._refresh_run(self._kind == "solvers")
         self._refresh_mesh_settings(self._kind == "mesh")
         self._refresh_mesh(self._kind == "mesh")
         self.info_label.setVisible(
@@ -767,6 +781,27 @@ class PropertiesPanel(QWidget):
             self._layer_box.addWidget(row)
             self._layer_rows.append(row)
             self.layer_labels.append(label)
+
+    def set_run_record(self, record: RunRecord | None, stale: bool = False) -> None:
+        """The last solver run shown on the Solvers node (None: no run yet)."""
+        self._run_record, self._results_stale = record, stale
+        self.refresh()
+
+    def _refresh_run(self, show: bool) -> None:
+        record = self._run_record
+        self._sections["run_last"].setVisible(show)
+        for key in ("run_state", "run_iterations", "run_residuals", "run_status"):
+            self._rows[key].setVisible(show and record is not None)
+        self.run_empty.setVisible(show and record is None)
+        if not show or record is None:
+            return
+        self.run_state.setText(record.label)
+        self._set_warn(self.run_state, record.state != "converged")
+        self.run_iterations.setText(str(record.iterations))
+        residuals = ", ".join(f"{k} {v:.3g}" for k, v in record.final_residuals.items())
+        self.run_residuals.setText(residuals or "\u2014")
+        self.run_status.setText("Results out of date" if self._results_stale else "Up to date")
+        self._set_warn(self.run_status, self._results_stale)
 
     def set_mesh_stale(self, stale: bool) -> None:
         """The shown mesh no longer matches the project's meshing inputs."""

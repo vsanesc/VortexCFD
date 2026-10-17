@@ -67,6 +67,17 @@ def _loaded_parts(project: Project):
     return compute_domain(bounds, project.sim.domain, names), names, meshes
 
 
+def parts_layout(project: Project) -> tuple[DomainBox, tuple[str, ...], tuple[float, ...]]:
+    """(domain box, part patch names, union of the parts' bounding boxes in metres).
+
+    Raises:
+        MeshingNotReady: a part cannot be loaded.
+    """
+    box, names, meshes = _loaded_parts(project)
+    bounds = [tuple(float(b) for b in m.bounds) for m in meshes]
+    return box, tuple(safe_part_names(names)), union_bounds(bounds) if bounds else None
+
+
 def plan_layers_for(project: Project, box: DomainBox) -> LayerPlan:
     """The y+ layer stack for ``project``: first layer from the estimator, count from the surface
     cell size at the maximum refinement level (see foam/yplus.plan_layers)."""

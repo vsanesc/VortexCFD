@@ -61,6 +61,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-043 | 2026-10-17 | Test conventions | Accepted |
 | D-044 | 2026-10-17 | minTetQuality relaxed only in `relaxed` | Accepted; nRelaxedIter part superseded by D-045 |
 | D-045 | 2026-10-17 | Relaxed controls from the first layer iteration for y+ layers | Accepted |
+| D-046 | 2026-10-17 | Running the solver: run states, run record, results staleness | Proposed |
 
 ---
 
@@ -383,3 +384,14 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Decision: with layer_sizing "absolute_yplus", addLayersControls writes nRelaxedIter 0, so the layer addition uses the `relaxed` meshQualityControls (only minTetQuality -1e30) from its first iteration while snapping keeps the main (install meshQualityDict) controls. Relative sizing writes no nRelaxedIter and keeps the motorBike tutorial set-up (v2606 default: never relaxed).
 - Alternatives considered: nRelaxedIter 20 (D-044, low coverage); an intermediate value such as 5; relaxing the main controls (D-026, also loosens snapping).
 - Consequences: the y+ 30 test sphere gets 13 / 13 layers (100 %), thickness 100 % (26.2 mm), 100 % of the faces extruded, checkMesh "Mesh OK" (286820 cells, max non-orthogonality 41.3, max skewness 0.652); the test asserts coverage >= 80 % (both metrics) and "Mesh OK" instead of a strict xfail. checkMesh still judges every final mesh.
+
+## D-046 Running the solver: run states, run record, results staleness
+- Status: Proposed (Task 4B.1, recorded on task/4a-physics while Vic was away)
+- Context: Task 4B.1 runs simpleFoam from the GUI on the meshed case.
+- Decision:
+  - Run Solver is enabled when the project is saved, no meshing is running, a mesh exists (case/vortexcfd_mesh.json loaded), the mesh is not out of date (D-033) and the physics is valid; otherwise it is disabled with the reason as tooltip ("Save the project first.", "Meshing is running.", "Generate the mesh first.", "The mesh is out of date: generate it again.", or the physics problem). "Physics valid" means: the Simulation validates again (a project edited outside the Project API) and the forceCoeffs reference length and area are positive (a flat part with no y extent has a zero bounding-box area). While the solver runs Generate Mesh is disabled ("The solver is running: stop it first.").
+  - Running writes the solver files (foam/physics_case.py) with enable_clean_stop into <project dir>/case, which must carry the meshing marker (D-021). Before writing, the previous run's outputs are removed: time directories after 0, postProcessing/, 0/ (rewritten), log.simpleFoam and case/vortexcfd_run.json; constant/polyMesh and the mesh dictionaries' outputs are never touched. simpleFoam runs through FoamRun(clean_stop=True) on a worker thread (foam/solver_run.py); lines and completed iterations reach the GUI only through Qt signals (gui/solver_worker.py). Stop is FoamRun.request_stop (SIGUSR1, then SIGTERM and SIGKILL).
+  - End states from the exit code and the LogParser events, in this order: "Crashed" (a stack-trace or FOAM FATAL block, printed in the console in the error colour), "Stopped" (the user stopped it, or a timeout), "Crashed" (any other non-zero exit code), "Converged" ("SIMPLE solution converged in N iterations", i.e. residualControl reached; new LogParser event `Converged`), otherwise "Iteration limit". While running the state badge shows "Solving".
+  - case/vortexcfd_run.json keeps the state, iterations, the last initial residual of every solved field, the exit code and a results hash: the mesh inputs hash (D-033) plus the physics, inflow, solver and report settings. It is loaded when the project is opened. When the hash no longer matches, a "Results out of date" badge is shown next to the mesh badge and the Solvers node's Last run status says so.
+- Alternatives considered: restarting from the latest time (needs a restart decision and a mapping when the mesh changed); keeping old time directories (ParaView would show results of an earlier set-up next to the new ones).
+- Consequences: every run starts from 0 with a clean case. Parallel runs are still not supported (D-010).

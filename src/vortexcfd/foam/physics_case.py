@@ -53,12 +53,27 @@ def flow_direction(alpha_deg: float) -> tuple[float, float, float]:
     return math.cos(a), 0.0, math.sin(a)
 
 
+@dataclass(frozen=True)
+class AutoReference:
+    """Reference values from the parts' bounding box: l_ref = x extent, A_ref = x extent * y extent
+    (planform for a body along +x with span along y), CofR = the box centre."""
+
+    l_ref: float
+    a_ref: float
+    cofr: tuple[float, float, float]
+
+
+def auto_reference(parts_bounds: Bounds) -> AutoReference:
+    b = parts_bounds
+    l_ref = b[1] - b[0]
+    return AutoReference(l_ref, l_ref * (b[3] - b[2]),
+                         ((b[0] + b[1]) / 2, (b[2] + b[3]) / 2, (b[4] + b[5]) / 2))
+
+
 def _force_coeffs(inp: SolverCaseInput) -> dict:
     """The motorBike tutorial's forceCoeffs entry for the part walls (incompressible: rhoInf)."""
-    b = inp.parts_bounds
+    ref = auto_reference(inp.parts_bounds)
     a = math.radians(inp.inflow.alpha_deg)
-    centre = [(b[0] + b[1]) / 2, (b[2] + b[3]) / 2, (b[4] + b[5]) / 2]
-    l_ref = b[1] - b[0]
     return {
         "type": "forceCoeffs",
         "libs": ["forces"],
@@ -70,11 +85,11 @@ def _force_coeffs(inp: SolverCaseInput) -> dict:
         "rhoInf": inp.physics.rho_ref,
         "liftDir": [-math.sin(a), 0.0, math.cos(a)],
         "dragDir": [math.cos(a), 0.0, math.sin(a)],
-        "CofR": centre,
+        "CofR": list(ref.cofr),
         "pitchAxis": [0.0, 1.0, 0.0],
         "magUInf": inp.inflow.speed,
-        "lRef": l_ref,
-        "Aref": l_ref * (b[3] - b[2]),
+        "lRef": ref.l_ref,
+        "Aref": ref.a_ref,
     }
 
 

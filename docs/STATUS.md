@@ -13,7 +13,11 @@ in `relaxed` (D-044) with the relaxed controls used from the first layer iterati
 accepted in the review chat on 2026-10-17. Full flat plate study in scripts/validation/flat_plate_study.py
 (about 80 min); the pytest `validation` test runs the coarse and medium grids (about 20 min).
 
-Next on it: Task 4B (run the solver from the GUI, reference values, live residuals, report slots).
+Task 4B.1 is **done** on it (D-046, Proposed): Run Solver writes the solver files into the meshed case
+and runs simpleFoam on a worker thread with clean stop; end states Converged / Iteration limit / Stopped /
+Crashed; case/vortexcfd_run.json with a results hash ("Results out of date" badge), loaded at project open.
+
+Next on it: Task 4B.2 (reference values, live residuals, report slots).
 
 ## Phases
 
@@ -24,11 +28,11 @@ Next on it: Task 4B (run the solver from the GUI, reference values, live residua
 | 0.3 | Repo, environment, architecture | done (no CI service: scripts/ship.sh runs the suite before publishing) |
 | 1.1 | Simulation data model | done |
 | 1.2 | Case writer | done for the cavity reference case; the cylinder and wing reference cases were not written |
-| 1.3 | Runner and log parsing | done for single-process runs (parallel not supported) |
+| 1.3 | Runner and log parsing | done for single-process runs (parallel not supported); solver run states (D-046) |
 | 1.4 | Headless integration test | done (cavity) |
 | 2.1 | Main window | done |
 | 2.2 | 3D viewer | done for parts, picking, visibility and the mesh scene; scalar fields not started |
-| 2.3 | Console and live monitors | console done; residual chart and report slots are empty states; live plots not started |
+| 2.3 | Console and live monitors | console done (solver log streamed, crash block in the error colour); residual chart and report slots are empty states; live plots not started |
 | 3.1 | Surface mesh import and checks | done (self-intersections not detected) |
 | 3.2 | CAD import (STEP/IGES/BREP) | not started (spike pending) |
 | 3.3 | Geometry repair | not started |

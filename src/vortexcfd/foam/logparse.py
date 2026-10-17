@@ -23,6 +23,9 @@ _RESIDUAL_RE = re.compile(
     re.IGNORECASE,
 )
 _EXEC_TIME_RE = re.compile(rf"^ExecutionTime\s*=\s*({_NUM})", re.IGNORECASE)
+# simpleControl::loop (v2606) when every residualControl target is met:
+# "SIMPLE solution converged in <time> iterations".
+_CONVERGED_RE = re.compile(rf"^(\w+) solution converged in ({_NUM}) iterations")
 _FATAL_START_RE = re.compile(r"^-->\s*FOAM\s*FATAL")
 _FATAL_END_RE = re.compile(r"^FOAM (?:exiting|aborting)")
 _TRACE_START = "[stack trace]"
@@ -53,6 +56,14 @@ class TimeStep:
 
 
 @dataclass
+class Converged:
+    """Event: the solution control reported convergence (residualControl targets reached)."""
+
+    algorithm: str  # e.g. "SIMPLE"
+    iterations: float  # the time name printed with the message
+
+
+@dataclass
 class NormalEnd:
     """Event representing normal solver termination."""
 
@@ -75,7 +86,7 @@ class LogParser(Sequence[TimeStep]):
     """Incremental parser for OpenFOAM solver log streams.
 
     Accepts output one complete line at a time via ``feed(line)``, emitting newly
-    completed events (TimeStep, NormalEnd, FatalError, SolverCrash). Lines that match no
+    completed events (TimeStep, Converged, NormalEnd, FatalError, SolverCrash). Lines that match no
     pattern are ignored silently. Exceptions raised while converting a line that did
     match a pattern are counted in ``parse_error_count`` (last messages in
     ``parse_errors``) and never propagate.
@@ -87,6 +98,7 @@ class LogParser(Sequence[TimeStep]):
         self.has_ended: bool = False
         self.fatal_error: str | None = None
         self.crash: str | None = None
+        self.converged: Converged | None = None
         self.parse_error_count: int = 0
         self.parse_errors: deque[str] = deque(maxlen=MAX_PARSE_ERRORS_KEPT)
 
@@ -166,6 +178,18 @@ class LogParser(Sequence[TimeStep]):
             self._flush_step(completed)
             self.has_ended = True
             self._emit(NormalEnd(), completed)
+            return completed
+
+        m_conv = _CONVERGED_RE.match(stripped)
+        if m_conv:
+            try:
+                event = Converged(algorithm=m_conv.group(1), iterations=float(m_conv.group(2)))
+            except (ValueError, OverflowError) as exc:
+                self._record_error(line, exc)
+                return completed
+            self._flush_step(completed)
+            self.converged = event
+            self._emit(event, completed)
             return completed
 
         m_time = _TIME_RE.match(stripped)

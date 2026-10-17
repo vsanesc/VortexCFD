@@ -188,7 +188,7 @@ def test_future_actions_are_disabled_with_tooltips(make_window) -> None:
     w = make_window()
     assert not w.top_bar.mesh_button.isEnabled() and not w.top_bar.run_button.isEnabled()
     assert w.top_bar.mesh_button.toolTip()  # says why (readiness is tested in test_mesh_gui)
-    assert "Phase 4" in w.top_bar.run_button.toolTip()
+    assert "Save the project" in w.top_bar.run_button.toolTip()  # readiness: tests/test_solver_gui.py
     assert w.top_bar.mesh_button.text() == "Generate Mesh" and w.top_bar.run_button.text() == "Run Solver"
 
 
@@ -384,7 +384,7 @@ def test_disabled_actions_keep_style_cursor_and_tooltip(make_window) -> None:
     t = w._theme
     assert "QPushButton#runBtn:disabled" in sheet and "QPushButton#meshBtn:disabled" in sheet
     assert t.disabled_text in sheet  # reduced-contrast text
-    for button, phase in ((w.top_bar.mesh_button, "Save the project"), (w.top_bar.run_button, "Phase 4")):
+    for button, phase in ((w.top_bar.mesh_button, "Save the project"), (w.top_bar.run_button, "Save the project")):
         assert not button.isEnabled()
         assert button.cursor().shape() == Qt.CursorShape.ForbiddenCursor
         assert phase in button.toolTip()

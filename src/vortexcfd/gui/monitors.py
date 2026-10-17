@@ -183,6 +183,18 @@ class MonitorsPanel(QWidget):
         layout.addWidget(self.header)
         layout.addWidget(self.chart, 1)
         layout.addWidget(self.kpis)
+        self.steps: list = []
+
+    def start_run(self) -> None:
+        """A solver run starts: forget the previous run's monitors."""
+        self.steps: list = []
+
+    def add_step(self, step) -> None:
+        """One completed solver iteration (logparse.TimeStep), in the GUI thread."""
+        self.steps.append(step)
+
+    def end_run(self) -> None:
+        """The solver run ended."""
 
     def configure(self, m: Metrics, t: Theme) -> None:
         self.header.configure(m)
