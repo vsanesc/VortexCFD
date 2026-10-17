@@ -66,6 +66,11 @@ class ConsolePanel(QWidget):
         """Append one line of tool output verbatim (mono, normal text colour)."""
         self.view.appendHtml(f'<span style="color:{self._theme.text}">{html.escape(text)}</span>')
 
+    def append_error(self, text: str) -> None:
+        """Append tool output in the error colour (e.g. a solver crash block), line by line."""
+        for line in text.splitlines() or [""]:
+            self.view.appendHtml(f'<span style="color:{self._theme.error}">{html.escape(line)}</span>')
+
     def clear(self) -> None:
         self.view.clear()
 

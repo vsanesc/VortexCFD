@@ -12,3 +12,4 @@
 - Final reports must be short: `git diff --stat main`, the last line of `pytest -q`, and a list of open doubts. No full test listings or long file dumps unless asked.
 - scripts/ship.sh pushes, merges and deletes the branch. It is run only by Vic. Agents never run it.
 - During iterations run `pytest -q -m 'not slow'`; run the full suite (both modes) once before each commit. `pytest -n 8` (pytest-xdist) is safe with the Qt and OpenFOAM tests.
+- Every decision that changes behaviour, defaults, file formats or workflow gets a DECISIONS.md entry in the same commit. At the end of each task update docs/STATUS.md.

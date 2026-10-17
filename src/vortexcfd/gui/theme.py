@@ -108,7 +108,7 @@ THEMES: dict[str, Theme] = {DARK.name: DARK}
 
 @dataclass(frozen=True)
 class LayoutFractions:
-    """Region proportions measured on docs/design/design_preview.png (1833 x 1210)."""
+    """Region proportions measured on docs/design/mockup-v1.png (1833 x 1210)."""
 
     top_bar: float = 0.040  # top bar height / window height (48 px)
     left: float = 0.181  # left column width / window width (331 px)
@@ -155,6 +155,26 @@ GRID_HALF_LINES = 10  # ground grid: lines on each side of the origin
 GRID_SPACING = 1.0  # ground grid spacing (scene units)
 GRID_MAJOR_EVERY = 5  # every Nth grid line is brighter
 EMPTY_SCENE_POINT_FRACTION = 1.0  # "No geometry yet" size in px per u
+
+# Residual chart palette (D-049), derived only from owner tokens: each token blended over `canvas`
+# at the largest weight that brings it inside the dark lightness band of the dataviz validator
+# (OKLCH L <= 0.66). Three hues; the fields of one family differ by line style (legend + dashes).
+# field -> (token, weight over canvas, Qt pen style name)
+RESIDUAL_STYLES = {
+    "p": ("accent", 0.84, "SolidLine"),
+    "Ux": ("axis_z", 0.82, "SolidLine"),
+    "Uy": ("axis_z", 0.82, "DashLine"),
+    "Uz": ("axis_z", 0.82, "DotLine"),
+    "k": ("axis_y", 0.83, "SolidLine"),
+    "omega": ("axis_y", 0.83, "DashLine"),
+}
+RESIDUAL_FALLBACK = ("muted_text", 1.0, "DashDotLine")  # any other field (not plotted by simpleFoam here)
+
+
+def residual_style(t: "Theme", field: str) -> tuple[str, str]:
+    """(hex colour, pen style name) of a residual series."""
+    token, weight, style = RESIDUAL_STYLES.get(field, RESIDUAL_FALLBACK)
+    return blend(getattr(t, token), t.canvas, weight), style
 
 
 @dataclass(frozen=True)

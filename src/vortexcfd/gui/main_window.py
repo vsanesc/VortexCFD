@@ -1,4 +1,4 @@
-"""Main window bound to a Project, laid out after docs/design/design_preview.png."""
+"""Main window bound to a Project, laid out after docs/design/mockup-v1.png."""
 
 import logging
 import os
@@ -50,12 +50,23 @@ from vortexcfd.geometry.checks import surface_report
 from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.gui.properties_panel import PropertiesPanel
 from vortexcfd.geometry.domain import BOUNDARY_NAMES
-from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError
+from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError, remove_results
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.gui.mesh_worker import MeshWorker
+from vortexcfd.foam.logparse import parse_log_text
+from vortexcfd.foam.run_record import RunRecord, read_run_record, write_run_record
+from vortexcfd.gui import solving
+from vortexcfd.gui.solver_worker import SolverWorker
 from vortexcfd.foam.mesh_record import MeshRecord, read_mesh_record, write_mesh_record
-from vortexcfd.gui.meshing import MeshingNotReady, case_dir_for, inputs_hash, prepare_job, readiness
+from vortexcfd.gui.meshing import (
+    MeshingNotReady,
+    case_dir_for,
+    inputs_hash,
+    layer_warning,
+    prepare_job,
+    readiness,
+)
 from vortexcfd.gui.scene import (
     ERROR,
     MISSING,
@@ -285,6 +296,14 @@ class MainWindow(QMainWindow):
         self.mesh_worker.line.connect(self._on_mesh_line)
         self.mesh_worker.step.connect(self._on_mesh_step)
         self.mesh_worker.finished.connect(self._on_mesh_done)
+        self.run_record: RunRecord | None = None
+        self.results_stale = False
+        self._solve_hash: str | None = None  # results hash at the start of the running solver
+        self.solver_worker = SolverWorker(self)
+        self.solver_timeout_s: float | None = None  # wall-clock limit of a solver run (tests set one)
+        self.solver_worker.line.connect(self._on_solver_line)
+        self.solver_worker.step.connect(self._on_solver_step)
+        self.solver_worker.finished.connect(self._on_solver_done)
         self.domain_view: DomainView | None = None
         self._domain_box = None
         self._framed_visibility = False
@@ -446,6 +465,7 @@ class MainWindow(QMainWindow):
 
         # -- right: monitors, bottom: console ----------------------------------------
         self.monitors = MonitorsPanel()
+        self.monitors.slot_assigned.connect(self._assign_report)
         self.console = ConsolePanel()
         self._console_handler = console_log.attach(self.console)
         handler = self._console_handler
@@ -479,6 +499,7 @@ class MainWindow(QMainWindow):
         self.top_bar.view_requested.connect(self._view)
         self.top_bar.wireframe_toggled.connect(self._set_wireframe)
         self.top_bar.mesh_clicked.connect(self.generate_mesh)
+        self.top_bar.run_clicked.connect(self.run_solver)
         self.top_bar.set_viewer_enabled(self.viewer is not None)
         central = QWidget()
         central_layout = QVBoxLayout(central)
@@ -524,6 +545,8 @@ class MainWindow(QMainWindow):
         self._selection = None
         if self.mesh_worker.is_running():  # a mesh of the old project is of no use any more
             self.mesh_worker.request_stop()
+        if self.solver_worker.is_running():
+            self.solver_worker.request_stop()
         self.mesh_report = None
         self.properties.set_mesh_report(None)
         if self.mesh_view is not None:
@@ -531,6 +554,7 @@ class MainWindow(QMainWindow):
             self._set_scene_mode("geometry")
         self.properties.set_project(project)
         self._load_mesh_record(project)
+        self._load_run_record(project)
         self._unsubscribe = project.subscribe(self._on_project_changed)
         self._refresh()
 
@@ -737,6 +761,9 @@ class MainWindow(QMainWindow):
         self._update_title(sim.name)
         self._update_mesh_stale()
         self._update_mesh_button()
+        self._update_results_stale()
+        self._update_run_button()
+        self.monitors.set_assignments(list(sim.reports.slots))
 
     def _node_icon(self, glyph: str, token: str) -> QIcon:
         color = QColor(getattr(self._theme, token))
@@ -775,7 +802,8 @@ class MainWindow(QMainWindow):
                     item.setToolTip(0, "File not found" if status == MISSING else "Cannot load file")
             continua = add(root, "continua", None, "Continua", "folder", "text")
             add(continua, "mesh", None, "Mesh", "dot", "accent_secondary")
-            add(continua, "physics", None, "Physics", "dot", "accent")
+            physics_item = add(continua, "physics", None, "Physics", "dot", "accent")
+            add(physics_item, "inflow", None, "Inflow", "dot", "accent")
             regions = add(root, "regions", None, "Regions", "folder", "text")
             fluid = add(regions, "fluid_domain", None, "Fluid Domain", "folder", "text")
             domain = self._project.sim.domain
@@ -787,7 +815,8 @@ class MainWindow(QMainWindow):
             for i, part in enumerate(parts):  # one wall patch per part
                 add(fluid, "wall", i, f"{part.name} (wall)", "dot", "accent")
             add(root, "solvers", None, "Solvers", "folder", "text")
-            add(root, "reports", None, "Reports & Monitors", "folder", "text")
+            reports = add(root, "reports", None, "Reports & Monitors", "folder", "text")
+            add(reports, "reference_values", None, "Reference Values", "dot", "accent")
             self.tree.expandAll()
             self._root_item = root
             self.tree.setRootIndex(self.tree.indexFromItem(root))  # hide the root row
@@ -923,10 +952,17 @@ class MainWindow(QMainWindow):
 
     def _update_mesh_button(self) -> None:
         running = self.mesh_worker.is_running()
-        self.top_bar.set_mesh_state(None if running else readiness(self._project), running)
+        reason = None if running else readiness(self._project)
+        if not running and self.solver_worker.is_running():
+            reason = "The solver is running: stop it first."
+        warning = None if running or reason is not None else layer_warning(self._project)
+        self.top_bar.set_mesh_state(reason, running, warning)
 
     def generate_mesh(self) -> None:
         """Generate Mesh / Stop: write the meshing case and run it in the background."""
+        if self.solver_worker.is_running():
+            self.show_message("The solver is running: stop it first.", "error")
+            return
         if self.mesh_worker.is_running():
             self.show_message("Stopping meshing...", "warning", log_it=False)
             log.warning("Stopping meshing at the user's request")
@@ -954,6 +990,7 @@ class MainWindow(QMainWindow):
         self.mesh_worker.start(job.case_dir)
         self._update_mesh_stale()
         self._update_mesh_button()
+        self._update_run_button()
         self._update_telemetry()
 
     def _load_mesh_record(self, project: Project) -> None:
@@ -1020,12 +1057,142 @@ class MainWindow(QMainWindow):
                     report, self._run_hash or "", self._mesh_patches))
             except OSError as exc:
                 log.warning("Could not save the mesh record: %s", exc)
+            self._clear_results_after_meshing()
             level = "success" if report.mesh_ok else "warning"
             self.show_message(f"Mesh generated: {report.summary()}", level, log_it=False)
             self._load_mesh_view()
         self._update_mesh_stale()
         self._update_mesh_button()
+        self._update_run_button()
         self._update_telemetry()
+
+    # -- solving ---------------------------------------------------------------------
+
+    def solve_readiness(self) -> str | None:
+        """Why Run Solver is disabled (None: it can run)."""
+        return solving.readiness(
+            self._project, has_mesh=self.mesh_report is not None, mesh_stale=self.mesh_stale,
+            meshing=self.mesh_worker.is_running(),
+        )
+
+    def _update_run_button(self) -> None:
+        running = self.solver_worker.is_running()
+        self.top_bar.set_solver_state(None if running else self.solve_readiness(), running)
+
+    def run_solver(self) -> None:
+        """Run Solver / Stop: write the solver files into the meshed case and run simpleFoam."""
+        if self.solver_worker.is_running():
+            self.show_message("Stopping the solver...", "warning", log_it=False)
+            log.warning("Stopping the solver at the user's request")
+            self.solver_worker.request_stop()
+            return
+        self._flush_edits()
+        reason = self.solve_readiness()
+        if reason is not None:
+            self.show_message(reason, "error")
+            return
+        try:
+            case_dir = solving.prepare_solver_case(self._project)
+        except (solving.SolvingNotReady, MeshingNotReady) as exc:
+            self.show_message(str(exc), "error")
+            return
+        except OSError as exc:
+            self.show_message(f"Could not write the solver case: {exc}", "error")
+            return
+        self._solve_hash = solving.results_hash(self._project)
+        self.run_record = None
+        self.properties.set_run_record(None)
+        self.monitors.start_run(case_dir)
+        self.top_bar.set_run_state("Solving")
+        log.info("Running simpleFoam in %s", case_dir)
+        self.solver_worker.start(case_dir, timeout_s=self.solver_timeout_s)
+        self._update_results_stale()
+        self._update_run_button()
+        self._update_mesh_button()
+
+    def _load_run_record(self, project: Project) -> None:
+        """Show the last saved run of ``project`` (case/vortexcfd_run.json), if there is one."""
+        case_dir = case_dir_for(project)
+        self.run_record = read_run_record(case_dir) if case_dir is not None else None
+        self.results_stale = False
+        self.top_bar.set_results_stale(False)
+        self.properties.set_run_record(self.run_record)
+        self.monitors.clear()
+        if self.run_record is None:
+            return
+        log.info("Loaded the last solver run: %s after %d iterations",
+                 self.run_record.label, self.run_record.iterations)
+        try:
+            text = (case_dir / "log.simpleFoam").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            text = ""
+        self.monitors.load_run(case_dir, parse_log_text(text))
+
+    def _assign_report(self, slot: int, report_id) -> None:
+        """A report slot's menu: store the assignment in the project (undoable)."""
+        slots = list(self._project.sim.reports.slots)
+        slots[slot] = report_id
+        self._run_edit(lambda: self._project.update_reports(slots=slots))
+
+    def _update_results_stale(self, force: bool = False) -> None:
+        """Saved results are out of date when the solver inputs no longer match their hash."""
+        record = self.run_record
+        stale = (
+            record is not None and not self.solver_worker.is_running()
+            and solving.results_hash(self._project) != record.inputs_hash
+        )
+        if not force and stale == self.results_stale and self.properties._results_stale == stale:
+            return
+        self.results_stale = stale
+        self.top_bar.set_results_stale(stale)
+        self.properties.set_run_record(record, stale)
+
+    def _on_solver_line(self, text: str) -> None:
+        self.console.append_output(text)  # runs in the GUI thread (queued signal)
+
+    def _on_solver_step(self, step) -> None:
+        self.monitors.add_step(step)
+
+    def _on_solver_done(self, result) -> None:
+        self.top_bar.set_run_state(None)
+        self.monitors.end_run()
+        if result.crash:
+            self.console.append_error(result.crash)
+        record = RunRecord(result.state, result.iterations, result.final_residuals,
+                           self._solve_hash or "", result.exit_code)
+        self.run_record = record
+        try:
+            write_run_record(case_dir_for(self._project), record)
+        except (OSError, TypeError) as exc:
+            log.warning("Could not save the run record: %s", exc)
+        residuals = ", ".join(f"{k} {v:.3g}" for k, v in result.final_residuals.items()) or "none"
+        text = f"Solver: {result.label} after {result.iterations} iterations"
+        if result.state == "converged":
+            log.info("%s (final residuals: %s)", text, residuals)
+            self.show_message(text, "success", log_it=False)
+        elif result.state == "crashed":
+            log.error("%s (exit code %s)", text, result.exit_code)
+            self.show_message(f"{text}; see the console", "error", log_it=False)
+        else:
+            log.warning("%s (final residuals: %s)", text, residuals)
+            self.show_message(text, "warning", log_it=False)
+        self._update_results_stale(force=True)
+        self._update_run_button()
+        self._update_mesh_button()
+
+    def _clear_results_after_meshing(self) -> None:
+        """A new mesh makes the previous solver results meaningless: delete them (D-051)."""
+        try:
+            removed = remove_results(case_dir_for(self._project))
+        except (OSError, CaseDirectoryNotOursError) as exc:
+            log.warning("Could not remove the previous results: %s", exc)
+            return
+        if removed:
+            log.info("Removed the previous results for the new mesh: %s", ", ".join(removed))
+        self.run_record = None
+        self.properties.set_run_record(None)
+        self.monitors.clear()
+        self._update_results_stale(force=True)
 
     def _load_mesh_view(self) -> None:
         if self.mesh_view is None:
@@ -1500,6 +1667,8 @@ class MainWindow(QMainWindow):
             return
         if self.mesh_worker.is_running():
             self.mesh_worker.request_stop()
+        if self.solver_worker.is_running():
+            self.solver_worker.request_stop()
         if self.viewer is not None:
             self.viewer.close()  # release VTK interactor resources
         console_log.detach(self._console_handler)

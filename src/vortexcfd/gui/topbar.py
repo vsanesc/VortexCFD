@@ -30,6 +30,7 @@ class TopBar(QWidget):
     view_requested = Signal(str)  # plotter method name
     wireframe_toggled = Signal(bool)
     mesh_clicked = Signal()
+    run_clicked = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -46,6 +47,9 @@ class TopBar(QWidget):
         self.mesh_badge = Badge("Mesh out of date", with_dot=True)
         self.mesh_badge.set_state("warning")
         self.mesh_badge.hide()
+        self.results_badge = Badge("Results out of date", with_dot=True)
+        self.results_badge.set_state("warning")
+        self.results_badge.hide()
         self._pad = 0
 
         row = QHBoxLayout(self)
@@ -56,6 +60,7 @@ class TopBar(QWidget):
         row.addWidget(self.name_button)
         row.addWidget(self.state_badge)
         row.addWidget(self.mesh_badge)
+        row.addWidget(self.results_badge)
         row.addWidget(self._separator())
 
         # One segmented control: elevated pill, 1px border, 1px separators between segments.
@@ -91,7 +96,8 @@ class TopBar(QWidget):
         self.mesh_button.clicked.connect(self.mesh_clicked)
         self._run_state: str | None = None
         self._dirty = False
-        self.run_button = self._future_button("Run Solver", "runBtn", "Available in Phase 4")
+        self.run_button = self._future_button("Run Solver", "runBtn", "Save the project first.")
+        self.run_button.clicked.connect(self.run_clicked)
         row.addWidget(self.mesh_button)
         row.addWidget(self.run_button)
 
@@ -119,6 +125,25 @@ class TopBar(QWidget):
         """Show the "Mesh out of date" badge (the saved mesh no longer matches the inputs)."""
         self.mesh_badge.setHidden(not stale)
 
+    def set_results_stale(self, stale: bool) -> None:
+        """Show the "Results out of date" badge (the saved results no longer match the inputs)."""
+        self.results_badge.setHidden(not stale)
+
+    def set_solver_state(self, reason: str | None, running: bool) -> None:
+        """Run Solver: "Stop" while running, enabled when ``reason`` is None, else disabled with
+        the reason as tooltip."""
+        button = self.run_button
+        if running:
+            button.setText("Stop")
+            button.setEnabled(True)
+            button.setToolTip("Stop the solver (writes the current iteration)")
+        else:
+            button.setText("Run Solver")
+            button.setEnabled(reason is None)
+            button.setToolTip("Run simpleFoam on the mesh" if reason is None else reason)
+        button.setCursor(Qt.CursorShape.PointingHandCursor if running or reason is None
+                         else Qt.CursorShape.ForbiddenCursor)
+
     def set_run_state(self, text: str | None) -> None:
         """Show a run state (e.g. "Meshing") in the badge instead of Saved/Modified."""
         self._run_state = text
@@ -132,7 +157,7 @@ class TopBar(QWidget):
             self.state_badge.setText("Modified" if self._dirty else "Saved")
             self.state_badge.set_state("warning" if self._dirty else "success")
 
-    def set_mesh_state(self, reason: str | None, running: bool) -> None:
+    def set_mesh_state(self, reason: str | None, running: bool, warning: str | None = None) -> None:
         """Generate Mesh: "Stop" while running, enabled when ``reason`` is None, else disabled
         with the reason as tooltip."""
         button = self.mesh_button
@@ -144,7 +169,10 @@ class TopBar(QWidget):
         else:
             button.setText("Generate Mesh")
             button.setEnabled(reason is None)
-            button.setToolTip("Generate the mesh with snappyHexMesh" if reason is None else reason)
+            tip = "Generate the mesh with snappyHexMesh"
+            if warning:
+                tip += f"\nWarning: {warning}"
+            button.setToolTip(tip if reason is None else reason)
             button.setCursor(
                 Qt.CursorShape.PointingHandCursor if reason is None else Qt.CursorShape.ForbiddenCursor
             )
@@ -178,6 +206,7 @@ class TopBar(QWidget):
         self.name_button.setFont(mono_font(QApplication.font(), 0.9))
         self.state_badge.configure(m, t)
         self.mesh_badge.configure(m, t)
+        self.results_badge.configure(m, t)
         self.wireframe_button.configure(m, t)
         small = mono_font(QApplication.font(), 0.85)
         self._seg_row.setContentsMargins(m.line, m.line, m.line, m.line)

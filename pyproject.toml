@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "vortexcfd"
 version = "0.1.0"
-description = "STAR-CCM+-style CFD GUI frontend orchestrating OpenFOAM"
+description = "Integrated CFD workflow GUI for OpenFOAM"
 readme = "README.md"
 license = "GPL-3.0-or-later"
 requires-python = ">=3.11"
@@ -35,4 +35,5 @@ testpaths = ["tests"]
 markers = [
     "openfoam: marks tests that require an OpenFOAM installation",
     "slow: tests above ~5 s (real meshing runs); deselect with -m 'not slow'",
+    "validation: numerics validation against reference solutions; run explicitly with -m validation",
 ]

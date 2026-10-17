@@ -1,0 +1,15 @@
+{
+  "schema_version": 3,
+  "name": "Legacy v3",
+  "geometry": {
+    "parts": [
+      {"name": "Wing", "source_file": "geometry/wing.stl", "units": "mm"}
+    ]
+  },
+  "domain": {"enabled": true, "upstream": 4, "downstream": 8, "lateral": 3, "vertical": 3, "symmetry": "y_min"},
+  "mesh": {"layers": 2, "layer_sizing": "absolute_yplus", "target_yplus": 30.0},
+  "physics": {"nu": 1.6e-05, "rho_ref": 1.2},
+  "inflow": {"speed": 35.0, "alpha_deg": 4.0},
+  "solvers": {"iterations": 800, "residual_p": 1e-05},
+  "reports": {}
+}

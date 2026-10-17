@@ -1,3 +1,3 @@
-"""VortexCFD: STAR-CCM+-style CFD GUI frontend orchestrating OpenFOAM."""
+"""VortexCFD: Integrated CFD workflow GUI for OpenFOAM."""
 
 __version__ = "0.1.0"

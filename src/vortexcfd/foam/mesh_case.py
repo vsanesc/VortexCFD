@@ -73,6 +73,11 @@ class MeshCaseInput:
     parts_bounds: Bounds  # union of the parts' bounding boxes
     reference_length: float
     mesh: Mesh
+    # First prism-layer thickness (m) for layer_sizing "absolute_yplus" (see foam/yplus.py).
+    first_layer_thickness: float | None = None
+    # Number of layers for layer_sizing "absolute_yplus" (foam/yplus.plan_layers); mesh.layers is
+    # used for relative sizing only.
+    layer_count: int | None = None
 
 
 def safe_part_names(names: Sequence[str]) -> list[str]:
@@ -172,6 +177,41 @@ def surface_feature_extract_dict(inp: MeshCaseInput) -> FoamFileSpec:
     return FoamFileSpec(content=content)
 
 
+def _layer_sizing(inp: MeshCaseInput) -> dict:
+    """Layer size keywords: relative to the local cell, or absolute from the y+ estimate.
+
+    Absolute: relativeSizes false, firstLayerThickness = the estimator's value (with the
+    expansion ratio this fixes the other sizes) and minThickness as a fraction of it.
+    """
+    m = inp.mesh
+    if m.layer_sizing == "relative":
+        return {"relativeSizes": True, "finalLayerThickness": m.final_layer_thickness,
+                "minThickness": m.min_thickness}
+    if inp.first_layer_thickness is None:
+        raise ValueError("layer_sizing 'absolute_yplus' needs first_layer_thickness")
+    h = inp.first_layer_thickness
+    return {"relativeSizes": False, "firstLayerThickness": h, "minThickness": m.min_thickness * h}
+
+
+# Layer iterations with the main quality controls before snappyHexMesh switches to the `relaxed`
+# ones. 0 for absolute (y+) layers: the layer addition uses the relaxed controls from its first
+# iteration while snapping keeps the main ones (D-045). Relative sizing writes no nRelaxedIter and
+# keeps the v2606 default (labelMax: never relaxed), as the tutorial.
+RELAXED_AFTER_LAYER_ITER = 0
+
+
+def _quality_controls(m: Mesh) -> dict:
+    """meshQualityControls: the install's meshQualityDict values for every sizing. With absolute (y+)
+    layers the face-decomposition tet-quality test is relaxed only in the `relaxed` sub-dictionary
+    (minTetQuality -1e30), which the layer addition uses after RELAXED_AFTER_LAYER_ITER (0) iterations: a
+    stack of thin, high-aspect layers trips that test on usable meshes, while every other check keeps
+    the main values; checkMesh still judges the final mesh. [NUMERICS-REVIEW]"""
+    controls = dict(MESH_QUALITY)
+    if m.layer_sizing == "absolute_yplus":
+        controls["relaxed"] = {"minTetQuality": -1e30}
+    return controls
+
+
 def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
     m = inp.mesh
     est = estimate_mesh(inp.domain_bounds, inp.reference_length, m)
@@ -184,11 +224,14 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
         }
         for n in inp.parts
     }
-    layers = {f'"{n}.*"': {"nSurfaceLayers": m.layers} for n in inp.parts} if m.layers > 0 else {}
+    n_layers = m.layers
+    if m.layer_sizing == "absolute_yplus" and inp.layer_count is not None:
+        n_layers = inp.layer_count
+    layers = {f'"{n}.*"': {"nSurfaceLayers": n_layers} for n in inp.parts} if n_layers > 0 else {}
     content = {
         "castellatedMesh": True,
         "snap": True,
-        "addLayers": m.layers > 0,
+        "addLayers": n_layers > 0,
         "geometry": geometry,
         "castellatedMeshControls": {
             "maxLocalCells": MAX_LOCAL_CELLS,
@@ -214,11 +257,9 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
             "multiRegionFeatureSnap": False,
         },
         "addLayersControls": {
-            "relativeSizes": True,
+            **_layer_sizing(inp),
             "layers": layers,
             "expansionRatio": m.expansion_ratio,
-            "finalLayerThickness": m.final_layer_thickness,
-            "minThickness": m.min_thickness,
             "nGrow": 0,
             "featureAngle": 60,
             "slipFeatureAngle": 30,
@@ -231,8 +272,9 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
             "minMedialAxisAngle": 90,
             "nBufferCellsNoExtrude": 0,
             "nLayerIter": 50,
+            **({"nRelaxedIter": RELAXED_AFTER_LAYER_ITER} if m.layer_sizing == "absolute_yplus" else {}),
         },
-        "meshQualityControls": dict(MESH_QUALITY),
+        "meshQualityControls": _quality_controls(m),
         "mergeTolerance": 1e-6,
     }
     return FoamFileSpec(content=content)
@@ -324,3 +366,37 @@ def prepare_case_dir(case_dir: Path, files: dict[str, FoamFileSpec]) -> None:
     (case_dir / "case.foam").touch()  # lets the OpenFOAM reader open the case
 
 
+RUN_RECORD_FILE = "vortexcfd_run.json"  # foam/run_record.RUN_RECORD_NAME (kept in sync by a test)
+
+
+def _is_result_time(name: str) -> bool:
+    try:
+        return float(name) > 0
+    except ValueError:
+        return False
+
+
+def remove_results(case_dir: Path) -> list[str]:
+    """Delete the solver results of a marker-protected case: time directories after 0,
+    postProcessing/ and the run record. Returns the removed names (sorted). Nothing else is touched
+    (0/, constant/, system/, logs and the meshing dictionaries stay).
+
+    Raises:
+        CaseDirectoryNotOursError: the directory has no VortexCFD marker.
+    """
+    case_dir = Path(case_dir)
+    if not (case_dir / MARKER_NAME).is_file():
+        raise CaseDirectoryNotOursError(
+            f"'{case_dir}' was not generated by VortexCFD (marker file {MARKER_NAME} missing); "
+            "refusing to delete results in it."
+        )
+    removed = []
+    for child in sorted(case_dir.iterdir(), key=lambda c: c.name):
+        if child.is_dir() and not child.is_symlink() and (_is_result_time(child.name) or child.name == "postProcessing"):
+            shutil.rmtree(child)
+            removed.append(child.name)
+    record = case_dir / RUN_RECORD_FILE
+    if record.is_file():
+        record.unlink()
+        removed.append(RUN_RECORD_FILE)
+    return removed
