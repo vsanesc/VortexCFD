@@ -35,7 +35,7 @@ from vortexcfd.foam.physics_case import (
     inlet_turbulence,
     reference_values,
 )
-from vortexcfd.gui.meshing import MeshingNotReady, parts_layout, plan_layers_for
+from vortexcfd.gui.meshing import MeshingNotReady, parts_layout, plan_layers_for, thin_part_warnings
 from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_status, report_for_part
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
 
@@ -202,6 +202,7 @@ MESH_ROWS = (
     ("skewness", "Max skewness"),
     ("failed", "Failed checks"),
     ("ok", "Mesh OK"),
+    ("lost", "Lost parts"),
     ("extruded", "Surface faces with layers"),
     ("status", "Status"),
 )
@@ -327,6 +328,15 @@ class PropertiesPanel(QWidget):
             ("patch", "Patch name", self.patch_label),
         ):
             self._layout.addWidget(self._make_row(key, text, field))
+        # Per-part surface refinement levels (D-052): -1 is the "auto" special value (None).
+        self.part_level_fields: dict[str, QSpinBox] = {}
+        for key, text in (("surface_level_min", "Surface level min"), ("surface_level_max", "Surface level max")):
+            spin = _spin(-1, 30, "", "auto")
+            spin.setToolTip("This part's surface refinement level (auto: the Mesh levels). An overridden part "
+                            "that is small compared with the background cells is also seeded so it is meshed.")
+            self.part_level_fields[key] = spin
+            self._layout.addWidget(self._make_row(f"part_{key}", text, spin))
+            spin.editingFinished.connect(lambda k=key: self._commit_part_level(k))
         # File status and the read-only "Checks" group (surface report) for a Part.
         self.status_value = QLabel()
         self.status_value.setObjectName("checkValue")
@@ -398,6 +408,10 @@ class PropertiesPanel(QWidget):
         self.mesh_first_layer = self._ro_row("mset_first_layer", "First layer thickness")
         self.mesh_layer_count = self._ro_row("mset_layer_count", "Layers (computed)")
         self.mesh_layer_stack = self._ro_row("mset_layer_stack", "Stack / final layer")
+        self.mesh_thin_warning = QLabel()
+        self.mesh_thin_warning.setObjectName("checkValue")
+        _wrap(self.mesh_thin_warning)
+        self._layout.addWidget(self.mesh_thin_warning)
         self.mesh_title = QLabel("LAST MESH")
         self.mesh_title.setObjectName("sectionTitle")
         self._layout.addWidget(self.mesh_title)
@@ -647,8 +661,14 @@ class PropertiesPanel(QWidget):
         finally:
             for widget in (self.name_edit, self.source_label, self.units_combo):
                 widget.blockSignals(False)
-        for key in ("source", "units", "patch"):
+        for key in ("source", "units", "patch", "part_surface_level_min", "part_surface_level_max"):
             self._rows[key].setVisible(part is not None)
+        if part is not None:
+            for key, spin in self.part_level_fields.items():
+                spin.blockSignals(True)
+                value = getattr(part, key)
+                spin.setValue(spin.minimum() if value is None else value)
+                spin.blockSignals(False)
         if part is not None:
             patches = safe_part_names([p.name for p in sim.geometry.parts])
             self.patch_label.setText(patches[self._index])
@@ -680,7 +700,12 @@ class PropertiesPanel(QWidget):
         self.mesh_title.setVisible(show and self._mesh_report is not None)
         if not show:
             self.mesh_yplus_note.setVisible(False)
+            self.mesh_thin_warning.setVisible(False)
             return
+        thin = thin_part_warnings(self._project)
+        self.mesh_thin_warning.setText("\n".join(thin))
+        self._set_warn(self.mesh_thin_warning, True)
+        self.mesh_thin_warning.setVisible(bool(thin))
         mesh = self._project.sim.mesh
         self.mesh_yplus_note.setVisible(mesh.layer_sizing == "absolute_yplus")
         widgets = list(self.mesh_fields.values())
@@ -808,6 +833,7 @@ class PropertiesPanel(QWidget):
             "skewness": (num(report.max_skewness, "{:.4g}"), False),
             "failed": (str(report.failed_checks), report.failed_checks > 0),
             "ok": ("yes" if report.mesh_ok else "no", not report.mesh_ok),
+            "lost": (", ".join(report.lost_parts), False),
             "extruded": (num(report.extruded_percent, "{:g} %"), False),
             "status": (("Mesh out of date", True) if self._mesh_stale else ("Up to date", False)),
         }
@@ -815,6 +841,9 @@ class PropertiesPanel(QWidget):
             self.mesh_values[key].setText(text)
             self._set_warn(self.mesh_values[key], warn)
         self._rows["mesh_extruded"].setVisible(show and report.extruded_percent is not None)
+        self._rows["mesh_lost"].setVisible(show and bool(report.lost_parts))
+        self._set_error(self.mesh_values["lost"], bool(report.lost_parts))
+        self.mesh_values["lost"].setToolTip("\n".join(report.lost_messages()))
         self._fill_layer_rows(report)
 
     def _fill_layer_rows(self, report: MeshReport | None) -> None:
@@ -1033,6 +1062,12 @@ class PropertiesPanel(QWidget):
             self._set_warn(self.check_values[key], warn)
 
     @staticmethod
+    def _set_error(label: QLabel, error: bool) -> None:
+        label.setProperty("error", "true" if error else "false")
+        label.style().unpolish(label)
+        label.style().polish(label)
+
+    @staticmethod
     def _set_warn(label: QLabel, warn: bool) -> None:
         label.setProperty("warn", "true" if warn else "false")
         label.style().unpolish(label)
@@ -1068,6 +1103,17 @@ class PropertiesPanel(QWidget):
         except (ValueError, TypeError, IndexError) as exc:  # includes pydantic errors
             self.message.emit(str(exc))
         self.refresh()  # reverts a rejected value, normalizes a stripped one
+
+    def _commit_part_level(self, key: str) -> None:
+        if self._kind != "part" or self._index is None:
+            return
+        spin = self.part_level_fields[key]
+        value = None if spin.value() == spin.minimum() else spin.value()
+        try:
+            self._project.update_part(self._index, **{key: value})
+        except (ValueError, TypeError, IndexError) as exc:  # includes pydantic errors
+            self.message.emit(str(exc))
+        self.refresh()
 
     def _commit_units(self, units: str) -> None:
         try:

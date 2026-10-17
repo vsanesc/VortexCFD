@@ -1,0 +1,16 @@
+{
+  "schema_version": 4,
+  "name": "Legacy v4",
+  "geometry": {
+    "parts": [
+      {"name": "Ball", "source_file": "geometry/ball.stl", "units": "m"},
+      {"name": "Pod", "source_file": "geometry/pod.stl", "units": "mm"}
+    ]
+  },
+  "domain": {"enabled": true, "upstream": 5, "downstream": 10, "lateral": 5, "vertical": 5, "symmetry": "none"},
+  "mesh": {"layers": 3, "surface_level_max": 5},
+  "physics": {"nu": 1.5e-05, "rho_ref": 1.225},
+  "inflow": {"speed": 20.0, "alpha_deg": 0.0},
+  "solvers": {"iterations": 500},
+  "reports": {"reference_area_basis": "frontal", "reference_length": 0.6, "slots": ["Cd", null, "yplus_avg"]}
+}

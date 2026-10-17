@@ -5,28 +5,9 @@ task (CLAUDE.md).
 
 ## Current branch
 
-**task/4a-physics** (not yet published). Task 4A is **done**: physics model and schema v3 with editors,
-solver case files (D-022, D-023), y+ estimator (D-024), layer count from y+ (D-026), residual control
-(D-027), flat plate verification against TMR (PASS WITH NOTE, -3.3 %, D-036), minTetQuality relaxed only
-in `relaxed` (D-044) with the relaxed controls used from the first layer iteration for y+ layers
-(D-045: the y+ 30 sphere gets 100 % layer coverage, Mesh OK). D-022, D-023, D-024 and D-027 were
-accepted in the review chat on 2026-10-17. Full flat plate study in scripts/validation/flat_plate_study.py
-(about 80 min); the pytest `validation` test runs the coarse and medium grids (about 20 min).
-
-Task 4B.1 is **done** on it (D-046, Proposed): Run Solver writes the solver files into the meshed case
-and runs simpleFoam on a worker thread with clean stop; end states Converged / Iteration limit / Stopped /
-Crashed; case/vortexcfd_run.json with a results hash ("Results out of date" badge), loaded at project open.
-
-Task 4B.2 is **done** on it (D-047 [NUMERICS-REVIEW], D-048, D-049, all Proposed): Reference Values
-node with bounding-box defaults and overrides (schema v4), live residual chart, report slots (Cd, Cl,
-Cm pitch, y+ min/avg/max) tailed from postProcessing. Task 4B is done.
-
-Review of Task 4B done on it (2026-10-17): D-046 to D-049 Accepted; force projection checked (D-050,
-forceCoeffs reads liftDir/dragDir, agreement below 1e-4 %); A_ref basis planform / frontal / custom
-(D-047); a new mesh deletes the previous results (D-051); face-weighted y+ average (D-048). Open:
-docs/QUESTIONS.md item 54 (a part missing from a two-part mesh, not investigated).
-
-Next step: Phase 6.2 scalar scenes (field and colormap selection on the solved case).
+**task/6.2-results** (not yet published). Part A done: lost-part guard, thin-part warning, per-part
+surface levels and seed lines (D-052, Proposed, [NUMERICS-REVIEW]; schema v5). Next on it: Task 6.2
+Results Scene and Open in ParaView.
 
 ## Phases
 
@@ -89,4 +70,4 @@ Next step: Phase 6.2 scalar scenes (field and colormap selection on the solved c
 - Flat plate Cf is 3.3 % below the TMR incompressible SST reference (grid-extrapolated Cf(0.97),
   D-036) and the gap is not explained. Candidates: the omegaWallFunction blending, OpenFOAM's SST
   implementation (TMR's note on standard OpenFOAM), nutUSpaldingWallFunction.
-- A part can end up with 0 faces in the mesh without a warning (docs/QUESTIONS.md item 54).
+- Small parts are seeded only when the user overrides their levels (docs/QUESTIONS.md item 55).

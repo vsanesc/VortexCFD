@@ -36,7 +36,7 @@ class Badge(QLabel):
         self.setProperty("dot", "true" if with_dot else "false")
 
     def set_state(self, state: str) -> None:
-        """state: '' (accent_secondary), 'success' or 'warning'."""
+        """state: '' (accent_secondary), 'success', 'warning' or 'error'."""
         self._state = state
         self.setProperty("state", state)
         self.style().unpolish(self)
@@ -47,7 +47,8 @@ class Badge(QLabel):
         """Token color of the dot for the current state (None if no dot)."""
         if not self._with_dot or self._theme is None:
             return None
-        return {"success": self._theme.success, "warning": self._theme.warning}.get(
+        return {"success": self._theme.success, "warning": self._theme.warning,
+                "error": self._theme.error}.get(
             self._state, self._theme.accent_secondary
         )
 

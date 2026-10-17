@@ -19,7 +19,8 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
 
     v1 -> v2 adds the default far-field ``domain`` and ``mesh``; v2 -> v3 adds the default
     ``physics``, ``inflow`` and ``solvers``; v3 -> v4 fills ``reports`` (reference value overrides and
-    report slots, all unset; v3 had an empty placeholder). Data already at the current version (or not a dict /
+    report slots, all unset; v3 had an empty placeholder); v4 -> v5 adds the per-part surface level
+    overrides (unset: nothing to fill, the version is bumped). Data already at the current version (or not a dict /
     without a version) is returned unchanged.
     """
     if not isinstance(data, dict):
@@ -37,6 +38,8 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
         reports = data.get("reports")
         data["reports"] = dict(reports) if isinstance(reports, dict) else {}  # {} = all unset
         data["schema_version"] = 4
+    if data.get("schema_version") == 4:
+        data["schema_version"] = 5  # Part.surface_level_min/max default to None (the mesh's levels)
     return data
 
 

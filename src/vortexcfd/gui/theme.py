@@ -306,6 +306,7 @@ QLabel#badge {{ background: {t.elevated}; color: {t.accent_secondary}; border: {
     border-radius: {btr}px; padding: {m.s1}px {m.s2}px; }}
 QLabel#badge[state="success"] {{ color: {t.success}; }}
 QLabel#badge[state="warning"] {{ color: {t.warning}; }}
+QLabel#badge[state="error"] {{ color: {t.error}; }}
 QLabel#dirtyDot {{ color: {t.accent}; background: transparent; }}
 QWidget#topBar {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
 QFrame#vsep {{ background: {t.border}; border: none; }}
@@ -360,6 +361,7 @@ QWidget#kpiCell[last="true"] {{ border-right: none; }}
 QLabel#kpiTitle {{ color: {t.muted_text}; background: transparent; }}
 QLabel#checkValue {{ color: {t.text}; background: transparent; }}
 QLabel#checkValue[warn="true"] {{ color: {t.warning}; }}
+QLabel#checkValue[error="true"] {{ color: {t.error}; }}
 QLabel#statusWarn {{ color: {t.warning}; }}
 QLabel#kpiValue {{ color: {t.text}; background: transparent; }}
 QWidget#propRow {{ background: transparent; border-bottom: {ln}px solid {t.border}; }}

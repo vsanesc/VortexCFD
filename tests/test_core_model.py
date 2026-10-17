@@ -224,14 +224,14 @@ def test_save_simulation_atomic_cleanup(tmp_path: Path) -> None:
 def test_migrate_v1_to_v2_and_current_unchanged() -> None:
     """v1 gains the default domain and version 2; current data is returned unchanged."""
     assert migrate({"schema_version": 1, "custom": "data"}) == {
-        "schema_version": 4, "custom": "data", "domain": {}, "mesh": {},
+        "schema_version": 5, "custom": "data", "domain": {}, "mesh": {},
         "physics": {}, "inflow": {}, "solvers": {}, "reports": {},
     }
     assert migrate({"schema_version": 2, "x": 1}) == {
-        "schema_version": 4, "x": 1, "physics": {}, "inflow": {}, "solvers": {}, "reports": {},
+        "schema_version": 5, "x": 1, "physics": {}, "inflow": {}, "solvers": {}, "reports": {},
     }
-    assert migrate({"schema_version": 3, "reports": {}}) == {"schema_version": 4, "reports": {}}
-    current = {"schema_version": 4, "custom": "data"}
+    assert migrate({"schema_version": 3, "reports": {}}) == {"schema_version": 5, "reports": {}}
+    current = {"schema_version": 5, "custom": "data"}
     assert migrate(current) == current
 
 
@@ -257,7 +257,7 @@ def test_domain_defaults() -> None:
         True, 5.0, 10.0, 5.0, 5.0, "none",
     )
     assert Simulation(name="x").domain == d
-    assert CURRENT_SCHEMA_VERSION == 4
+    assert CURRENT_SCHEMA_VERSION == 5
 
 
 @pytest.mark.parametrize("field", ["upstream", "downstream", "lateral", "vertical"])
@@ -472,7 +472,7 @@ def test_v3_fixture_migrates_to_v4_with_unset_reports_and_keeps_its_data() -> No
     raw = json.loads(V3_FIXTURE.read_text())
     assert raw["schema_version"] == 3 and raw["reports"] == {}
     sim = load_simulation(V3_FIXTURE)
-    assert sim.schema_version == 4
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION
     assert sim.reports == Reports()
     assert sim.reports.reference_area is None and sim.reports.reference_length is None
     assert sim.reports.reference_area_basis == "planform"
@@ -513,3 +513,35 @@ def test_update_reports_is_undoable_and_saved(tmp_path: Path) -> None:
         p.update_reports(reference_length=0.0)
     with pytest.raises(ValidationError):
         p.update_reports(reference_area=1.0)  # a custom area needs the custom basis
+
+
+# -- per-part surface levels (schema v5) ------------------------------------------------------------------
+
+V4_FIXTURE = Path(__file__).parent / "data" / "project_v4.json"
+
+
+def test_v4_fixture_migrates_to_v5_with_unset_part_levels_and_keeps_its_data() -> None:
+    raw = json.loads(V4_FIXTURE.read_text())
+    assert raw["schema_version"] == 4 and "surface_level_min" not in raw["geometry"]["parts"][0]
+    sim = load_simulation(V4_FIXTURE)
+    assert sim.schema_version == 5
+    assert [(p.name, p.units, p.surface_level_min, p.surface_level_max) for p in sim.geometry.parts] == [
+        ("Ball", "m", None, None), ("Pod", "mm", None, None)]
+    assert sim.mesh.surface_level_max == 5 and sim.solvers.iterations == 500
+    assert sim.reports.reference_area_basis == "frontal" and sim.reports.slots == ["Cd", None, "yplus_avg"]
+    assert migrate({"schema_version": 4, "x": 1}) == {"schema_version": 5, "x": 1}
+
+
+def test_part_levels_validation_and_update() -> None:
+    from vortexcfd.core.model import Part
+
+    assert Part(name="a", source_file="a.stl", surface_level_min=5, surface_level_max=6).surface_level_max == 6
+    for bad in ({"surface_level_min": -1}, {"surface_level_min": 6, "surface_level_max": 5}):
+        with pytest.raises(ValidationError):
+            Part(name="a", source_file="a.stl", **bad)
+    p = Project.new("lv")
+    p.add_part(Part(name="Pod", source_file="pod.stl"))
+    p.update_part(0, surface_level_max=7)
+    assert p.sim.geometry.parts[0].surface_level_max == 7 and p.sim.geometry.parts[0].surface_level_min is None
+    p.undo()
+    assert p.sim.geometry.parts[0].surface_level_max is None

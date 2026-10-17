@@ -3,7 +3,7 @@
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-CURRENT_SCHEMA_VERSION: int = 4
+CURRENT_SCHEMA_VERSION: int = 5
 
 
 class StrictModel(BaseModel):
@@ -13,11 +13,26 @@ class StrictModel(BaseModel):
 
 
 class Part(StrictModel):
-    """A geometric part defined by a source mesh file."""
+    """A geometric part defined by a source mesh file.
+
+    ``surface_level_min`` / ``surface_level_max`` override the mesh's surface refinement levels for
+    this part only (None = the mesh's levels; setting only the max gives min = max - 1, as for the
+    mesh). An overridden part that is narrower than two background cells is also seeded with feature
+    lines so snappyHexMesh finds it (D-052).
+    """
 
     name: str
     source_file: str
     units: Literal["m", "cm", "mm", "in", "ft"] = "m"
+    surface_level_min: int | None = Field(default=None, ge=0)
+    surface_level_max: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _levels_ordered(self) -> "Part":
+        lo, hi = self.surface_level_min, self.surface_level_max
+        if lo is not None and hi is not None and hi < lo:
+            raise ValueError("surface_level_max must be >= surface_level_min")
+        return self
 
 
 class Geometry(StrictModel):

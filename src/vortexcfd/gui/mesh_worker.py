@@ -20,11 +20,11 @@ class MeshWorker(QObject):
         super().__init__(parent)
         self._run: MeshRun | None = None
 
-    def start(self, case_dir: Path) -> None:
+    def start(self, case_dir: Path, parts: tuple[str, ...] = ()) -> None:
         if self.is_running():
             raise RuntimeError("meshing is already running")
         self._run = MeshRun(
-            case_dir, on_line=self.line.emit, on_step=self.step.emit, on_done=self._done
+            case_dir, on_line=self.line.emit, on_step=self.step.emit, on_done=self._done, parts=parts
         )
         self._run.start()
 

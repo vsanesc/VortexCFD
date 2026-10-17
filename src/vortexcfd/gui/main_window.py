@@ -66,6 +66,7 @@ from vortexcfd.gui.meshing import (
     layer_warning,
     prepare_job,
     readiness,
+    thin_part_warnings,
 )
 from vortexcfd.gui.scene import (
     ERROR,
@@ -955,7 +956,10 @@ class MainWindow(QMainWindow):
         reason = None if running else readiness(self._project)
         if not running and self.solver_worker.is_running():
             reason = "The solver is running: stop it first."
-        warning = None if running or reason is not None else layer_warning(self._project)
+        warning = None
+        if not running and reason is None:
+            warnings = [w for w in (layer_warning(self._project), *thin_part_warnings(self._project)) if w]
+            warning = "\n".join(warnings) or None
         self.top_bar.set_mesh_state(reason, running, warning)
 
     def generate_mesh(self) -> None:
@@ -987,7 +991,9 @@ class MainWindow(QMainWindow):
         log.info("Meshing %s: background %d cells (base size %.4g m), surface levels %d-%d "
                  "(surface cells %.4g m)", job.case_dir, est.total_cells, est.base_size,
                  est.level_min, est.level_max, est.surface_size)
-        self.mesh_worker.start(job.case_dir)
+        for text in thin_part_warnings(self._project):
+            log.warning(text)
+        self.mesh_worker.start(job.case_dir, job.inputs.parts)
         self._update_mesh_stale()
         self._update_mesh_button()
         self._update_run_button()
@@ -1015,6 +1021,9 @@ class MainWindow(QMainWindow):
 
     def _update_mesh_stale(self) -> None:
         """A shown mesh is out of date when the meshing inputs no longer match its hash."""
+        report = self.mesh_report
+        lost = report.lost_parts if report is not None else ()
+        self.top_bar.set_mesh_error(f"Mesh invalid: Part {lost[0]} lost" if lost else None)
         stale = (
             self.mesh_report is not None and self._mesh_hash is not None
             and not self.mesh_worker.is_running() and inputs_hash(self._project) != self._mesh_hash
@@ -1058,8 +1067,13 @@ class MainWindow(QMainWindow):
             except OSError as exc:
                 log.warning("Could not save the mesh record: %s", exc)
             self._clear_results_after_meshing()
-            level = "success" if report.mesh_ok else "warning"
-            self.show_message(f"Mesh generated: {report.summary()}", level, log_it=False)
+            for text in report.lost_messages():
+                log.error(text)
+            if report.lost_parts:
+                self.show_message(f"Mesh invalid: {report.lost_messages()[0]}", "error", log_it=False)
+            else:
+                level = "success" if report.mesh_ok else "warning"
+                self.show_message(f"Mesh generated: {report.summary()}", level, log_it=False)
             self._load_mesh_view()
         self._update_mesh_stale()
         self._update_mesh_button()
@@ -1073,6 +1087,7 @@ class MainWindow(QMainWindow):
         return solving.readiness(
             self._project, has_mesh=self.mesh_report is not None, mesh_stale=self.mesh_stale,
             meshing=self.mesh_worker.is_running(),
+            lost_parts=self.mesh_report.lost_parts if self.mesh_report is not None else (),
         )
 
     def _update_run_button(self) -> None:
