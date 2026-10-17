@@ -74,6 +74,8 @@ src/vortexcfd/
   - `gui/mesh_worker.py`: Qt wrapper around `MeshRun`; the worker and reader threads only emit signals, slots run in the GUI thread. `gui/scene.py` also holds `MeshView` (part patches of the generated mesh with edges).
   - `gui/console.py`: output console fed by a logging handler on the `vortexcfd` logger.
   - `gui/properties_panel.py`: properties rows (label left, mono value box right) for the selected node; `gui/dialogs.py`: injectable file/confirm dialogs.
+  - The viewer runs with `QtInteractor(auto_update=False)`: pyvistaqt's 5 Hz render timer made offscreen test runs abort intermittently (VTK render without GL), so the window renders explicitly after every change; interaction still renders through VTK events.
+  - Spin boxes hide their buttons through the stylesheet (`::up-button/::down-button { width: 0 }`) and their inner QLineEdit is unstyled: `setButtonSymbols(NoButtons)` combined with a stylesheet collapses the edit field to 1 px.
   - May import `core` and `foam`.
 - **Enforcement Rule**: `core` and `foam` must never import `gui`. This guarantees that simulation data manipulation, case generation, and solver execution remain fully decoupled from the graphical user interface, enabling headless automation and CLI operation.
 
