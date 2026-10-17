@@ -147,13 +147,24 @@ def seed_file_name(part: str) -> str:
     return f"{part}_seed.eMesh"
 
 
-def seeded_parts(inp: "MeshCaseInput", base_size: float) -> list[int]:
-    """Indices of the parts that get seed lines: a per-part level override is set and the part is
-    small enough to fall between the background cell-centre lines (needs_seed). [NUMERICS-REVIEW]"""
+# A part thinner than this many surface cells (at its maximum level) is also seeded (D-052).
+THIN_SURFACE_CELLS = 3.0
+
+
+def needs_seeding(bounds: Bounds, base_size: float, level_max: int) -> bool:
+    """The pre-mesh criterion: the part may fall between the background cell-centre lines
+    (needs_seed) or is thinner than THIN_SURFACE_CELLS surface cells at its maximum level."""
+    return needs_seed(bounds, base_size) or min_extent(bounds) < THIN_SURFACE_CELLS * base_size / 2 ** level_max
+
+
+def seeded_parts(inp: "MeshCaseInput", base_size: float, level_min: int, level_max: int) -> list[int]:
+    """Indices of the parts that get seed lines automatically: every part flagged by
+    needs_seeding at its own levels (overrides if set, otherwise the mesh's). [NUMERICS-REVIEW]"""
     out = []
     for i, bounds in enumerate(inp.part_bounds):
         override = inp.part_levels[i] if i < len(inp.part_levels) else (None, None)
-        if any(v is not None for v in override) and needs_seed(bounds, base_size):
+        _lo, hi = part_level_range(level_min, level_max, override)
+        if needs_seeding(bounds, base_size, hi):
             out.append(i)
     return out
 
@@ -182,9 +193,9 @@ def seed_edge_mesh_text(part: str, bounds: Bounds) -> str:
 
 def write_seed_edge_meshes(case_dir: Path, inp: "MeshCaseInput") -> list[str]:
     """Write the seed eMesh of every seeded part into constant/triSurface; returns the part names."""
-    base = estimate_mesh(inp.domain_bounds, inp.reference_length, inp.mesh).base_size
+    est = estimate_mesh(inp.domain_bounds, inp.reference_length, inp.mesh)
     names = []
-    for i in seeded_parts(inp, base):
+    for i in seeded_parts(inp, est.base_size, est.level_min, est.level_max):
         name = inp.parts[i]
         (Path(case_dir) / TRI_SURFACE / seed_file_name(name)).write_text(
             seed_edge_mesh_text(name, inp.part_bounds[i]), encoding="utf-8")
@@ -323,7 +334,7 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
     }
     features = [{"file": f'"{n}.eMesh"', "level": levels[i][1]} for i, n in enumerate(inp.parts)]
     features += [{"file": f'"{seed_file_name(inp.parts[i])}"', "level": levels[i][1]}
-                 for i in seeded_parts(inp, est.base_size)]
+                 for i in seeded_parts(inp, est.base_size, est.level_min, est.level_max)]
     n_layers = m.layers
     if m.layer_sizing == "absolute_yplus" and inp.layer_count is not None:
         n_layers = inp.layer_count

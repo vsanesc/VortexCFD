@@ -397,3 +397,27 @@ def test_status_line_shows_selection(make_window) -> None:
     w = make_window()
     w.tree.setCurrentItem(w._items[("part", 0)])
     assert w._selection_label.text() == "Active selection: Part 1"
+
+
+def test_status_message_and_selection_never_overlap(make_window) -> None:
+    """docs/QUESTIONS.md item 58: the selection is a permanent widget on the right; temporary
+    messages are drawn on the left, in the space QStatusBar leaves before permanent widgets."""
+    from PySide6.QtWidgets import QApplication
+
+    w = make_window()
+    bar, label = w.statusBar(), w._selection_label
+    w.tree.setCurrentItem(w._items[("part", 0)] if ("part", 0) in w._items else w._items[("geometry", None)])
+    w.show_message("Results at time 60 and a rather long temporary message")
+    QApplication.processEvents()
+    assert label.isVisible() and bar.currentMessage().startswith("Results at time 60")
+    assert label.text().startswith("Active selection")
+    # permanent widgets are laid out at the right end of the bar
+    assert label.geometry().right() >= bar.width() - 2 * bar.layout().contentsMargins().right() - 8
+    assert label.geometry().left() > 0
+    # Qt removes normal (non-permanent) widgets from view while a message shows; none are left
+    from PySide6.QtWidgets import QWidget
+
+    normal = [c for c in bar.findChildren(QWidget) if c.isVisible() and c is not label
+              and c.parent() is not None and c.geometry().intersects(label.geometry()) and c.isWidgetType()
+              and c.objectName() != "qt_statusbar_sizegrip" and c is not bar]
+    assert normal == []

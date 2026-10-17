@@ -311,3 +311,51 @@ def test_part_properties_show_the_read_only_patch_name(make_window, sphere_stl: 
     assert p.patch_label.text() == "inlet_1"
     w._select_root()
     assert not p._rows["patch"].isVisible()
+
+
+# -- inward normals (docs/QUESTIONS.md item 56) ------------------------------------------------------------
+
+
+def test_signed_volume_flags_inward_normals_without_flipping() -> None:
+    from vortexcfd.geometry.checks import check_surface
+
+    sphere = pv.Sphere(radius=1.0, theta_resolution=32, phi_resolution=32)
+    out = check_surface(sphere)
+    assert out.watertight and out.signed_volume == pytest.approx(4 / 3 * np.pi, rel=0.02)
+    assert not out.normals_inward and "inward" not in out.summary()
+    inward = check_surface(sphere.flip_faces())
+    assert inward.signed_volume == pytest.approx(-out.signed_volume) and inward.normals_inward
+    assert inward.summary().endswith("normals point inward")
+    ellipsoid = pv.ParametricEllipsoid(0.3, 0.2, 0.2, u_res=32, v_res=16, w_res=16).triangulate().clean()
+    assert check_surface(ellipsoid).normals_inward  # the item 54 body: inward as generated
+    open_disc = check_surface(pv.Disc().triangulate().flip_faces())
+    assert not open_disc.watertight and not open_disc.normals_inward  # only for closed surfaces
+
+
+def test_import_warns_about_inward_normals(make_window, tmp_path: Path) -> None:
+    path = tmp_path / "src" / "inside_out.stl"
+    path.parent.mkdir()
+    pv.Sphere(radius=1.0, theta_resolution=16, phi_resolution=16).flip_faces().save(str(path))
+    w = make_window(import_path=path, with_viewer=False)
+    w.act_import.trigger()
+    text = w.console.text()
+    assert "WARNING" in text and "normals point inward" in text and "not changed" in text
+    w.tree.setCurrentItem(w._items[("part", 0)])
+    p = w.properties
+    label = p.check_values["normals"]
+    assert p._rows["check_normals"].isVisible() and label.text() == "point inward"
+    assert label.property("warn") == "true"
+    # the copied file is untouched: still inside out
+    from vortexcfd.geometry.checks import check_surface
+
+    copied = w.project.resolve_part_path(w.project.sim.geometry.parts[0])
+    assert check_surface(pv.read(str(copied))).normals_inward
+
+
+def test_outward_surface_shows_outward(make_window, sphere_stl: Path) -> None:
+    w = make_window(import_path=sphere_stl, with_viewer=False)
+    w.act_import.trigger()
+    w.tree.setCurrentItem(w._items[("part", 0)])
+    assert w.properties.check_values["normals"].text() == "outward"
+    assert w.properties.check_values["normals"].property("warn") == "false"
+    assert "inward" not in w.console.text()

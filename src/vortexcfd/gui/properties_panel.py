@@ -217,6 +217,7 @@ CHECK_ROWS = (
     ("degenerate", "Degenerate triangles"),
     ("duplicates", "Duplicate faces"),
     ("orientation", "Flipped normals"),
+    ("normals", "Normals"),
     ("watertight", "Watertight"),
 )
 
@@ -332,8 +333,8 @@ class PropertiesPanel(QWidget):
         self.part_level_fields: dict[str, QSpinBox] = {}
         for key, text in (("surface_level_min", "Surface level min"), ("surface_level_max", "Surface level max")):
             spin = _spin(-1, 30, "", "auto")
-            spin.setToolTip("This part's surface refinement level (auto: the Mesh levels). An overridden part "
-                            "that is small compared with the background cells is also seeded so it is meshed.")
+            spin.setToolTip("This part's surface refinement level (auto: the Mesh levels). A part that is small "
+                            "compared with the background cells is seeded automatically at these levels.")
             self.part_level_fields[key] = spin
             self._layout.addWidget(self._make_row(f"part_{key}", text, spin))
             spin.editingFinished.connect(lambda k=key: self._commit_part_level(k))
@@ -1056,6 +1057,8 @@ class PropertiesPanel(QWidget):
             "duplicates": (str(report.duplicate_faces), False),
             "orientation": (str(report.inconsistent_orientation), False),
             "watertight": ("yes" if report.watertight else "no", not report.watertight),
+            "normals": (("point inward", True) if report.normals_inward
+                        else ("outward", False) if report.watertight else ("\u2014 (open surface)", False)),
         }
         for key, (text, warn) in values.items():
             self.check_values[key].setText(text)

@@ -17,8 +17,8 @@ class Part(StrictModel):
 
     ``surface_level_min`` / ``surface_level_max`` override the mesh's surface refinement levels for
     this part only (None = the mesh's levels; setting only the max gives min = max - 1, as for the
-    mesh). An overridden part that is narrower than two background cells is also seeded with feature
-    lines so snappyHexMesh finds it (D-052).
+    mesh). A part that is small relative to the background mesh is seeded with feature lines
+    automatically so snappyHexMesh finds it (D-052).
     """
 
     name: str

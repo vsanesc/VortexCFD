@@ -6,15 +6,19 @@ task (CLAUDE.md).
 ## Current branch
 
 **task/6.2-results** (not yet published; Tasks 4A and 4B were merged in PR #13). Done on it:
-- Lost parts in meshing (D-052, Proposed, [NUMERICS-REVIEW]; schema v5): post-mesh guard (a part patch
-  with 0 faces fails the mesh and blocks Run Solver), pre-mesh thin/small-part warning, per-part
-  surface levels with seed lines.
-- Task 6.2 (D-053 to D-055, Proposed): Results Scene with field, colormap and range selection, scalar
+- Lost parts in meshing (D-052; schema v5): post-mesh guard (a part patch with 0 faces fails the mesh
+  and blocks Run Solver), automatic seed lines for small or thin parts, per-part surface levels.
+- Task 6.2 (D-053 to D-055): Results Scene with field, colormap and range selection, scalar
   bar, walls/section display, field-range telemetry and the stale strip; Open in ParaView with a
   Preferences path.
 
+Review of 2026-10-17 applied: D-052 to D-055 Accepted; small parts are seeded automatically (the item 54
+case now meshes with both parts with default settings); inward-normals warning at import (D-056);
+wrapping Results Scene strip and upstream camera (D-053); status bar messages left, selection right
+(D-057).
+
 Next steps: a convergence banner and restarting a run from the latest time (Phase 6.1 / D-046), and a
-total cell estimate (today only background cells are estimated). Open items: docs/QUESTIONS.md 55 to 59.
+total cell estimate (today only background cells are estimated). No open QUESTIONS items from this branch.
 
 ## Phases
 
@@ -76,4 +80,3 @@ total cell estimate (today only background cells are estimated). Open items: doc
 - Flat plate Cf is 3.3 % below the TMR incompressible SST reference (grid-extrapolated Cf(0.97),
   D-036) and the gap is not explained. Candidates: the omegaWallFunction blending, OpenFOAM's SST
   implementation (TMR's note on standard OpenFOAM), nutUSpaldingWallFunction.
-- Small parts are seeded only when the user overrides their levels (docs/QUESTIONS.md item 55).

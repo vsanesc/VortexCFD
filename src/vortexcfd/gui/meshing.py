@@ -13,13 +13,10 @@ from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.yplus import LayerPlan, first_layer_thickness, plan_layers
 from vortexcfd.foam.mesh_case import (
-    SEED_BACKGROUND_CELLS,
     TRI_SURFACE,
     MeshCaseInput,
     build_mesh_files,
-    min_extent,
-    needs_seed,
-    section_extent,
+    needs_seeding,
     part_level_range,
     prepare_case_dir,
     safe_part_names,
@@ -167,18 +164,13 @@ def _part_overrides(project: Project) -> tuple[tuple[int | None, int | None], ..
     return tuple((p.surface_level_min, p.surface_level_max) for p in project.sim.geometry.parts)
 
 
-# A part thinner than this many surface cells (at its maximum level) is warned about (D-052).
-THIN_SURFACE_CELLS = 3.0
-THIN_HINT = "raise its refinement (Part properties: surface levels)"
+SEEDED_TEXT = "is small relative to the background mesh: refinement seeded automatically"
 
 
 def thin_part_warnings(project: Project) -> list[str]:
-    """Pre-mesh warnings, one per part at risk of being lost or badly resolved (D-052):
-
-    - thinner than THIN_SURFACE_CELLS surface cells at the part's maximum level;
-    - small enough to fall between the background cell-centre lines snappyHexMesh tests (its
-      second-largest extent below SEED_BACKGROUND_CELLS background cells) without a per-part level
-      override, so it may never be refined.
+    """Pre-mesh notes, one per part flagged by mesh_case.needs_seeding (small relative to the
+    background cells, or thinner than THIN_SURFACE_CELLS surface cells at its maximum level). Such
+    parts are seeded automatically (D-052); the lost-part guard still checks the result.
     Empty when the parts cannot be loaded (readiness says why)."""
     try:
         box, names, meshes = _loaded_parts(project)
@@ -186,22 +178,14 @@ def thin_part_warnings(project: Project) -> list[str]:
         return []
     if box.bounds is None:
         return []
-    mesh = project.sim.mesh
-    est = estimate_mesh(box.bounds, box.reference_length, mesh)
+    est = estimate_mesh(box.bounds, box.reference_length, project.sim.mesh)
     out = []
     for part, name, surf in zip(project.sim.geometry.parts, names, meshes):
         bounds = tuple(float(b) for b in surf.bounds)
-        thickness = min_extent(bounds)
         override = (part.surface_level_min, part.surface_level_max)
         _lo, hi = part_level_range(est.level_min, est.level_max, override)
-        cell = est.base_size / 2 ** hi
-        if thickness < THIN_SURFACE_CELLS * cell:
-            out.append(f"Part {name} is thinner ({thickness:.3g} m) than {THIN_SURFACE_CELLS:g} surface cells "
-                       f"({cell:.3g} m at level {hi}): {THIN_HINT}.")
-        elif needs_seed(bounds, est.base_size) and all(v is None for v in override):
-            out.append(f"Part {name} ({section_extent(bounds):.3g} m across) is smaller than "
-                       f"{SEED_BACKGROUND_CELLS:.3g} background cells ({est.base_size:.3g} m) and may be lost "
-                       f"in meshing: {THIN_HINT}.")
+        if needs_seeding(bounds, est.base_size, hi):
+            out.append(f"Part {name} {SEEDED_TEXT}")
     return out
 
 

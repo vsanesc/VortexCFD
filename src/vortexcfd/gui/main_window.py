@@ -113,7 +113,7 @@ from vortexcfd.gui.viewport import (
     load_telemetry_settings,
     save_telemetry_settings,
 )
-from vortexcfd.gui.widgets import DotButton, SearchField, SectionHeader
+from vortexcfd.gui.widgets import DotButton, FlowLayout, SearchField, SectionHeader
 
 log = logging.getLogger(__name__)
 
@@ -357,7 +357,10 @@ class MainWindow(QMainWindow):
         self._status_bar = QStatusBar()
         self._status_bar.setSizeGripEnabled(False)
         self._selection_label = QLabel()
-        self._status_bar.addWidget(self._selection_label, 1)
+        # Permanent (right): QStatusBar keeps temporary messages (left) off permanent widgets, so the
+        # two never overlap (docs/QUESTIONS.md item 58).
+        self._selection_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._status_bar.addPermanentWidget(self._selection_label)
         self._left = QWidget()
         self._left.setObjectName("panel")
         self._left.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -638,9 +641,8 @@ class MainWindow(QMainWindow):
         self._tab_bar.setFixedHeight(m.tab_bar)
         for tab in (self.scene_tab, self.mesh_tab, self.results_tab):
             tab.setFixedHeight(m.tab_bar - m.line)
-        self._results_row.setContentsMargins(m.s3, 0, m.s3, 0)
-        self._results_row.setSpacing(m.s2)
-        self.results_controls.setFixedHeight(m.tab_bar)
+        self._results_row.setContentsMargins(m.s3, m.s1, m.s3, m.s1)
+        self._results_row.set_spacing(m.s2, m.s1)
         for w in self._results_widgets():
             w.setFont(mono_font(QApplication.font(), 0.85))
             w.setFixedHeight(m.tab_bar - 2 * m.s1)
@@ -1296,6 +1298,8 @@ class MainWindow(QMainWindow):
                 bounds = self.scene.visible_bounds()
             if mode == "mesh":
                 self._aim_at_section()
+            elif mode == "results" and bounds is not None:
+                self._view_from_upstream(bounds)
             elif bounds is not None:
                 self.viewer.reset_camera(render=False, bounds=bounds)
             self._sync_section_controls()
@@ -1309,8 +1313,13 @@ class MainWindow(QMainWindow):
         self.results_controls = QWidget()
         self.results_controls.setObjectName("tabBar")
         self.results_controls.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        row = QHBoxLayout(self.results_controls)
+        # A flow layout: the controls wrap onto a second row when they do not fit, so the trailing
+        # Open in ParaView button is never clipped (docs/QUESTIONS.md item 57).
+        row = FlowLayout(self.results_controls, stretch_last=True)
         self._results_row = row
+        policy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        policy.setHeightForWidth(True)
+        self.results_controls.setSizePolicy(policy)
         self.field_combo = QComboBox()
         self.field_combo.setToolTip("Field shown on the walls and the section")
         self.colormap_combo = QComboBox()
@@ -1331,10 +1340,7 @@ class MainWindow(QMainWindow):
         self.display_combo.addItems(list(DISPLAY_MODES))
         self.display_combo.setToolTip("Show the field on the walls, on the section plane, or both")
         for combo in (self.field_combo, self.colormap_combo, self.range_combo, self.display_combo):
-            # shrinkable down to 5 characters so Open in ParaView always fits beside them
-            combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-            combo.setMinimumContentsLength(5)
-            combo.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         self.results_stale_label = QLabel("Results out of date: run the solver again")
         self.results_stale_label.setObjectName("statusWarn")
         self.results_stale_label.setVisible(False)
@@ -1345,7 +1351,6 @@ class MainWindow(QMainWindow):
                        self.range_max, self.display_combo):
             row.addWidget(widget)
         row.addWidget(self.results_stale_label)
-        row.addStretch(1)
         row.addWidget(self.paraview_button)
         for combo in (self.field_combo, self.colormap_combo, self.range_combo, self.display_combo):
             combo.currentTextChanged.connect(lambda _t: self._apply_results_controls())
@@ -1458,6 +1463,22 @@ class MainWindow(QMainWindow):
         self._update_telemetry()
         if self.viewer is not None:
             self.viewer.render()
+
+    # Results Scene camera (docs/QUESTIONS.md item 59): an ISO view from upstream and above, so the
+    # windward side of an external-flow body faces the user. Direction from the target to the camera.
+    UPSTREAM_ISO = (-1.0, -1.0, 1.0)
+    UPSTREAM_VIEW = "Upstream ISO"
+
+    def _view_from_upstream(self, bounds) -> None:
+        """Camera on the -x, +z side (and -y, for an ISO look), aimed at the centre of ``bounds``,
+        +z up, framing them (no render)."""
+        centre = [(bounds[2 * i] + bounds[2 * i + 1]) / 2 for i in range(3)]
+        size = max(bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4], 1e-9)
+        position = [c + 3.0 * size * d for c, d in zip(centre, self.UPSTREAM_ISO)]
+        self.viewer.camera_position = [tuple(position), tuple(centre), (0.0, 0.0, 1.0)]
+        self.viewer.reset_camera(render=False, bounds=bounds)
+        self.current_view = self.UPSTREAM_VIEW
+        self.top_bar.set_active_view(None)
 
     def _update_paraview_button(self) -> None:
         exe = paraview.executable()
@@ -1898,6 +1919,9 @@ class MainWindow(QMainWindow):
             return
         log.info("Imported %s as part '%s' (units: %s)", source.name, name, units)
         log.info("Checks for '%s': %s", name, report.summary())
+        if report.normals_inward:
+            log.warning("Part '%s': normals point inward (closed surface with negative signed volume); "
+                        "the file was not changed", name)
         self.show_message(f"Imported {source.name} as '{name}'", "success", log_it=False)
 
     @staticmethod

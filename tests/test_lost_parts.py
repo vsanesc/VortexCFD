@@ -3,7 +3,8 @@ per-part refinement levels and seed lines.
 
 The reproduced case: a sphere of radius 0.5 m at the origin and a flattened ellipsoid (semi-axes
 0.3 x 0.2 x 0.2 m) at x = 1.5 m with the default sizing (background cell 0.596 m). The ellipsoid lies
-between the background cell-centre lines, so snappyHexMesh never refines it and it is lost.
+between the background cell-centre lines, so without seed lines snappyHexMesh never refines it and it
+is lost; since the review of 2026-10-17 such parts are seeded automatically (D-052).
 """
 
 import shutil
@@ -116,17 +117,28 @@ def _inp(levels) -> MeshCaseInput:
                          part_bounds=(BALL_BOUNDS, POD_BOUNDS), part_levels=levels)
 
 
-def test_snappy_dict_uses_part_levels_and_seeds_only_overridden_small_parts() -> None:
+def test_snappy_dict_seeds_small_parts_automatically_at_their_levels() -> None:
     default = snappy_hex_mesh_dict(_inp(((None, None), (None, None)))).content["castellatedMeshControls"]
     assert default["refinementSurfaces"]["Pod"]["level"] == [4, 5]
-    assert [f["file"] for f in default["features"]] == ['"Ball.eMesh"', '"Pod.eMesh"']  # no seed by default
+    assert default["features"] == [{"file": '"Ball.eMesh"', "level": 5}, {"file": '"Pod.eMesh"', "level": 5},
+                                   {"file": f'"{seed_file_name("Pod")}"', "level": 5}]  # seeded by default
     over = snappy_hex_mesh_dict(_inp(((None, None), (5, 6)))).content["castellatedMeshControls"]
     assert over["refinementSurfaces"]["Ball"]["level"] == [4, 5]
     assert over["refinementSurfaces"]["Pod"]["level"] == [5, 6]
     assert over["features"] == [{"file": '"Ball.eMesh"', "level": 5}, {"file": '"Pod.eMesh"', "level": 6},
                                 {"file": f'"{seed_file_name("Pod")}"', "level": 6}]
     ball_over = snappy_hex_mesh_dict(_inp(((5, 6), (None, None)))).content["castellatedMeshControls"]
-    assert len(ball_over["features"]) == 2  # the ball is large enough: no seed even when overridden
+    assert [f["file"] for f in ball_over["features"]] == ['"Ball.eMesh"', '"Pod.eMesh"', '"Pod_seed.eMesh"']
+    # the ball is large enough: never seeded, overridden or not
+
+
+def test_thin_criterion_also_seeds() -> None:
+    from vortexcfd.foam.mesh_case import needs_seeding
+
+    plate = (0.0, 2.0, -3.0, 3.0, 0.0, 0.02)  # wide (not small) but 0.02 m thick
+    assert needs_seeding(plate, 0.6, 5)  # thin: 0.02 m < 3 surface cells of 0.6 / 32 = 0.056 m
+    assert not needs_seeding(plate, 0.6, 7)  # 3 cells of 0.6 / 128 = 0.014 m < 0.02 m
+    assert not needs_seeding(BALL_BOUNDS, 0.596, 5)
 
 
 def test_seed_edge_mesh_lines_cross_the_part() -> None:
@@ -152,13 +164,12 @@ def _two_part_project(tmp_path: Path) -> Project:
     return project
 
 
-def test_premesh_warning_for_the_small_part_only(tmp_path: Path) -> None:
+def test_premesh_note_for_the_small_part_only(tmp_path: Path) -> None:
     project = _two_part_project(tmp_path)
-    warnings = thin_part_warnings(project)
-    assert len(warnings) == 1 and warnings[0].startswith("Part Pod (0.4 m across) is smaller than")
-    assert "raise its refinement" in warnings[0]
-    project.update_part(1, surface_level_min=4, surface_level_max=5)  # override: the part is seeded
-    assert thin_part_warnings(project) == []
+    assert thin_part_warnings(project) == [
+        "Part Pod is small relative to the background mesh: refinement seeded automatically"]
+    project.update_part(1, surface_level_min=4, surface_level_max=5)  # an override does not change it
+    assert len(thin_part_warnings(project)) == 1
 
 
 def test_premesh_warning_for_a_part_thinner_than_three_surface_cells(tmp_path: Path) -> None:
@@ -169,7 +180,7 @@ def test_premesh_warning_for_a_part_thinner_than_three_surface_cells(tmp_path: P
     project.add_part(Part(name="Plate", source_file="geometry/plate.stl"))
     project.save(folder / "p.json")
     (warning,) = thin_part_warnings(project)
-    assert warning.startswith("Part Plate is thinner (0.02 m) than 3 surface cells")
+    assert warning == "Part Plate is small relative to the background mesh: refinement seeded automatically"
     project.update_part(0, surface_level_max=12)  # cells of base / 4096: thick enough now
     assert thin_part_warnings(project) == []
 
@@ -190,12 +201,12 @@ def test_gui_lost_part_fails_the_mesh_and_blocks_the_solver(qtbot: QtBot, tmp_pa
     w.show()
     try:
         b = w.top_bar.mesh_button
-        assert b.isEnabled() and "Part Pod (0.4 m across) is smaller than" in b.toolTip()  # warns, stays enabled
+        assert b.isEnabled() and "Part Pod is small relative to the background mesh" in b.toolTip()
         w.tree.setCurrentItem(w._items[("mesh", None)])
         p = w.properties
         assert p.mesh_thin_warning.isVisible() and "Part Pod" in p.mesh_thin_warning.text()
         b.click()
-        assert "Part Pod (0.4 m across)" in w.console.text()  # logged as a warning before meshing
+        assert "refinement seeded automatically" in w.console.text()  # logged before meshing
         run = FakeRun.instances[-1]
         run.finish(MeshRunResult(True, False, exit_codes={}, report=_report(["Pod"])))
         assert "ERROR" in w.console.text() and "Part Pod was lost during meshing" in w.console.text()
@@ -215,7 +226,6 @@ def test_gui_lost_part_fails_the_mesh_and_blocks_the_solver(qtbot: QtBot, tmp_pa
         spin.editingFinished.emit()
         assert w.project.sim.geometry.parts[1].surface_level_max == 6
         assert w.mesh_stale  # part levels are meshing inputs
-        assert "Part Pod" not in w.top_bar.mesh_button.toolTip()  # overridden: seeded, no warning
         spin.setValue(spin.minimum())
         spin.editingFinished.emit()
         assert w.project.sim.geometry.parts[1].surface_level_max is None
@@ -244,11 +254,16 @@ def _real_mesh(tmp_path: Path, pod_levels) -> MeshRunResult:
 
 
 @pytest.mark.slow
-def test_real_reproduced_case_fails_the_guard(tmp_path: Path) -> None:
+def test_real_reproduced_case_meshes_both_parts_with_default_settings(tmp_path: Path) -> None:
+    """The item 54 reproduction with DEFAULT settings: the Pod is seeded automatically and kept."""
+    from vortexcfd.foam.postprocessing import patch_face_counts
+
     result = _real_mesh(tmp_path, None)
     report = result.report
-    print(f"\nreproduced: {report.summary()}")
-    assert report.mesh_ok and report.lost_parts == ("Pod",) and not report.valid
+    counts = patch_face_counts(result.log_dir.parent)
+    print(f"\ndefault settings: {report.summary()}; faces Ball {counts['Ball']}, Pod {counts['Pod']}")
+    assert (result.log_dir.parent / "constant" / "triSurface" / "Pod_seed.eMesh").is_file()
+    assert report.mesh_ok and report.lost_parts == () and report.valid and counts["Pod"] > 500
 
 
 @pytest.mark.slow

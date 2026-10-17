@@ -304,3 +304,47 @@ def test_results_scene_with_viewer(make_window, qtbot: QtBot) -> None:
         view.volume_bounds()[2] + 0.2 * (view.volume_bounds()[3] - view.volume_bounds()[2]))
     w.mesh_tab.click()
     assert not view.scalar_bar.GetVisibility() and "Field range" not in dict(w.telemetry_rows)
+
+
+# -- review fixes: strip wrapping, camera (docs/QUESTIONS.md items 57 and 59) ----------------------------
+
+
+@pytest.mark.parametrize("size", [11, 14, 18])
+def test_results_strip_wraps_and_never_clips_paraview(make_window, size: int) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    w = make_window()
+    w.resize(1600, 1000)
+    w.set_point_size(size)
+    w.results_tab.click()
+    w.range_combo.setCurrentText("fixed")  # the widest strip: min/max fields shown too
+    QApplication.processEvents()
+    strip = w.results_controls
+    shown = [x for x in w._results_widgets() + [w.results_stale_label] if x.isVisible()]
+    assert w.paraview_button in shown
+    rect = strip.rect()
+    for widget in shown:  # every control fully inside the strip, none overlapping another
+        assert rect.contains(widget.geometry()), (size, widget, widget.geometry(), rect)
+    for i, a in enumerate(shown):
+        for b in shown[i + 1:]:
+            assert not a.geometry().intersects(b.geometry()), (size, a, b)
+    b = w.paraview_button
+    assert b.width() >= b.fontMetrics().horizontalAdvance(b.text())  # its text is not clipped
+    rows = {x.geometry().top() for x in shown}
+    if size == 18:
+        assert len(rows) >= 2  # wrapped onto a second row at the largest font
+    assert strip.height() >= max(x.geometry().bottom() for x in shown)
+
+
+def test_results_scene_opens_from_upstream_and_above(make_window, qtbot: QtBot) -> None:
+    w = make_window(with_viewer=True)
+    w.results_tab.click()
+    qtbot.waitUntil(lambda: w.results_view.has_results, timeout=15000)
+    position, focal, up = w.viewer.camera_position
+    bounds = w.results_view.bounds()
+    centre = [(bounds[2 * i] + bounds[2 * i + 1]) / 2 for i in range(3)]
+    assert focal == pytest.approx(centre)
+    direction = np.subtract(position, focal)
+    assert direction[0] < 0 and direction[2] > 0  # upstream (-x) and above (+z)
+    assert np.allclose(np.asarray(up) / np.linalg.norm(up), (0, 0, 1), atol=1e-6)
+    assert dict(w.telemetry_rows)["View"] == "Upstream ISO" and w.top_bar.active_view() is None

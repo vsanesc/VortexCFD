@@ -49,7 +49,7 @@ src/vortexcfd/
   - `foam/mesh_run.py`: `MeshRun` runs blockMesh, surfaceFeatureExtract, snappyHexMesh -overwrite and checkMesh in sequence on a worker thread through `FoamRun`.
   - `foam/mesh_report.py`: `parse_check_mesh` turns checkMesh output into a `MeshReport`; `parse_layer_table` reads snappyHexMesh's final layer table (per-patch `LayerCoverage`, overall extruded-face share).
   - `foam/results.py`: the latest result time of a case, the fields it holds (`available_fields`, only those written), and derived values (Cp = p / (0.5 U_ref^2) from kinematic p, |U|, components).
-  - `foam/mesh_case.py` also resolves per-part surface levels (`part_level_range`) and writes seed lines for small overridden parts (`write_seed_edge_meshes`, D-052); `foam/mesh_run.lost_parts` is the post-mesh lost-part guard (part patches with 0 faces in constant/polyMesh/boundary); `gui/meshing.thin_part_warnings` is the pre-mesh warning.
+  - `foam/mesh_case.py` also resolves per-part surface levels (`part_level_range`) and writes seed lines for small or thin parts automatically (`needs_seeding`, `write_seed_edge_meshes`, D-052); `foam/mesh_run.lost_parts` is the post-mesh lost-part guard (part patches with 0 faces in constant/polyMesh/boundary); `gui/meshing.thin_part_warnings` is the pre-mesh note about seeded parts; `geometry/checks.py` also reports inward normals (signed volume, D-056).
   - `foam/mesh_case.remove_results`: deletes the solver results (time directories after 0, postProcessing/, the run record) of a marker-protected case after a successful mesh.
   - `foam/mesh_record.py`: `case/vortexcfd_mesh.json`, the last `MeshReport` plus the hash of the meshing inputs (used to flag an out-of-date mesh).
   - `foam/runner.py`: process execution via `run_foam` and streaming runner `FoamRun` returning `RunResult`. Clean stop works for single-process solvers launched through `FoamRun` with `clean_stop=True`.
@@ -71,7 +71,7 @@ src/vortexcfd/
 - **`gui/`**:
   - Implements UI components, main window, and 3D visualization using PySide6 and PyVista/pyvistaqt.
   - `gui/theme.py`: design tokens (`Theme`), Fusion palette/stylesheet and font zoom; `gui/icons.py` draws tree icons in code.
-  - `gui/widgets.py`: shared pieces (section header, badge, search field, glyph pixmaps).
+  - `gui/widgets.py`: shared pieces (section header, badge, search field, glyph pixmaps, `FlowLayout` for rows that wrap).
   - `gui/topbar.py`: top bar (brand, project file and state, mesh and results staleness badges, camera buttons, wireframe, Generate Mesh / Run Solver).
   - `gui/monitors.py`: right column: live log-scale residual chart drawn with QPainter (legend, autoscroll, decimated series, palette in `theme.RESIDUAL_STYLES`) and the report slots (assignment menu, last value, sparkline), polled from the postProcessing files on a GUI-thread timer.
   - `gui/viewport.py`: VTK-drawn viewport pieces (ground grid, empty-scene message, telemetry card) and telemetry settings.
