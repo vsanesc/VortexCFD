@@ -1,6 +1,6 @@
 # Status
 
-Updated 2026-10-17 (Task 6.1 Part B). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
+Updated 2026-10-17 (Task 6.1 Part C). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
 task (CLAUDE.md).
 
 ## Current branch
@@ -16,12 +16,14 @@ task (CLAUDE.md).
   centre of pressure, mass balance (warning above 0.1 %), probes (reports and asymptotic criteria),
   wallShearStress written at write times, Cf and Cf_x in the Results Scene with a separation
   highlight, and the y+ histogram on the Reports & Monitors node.
+- Part C (D-062): Sections tool in the Results Scene: Cp against x/c on y or z wall sections (one position
+  or N stations), upper and lower surfaces, CSV export.
 
 Open: docs/QUESTIONS.md items 60 (the asymptotic tolerance is absolute; the test can be met by chance),
-61 (oscillation around a zero mean is not flagged), 62 (run state label), 63 (x_cp axes) and 64 (probe
-interpolation).
+61 (oscillation around a zero mean is not flagged), 62 (run state label), 63 (x_cp axes), 64 (probe
+interpolation) and 65 (z sections drawn as one line).
 
-Next steps on this branch: Part C (Cp on wall sections), Part D (docs).
+Next steps on this branch: Part D (docs).
 
 ## Phases
 
@@ -53,7 +55,7 @@ Next steps on this branch: Part C (Cp on wall sections), Part D (docs).
 | 5.4 | M4: prism layer robustness | not started |
 | 5.5 | M5: own mesher (go/no-go) | not started |
 | 6.1 | Monitors and reports | report slots with Cd, Cl, Cm pitch and wall y+ (D-048); reference values (D-047); stopping criteria through runTimeControl, convergence banner and oscillation warning (D-058, D-059); force breakdown, x_cp, mass balance, probes (D-060) |
-| 6.2 | Scenes and derived parts | Cf / Cf_x and separation highlight (D-061); scalar scenes done (D-053): field/colormap/range selection, scalar bar, section; scene saving, image export, iso-surfaces and streamlines not started |
+| 6.2 | Scenes and derived parts | Cp along wall sections with CSV export (D-062); Cf / Cf_x and separation highlight (D-061); scalar scenes done (D-053): field/colormap/range selection, scalar bar, section; scene saving, image export, iso-surfaces and streamlines not started |
 | 6.3 | Data export and reports | not started |
 | 7.1-7.3 | Coupled solver analysis | not started |
 | 8.1-8.5 | Moving meshes | not started |

@@ -77,6 +77,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-059 | 2026-10-17 | Oscillation warning for monitored quantities | Proposed |
 | D-060 | 2026-10-17 | Force breakdown, centre of pressure, mass balance and probes as reports | Proposed |
 | D-061 | 2026-10-17 | Wall shear stress, skin friction Cf / Cf_x, separation highlight, y+ histogram | Proposed |
+| D-062 | 2026-10-17 | Cp on wall sections | Proposed |
 
 ---
 
@@ -536,4 +537,11 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   - y+ histogram on the Reports & Monitors node (QPainter, no new dependency): the fraction of the wall faces of the latest yPlus field in [0, 1), [1, 5), [5, 30), [30, 300) and [300, inf) (a value on an edge goes to the upper bin), with the face count and time.
 - Alternatives considered: Cf_x with the sign of tau itself (negative on attached flow, the opposite of the usual convention); a histogram weighted by face area (the task asks for the fraction of faces).
 - Consequences: real sphere (300 iterations, three 1.2-ratio layers): y+ 3.5 % in [5, 30), 96.5 % in [30, 300), none below 5 or above 300.
+
+## D-062 Cp on wall sections
+- Status: Proposed (Task 6.1 Part C; docs/QUESTIONS.md item 65)
+- Context: PLAN 6.2 lists Cp plots along sections; the pressure distribution of a wing or body section shows suction peaks, separation plateaus and the stagnation point, which coefficients hide.
+- Decision: a "Sections" button in the Results Scene strip opens a non-modal tool window: the plane normal (y, spanwise, the default, or z; x is not offered, a plane normal to x has no chord along x), and either one position (default: the centre of the parts along the axis) or N evenly spaced stations strictly between the parts' extremes along the axis (lo + (hi - lo) i / (N + 1), i = 1..N), and Cut. Each section is the cut of the wall patches (latest time, cell values) by the plane (pyvista slice); each cut segment carries its wall face's p and the point used is the segment midpoint. Chord along x on the section itself: c = x_max - x_min of the points, x/c = (x - x_min) / c. Cp = p / (0.5 U_ref^2) (kinematic p, p_ref = 0, as D-053). Upper and lower surfaces are told apart by the z component of the body's outward normal (OpenFOAM wall face normals point into the body, so their opposite): upper n_z > 0, lower n_z <= 0, each ordered by x; when fewer than half of the points have |n_z| >= 0.1, or either side has fewer than 2 points, the section is one line ordered by x. The chart (QPainter) plots Cp against x/c with the Cp axis inverted (negative up, the aerodynamic convention, labelled "Cp (negative up)"), one colour per section (the residual chart's three hue families, D-049), upper solid and lower dashed, the legend naming the position ("y = 0.2494 m upper"). Export CSV writes one row per point: section, axis, position_m, chord_m, surface, x_m, y_m, z_m, x_c, Cp.
+- Alternatives considered: point data interpolated to the cut (smoother, but not the solver's face values, as D-053); the chord from the parts' bounding box (wrong for tapered or swept wings: each section has its own chord); a dock panel instead of a window (the centre column is the viewer).
+- Consequences: real sphere at iteration 300, y = 0: chord 0.9977 m, 121 upper and 123 lower points, Cp at the stagnation point (x/c = 0) 0.9906 on both lines. A z section of the sphere is one line ordered by x that alternates between the two sides (no upper/lower split). Section definitions are not saved in the project.
 

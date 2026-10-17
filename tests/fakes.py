@@ -5,7 +5,8 @@ from pathlib import Path
 
 class FakeDialogs:
     def __init__(self, open_path=None, save_path=None, discard="discard", import_path=None,
-                 units="m", paraview_path=None) -> None:
+                 units="m", paraview_path=None, csv_path=None) -> None:
+        self.csv_path = csv_path
         self.paraview_path = paraview_path
         self.import_path = import_path
         self.units = units
@@ -19,6 +20,9 @@ class FakeDialogs:
 
     def ask_save_path(self, suggested):
         return self.save_path
+
+    def ask_csv_path(self, suggested):
+        return self.csv_path
 
     def ask_import_path(self):
         return self.import_path

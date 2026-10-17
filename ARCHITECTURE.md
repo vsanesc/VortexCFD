@@ -83,6 +83,7 @@ src/vortexcfd/
   - `gui/meshing.py`: Qt-free orchestration joining core, geometry and foam (it cannot live in `foam/`, which must not depend on `geometry/`): `readiness(project)` says why a project cannot be meshed and `prepare_job(project)` writes <project>/case (dictionaries and part STLs in metres).
   - `foam/mesh_estimate.py`: `estimate_mesh` gives background cells, refinement levels and surface cell size from the sizing targets (limit 2,000,000 background cells).
   - `gui/results_scene.py`: Results Scene: `read_results` (PyVista OpenFOAM reader, run by `ResultsLoader` on a worker thread, signals only), `ResultsView` (fields on the walls and the section plane, range modes, scalar bar in the `text` token).
+  - `gui/sections.py`: Qt-free cuts of the wall patches by y or z planes, x/c and Cp, upper/lower split and CSV export; `gui/section_tool.py`: the Results Scene's Sections window (D-062).
   - `gui/charts.py`: QPainter charts (y+ histogram, line chart); `gui/report_views.py`: the Forces table of the Reports & Monitors node.
   - `gui/colormaps.py`: the Results Scene colormaps (matplotlib lookup tables, D-054), the one place to add one.
   - `gui/paraview.py`: Open in ParaView (executable from Preferences or detected under /mnt/c/Program Files, `wslpath -w`, detached launch).

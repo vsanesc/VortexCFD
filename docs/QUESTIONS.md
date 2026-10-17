@@ -125,3 +125,7 @@ settled the open ones on 2026-10-17.
 63. **Centre of pressure definition.** x_cp = x_CofR - M_y / F_z in the global axes, undefined when |F_z| / (q A_ref) < 0.01 (D-060). At an angle of attack the usual aerofoil definition uses the normal force in the body axes and the chord line; with the global z axis the two coincide only at zero incidence. Should x_cp use the lift direction or a body axis? [NUMERICS-REVIEW]
 64. **Probe values are cell values.** The probes objects use the default interpolationScheme (cell): the value of the cell containing the point, not interpolated. Near walls or in coarse cells this can differ noticeably from the field at the point; `cellPoint` would interpolate. [NUMERICS-REVIEW]
 
+## Task 6.1 Part C: Cp on sections
+
+65. **Sections of a horizontal plane.** A z-normal section cannot be split into upper and lower by n_z, so it is drawn as one line ordered by x, which zig-zags between the two sides (+y and -y) of a body. Splitting by the sign of n_y for z sections (left / right) would read better; not done because the task specified the n_z rule.
+

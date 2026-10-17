@@ -68,6 +68,7 @@ from vortexcfd.foam.results import latest_result_time
 from vortexcfd.gui import paraview
 from vortexcfd.gui.colormaps import COLORMAPS, DEFAULT_COLORMAP
 from vortexcfd.gui.results_scene import DISPLAY_MODES, RANGE_MODES, ResultsLoader, ResultsView
+from vortexcfd.gui.section_tool import SectionTool
 from vortexcfd.foam.mesh_record import MeshRecord, read_mesh_record, write_mesh_record
 from vortexcfd.gui.meshing import (
     MeshingNotReady,
@@ -1368,6 +1369,11 @@ class MainWindow(QMainWindow):
         self.separation_toggle.setToolTip("Highlight the wall faces where Cf_x < 0 (near-wall flow running "
                                           "upstream: separated or recirculating) in the error colour")
         self.separation_toggle.toggled.connect(lambda _on: self._apply_results_controls())
+        self.sections_button = QPushButton("Sections")
+        self.sections_button.setObjectName("tbBtn")
+        self.sections_button.setToolTip("Cp against x/c on cuts of the walls by planes normal to y (spanwise) or z")
+        self.sections_button.clicked.connect(self.open_sections)
+        self.section_tool: SectionTool | None = None
         self.results_stale_label = QLabel("Results out of date: run the solver again")
         self.results_stale_label.setObjectName("statusWarn")
         self.results_stale_label.setVisible(False)
@@ -1375,7 +1381,7 @@ class MainWindow(QMainWindow):
         self.paraview_button.setObjectName("tbBtn")
         self.paraview_button.clicked.connect(self.open_in_paraview)
         for widget in (self.field_combo, self.colormap_combo, self.range_combo, self.range_min,
-                       self.range_max, self.display_combo, self.separation_toggle):
+                       self.range_max, self.display_combo, self.separation_toggle, self.sections_button):
             row.addWidget(widget)
         row.addWidget(self.results_stale_label)
         row.addWidget(self.paraview_button)
@@ -1387,7 +1393,7 @@ class MainWindow(QMainWindow):
 
     def _results_widgets(self) -> list[QWidget]:
         return [self.field_combo, self.colormap_combo, self.range_combo, self.range_min, self.range_max,
-                self.display_combo, self.separation_toggle, self.paraview_button]
+                self.display_combo, self.separation_toggle, self.sections_button, self.paraview_button]
 
     def results_time(self) -> str | None:
         """The latest time directory with results in the project's case, or None."""
@@ -1489,6 +1495,9 @@ class MainWindow(QMainWindow):
                     spin.setValue(value)
                     spin.blockSignals(False)
         self.separation_toggle.setEnabled(view.can_show_separation)
+        self.sections_button.setEnabled(view.has_results)
+        if self.section_tool is not None and data is not None:
+            self._feed_section_tool()
         frac = view.separated_fraction() if view.can_show_separation else None
         self.separation_toggle.setToolTip(
             "Highlight the wall faces where Cf_x < 0 (near-wall flow running upstream: separated or "
@@ -1535,6 +1544,39 @@ class MainWindow(QMainWindow):
             self.show_message(f"Could not start ParaView: {exc}", "error")
             return
         log.info("Opened %s in ParaView (%s)", case_dir / "case.foam", exe)
+
+    def _feed_section_tool(self) -> None:
+        view = self.results_view
+        self.section_tool.set_results(view.data.patches, self._project.sim.inflow.speed, view.parts_bounds())
+
+    def open_sections(self) -> None:
+        """The Sections tool (D-062): Cp against x/c on wall sections of the shown results."""
+        view = self.results_view
+        if view is None or not view.has_results:
+            self.show_message("No results to cut: run the solver first.", "warning")
+            return
+        if self.section_tool is None:
+            self.section_tool = SectionTool(self)
+            self.section_tool.export_requested.connect(self.export_sections)
+        self.section_tool.configure(self._theme)
+        self._feed_section_tool()
+        self.section_tool.show()
+        self.section_tool.raise_()
+
+    def export_sections(self) -> None:
+        tool = self.section_tool
+        if tool is None or not tool.sections:
+            return
+        case_dir = case_dir_for(self._project)
+        path = self.dialogs.ask_csv_path(case_dir.parent / "sections.csv" if case_dir is not None else None)
+        if path is None:
+            return
+        try:
+            rows = tool.write_csv(path)
+        except OSError as exc:
+            self.show_message(f"Could not write {path}: {exc}", "error")
+            return
+        self.show_message(f"Exported {rows} section points to {path}", "success")
 
     def edit_preferences(self) -> None:
         """Edit > Preferences: the ParaView executable (empty = detect)."""

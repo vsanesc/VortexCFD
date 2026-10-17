@@ -140,7 +140,9 @@ def test_run_streams_through_signals_and_converges(make_window, qtbot: QtBot) ->
     threads: list = []
     w.solver_worker.line.connect(lambda _l: threads.append(QThread.currentThread()))
     w.top_bar.run_button.click()
-    qtbot.waitUntil(lambda: "Time = 2" in w.console.text(), timeout=20000)
+    # the step signal of iteration 2 follows its ExecutionTime line: wait for both (a race under load)
+    qtbot.waitUntil(lambda: "Time = 2" in w.console.text() and len(w.monitors.history.series.get("p", [])) == 2,
+                    timeout=20000)
     # while running: Stop, Solving badge, mesh button blocked
     assert w.top_bar.run_button.text() == "Stop" and w.top_bar.run_button.isEnabled()
     assert w.top_bar.state_badge.text() == "Solving"
