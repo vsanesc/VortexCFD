@@ -48,6 +48,7 @@ src/vortexcfd/
   - `foam/yplus.py`: first-layer thickness for a target y+ from the flat-plate skin friction, and its inverse.
   - `foam/mesh_run.py`: `MeshRun` runs blockMesh, surfaceFeatureExtract, snappyHexMesh -overwrite and checkMesh in sequence on a worker thread through `FoamRun`.
   - `foam/mesh_report.py`: `parse_check_mesh` turns checkMesh output into a `MeshReport`; `parse_layer_table` reads snappyHexMesh's final layer table (per-patch `LayerCoverage`, overall extruded-face share).
+  - `foam/results.py`: the latest result time of a case, the fields it holds (`available_fields`, only those written), and derived values (Cp = p / (0.5 U_ref^2) from kinematic p, |U|, components).
   - `foam/mesh_case.py` also resolves per-part surface levels (`part_level_range`) and writes seed lines for small overridden parts (`write_seed_edge_meshes`, D-052); `foam/mesh_run.lost_parts` is the post-mesh lost-part guard (part patches with 0 faces in constant/polyMesh/boundary); `gui/meshing.thin_part_warnings` is the pre-mesh warning.
   - `foam/mesh_case.remove_results`: deletes the solver results (time directories after 0, postProcessing/, the run record) of a marker-protected case after a successful mesh.
   - `foam/mesh_record.py`: `case/vortexcfd_mesh.json`, the last `MeshReport` plus the hash of the meshing inputs (used to flag an out-of-date mesh).
@@ -78,6 +79,9 @@ src/vortexcfd/
   - `gui/scene.py`: one VTK actor per Part kept in sync with the Project (picking, visibility, selection colour), part file status, cached surface reports, and the translucent domain box (`DomainView`).
   - `gui/meshing.py`: Qt-free orchestration joining core, geometry and foam (it cannot live in `foam/`, which must not depend on `geometry/`): `readiness(project)` says why a project cannot be meshed and `prepare_job(project)` writes <project>/case (dictionaries and part STLs in metres).
   - `foam/mesh_estimate.py`: `estimate_mesh` gives background cells, refinement levels and surface cell size from the sizing targets (limit 2,000,000 background cells).
+  - `gui/results_scene.py`: Results Scene: `read_results` (PyVista OpenFOAM reader, run by `ResultsLoader` on a worker thread, signals only), `ResultsView` (fields on the walls and the section plane, range modes, scalar bar in the `text` token).
+  - `gui/colormaps.py`: the Results Scene colormaps (matplotlib lookup tables, D-054), the one place to add one.
+  - `gui/paraview.py`: Open in ParaView (executable from Preferences or detected under /mnt/c/Program Files, `wslpath -w`, detached launch).
   - `gui/solving.py`: Qt-free solver orchestration: `readiness` (why Run Solver is disabled), `prepare_solver_case` (clears the previous outputs, writes the solver files) and `results_hash`.
   - `gui/solver_worker.py`: Qt wrapper around `SolverRun` (signals only, like `MeshWorker`).
   - `gui/mesh_worker.py`: Qt wrapper around `MeshRun`; the worker and reader threads only emit signals, slots run in the GUI thread. `gui/scene.py` also holds `MeshView` (part patches of the generated mesh with edges).
@@ -106,7 +110,7 @@ src/vortexcfd/
 Validation policy and agent workflow: see docs/PLAN.md section 0.
 
 ## 9. Results and ParaView
-Simulation results are always stored as standard OpenFOAM cases (no app-specific result format), so any case produced by the app can be opened in ParaView. The app's own viewer is a convenience, not a replacement. An "Open in ParaView" button is planned for Phase 6 and is not implemented yet.
+Simulation results are always stored as standard OpenFOAM cases (no app-specific result format), so any case produced by the app can be opened in ParaView. The app's own viewer is a convenience, not a replacement. The Results Scene has an "Open in ParaView" button (D-055) that starts the Windows ParaView on the case's case.foam.
 
 ## 10. Open Questions
 1. Long-term solver backend abstraction: whether to keep the backend open for alternative solvers (e.g., SU2) or remain strictly OpenFOAM-only.

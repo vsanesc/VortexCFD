@@ -5,10 +5,16 @@ task (CLAUDE.md).
 
 ## Current branch
 
-**task/6.2-results** (not yet published). Part A done: lost-part guard, thin-part warning, per-part
-surface levels and seed lines (D-052, Proposed, [NUMERICS-REVIEW]; schema v5). Part B done: Results
-Scene with field, colormap and range selection, scalar bar, section display, field-range telemetry,
-stale strip, and Open in ParaView (D-053 to D-055, Proposed). Next on it: docs (Part C).
+**task/6.2-results** (not yet published; Tasks 4A and 4B were merged in PR #13). Done on it:
+- Lost parts in meshing (D-052, Proposed, [NUMERICS-REVIEW]; schema v5): post-mesh guard (a part patch
+  with 0 faces fails the mesh and blocks Run Solver), pre-mesh thin/small-part warning, per-part
+  surface levels with seed lines.
+- Task 6.2 (D-053 to D-055, Proposed): Results Scene with field, colormap and range selection, scalar
+  bar, walls/section display, field-range telemetry and the stale strip; Open in ParaView with a
+  Preferences path.
+
+Next steps: a convergence banner and restarting a run from the latest time (Phase 6.1 / D-046), and a
+total cell estimate (today only background cells are estimated). Open items: docs/QUESTIONS.md 55 to 59.
 
 ## Phases
 
@@ -29,12 +35,12 @@ stale strip, and Open in ParaView (D-053 to D-055, Proposed). Next on it: docs (
 | 3.3 | Geometry repair | not started |
 | 3.4 | Domain and boundary definition | done |
 | 3.5 | Surface-to-patch assignment | not started (one patch per part) |
-| 4.1 | Physics continua | done for steady incompressible RANS (task/4a-physics) |
-| 4.2 | Boundary condition library | done for the external-aerodynamics set (D-022, task/4a-physics) |
-| 4.3 | Turbulence module | done for kOmegaSST (y+ estimator, flat plate verified against TMR: PASS WITH NOTE; task/4a-physics); docs/reference/turbulence_mapping.md not written |
-| 4.4 | Numerics presets | preset "robust" only (task/4a-physics) |
+| 4.1 | Physics continua | done for steady incompressible RANS (merged in PR #13) |
+| 4.2 | Boundary condition library | done for the external-aerodynamics set (D-022) |
+| 4.3 | Turbulence module | done for kOmegaSST (y+ estimator, flat plate verified against TMR: PASS WITH NOTE); docs/reference/turbulence_mapping.md not written |
+| 4.4 | Numerics presets | preset "robust" only (merged in PR #13) |
 | 5.0 | Meshing benchmark suite | not started |
-| 5.1 | M1: GUI over snappyHexMesh | done (published in PR #11 and #12); y+ layer sizing done on task/4a-physics (D-024, D-026, D-045) |
+| 5.1 | M1: GUI over snappyHexMesh | done (published in PR #11 and #12); y+ layer sizing done (D-024, D-026, D-045) |
 | 5.2 | M2: surface preparation | not started |
 | 5.3 | M3: alternative volume mesher | not started (cfMesh build spike pending) |
 | 5.4 | M4: prism layer robustness | not started |
