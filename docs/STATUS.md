@@ -1,6 +1,6 @@
 # Status
 
-Updated 2026-10-17 (Task 6.1 Part C). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
+Updated 2026-10-17 (Task 6.1 done). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
 task (CLAUDE.md).
 
 ## Current branch
@@ -23,7 +23,9 @@ Open: docs/QUESTIONS.md items 60 (the asymptotic tolerance is absolute; the test
 61 (oscillation around a zero mean is not flagged), 62 (run state label), 63 (x_cp axes), 64 (probe
 interpolation) and 65 (z sections drawn as one line).
 
-Next steps on this branch: Part D (docs).
+Task 6.1 is complete on this branch (Parts A to D). Next steps (docs/PLAN.md): a mesh independence
+study workflow with the GCI (6.4), an angle-of-attack sweep for polars (6.5), parallel runs with
+mpirun (6.6).
 
 ## Phases
 
@@ -54,9 +56,12 @@ Next steps on this branch: Part D (docs).
 | 5.3 | M3: alternative volume mesher | not started (cfMesh build spike pending) |
 | 5.4 | M4: prism layer robustness | not started |
 | 5.5 | M5: own mesher (go/no-go) | not started |
-| 6.1 | Monitors and reports | report slots with Cd, Cl, Cm pitch and wall y+ (D-048); reference values (D-047); stopping criteria through runTimeControl, convergence banner and oscillation warning (D-058, D-059); force breakdown, x_cp, mass balance, probes (D-060) |
+| 6.1 | Monitors and reports | done: report slots with Cd, Cl, Cm pitch and wall y+ (D-048); reference values (D-047); stopping criteria through runTimeControl, convergence banner and oscillation warning (D-058, D-059); force breakdown, x_cp, mass balance, probes (D-060) |
 | 6.2 | Scenes and derived parts | Cp along wall sections with CSV export (D-062); Cf / Cf_x and separation highlight (D-061); scalar scenes done (D-053): field/colormap/range selection, scalar bar, section; scene saving, image export, iso-surfaces and streamlines not started |
-| 6.3 | Data export and reports | not started |
+| 6.3 | Data export and reports | not started (section CSV export only, D-062) |
+| 6.4 | Mesh independence study (GCI) | not started |
+| 6.5 | Angle-of-attack sweep (polars) | not started |
+| 6.6 | Parallel runs (mpirun) | not started |
 | 7.1-7.3 | Coupled solver analysis | not started |
 | 8.1-8.5 | Moving meshes | not started |
 | 9.1 | Project management | partly done (save/load, undo/redo); templates, recent projects, cloning not started |
@@ -70,7 +75,7 @@ Next steps on this branch: Part D (docs).
 - numpy is imported directly (geometry/checks.py, gui/scene.py, gui/viewport.py) but is not declared in
   pyproject.toml (it arrives through pyvista).
 - Courant number: parsed from logs (foam/logparse.py) but no warning in the GUI.
-- Parallel (mpirun) runs are not supported (runner, clean stop).
+- Parallel (mpirun) runs are not supported (runner, clean stop): Phase 6.6.
 - Location of user projects and run outputs in the released app (run/ is development only).
 - STEP import spike: OCP novtk wheel next to PyVista's VTK (docs/reference/oss_survey.md).
 - STL repair: pymeshfix (wrapper licence to confirm) / pytetwild.
