@@ -1,0 +1,196 @@
+"""Live reading of the function objects' output files in postProcessing/ (no Qt).
+
+File names and columns are those written by ESI v2606 (checked against a real simpleFoam run of the
+app's own controlDict, fixtures in tests/data/sphere_run/):
+
+- forceCoeffs (src/functionObjects/forces/forceCoeffs): ``postProcessing/forceCoeffs1/<start
+  time>/coefficient.dat``; comment header lines start with ``#``, the last one is ``# Time`` followed
+  by the tab-separated coefficient names in sorted order (Cd, Cd(f), Cd(r), Cl, Cl(f), Cl(r),
+  CmPitch, CmRoll, CmYaw, Cs, Cs(f), Cs(r)); one row per time step.
+- yPlus (src/functionObjects/field/yPlus): ``postProcessing/yPlus1/<start time>/yPlus.dat``;
+  header ``# Time  patch  min  max  average``; one row per wall patch at every write time
+  (executeControl/writeControl writeTime). ``average`` is the unweighted mean over the patch faces.
+
+The files are tailed: each poll reads only the bytes appended since the last one and keeps an
+incomplete last line for the next poll.
+"""
+
+from dataclasses import dataclass, field
+from pathlib import Path
+
+FORCE_COEFFS = "forceCoeffs1"
+FORCE_COEFFS_FILE = "coefficient.dat"
+YPLUS = "yPlus1"
+YPLUS_FILE = "yPlus.dat"
+
+# Report ids (core.model.REPORT_IDS) -> label shown in the report slot.
+REPORT_LABELS = {
+    "Cd": "Cd",
+    "Cl": "Cl",
+    "CmPitch": "Cm (pitch)",
+    "yplus_min": "y+ min (walls)",
+    "yplus_avg": "y+ avg (walls)",
+    "yplus_max": "y+ max (walls)",
+}
+FORCE_REPORTS = ("Cd", "Cl", "CmPitch")
+YPLUS_REPORTS = {"yplus_min": "min", "yplus_avg": "average", "yplus_max": "max"}
+
+
+def _time_key(name: str) -> float:
+    try:
+        return float(name)
+    except ValueError:
+        return float("-inf")
+
+
+def output_file(case_dir: Path, function: str, file_name: str) -> Path | None:
+    """The function object's file in the latest start-time directory, or None."""
+    folder = Path(case_dir) / "postProcessing" / function
+    if not folder.is_dir():
+        return None
+    for start in sorted((d for d in folder.iterdir() if d.is_dir()), key=lambda d: _time_key(d.name),
+                        reverse=True):
+        if (start / file_name).is_file():
+            return start / file_name
+    return None
+
+
+class TailReader:
+    """Reads the complete lines appended to a file since the last call."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+        self._offset = 0
+        self._partial = b""
+
+    def read_lines(self) -> list[str]:
+        try:
+            size = self.path.stat().st_size
+        except OSError:
+            return []
+        if size < self._offset:  # the file was replaced or truncated: start again
+            self._offset, self._partial = 0, b""
+        if size == self._offset:
+            return []
+        with open(self.path, "rb") as fh:
+            fh.seek(self._offset)
+            data = fh.read(size - self._offset)
+        self._offset += len(data)
+        data = self._partial + data
+        *complete, self._partial = data.split(b"\n")
+        return [line.decode("utf-8", errors="replace").rstrip("\r") for line in complete]
+
+
+def _floats(parts: list[str]) -> list[float] | None:
+    try:
+        return [float(p) for p in parts]
+    except ValueError:
+        return None
+
+
+@dataclass
+class ForceCoeffsTail:
+    """Coefficient series from coefficient.dat: column name -> [(time, value)]."""
+
+    path: Path
+    columns: list[str] = field(default_factory=list)
+    series: dict[str, list[tuple[float, float]]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self._reader = TailReader(self.path)
+
+    def poll(self) -> int:
+        """Read new rows; returns how many were added."""
+        added = 0
+        for line in self._reader.read_lines():
+            text = line.strip()
+            if not text:
+                continue
+            if text.startswith("#"):
+                body = text[1:].strip()
+                if body.startswith("Time"):
+                    self.columns = [c.strip() for c in body.split("\t")[1:] if c.strip()]
+                    for name in self.columns:
+                        self.series.setdefault(name, [])
+                continue
+            values = _floats(text.split())
+            if values is None or not self.columns or len(values) != len(self.columns) + 1:
+                continue  # a malformed row is skipped
+            for name, value in zip(self.columns, values[1:]):
+                self.series[name].append((values[0], value))
+            added += 1
+        return added
+
+
+@dataclass
+class YPlusTail:
+    """y+ statistics from yPlus.dat. ``rows``: time -> {patch: (min, max, average)}."""
+
+    path: Path
+    rows: dict[float, dict[str, tuple[float, float, float]]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self._reader = TailReader(self.path)
+
+    def poll(self) -> int:
+        added = 0
+        for line in self._reader.read_lines():
+            text = line.strip()
+            if not text or text.startswith("#"):
+                continue
+            parts = text.split()
+            if len(parts) != 5:
+                continue
+            values = _floats([parts[0], *parts[2:]])
+            if values is None:
+                continue
+            t, lo, hi, avg = values
+            self.rows.setdefault(t, {})[parts[1]] = (lo, hi, avg)
+            added += 1
+        return added
+
+    def series(self, stat: str) -> list[tuple[float, float]]:
+        """Over all wall patches per write time: the minimum of the minima, the maximum of the
+        maxima, or the mean of the patch averages ("min", "max", "average")."""
+        out = []
+        for t in sorted(self.rows):
+            patches = self.rows[t].values()
+            if stat == "min":
+                value = min(p[0] for p in patches)
+            elif stat == "max":
+                value = max(p[1] for p in patches)
+            else:
+                value = sum(p[2] for p in patches) / len(patches)
+            out.append((t, value))
+        return out
+
+
+class ReportMonitor:
+    """All report series of a run, polled from the case's postProcessing files."""
+
+    def __init__(self, case_dir: Path) -> None:
+        self.case_dir = Path(case_dir)
+        self._forces: ForceCoeffsTail | None = None
+        self._yplus: YPlusTail | None = None
+
+    def poll(self) -> bool:
+        """Read whatever was appended; True if anything new arrived."""
+        if self._forces is None:
+            path = output_file(self.case_dir, FORCE_COEFFS, FORCE_COEFFS_FILE)
+            self._forces = ForceCoeffsTail(path) if path is not None else None
+        if self._yplus is None:
+            path = output_file(self.case_dir, YPLUS, YPLUS_FILE)
+            self._yplus = YPlusTail(path) if path is not None else None
+        added = 0
+        for tail in (self._forces, self._yplus):
+            if tail is not None:
+                added += tail.poll()
+        return added > 0
+
+    def series(self, report_id: str) -> list[tuple[float, float]]:
+        """(iteration, value) pairs of a report (REPORT_LABELS), empty when not written yet."""
+        if report_id in FORCE_REPORTS:
+            return list(self._forces.series.get(report_id, [])) if self._forces is not None else []
+        if report_id in YPLUS_REPORTS:
+            return self._yplus.series(YPLUS_REPORTS[report_id]) if self._yplus is not None else []
+        raise KeyError(report_id)

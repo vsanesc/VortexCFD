@@ -3,7 +3,7 @@
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-CURRENT_SCHEMA_VERSION: int = 3
+CURRENT_SCHEMA_VERSION: int = 4
 
 
 class StrictModel(BaseModel):
@@ -96,8 +96,27 @@ class Solvers(StrictModel):
     residual_omega: float = Field(default=1e-5, gt=0)
 
 
+# Number of report slots in the monitors panel (the one place to change it).
+REPORT_SLOTS = 3
+# Reports a slot can show: forceCoeffs coefficients and the yPlus function object's wall values.
+REPORT_IDS = ("Cd", "Cl", "CmPitch", "yplus_min", "yplus_avg", "yplus_max")
+
+
 class Reports(StrictModel):
-    """Placeholder model for monitors and reports; fields will be added by later tasks."""
+    """Reference values for the force coefficients and the report slot assignment.
+
+    The reference area (m2), length (m) and centre of rotation (m) are optional overrides:
+    None means "auto" from the parts' bounding box (see foam/physics_case.reference_values).
+    The reference density is Physics.rho_ref and the reference speed is the inflow speed.
+    ``slots`` holds one report id (REPORT_IDS) or None ("Not assigned") per monitor slot.
+    """
+
+    reference_area: float | None = Field(default=None, gt=0)
+    reference_length: float | None = Field(default=None, gt=0)
+    center_of_rotation: tuple[float, float, float] | None = None
+    slots: list[Literal["Cd", "Cl", "CmPitch", "yplus_min", "yplus_avg", "yplus_max"] | None] = Field(
+        default_factory=lambda: [None] * REPORT_SLOTS, min_length=REPORT_SLOTS, max_length=REPORT_SLOTS,
+    )
 
 
 class Domain(StrictModel):

@@ -28,8 +28,8 @@ from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.foam.run_record import RunRecord
 from vortexcfd.foam.mesh_case import safe_part_names
 from vortexcfd.foam.mesh_estimate import estimate_mesh
-from vortexcfd.foam.physics_case import inlet_turbulence
-from vortexcfd.gui.meshing import plan_layers_for
+from vortexcfd.foam.physics_case import inlet_turbulence, reference_values
+from vortexcfd.gui.meshing import MeshingNotReady, parts_layout, plan_layers_for
 from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_status, report_for_part
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
 
@@ -123,6 +123,32 @@ MESH_SETTINGS = (
     ("target_yplus", "Target y+", lambda: _dspin(0.01, 1000.0, 3)),
 )
 MESH_OPTIONAL = frozenset({"base_size", "surface_level_min", "surface_level_max"})
+# Reference Values node (D-047): the note under the auto (bounding box) values.
+REFERENCE_NOTE = "set the wing area and mean chord for aircraft"
+AUTO_BBOX = "auto (bounding box)"
+REFERENCE_ROWS = ("ref_rho", "ref_u", "ref_area", "ref_length", "ref_cofr", "ref_area_used",
+                  "ref_length_used", "ref_cofr_used")
+
+
+def parse_vector(text: str) -> tuple[float, float, float] | None:
+    """"x y z" (spaces, commas or semicolons; parentheses allowed) -> a vector; "" or "auto" -> None.
+
+    Raises:
+        ValueError: anything else.
+    """
+    clean = text.strip().strip("()").strip()
+    if clean.lower() in ("", "auto"):
+        return None
+    parts = [x for x in clean.replace(",", " ").replace(";", " ").split() if x]
+    if len(parts) != 3:
+        raise ValueError(f"Centre of rotation: expected three numbers (x y z), got '{text}'")
+    return tuple(float(x) for x in parts)  # type: ignore[return-value]
+
+
+def format_vector(v) -> str:
+    return " ".join(f"{x:.6g}" for x in v)
+
+
 # Shown under Target y+ with absolute (y+) layer sizing (D-024).
 YPLUS_NOTE = ("Flat-plate verification: Cf about 6% low at y+ 1, about 3.6% low at y+ 0.5 "
               "(docs/validation/flat_plate)")
@@ -413,6 +439,31 @@ class PropertiesPanel(QWidget):
         self.run_iterations = self._ro_row("run_iterations", "Iterations")
         self.run_residuals = self._ro_row("run_residuals", "Final residuals")
         self.run_status = self._ro_row("run_status", "Status")
+        # Reference Values node (under Reports & Monitors): forceCoeffs reference values.
+        self.ref_rho = _dspin(0.001, 100000.0, 4, " kg/m\u00b3")
+        self._layout.addWidget(self._make_row("ref_rho", "Reference density", self.ref_rho))
+        self.ref_rho.editingFinished.connect(self._commit_rho)
+        self.ref_u = self._ro_row("ref_u", "Reference speed U_ref")
+        self.ref_area = _dspin(0.0, 1e6, 6, " m\u00b2", "auto")
+        self._layout.addWidget(self._make_row("ref_area", "Reference area A_ref", self.ref_area))
+        self.ref_area.editingFinished.connect(lambda: self._commit_reference("reference_area"))
+        self.ref_length = _dspin(0.0, 1e4, 6, " m", "auto")
+        self._layout.addWidget(self._make_row("ref_length", "Reference length l_ref", self.ref_length))
+        self.ref_length.editingFinished.connect(lambda: self._commit_reference("reference_length"))
+        self.ref_cofr = QLineEdit()
+        self.ref_cofr.setPlaceholderText("auto")
+        self.ref_cofr.setToolTip("Centre of rotation for the moment coefficient: x y z in metres, "
+                                 "empty for auto (centre of the parts' bounding box)")
+        self._layout.addWidget(self._make_row("ref_cofr", "Centre of rotation", self.ref_cofr))
+        self.ref_cofr.editingFinished.connect(lambda: self._commit_reference("center_of_rotation"))
+        self._section("ref_used", "Used")
+        self.ref_area_used = self._ro_row("ref_area_used", "A_ref")
+        self.ref_length_used = self._ro_row("ref_length_used", "l_ref")
+        self.ref_cofr_used = self._ro_row("ref_cofr_used", "CofR")
+        self.ref_note = QLabel(REFERENCE_NOTE)
+        self.ref_note.setObjectName("muted")
+        _wrap(self.ref_note)
+        self._layout.addWidget(self.ref_note)
         self.run_empty = QLabel("No solver run yet")
         self.run_empty.setObjectName("muted")
         _wrap(self.run_empty)
@@ -596,10 +647,12 @@ class PropertiesPanel(QWidget):
         self._refresh_domain(is_domain)
         self._refresh_groups()
         self._refresh_run(self._kind == "solvers")
+        self._refresh_reference(self._kind == "reference_values")
         self._refresh_mesh_settings(self._kind == "mesh")
         self._refresh_mesh(self._kind == "mesh")
         self.info_label.setVisible(
-            not show_name and not is_domain and self._kind != "mesh" and self._kind not in GROUPS
+            not show_name and not is_domain and self._kind not in ("mesh", "reference_values")
+            and self._kind not in GROUPS
         )
         self._apply_label_column()
 
@@ -781,6 +834,69 @@ class PropertiesPanel(QWidget):
             self._layer_box.addWidget(row)
             self._layer_rows.append(row)
             self.layer_labels.append(label)
+
+    def _refresh_reference(self, show: bool) -> None:
+        for key in REFERENCE_ROWS:
+            self._rows[key].setVisible(show)
+        self._sections["ref_used"].setVisible(show)
+        self.ref_note.setVisible(False)
+        if not show:
+            return
+        sim = self._project.sim
+        rep = sim.reports
+        widgets = (self.ref_rho, self.ref_area, self.ref_length, self.ref_cofr)
+        for w in widgets:
+            w.blockSignals(True)
+        try:
+            self.ref_rho.setValue(sim.physics.rho_ref)
+            self.ref_area.setValue(rep.reference_area if rep.reference_area is not None else self.ref_area.minimum())
+            self.ref_length.setValue(
+                rep.reference_length if rep.reference_length is not None else self.ref_length.minimum())
+            self.ref_cofr.setText(format_vector(rep.center_of_rotation) if rep.center_of_rotation else "")
+        finally:
+            for w in widgets:
+                w.blockSignals(False)
+        self.ref_u.setText(f"{sim.inflow.speed:.4g} m/s (inflow speed)")
+        try:
+            _box, _names, bounds = parts_layout(self._project)
+        except MeshingNotReady:
+            bounds = None
+        if bounds is None:
+            for label in (self.ref_area_used, self.ref_length_used, self.ref_cofr_used):
+                label.setText("\u2014")
+            return
+        ref = reference_values(bounds, rep)
+
+        def tag(auto: bool) -> str:
+            return f" \u2014 {AUTO_BBOX}" if auto else " (set)"
+
+        self.ref_area_used.setText(f"{ref.a_ref:.4g} m\u00b2" + tag(ref.a_auto))
+        self.ref_length_used.setText(f"{ref.l_ref:.4g} m" + tag(ref.l_auto))
+        self.ref_cofr_used.setText(f"({format_vector(ref.cofr)}) m" + tag(ref.cofr_auto))
+        self.ref_note.setVisible(ref.a_auto or ref.l_auto)
+
+    def _commit_rho(self) -> None:
+        if self._kind != "reference_values":
+            return
+        try:
+            self._project.update_physics(rho_ref=self.ref_rho.value())
+        except (ValueError, TypeError) as exc:
+            self.message.emit(str(exc))
+        self.refresh()
+
+    def _commit_reference(self, key: str) -> None:
+        if self._kind != "reference_values":
+            return
+        try:
+            if key == "center_of_rotation":
+                value = parse_vector(self.ref_cofr.text())
+            else:
+                widget = self.ref_area if key == "reference_area" else self.ref_length
+                value = None if widget.value() == widget.minimum() else widget.value()  # "auto"
+            self._project.update_reports(**{key: value})
+        except (ValueError, TypeError) as exc:  # includes pydantic errors
+            self.message.emit(str(exc))
+        self.refresh()  # reverts a rejected value
 
     def set_run_record(self, record: RunRecord | None, stale: bool = False) -> None:
         """The last solver run shown on the Solvers node (None: no run yet)."""

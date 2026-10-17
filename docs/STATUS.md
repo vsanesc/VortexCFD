@@ -17,7 +17,11 @@ Task 4B.1 is **done** on it (D-046, Proposed): Run Solver writes the solver file
 and runs simpleFoam on a worker thread with clean stop; end states Converged / Iteration limit / Stopped /
 Crashed; case/vortexcfd_run.json with a results hash ("Results out of date" badge), loaded at project open.
 
-Next on it: Task 4B.2 (reference values, live residuals, report slots).
+Task 4B.2 is **done** on it (D-047 [NUMERICS-REVIEW], D-048, D-049, all Proposed): Reference Values
+node with bounding-box defaults and overrides (schema v4), live residual chart, report slots (Cd, Cl,
+Cm pitch, y+ min/avg/max) tailed from postProcessing. Task 4B is done.
+
+Next step: Phase 6.2 scalar scenes (field and colormap selection on the solved case).
 
 ## Phases
 
@@ -32,7 +36,7 @@ Next on it: Task 4B.2 (reference values, live residuals, report slots).
 | 1.4 | Headless integration test | done (cavity) |
 | 2.1 | Main window | done |
 | 2.2 | 3D viewer | done for parts, picking, visibility and the mesh scene; scalar fields not started |
-| 2.3 | Console and live monitors | console done (solver log streamed, crash block in the error colour); residual chart and report slots are empty states; live plots not started |
+| 2.3 | Console and live monitors | done: console streams the solver log (crash block in the error colour), live residual chart (D-048, D-049) |
 | 3.1 | Surface mesh import and checks | done (self-intersections not detected) |
 | 3.2 | CAD import (STEP/IGES/BREP) | not started (spike pending) |
 | 3.3 | Geometry repair | not started |
@@ -48,7 +52,7 @@ Next on it: Task 4B.2 (reference values, live residuals, report slots).
 | 5.3 | M3: alternative volume mesher | not started (cfMesh build spike pending) |
 | 5.4 | M4: prism layer robustness | not started |
 | 5.5 | M5: own mesher (go/no-go) | not started |
-| 6.1 | Monitors and reports | not started (report slots exist as empty states) |
+| 6.1 | Monitors and reports | report slots with Cd, Cl, Cm pitch and wall y+ (D-048); reference values (D-047); convergence banner not started |
 | 6.2 | Scenes and derived parts | not started (the mesh section plane exists) |
 | 6.3 | Data export and reports | not started |
 | 7.1-7.3 | Coupled solver analysis | not started |
@@ -73,7 +77,8 @@ Next on it: Task 4B.2 (reference values, live residuals, report slots).
 - Per-part surface size (one target surface size for all parts today).
 - Task 0.1 (STAR-CCM+ feature inventory) not done.
 - Scalar scenes with field and colormap selection (Phase 6.2).
-- Report slot assignment and convergence banner (Phase 6.1).
+- Convergence banner (Phase 6.1); the run state is in the Solvers node and the status line.
+- Solver restart from the latest time: every run starts from 0 (D-046).
 - The mesh scene is read on the GUI thread after meshing (MeshView.load): a multi-million-cell mesh
   freezes the window for a moment (docs/QUESTIONS.md item 5).
 - Flat plate Cf is 3.3 % below the TMR incompressible SST reference (grid-extrapolated Cf(0.97),

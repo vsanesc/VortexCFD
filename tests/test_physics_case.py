@@ -129,6 +129,22 @@ def test_control_dict_force_coeffs_and_yplus() -> None:
     assert c["functions"]["yPlus1"]["libs"] == ["fieldFunctionObjects"]
 
 
+def test_reference_value_overrides_replace_the_bounding_box_values() -> None:
+    from vortexcfd.core.model import Reports
+    from vortexcfd.foam.physics_case import reference_values
+
+    auto = reference_values(BOUNDS, Reports())
+    assert (auto.l_ref, auto.a_ref, auto.cofr) == (2.0, 4.0, (1.0, 0.0, 0.25))
+    assert auto.l_auto and auto.a_auto and auto.cofr_auto
+    inp = SolverCaseInput(Physics(), Inflow(), Solvers(), ("Wing",), BOUNDS, False,
+                          Reports(reference_area=1.5, center_of_rotation=(0.5, 0.0, 0.0)))
+    fc = build_solver_files(inp)["system/controlDict"].content["functions"]["forceCoeffs1"]
+    assert fc["Aref"] == 1.5 and fc["CofR"] == [0.5, 0.0, 0.0]
+    assert fc["lRef"] == 2.0  # not overridden: still the x extent
+    ref = reference_values(BOUNDS, inp.reports)
+    assert not ref.a_auto and ref.l_auto and not ref.cofr_auto
+
+
 def test_schemes_and_solution_follow_the_motorbike_tutorial() -> None:
     f = build_solver_files(make())
     s = f["system/fvSchemes"].content

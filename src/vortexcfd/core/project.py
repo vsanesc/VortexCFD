@@ -166,6 +166,10 @@ class Project:
         """Edit solver settings as one undoable step."""
         self._update_section("solvers", "solver", fields)
 
+    def update_reports(self, **fields: Any) -> None:
+        """Edit reference value overrides or report slots as one undoable step."""
+        self._update_section("reports", "reports", fields)
+
     def _update_section(self, key: str, label: str, fields: dict[str, Any]) -> None:
         def mutate(data: dict[str, Any]) -> None:
             data[key].update(fields)

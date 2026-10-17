@@ -16,7 +16,7 @@ from vortexcfd.core.project import Project
 from vortexcfd.foam.case_writer import enable_clean_stop
 from vortexcfd.foam.dictfile import write_foam_file
 from vortexcfd.foam.mesh_case import MARKER_NAME
-from vortexcfd.foam.physics_case import SolverCaseInput, auto_reference, build_solver_files
+from vortexcfd.foam.physics_case import SolverCaseInput, build_solver_files, reference_values
 from vortexcfd.foam.run_record import remove_run_record
 from vortexcfd.gui.meshing import MeshingNotReady, case_dir_for, inputs_hash, parts_layout
 
@@ -43,11 +43,11 @@ def physics_problem(project: Project) -> str | None:
         return str(exc)
     if bounds is None:
         return "Import at least one part."
-    ref = auto_reference(bounds)
+    ref = reference_values(bounds, project.sim.reports)
     if ref.l_ref <= 0:
-        return "The reference length is zero (the parts have no extent along x)."
+        return "The reference length is zero (the parts have no extent along x): set l_ref."
     if ref.a_ref <= 0:
-        return "The reference area is zero (the parts have no extent along x or y)."
+        return "The reference area is zero (the parts have no extent along x or y): set A_ref."
     return None
 
 
@@ -68,7 +68,7 @@ def solver_input(project: Project) -> SolverCaseInput:
     _box, names, bounds = parts_layout(project)
     sim = project.sim
     return SolverCaseInput(sim.physics, sim.inflow, sim.solvers, names, bounds,
-                           sim.domain.symmetry == "y_min")
+                           sim.domain.symmetry == "y_min", sim.reports)
 
 
 def _is_result_time(name: str) -> bool:
@@ -118,6 +118,6 @@ def results_hash(project: Project) -> str:
         "physics": sim.physics.model_dump(),
         "inflow": sim.inflow.model_dump(),
         "solvers": sim.solvers.model_dump(),
-        "reports": sim.reports.model_dump(),
+        "reports": sim.reports.model_dump(exclude={"slots"}),  # slot choice does not change results
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()

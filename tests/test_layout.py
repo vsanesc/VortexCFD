@@ -119,9 +119,9 @@ def test_tree_structure_and_node_count(make_window) -> None:
     ]
     # Geometry, Parts, 3 parts, Continua, Mesh, Physics, Regions, Fluid Domain, 5 boundaries,
     # 3 walls, Inflow, Solvers, Reports = 21
-    assert w.node_count() == 21 and w.node_badge.text() == "21 Nodes"
+    assert w.node_count() == 22 and w.node_badge.text() == "22 Nodes"
     w.act_add_part.trigger()
-    assert w.node_badge.text() == "23 Nodes"  # a part and its wall
+    assert w.node_badge.text() == "24 Nodes"  # a part and its wall
 
 
 def test_header_name_selects_root(make_window) -> None:
@@ -211,8 +211,9 @@ def test_report_slots_are_empty_and_unassigned(make_window) -> None:
     assert [t.text() for t in slots.titles.values()] == ["REPORT 1", "REPORT 2", "REPORT 3"]
     assert all(v.text() == "\u2014" for v in slots.values.values())
     assert all(v.text() == "Not assigned" for v in slots.subtitles.values())
-    for button in slots.assign_buttons.values():
-        assert not button.isEnabled() and button.toolTip() == "Assign a report (Phase 6)"
+    for button in slots.assign_buttons.values():  # assignment: tests/test_monitors_gui.py
+        assert button.isEnabled() and button.toolTip() == slots.ASSIGN_TOOLTIP
+        assert "forceCoeffs" in button.toolTip() and "yPlus" in button.toolTip()
     assert w.monitors.chart.EMPTY_MESSAGE == "No solver run yet"
     assert (w.monitors.chart.X_CAPTION, w.monitors.chart.Y_CAPTION) == ("Iteration", "Residual")
     assert w.monitors.chart.axis_labels() == ["1e0", "1e-1", "1e-2", "1e-3", "1e-4", "1e-5", "1e-6"]

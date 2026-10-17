@@ -18,7 +18,8 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
     """Migrate project data dictionary from older schema versions to current.
 
     v1 -> v2 adds the default far-field ``domain`` and ``mesh``; v2 -> v3 adds the default
-    ``physics``, ``inflow`` and ``solvers``. Data already at the current version (or not a dict /
+    ``physics``, ``inflow`` and ``solvers``; v3 -> v4 fills ``reports`` (reference value overrides and
+    report slots, all unset; v3 had an empty placeholder). Data already at the current version (or not a dict /
     without a version) is returned unchanged.
     """
     if not isinstance(data, dict):
@@ -32,6 +33,10 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
         for key in ("physics", "inflow", "solvers"):
             data.setdefault(key, {})  # empty dicts validate to the defaults
         data["schema_version"] = 3
+    if data.get("schema_version") == 3:
+        reports = data.get("reports")
+        data["reports"] = dict(reports) if isinstance(reports, dict) else {}  # {} = all unset
+        data["schema_version"] = 4
     return data
 
 

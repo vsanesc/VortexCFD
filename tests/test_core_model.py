@@ -224,13 +224,14 @@ def test_save_simulation_atomic_cleanup(tmp_path: Path) -> None:
 def test_migrate_v1_to_v2_and_current_unchanged() -> None:
     """v1 gains the default domain and version 2; current data is returned unchanged."""
     assert migrate({"schema_version": 1, "custom": "data"}) == {
-        "schema_version": 3, "custom": "data", "domain": {}, "mesh": {},
-        "physics": {}, "inflow": {}, "solvers": {},
+        "schema_version": 4, "custom": "data", "domain": {}, "mesh": {},
+        "physics": {}, "inflow": {}, "solvers": {}, "reports": {},
     }
     assert migrate({"schema_version": 2, "x": 1}) == {
-        "schema_version": 3, "x": 1, "physics": {}, "inflow": {}, "solvers": {},
+        "schema_version": 4, "x": 1, "physics": {}, "inflow": {}, "solvers": {}, "reports": {},
     }
-    current = {"schema_version": 3, "custom": "data"}
+    assert migrate({"schema_version": 3, "reports": {}}) == {"schema_version": 4, "reports": {}}
+    current = {"schema_version": 4, "custom": "data"}
     assert migrate(current) == current
 
 
@@ -256,7 +257,7 @@ def test_domain_defaults() -> None:
         True, 5.0, 10.0, 5.0, 5.0, "none",
     )
     assert Simulation(name="x").domain == d
-    assert CURRENT_SCHEMA_VERSION == 3
+    assert CURRENT_SCHEMA_VERSION == 4
 
 
 @pytest.mark.parametrize("field", ["upstream", "downstream", "lateral", "vertical"])
@@ -273,24 +274,24 @@ def test_domain_rejects_unknown_symmetry_and_fields() -> None:
         Domain(bogus=1)
 
 
-def test_v1_fixture_opens_as_v3_with_default_domain() -> None:
+def test_v1_fixture_opens_as_current_with_default_domain() -> None:
     sim = load_simulation(V1_FIXTURE)
-    assert sim.schema_version == 3
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION
     assert sim.domain == Domain()
     assert [p.name for p in sim.geometry.parts] == ["Wing"]
 
 
-def test_v3_round_trip(tmp_path: Path) -> None:
+def test_current_version_round_trip(tmp_path: Path) -> None:
     sim = Simulation(name="rt", domain=Domain(upstream=3, symmetry="y_min", enabled=False))
     path = tmp_path / "p.json"
     save_simulation(sim, path)
-    assert json.loads(path.read_text())["schema_version"] == 3
+    assert json.loads(path.read_text())["schema_version"] == CURRENT_SCHEMA_VERSION
     assert load_simulation(path) == sim
 
 
 def test_future_version_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "p.json"
-    path.write_text(json.dumps({"schema_version": 4, "name": "x"}))
+    path.write_text(json.dumps({"schema_version": CURRENT_SCHEMA_VERSION + 1, "name": "x"}))
     with pytest.raises(ProjectFileError, match="Unsupported schema_version"):
         load_simulation(path)
 
@@ -383,9 +384,9 @@ def test_update_mesh_is_one_undoable_step_and_validates() -> None:
 from vortexcfd.core.model import Inflow, Physics, Solvers
 
 
-def test_v2_fixture_opens_as_v3_with_default_physics_and_keeps_its_data() -> None:
+def test_v2_fixture_opens_with_default_physics_and_keeps_its_data() -> None:
     sim = load_simulation(V2_FIXTURE)
-    assert sim.schema_version == 3
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION
     assert sim.physics == Physics() and sim.inflow == Inflow() and sim.solvers == Solvers()
     assert sim.domain.symmetry == "y_min" and sim.domain.upstream == 4
     assert sim.mesh.layers == 2 and sim.mesh.base_size == 0.1
@@ -456,3 +457,51 @@ def test_solver_residual_targets_defaults_and_validation() -> None:
     p.update_solver(residual_p=1e-6)
     assert p.sim.solvers.residual_p == 1e-6 and p.undo_label == "Edit solver (residual_p)"
     assert load_simulation(V2_FIXTURE).solvers == Solvers()  # a v2 file gets the defaults
+
+
+# -- reference values and report slots (schema v4) --------------------------------------------------
+
+from vortexcfd.core.model import REPORT_SLOTS, Reports
+
+V3_FIXTURE = Path(__file__).parent / "data" / "project_v3.json"
+
+
+def test_v3_fixture_migrates_to_v4_with_unset_reports_and_keeps_its_data() -> None:
+    """Hand-written v3 project (tests/data/project_v3.json): reports gains the unset overrides
+    and empty slots; every v3 value is kept."""
+    raw = json.loads(V3_FIXTURE.read_text())
+    assert raw["schema_version"] == 3 and raw["reports"] == {}
+    sim = load_simulation(V3_FIXTURE)
+    assert sim.schema_version == 4
+    assert sim.reports == Reports()
+    assert sim.reports.reference_area is None and sim.reports.reference_length is None
+    assert sim.reports.center_of_rotation is None and sim.reports.slots == [None] * REPORT_SLOTS
+    assert (sim.physics.nu, sim.physics.rho_ref) == (1.6e-05, 1.2)
+    assert (sim.inflow.speed, sim.inflow.alpha_deg) == (35.0, 4.0)
+    assert (sim.solvers.iterations, sim.solvers.residual_p) == (800, 1e-05)
+    assert sim.mesh.layer_sizing == "absolute_yplus" and sim.mesh.target_yplus == 30.0
+    assert sim.domain.symmetry == "y_min" and [p.units for p in sim.geometry.parts] == ["mm"]
+
+
+def test_reports_validation() -> None:
+    r = Reports(reference_area=0.5, reference_length=0.2, center_of_rotation=(0.25, 0, 0),
+                slots=["Cd", None, "yplus_avg"])
+    assert r.center_of_rotation == (0.25, 0.0, 0.0)
+    for bad in ({"reference_area": 0}, {"reference_length": -1}, {"slots": ["Cd"]},
+                {"slots": ["Cd", "bogus", None]}, {"center_of_rotation": (1, 2)}):
+        with pytest.raises(ValidationError):
+            Reports(**bad)
+
+
+def test_update_reports_is_undoable_and_saved(tmp_path: Path) -> None:
+    p = Project.new("r")
+    p.update_reports(reference_area=0.75, slots=["Cl", None, None])
+    assert p.undo_label == "Edit reports (reference_area, slots)"
+    path = tmp_path / "r.json"
+    p.save(path)
+    loaded = Project.open(path)
+    assert loaded.sim.reports.reference_area == 0.75 and loaded.sim.reports.slots == ["Cl", None, None]
+    p.undo()
+    assert p.sim.reports == Reports()
+    with pytest.raises(ValidationError):
+        p.update_reports(reference_length=0.0)

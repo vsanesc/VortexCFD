@@ -54,6 +54,7 @@ from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.gui.mesh_worker import MeshWorker
+from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam.run_record import RunRecord, read_run_record, write_run_record
 from vortexcfd.gui import solving
 from vortexcfd.gui.solver_worker import SolverWorker
@@ -299,6 +300,7 @@ class MainWindow(QMainWindow):
         self.results_stale = False
         self._solve_hash: str | None = None  # results hash at the start of the running solver
         self.solver_worker = SolverWorker(self)
+        self.solver_timeout_s: float | None = None  # wall-clock limit of a solver run (tests set one)
         self.solver_worker.line.connect(self._on_solver_line)
         self.solver_worker.step.connect(self._on_solver_step)
         self.solver_worker.finished.connect(self._on_solver_done)
@@ -463,6 +465,7 @@ class MainWindow(QMainWindow):
 
         # -- right: monitors, bottom: console ----------------------------------------
         self.monitors = MonitorsPanel()
+        self.monitors.slot_assigned.connect(self._assign_report)
         self.console = ConsolePanel()
         self._console_handler = console_log.attach(self.console)
         handler = self._console_handler
@@ -760,6 +763,7 @@ class MainWindow(QMainWindow):
         self._update_mesh_button()
         self._update_results_stale()
         self._update_run_button()
+        self.monitors.set_assignments(list(sim.reports.slots))
 
     def _node_icon(self, glyph: str, token: str) -> QIcon:
         color = QColor(getattr(self._theme, token))
@@ -811,7 +815,8 @@ class MainWindow(QMainWindow):
             for i, part in enumerate(parts):  # one wall patch per part
                 add(fluid, "wall", i, f"{part.name} (wall)", "dot", "accent")
             add(root, "solvers", None, "Solvers", "folder", "text")
-            add(root, "reports", None, "Reports & Monitors", "folder", "text")
+            reports = add(root, "reports", None, "Reports & Monitors", "folder", "text")
+            add(reports, "reference_values", None, "Reference Values", "dot", "accent")
             self.tree.expandAll()
             self._root_item = root
             self.tree.setRootIndex(self.tree.indexFromItem(root))  # hide the root row
@@ -1096,10 +1101,10 @@ class MainWindow(QMainWindow):
         self._solve_hash = solving.results_hash(self._project)
         self.run_record = None
         self.properties.set_run_record(None)
-        self.monitors.start_run()
+        self.monitors.start_run(case_dir)
         self.top_bar.set_run_state("Solving")
         log.info("Running simpleFoam in %s", case_dir)
-        self.solver_worker.start(case_dir)
+        self.solver_worker.start(case_dir, timeout_s=self.solver_timeout_s)
         self._update_results_stale()
         self._update_run_button()
         self._update_mesh_button()
@@ -1111,9 +1116,22 @@ class MainWindow(QMainWindow):
         self.results_stale = False
         self.top_bar.set_results_stale(False)
         self.properties.set_run_record(self.run_record)
-        if self.run_record is not None:
-            log.info("Loaded the last solver run: %s after %d iterations",
-                     self.run_record.label, self.run_record.iterations)
+        self.monitors.clear()
+        if self.run_record is None:
+            return
+        log.info("Loaded the last solver run: %s after %d iterations",
+                 self.run_record.label, self.run_record.iterations)
+        try:
+            text = (case_dir / "log.simpleFoam").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            text = ""
+        self.monitors.load_run(case_dir, parse_log_text(text))
+
+    def _assign_report(self, slot: int, report_id) -> None:
+        """A report slot's menu: store the assignment in the project (undoable)."""
+        slots = list(self._project.sim.reports.slots)
+        slots[slot] = report_id
+        self._run_edit(lambda: self._project.update_reports(slots=slots))
 
     def _update_results_stale(self, force: bool = False) -> None:
         """Saved results are out of date when the solver inputs no longer match their hash."""

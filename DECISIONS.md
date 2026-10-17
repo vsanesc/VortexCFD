@@ -62,6 +62,9 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-044 | 2026-10-17 | minTetQuality relaxed only in `relaxed` | Accepted; nRelaxedIter part superseded by D-045 |
 | D-045 | 2026-10-17 | Relaxed controls from the first layer iteration for y+ layers | Accepted |
 | D-046 | 2026-10-17 | Running the solver: run states, run record, results staleness | Proposed |
+| D-047 | 2026-10-17 | Reference values for the force coefficients (schema v4) | Proposed |
+| D-048 | 2026-10-17 | Live residuals and report slots | Proposed |
+| D-049 | 2026-10-17 | Residual chart palette | Proposed |
 
 ---
 
@@ -395,3 +398,24 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   - case/vortexcfd_run.json keeps the state, iterations, the last initial residual of every solved field, the exit code and a results hash: the mesh inputs hash (D-033) plus the physics, inflow, solver and report settings. It is loaded when the project is opened. When the hash no longer matches, a "Results out of date" badge is shown next to the mesh badge and the Solvers node's Last run status says so.
 - Alternatives considered: restarting from the latest time (needs a restart decision and a mapping when the mesh changed); keeping old time directories (ParaView would show results of an earlier set-up next to the new ones).
 - Consequences: every run starts from 0 with a clean case. Parallel runs are still not supported (D-010).
+
+## D-047 Reference values for the force coefficients (schema v4)
+- Status: Proposed (Task 4B.2, [NUMERICS-REVIEW], recorded while Vic was away)
+- Context: forceCoeffs needs magUInf, lRef, Aref and a centre of rotation; Task 4A wrote the bounding-box values with no way to change them. The v2606 forceCoeffs reads, with CofR, liftDir as e3 and dragDir as e1 of the coefficient axes and takes the pitch axis as e2 = e3 x e1 (+y at any angle of attack); the `pitchAxis` keyword is not read (src/functionObjects/forces/forces/forces.C setCoordinateSystem, forceCoeffs.C). Output: postProcessing/forceCoeffs1/<start time>/coefficient.dat, columns Time then Cd, Cd(f), Cd(r), Cl, Cl(f), Cl(r), CmPitch, CmRoll, CmYaw, Cs, Cs(f), Cs(r) (checked on a real run, tests/data/sphere_run/).
+- Decision: a "Reference Values" node under Reports & Monitors shows rho_ref (Physics.rho_ref, editable there too), U_ref (the inflow speed, read-only), A_ref, l_ref and CofR. A_ref, l_ref and CofR are optional overrides stored in `Reports` (reference_area, reference_length, center_of_rotation; None = auto); the auto values come from the union of the parts' bounding boxes: l_ref = x extent, A_ref = x extent x y extent (planform for a body along +x with the span along y), CofR = the box centre. Auto values are shown as "auto (bounding box)" with the muted note "set the wing area and mean chord for aircraft". forceCoeffs uses the resolved values. Schema v4 also adds `Reports.slots` (D-048); v3 files migrate with all overrides unset and empty slots (hand-written fixture tests/data/project_v3.json). Reference values are results inputs (D-046 hash); the slot choice is not.
+- Alternatives considered: frontal area (y x z extent) as the default (natural for bluff bodies, wrong for wings); no defaults (Run Solver blocked until the user enters them).
+- Consequences: coefficients of a bluff body with the auto planform area differ from the usual frontal-area convention (the default sphere: Aref 0.995 m2 against pi r^2 = 0.785 m2); the user overrides A_ref. A flat part with a zero auto area or length blocks Run Solver until A_ref / l_ref is set (D-046).
+
+## D-048 Live residuals and report slots
+- Status: Proposed (Task 4B.2, recorded while Vic was away)
+- Context: the monitors column had empty states only (D-039).
+- Decision: the residual chart plots the initial residual of every solved field per iteration (the first solve of the field in the iteration), log10 y axis whose decades widen to fit the data (at least 1e0..1e-6), iteration on x always ending at the latest iteration (autoscroll), one line per field, a legend row above the plot, and at most about 2000 points per series (min/max bucket decimation, first and last points kept). Iterations arrive through the SolverWorker step signal. The report slot chevron opens a menu: Not assigned, Cd, Cl, Cm (pitch) (forceCoeffs columns Cd, Cl, CmPitch) and y+ min / avg / max on the walls (yPlus function object, postProcessing/yPlus1/<start time>/yPlus.dat: over all wall patches the minimum of the minima, the maximum of the maxima, the mean of the patch averages). The assignment is saved in the project (Reports.slots, undoable). Values come from tailing the postProcessing files every 250 ms on the GUI thread (only the appended bytes are read; an incomplete last line waits for the next poll) and show the last value (4 significant digits) and a sparkline of the last 200 values. A finished run is shown again when the project is opened (its log and postProcessing files). Without a run the chart keeps its empty state and the values show "—".
+- Alternatives considered: polling the files on the worker thread (more signals, no gain for files of a few kB per minute); a plotting library (no new dependencies).
+- Consequences: y+ values change only at write times (the yPlus function object runs at writeTime, unchanged from Task 4A).
+
+## D-049 Residual chart palette
+- Status: Proposed (Task 4B.2, recorded while Vic was away; colours are the owner's call, D-041)
+- Context: the chart needs one colour per field and the rule is that only owner tokens are used. No set of six owner tokens passes the dataviz palette checks on the dark canvas: every token is lighter than the dark lightness band (OKLCH L 0.48-0.67), text and muted text read as gray, and red / amber and teal / green are too close (normal-vision and CVD separation).
+- Decision: three hues derived from owner tokens, each blended over `canvas` (#0A0D12) at the largest weight that puts it at OKLCH L <= 0.66: p = accent at 0.84 (#D87403), Ux / Uy / Uz = axis_z at 0.82 (#309DCF; solid / dashed / dotted), k / omega = axis_y at 0.83 (#28AC61; solid / dashed). Any other field: muted_text, dash-dot. Lines are 2 px; the legend names every series in text colour. Status colours (success, warning, error) are not used. Validator result (all pairs, dark, canvas): lightness, chroma, contrast and normal-vision separation pass; CVD separation WARN (deutan 7.9 between green and amber), allowed because the families also differ by line style and the legend names them. Values in gui/theme.py (RESIDUAL_STYLES), asserted in tests/test_monitors_gui.py.
+- Alternatives considered: six separate hues from the tokens (fails the separation checks); the raw tokens (outside the lightness band, too bright on the canvas).
+- Consequences: velocity components share one hue; the owner may replace the palette with explicit chart tokens.

@@ -23,9 +23,9 @@ def inlet_turbulence(speed: float, intensity: float, nu: float, viscosity_ratio:
 
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from vortexcfd.core.model import Inflow, Physics, Solvers
+from vortexcfd.core.model import Inflow, Physics, Reports, Solvers
 from vortexcfd.foam.case_writer import FoamFileSpec
 
 Bounds = tuple[float, float, float, float, float, float]  # xmin, xmax, ymin, ymax, zmin, zmax
@@ -45,6 +45,7 @@ class SolverCaseInput:
     patches: tuple[str, ...]  # part wall patches (safe names)
     parts_bounds: Bounds  # union of the parts' bounding boxes
     symmetric: bool = False  # a symmetry plane patch exists
+    reports: Reports = field(default_factory=Reports)  # reference value overrides (None = auto)
 
 
 def flow_direction(alpha_deg: float) -> tuple[float, float, float]:
@@ -54,25 +55,49 @@ def flow_direction(alpha_deg: float) -> tuple[float, float, float]:
 
 
 @dataclass(frozen=True)
-class AutoReference:
-    """Reference values from the parts' bounding box: l_ref = x extent, A_ref = x extent * y extent
-    (planform for a body along +x with span along y), CofR = the box centre."""
+class ReferenceValues:
+    """forceCoeffs reference values and whether each one is the bounding-box default ("auto").
+
+    Auto values: l_ref = x extent, A_ref = x extent * y extent (planform for a body along +x with
+    the span along y), CofR = the centre of the parts' bounding box. [NUMERICS-REVIEW]
+    """
 
     l_ref: float
     a_ref: float
     cofr: tuple[float, float, float]
+    l_auto: bool = True
+    a_auto: bool = True
+    cofr_auto: bool = True
 
 
-def auto_reference(parts_bounds: Bounds) -> AutoReference:
+def auto_reference(parts_bounds: Bounds) -> ReferenceValues:
     b = parts_bounds
     l_ref = b[1] - b[0]
-    return AutoReference(l_ref, l_ref * (b[3] - b[2]),
-                         ((b[0] + b[1]) / 2, (b[2] + b[3]) / 2, (b[4] + b[5]) / 2))
+    return ReferenceValues(l_ref, l_ref * (b[3] - b[2]),
+                           ((b[0] + b[1]) / 2, (b[2] + b[3]) / 2, (b[4] + b[5]) / 2))
+
+
+def reference_values(parts_bounds: Bounds, reports: Reports) -> ReferenceValues:
+    """The user's overrides where set, the bounding-box values otherwise."""
+    auto = auto_reference(parts_bounds)
+    return ReferenceValues(
+        l_ref=reports.reference_length if reports.reference_length is not None else auto.l_ref,
+        a_ref=reports.reference_area if reports.reference_area is not None else auto.a_ref,
+        cofr=tuple(reports.center_of_rotation) if reports.center_of_rotation is not None else auto.cofr,
+        l_auto=reports.reference_length is None,
+        a_auto=reports.reference_area is None,
+        cofr_auto=reports.center_of_rotation is None,
+    )
 
 
 def _force_coeffs(inp: SolverCaseInput) -> dict:
-    """The motorBike tutorial's forceCoeffs entry for the part walls (incompressible: rhoInf)."""
-    ref = auto_reference(inp.parts_bounds)
+    """The motorBike tutorial's forceCoeffs entry for the part walls (incompressible: rhoInf).
+
+    v2606 (forces::setCoordinateSystem): with CofR, liftDir is e3 and dragDir e1 of the coefficient
+    axes and the pitch axis is e2 = e3 x e1 (+y at any angle of attack); the `pitchAxis` entry is
+    not read and is kept only as documentation. Output: postProcessing/forceCoeffs1/<start
+    time>/coefficient.dat (foam/postprocessing.py)."""
+    ref = reference_values(inp.parts_bounds, inp.reports)
     a = math.radians(inp.inflow.alpha_deg)
     return {
         "type": "forceCoeffs",

@@ -152,7 +152,7 @@ def test_run_streams_through_signals_and_converges(make_window, qtbot: QtBot) ->
     assert (case / "0" / "U").is_file() and (case / "constant" / "turbulenceProperties").is_file()
     assert (case / "constant" / "polyMesh" / "points").read_text() == "mesh stays\n"
     assert not (case / "400").exists() and not (case / "postProcessing").exists()
-    assert len(w.monitors.steps) == 2
+    assert [t for t, _ in w.monitors.history.series["p"]] == [1.0, 2.0]  # steps reached the chart
     runner.release(iteration(3) + ["\n", "SIMPLE solution converged in 3 iterations\n", "End\n"])
     wait_done(qtbot, w)
     assert all(t is w.thread() for t in threads)  # slots ran in the GUI thread
