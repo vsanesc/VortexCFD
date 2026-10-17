@@ -10,6 +10,11 @@ from pydantic import ValidationError
 from vortexcfd.core.model import CURRENT_SCHEMA_VERSION, Simulation
 
 
+# v5 Solvers residual targets (SIMPLE residualControl, D-027): key, field, default.
+V5_RESIDUAL_TARGETS = (("residual_p", "p", 1e-4), ("residual_u", "U", 1e-5), ("residual_k", "k", 1e-5),
+                       ("residual_omega", "omega", 1e-5))
+
+
 class ProjectFileError(Exception):
     """Exception raised when loading or validating a project file fails."""
 
@@ -20,7 +25,10 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
     v1 -> v2 adds the default far-field ``domain`` and ``mesh``; v2 -> v3 adds the default
     ``physics``, ``inflow`` and ``solvers``; v3 -> v4 fills ``reports`` (reference value overrides and
     report slots, all unset; v3 had an empty placeholder); v4 -> v5 adds the per-part surface level
-    overrides (unset: nothing to fill, the version is bumped). Data already at the current version (or not a dict /
+    overrides (unset: nothing to fill, the version is bumped); v5 -> v6 turns the residual targets
+    (``solvers.residual_p/u/k/omega``, the SIMPLE residualControl) into residual stopping criteria
+    combined with "all" (the same stop, D-058); a target the file did not set takes its old default.
+    Data already at the current version (or not a dict /
     without a version) is returned unchanged.
     """
     if not isinstance(data, dict):
@@ -40,6 +48,16 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
         data["schema_version"] = 4
     if data.get("schema_version") == 4:
         data["schema_version"] = 5  # Part.surface_level_min/max default to None (the mesh's levels)
+    if data.get("schema_version") == 5:
+        solvers = data.get("solvers")
+        if isinstance(solvers, dict):
+            solvers = dict(solvers)
+            criteria = []
+            for key, field, default in V5_RESIDUAL_TARGETS:
+                criteria.append({"kind": "residual", "field": field, "threshold": solvers.pop(key, default)})
+            solvers.setdefault("stopping", {"criteria": criteria, "combine": "all"})
+            data["solvers"] = solvers
+        data["schema_version"] = 6
     return data
 
 

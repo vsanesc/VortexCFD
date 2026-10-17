@@ -1,0 +1,16 @@
+{
+  "schema_version": 5,
+  "name": "Legacy v5",
+  "geometry": {
+    "parts": [
+      {"name": "Ball", "source_file": "geometry/ball.stl", "units": "m", "surface_level_max": 6}
+    ]
+  },
+  "domain": {"enabled": true, "upstream": 5, "downstream": 10, "lateral": 5, "vertical": 5, "symmetry": "none"},
+  "mesh": {"layers": 3},
+  "physics": {"nu": 1.5e-05, "rho_ref": 1.225},
+  "inflow": {"speed": 30.0, "alpha_deg": 2.0},
+  "solvers": {"iterations": 600, "write_interval": 100, "residual_p": 2e-05, "residual_u": 3e-06,
+              "residual_omega": 4e-06},
+  "reports": {"reference_area_basis": "frontal", "slots": ["Cd", "Cl", null]}
+}

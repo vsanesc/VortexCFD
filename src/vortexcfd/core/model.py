@@ -1,9 +1,9 @@
 """Simulation tree data models."""
 
-from typing import Literal
+from typing import Annotated, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-CURRENT_SCHEMA_VERSION: int = 5
+CURRENT_SCHEMA_VERSION: int = 6
 
 
 class StrictModel(BaseModel):
@@ -98,17 +98,67 @@ class Inflow(StrictModel):
     viscosity_ratio: float = Field(default=10.0, gt=0)  # nut / nu
 
 
+# Fields a residual criterion can watch (the solved equations; U is the largest component residual).
+RESIDUAL_FIELDS = ("p", "U", "k", "omega")
+# Quantities an asymptotic criterion can watch: the forceCoeffs coefficients.
+ASYMPTOTIC_QUANTITIES = ("Cd", "Cl", "CmPitch")
+
+
+class ResidualCriterion(StrictModel):
+    """Stop when the initial residual of ``field`` (its first solve in the iteration; for U the
+    largest of Ux, Uy, Uz) falls below ``threshold``: OpenFOAM's runTimeControl condition
+    ``equationInitialResidual`` with mode minimum (D-058)."""
+
+    kind: Literal["residual"] = "residual"
+    field: Literal["p", "U", "k", "omega"]
+    threshold: float = Field(gt=0)
+
+
+class AsymptoticCriterion(StrictModel):
+    """Stop when a monitored quantity has settled: |x_n - mean of the last ``window`` values
+    (x_n included)| <= ``tolerance``, in the quantity's own units (absolute). This is OpenFOAM's
+    runTimeControl condition ``average`` with an exact window (D-058)."""
+
+    kind: Literal["asymptotic"] = "asymptotic"
+    quantity: Literal["Cd", "Cl", "CmPitch"]
+    window: int = Field(default=50, ge=2)
+    tolerance: float = Field(default=1e-4, gt=0)
+
+
+Criterion = Annotated[Union[ResidualCriterion, AsymptoticCriterion], Field(discriminator="kind")]
+
+
+def default_criteria() -> list:
+    """The residual targets the app used before stopping criteria existed (D-027), combined with "all"."""
+    return [ResidualCriterion(field="p", threshold=1e-4), ResidualCriterion(field="U", threshold=1e-5),
+            ResidualCriterion(field="k", threshold=1e-5), ResidualCriterion(field="omega", threshold=1e-5)]
+
+
+class StoppingCriteria(StrictModel):
+    """When the solver stops before the iteration limit (Solvers.iterations, always present).
+
+    ``combine`` "all": the run stops when every criterion is met in the same iteration; "any": when
+    one is. No criterion may stop the run before ``min_iterations``. The oscillation check (a
+    warning, never a stop) flags a monitored quantity whose relative amplitude over the last
+    ``oscillation_window`` iterations exceeds ``oscillation_threshold`` while its mean is not
+    drifting (foam/convergence.py, D-059).
+    """
+
+    criteria: list[Criterion] = Field(default_factory=default_criteria)
+    combine: Literal["all", "any"] = "all"
+    min_iterations: int = Field(default=0, ge=0)
+    oscillation_threshold: float = Field(default=0.01, gt=0)  # fraction of |mean|
+    oscillation_window: int = Field(default=100, ge=4)
+
+
 class Solvers(StrictModel):
-    """Solver run settings."""
+    """Solver run settings. ``iterations`` is the iteration limit (the always-present stopping
+    criterion); the other criteria are in ``stopping``."""
 
     iterations: int = Field(default=1000, gt=0)
     write_interval: int = Field(default=200, gt=0)
     relaxation: Literal["robust"] = "robust"  # the motorBike tutorial values
-    # SIMPLE residualControl: the run stops when the initial residuals fall below these targets.
-    residual_p: float = Field(default=1e-4, gt=0)
-    residual_u: float = Field(default=1e-5, gt=0)
-    residual_k: float = Field(default=1e-5, gt=0)
-    residual_omega: float = Field(default=1e-5, gt=0)
+    stopping: StoppingCriteria = Field(default_factory=StoppingCriteria)
 
 
 # Number of report slots in the monitors panel (the one place to change it).

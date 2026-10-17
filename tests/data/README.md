@@ -40,3 +40,12 @@ Real output (ESI OpenFOAM v2606) of a two-wall case for the y+ aggregation (D-04
 
 ## `results_case/`
 A tiny REAL solved case for the Results Scene (D-053), committed whole (about 160 kB): blockMesh box 2 x 1 x 1 m with 8 x 4 x 4 cells, patches inlet (x min), outlet (x max), sides (y), top (z max), an empty `bottom` and the wall `Ball` (z min, standing for a part); the app's own solver files (`foam/physics_case.py` with `Physics()`, `Inflow()` at 20 m/s, `Solvers(iterations=5, write_interval=5)`, clean stop), then `simpleFoam` for 5 iterations through `FoamRun` (exit code 0). Kept: `.vortexcfd-case`, `case.foam`, `system/`, `constant/` (with polyMesh), `0/` and `5/` (U, p, k, omega, nut, phi, yPlus, uniform/). Logs and postProcessing/ were not kept. No path or host names in the files.
+
+## `project_v5.json`
+Hand-written schema v5 project for the v5 -> v6 migration (D-058): residual targets `residual_p` 2e-05, `residual_u` 3e-06 and `residual_omega` 4e-06 (no `residual_k`), plus a part level override, inflow, solver and report values that must survive.
+
+## `stop_run/` (`log.simpleFoam`, `coefficient.dat`)
+Real output (ESI OpenFOAM v2606) of a run stopped by an asymptotic criterion (D-058): the shared coarse sphere set-up (sphere radius 0.5 m, 24x24 resolution, default `Domain()` and `Mesh()`, 192220 cells), the app's own solver files with `Physics()`, `Inflow()` (20 m/s), `Solvers(iterations=150, write_interval=50)` and `StoppingCriteria(criteria=[AsymptoticCriterion(quantity="Cd", window=20, tolerance=1e-3)])`, run through `SolverRun`. runTimeControl stopped it at iteration 49 ("average: c1_asymptotic_Cd condition satisfied", "Stopping calculation"; CdMean 0.176298, delta 0.000285946), exit code 0, End. `coefficient.dat` from postProcessing/forceCoeffs1/0/ (its last row, 49, is written twice by writeAndEnd). Only the Host, PID and Case lines of the log were sanitized.
+
+## `oscillation_run/` (`coefficient.dat`)
+Real forceCoeffs output (ESI OpenFOAM v2606) of a 172-iteration simpleFoam run on the same coarse sphere mesh, used for the oscillation check (D-059). Solver files from `foam/physics_case.py` before Task 6.1 plus hand-added function objects (surfaceFieldValue on inlet/outlet, wallShearStress, probes, and a runTimeControl on Cd with window 20, tolerance 1e-4 that stopped it at iteration 172); parts bounds +-0.5 m so lRef 1 and Aref 1 (header). Iterations 73-172: Cl 0.038-0.092 around 0.061, Cd 0.161-0.180 around 0.169. Unchanged.

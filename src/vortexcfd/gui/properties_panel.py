@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
+    QPushButton,
     QBoxLayout,
     QFrame,
     QScrollArea,
@@ -22,7 +23,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from vortexcfd.core.model import Domain, Part
+from vortexcfd.core.model import (
+    ASYMPTOTIC_QUANTITIES,
+    RESIDUAL_FIELDS,
+    AsymptoticCriterion,
+    Domain,
+    Part,
+    ResidualCriterion,
+)
+from vortexcfd.foam.convergence import QUANTITY_LABELS, earliest_iteration
 from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.foam.run_record import RunRecord
@@ -185,13 +194,25 @@ GROUPS: dict[str, dict] = {
             ("iterations", "Iterations", lambda: _spin(1, 10_000_000)),
             ("write_interval", "Write interval", lambda: _spin(1, 10_000_000)),
             ("relaxation", "Relaxation preset", lambda: _combo(("robust",))),
-            ("residual_p", "Residual target p", lambda: _sci()),
-            ("residual_u", "Residual target U", lambda: _sci()),
-            ("residual_k", "Residual target k", lambda: _sci()),
-            ("residual_omega", "Residual target omega", lambda: _sci()),
         ),
     },
 }
+
+# Stopping Criteria node (D-058): static rows and their tooltips.
+STOPPING_ROWS = ("stop_combine", "stop_min", "stop_max", "stop_osc_threshold", "stop_osc_window")
+STOPPING_TOOLTIPS = {
+    "combine": "all: the run stops when every criterion is met in the same iteration; any: when one is",
+    "min": "No criterion may stop the run before this iteration",
+    "max": "The iteration limit (endTime): always applies",
+    "osc_threshold": "Warn when a monitored quantity's (max - min) / |mean| over the window exceeds this "
+                     "while its mean is not drifting (a warning only, never a stop)",
+    "osc_window": "Iterations over which the oscillation is measured",
+    "residual": "Stop when the initial residual of the field (U: its largest component) falls below the "
+                "threshold (runTimeControl equationInitialResidual)",
+    "asymptotic": "Stop when |value - mean of the last N values| <= tolerance, in the quantity's units "
+                  "(runTimeControl average, exact window)",
+}
+NO_CRITERIA = "No criteria: the run stops at the iteration limit"
 
 # Rows of the read-only mesh report on the Mesh node: (key, label).
 MESH_ROWS = (
@@ -490,6 +511,45 @@ class PropertiesPanel(QWidget):
         self.ref_note.setObjectName("muted")
         _wrap(self.ref_note)
         self._layout.addWidget(self.ref_note)
+        # Stopping Criteria node (under Solvers): combination, limits, oscillation check, criteria.
+        self.stop_combine = _combo(("all", "any"))
+        self.stop_min = _spin(0, 10_000_000)
+        self.stop_max = _spin(1, 10_000_000)
+        self.stop_osc_threshold = _dspin(0.01, 1000.0, 2, " %")
+        self.stop_osc_window = _spin(4, 10_000_000)
+        for key, text, widget in (("combine", "Combine criteria", self.stop_combine),
+                                  ("min", "Minimum iterations", self.stop_min),
+                                  ("max", "Maximum iterations", self.stop_max),
+                                  ("osc_threshold", "Oscillation threshold", self.stop_osc_threshold),
+                                  ("osc_window", "Oscillation window", self.stop_osc_window)):
+            widget.setToolTip(STOPPING_TOOLTIPS[key])
+            self._layout.addWidget(self._make_row(f"stop_{key}", text, widget))
+            _connect_commit(widget, lambda k=key: self._commit_stopping_setting(k))
+        self._section("stop_criteria", "Criteria")
+        self.stop_add = QWidget()  # full width: two buttons sharing the row
+        self._stop_add_row = QHBoxLayout(self.stop_add)
+        self.stop_add_residual = QPushButton("Add residual")
+        self.stop_add_asymptotic = QPushButton("Add asymptotic")
+        for button, kind in ((self.stop_add_residual, "residual"), (self.stop_add_asymptotic, "asymptotic")):
+            button.setObjectName("tbBtn")
+            button.setToolTip(STOPPING_TOOLTIPS[kind])
+            button.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            button.clicked.connect(lambda _=False, k=kind: self._add_criterion(k))
+            self._stop_add_row.addWidget(button, 1)
+        self._layout.addWidget(self.stop_add)
+        self._criteria_box = QVBoxLayout()
+        self._criteria_box.setContentsMargins(0, 0, 0, 0)
+        self._criteria_box.setSpacing(0)
+        self._layout.addLayout(self._criteria_box)
+        self._criteria_rows: list[QWidget] = []
+        self._criteria_titles: list[tuple[QWidget, ElidedLabel]] = []
+        self._criteria_kinds: list[str] = []
+        # Per criterion: {"field"/"quantity"/"window"/"threshold"/"tolerance": widget, "remove": button}
+        self.criterion_widgets: list[dict[str, QWidget]] = []
+        self.stop_empty = QLabel(NO_CRITERIA)
+        self.stop_empty.setObjectName("muted")
+        _wrap(self.stop_empty)
+        self._layout.addWidget(self.stop_empty)
         self.run_empty = QLabel("No solver run yet")
         self.run_empty.setObjectName("muted")
         _wrap(self.run_empty)
@@ -549,7 +609,7 @@ class PropertiesPanel(QWidget):
         """
         m = metrics()
         pairs = [(self._rows[k], lab) for k, lab in self._row_labels.items() if not self._rows[k].isHidden()]
-        pairs += [(row, lab) for row, lab in self._layer_titles if not row.isHidden()]
+        pairs += [(row, lab) for row, lab in self._dynamic_titles() if not row.isHidden()]
         widest = max((lab.fontMetrics().horizontalAdvance(lab.full_text()) for _, lab in pairs), default=0)
         # A scrollbar's width is always reserved, so the layout does not depend on whether it shows.
         panel_w = max(self.width() - m.s3, 1)
@@ -560,7 +620,7 @@ class PropertiesPanel(QWidget):
         column = max(1, min(max(widest + m.s1, MIN_LABEL_U * m.u),
                             int(MAX_LABEL_FRACTION * panel_w), room_for_field))
         self._label_column = column
-        every = [*self._rows.items(), *((None, r) for r, _ in self._layer_titles)]
+        every = [*self._rows.items(), *((None, r) for r, _ in self._dynamic_titles())]
         for row in (r for _, r in every):
             box = row.layout()
             box.setDirection(
@@ -571,12 +631,16 @@ class PropertiesPanel(QWidget):
             # line as well, or its field would be squeezed into a sliver.
             label_h = box.itemAt(0).widget().fontMetrics().height()
             row.setMinimumHeight(m.field + 2 * m.s2 + (label_h + m.s1 if self.stacked else 0))
-        for lab in (*self._row_labels.values(), *(l for _, l in self._layer_titles)):
+        for lab in (*self._row_labels.values(), *(l for _, l in self._dynamic_titles())):
             if self.stacked:
                 lab.set_column_width(max(panel_w - 2 * m.s3, 1))  # the row's whole width
             else:
                 lab.set_column_width(column)
         self._fit_content_height()
+
+    def _dynamic_titles(self) -> list[tuple[QWidget, "ElidedLabel"]]:
+        """Rows built at refresh time (layer coverage, stopping criteria) with their labels."""
+        return [*self._layer_titles, *getattr(self, "_criteria_titles", [])]
 
     def _fit_content_height(self) -> None:
         """Make the scroll area aware of the rows' real height (a layout change inside the content
@@ -628,6 +692,14 @@ class PropertiesPanel(QWidget):
             label.setFont(mono)
         self.info_label.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
         self.mesh_empty.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
+        self.stop_empty.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
+        self._stop_add_row.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
+        self._stop_add_row.setSpacing(m.s2)
+        for button in (self.stop_add_residual, self.stop_add_asymptotic):
+            button.setMinimumHeight(m.field)
+        if getattr(self, "_criteria_kinds", None):
+            self._criteria_kinds = None  # rebuilt at the next refresh with the new metrics
+            self.refresh()
         self._apply_label_column()
 
     def set_project(self, project: Project) -> None:
@@ -679,11 +751,12 @@ class PropertiesPanel(QWidget):
         self._refresh_domain(is_domain)
         self._refresh_groups()
         self._refresh_run(self._kind == "solvers")
+        self._refresh_stopping(self._kind == "stopping")
         self._refresh_reference(self._kind == "reference_values")
         self._refresh_mesh_settings(self._kind == "mesh")
         self._refresh_mesh(self._kind == "mesh")
         self.info_label.setVisible(
-            not show_name and not is_domain and self._kind not in ("mesh", "reference_values")
+            not show_name and not is_domain and self._kind not in ("mesh", "reference_values", "stopping")
             and self._kind not in GROUPS
         )
         self._apply_label_column()
@@ -959,6 +1032,170 @@ class PropertiesPanel(QWidget):
         except (ValueError, TypeError) as exc:  # includes pydantic errors
             self.message.emit(str(exc))
         self.refresh()  # reverts a rejected value
+
+    # -- stopping criteria ---------------------------------------------------------------------
+
+    def _refresh_stopping(self, show: bool) -> None:
+        for key in STOPPING_ROWS:
+            self._rows[key].setVisible(show)
+        self._sections["stop_criteria"].setVisible(show)
+        self.stop_add.setVisible(show)
+        stop = self._project.sim.solvers.stopping
+        kinds = [c.kind for c in stop.criteria] if show else []
+        if kinds != self._criteria_kinds:
+            self._build_criteria_rows(kinds)
+        self.stop_empty.setVisible(show and not kinds)
+        if not show:
+            return
+        widgets = [self.stop_combine, self.stop_min, self.stop_max, self.stop_osc_threshold, self.stop_osc_window]
+        widgets += [w for row in self.criterion_widgets for w in row.values()]
+        for w in widgets:
+            w.blockSignals(True)
+        try:
+            self.stop_combine.setCurrentText(stop.combine)
+            self.stop_min.setValue(stop.min_iterations)
+            self.stop_max.setValue(self._project.sim.solvers.iterations)
+            self.stop_osc_threshold.setValue(100 * stop.oscillation_threshold)
+            self.stop_osc_window.setValue(stop.oscillation_window)
+            for c, row in zip(stop.criteria, self.criterion_widgets):
+                if isinstance(c, ResidualCriterion):
+                    row["field"].setCurrentText(c.field)
+                    row["threshold"].setValue(c.threshold)
+                else:
+                    row["quantity"].setCurrentIndex(ASYMPTOTIC_QUANTITIES.index(c.quantity))
+                    row["window"].setValue(c.window)
+                    row["tolerance"].setValue(c.tolerance)
+                row["earliest"].setText(f"iteration {earliest_iteration(c, stop.min_iterations)}")
+        finally:
+            for w in widgets:
+                w.blockSignals(False)
+
+    def _criterion_row(self, text: str, field: QWidget) -> None:
+        row = QWidget()
+        row.setObjectName("propRow")
+        row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        box = QHBoxLayout(row)
+        box.setContentsMargins(*self._row_margins)
+        title = ElidedLabel(text)
+        title.setObjectName("muted")
+        box.addWidget(title)
+        box.addWidget(field, 1)
+        if isinstance(field, (QLineEdit, QComboBox, QAbstractSpinBox)):
+            field.setMinimumHeight(metrics().field)
+            field.setMinimumWidth(1)
+            field.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            field.setFont(mono_font(QApplication.font(), 0.9))
+        row.setMinimumHeight(self._row_min_height)
+        self._criteria_titles.append((row, title))
+        self._criteria_box.addWidget(row)
+        row.show()  # now, not at the next event loop pass: the content height must count it
+        self._criteria_rows.append(row)
+
+    def _build_criteria_rows(self, kinds: list[str]) -> None:
+        """One block of rows per criterion: a title row (type and Remove), then its settings."""
+        for row in self._criteria_rows:
+            self._criteria_box.removeWidget(row)
+            row.hide()
+            row.deleteLater()
+        self._criteria_rows, self._criteria_titles, self.criterion_widgets = [], [], []
+        self._criteria_kinds = list(kinds)
+        for i, kind in enumerate(kinds):
+            remove = QPushButton("Remove")
+            remove.setObjectName("tbBtn")
+            remove.setToolTip(f"Remove criterion {i + 1}: {STOPPING_TOOLTIPS[kind]}")
+            remove.clicked.connect(lambda _=False, n=i: self._remove_criterion(n))
+            self._criterion_row(f"{i + 1} \u00b7 {'Residual' if kind == 'residual' else 'Asymptotic'}", remove)
+            earliest = QLabel()
+            earliest.setObjectName("checkValue")
+            earliest.setToolTip("The first iteration at which OpenFOAM may consider this criterion: the minimum "
+                                "iterations, the full window, and never before iteration 3")
+            widgets: dict[str, QWidget] = {"remove": remove, "earliest": earliest}
+            if kind == "residual":
+                field = _combo(RESIDUAL_FIELDS)
+                field.setToolTip("Solved field; U is the largest of the Ux, Uy, Uz residuals")
+                threshold = _sci()
+                self._criterion_row("Field", field)
+                self._criterion_row("Threshold", threshold)
+                field.currentTextChanged.connect(lambda _t, n=i: self._commit_criterion(n, "field"))
+                threshold.editingFinished.connect(lambda n=i: self._commit_criterion(n, "threshold"))
+                widgets.update(field=field, threshold=threshold)
+            else:
+                quantity = QComboBox()
+                for q in ASYMPTOTIC_QUANTITIES:
+                    quantity.addItem(QUANTITY_LABELS[q], q)
+                window = _spin(2, 10_000_000, " it.")
+                tolerance = _sci()
+                tolerance.setToolTip("Absolute, in the quantity's units: |value - window mean| <= tolerance")
+                self._criterion_row("Quantity", quantity)
+                self._criterion_row("Window", window)
+                self._criterion_row("Tolerance", tolerance)
+                quantity.currentIndexChanged.connect(lambda _i, n=i: self._commit_criterion(n, "quantity"))
+                window.editingFinished.connect(lambda n=i: self._commit_criterion(n, "window"))
+                tolerance.editingFinished.connect(lambda n=i: self._commit_criterion(n, "tolerance"))
+                widgets.update(quantity=quantity, window=window, tolerance=tolerance)
+            _wrap(earliest)
+            self._criterion_row("Earliest stop", earliest)
+            self.criterion_widgets.append(widgets)
+        self._apply_label_column()
+
+    def _edit_stopping(self, mutate) -> None:
+        """Apply ``mutate`` to a dump of the stopping criteria and commit it (one undo step);
+        a rejected value is reported and reverted."""
+        data = self._project.sim.solvers.stopping.model_dump()
+        try:
+            mutate(data)
+            self._project.update_solver(stopping=data)
+        except (ValueError, TypeError) as exc:  # includes pydantic errors
+            self.message.emit(str(exc))
+        self.refresh()
+
+    def _commit_stopping_setting(self, key: str) -> None:
+        if self._kind != "stopping":
+            return
+        if key == "max":
+            try:
+                self._project.update_solver(iterations=self.stop_max.value())
+            except (ValueError, TypeError) as exc:
+                self.message.emit(str(exc))
+            self.refresh()
+            return
+        values = {"combine": lambda: self.stop_combine.currentText(),
+                  "min": lambda: self.stop_min.value(),
+                  "osc_threshold": lambda: self.stop_osc_threshold.value() / 100,
+                  "osc_window": lambda: self.stop_osc_window.value()}
+        field = {"combine": "combine", "min": "min_iterations", "osc_threshold": "oscillation_threshold",
+                 "osc_window": "oscillation_window"}[key]
+        value = values[key]()
+        self._edit_stopping(lambda d: d.update({field: value}))
+
+    def _commit_criterion(self, index: int, key: str) -> None:
+        if self._kind != "stopping" or index >= len(self.criterion_widgets):
+            return
+        widget = self.criterion_widgets[index][key]
+        if key == "quantity":
+            value = widget.currentData()
+        elif isinstance(widget, QComboBox):
+            value = widget.currentText()
+        else:
+            value = widget.value()
+
+        def mutate(d: dict) -> None:
+            d["criteria"][index][key] = value
+
+        self._edit_stopping(mutate)
+
+    def _add_criterion(self, kind: str) -> None:
+        """Add a criterion with defaults: a p residual of 1e-4, or an asymptotic Cd criterion."""
+        if self._kind != "stopping":
+            return
+        new = (ResidualCriterion(field="p", threshold=1e-4) if kind == "residual"
+               else AsymptoticCriterion(quantity="Cd"))
+        self._edit_stopping(lambda d: d["criteria"].append(new.model_dump()))
+
+    def _remove_criterion(self, index: int) -> None:
+        if self._kind != "stopping":
+            return
+        self._edit_stopping(lambda d: d["criteria"].pop(index))
 
     def set_run_record(self, record: RunRecord | None, stale: bool = False) -> None:
         """The last solver run shown on the Solvers node (None: no run yet)."""

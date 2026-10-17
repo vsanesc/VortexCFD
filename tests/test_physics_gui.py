@@ -94,14 +94,7 @@ def test_solvers_editor(window: MainWindow) -> None:
     f["iterations"].editingFinished.emit()
     assert window.project.sim.solvers.iterations == 250
     assert window.project.undo_label == "Edit solver (iterations)"
-    for key, value in (("residual_p", 1e-4), ("residual_u", 1e-5), ("residual_k", 1e-5), ("residual_omega", 1e-5)):
-        assert f[key].value() == pytest.approx(value) and f[key].text() == f"{value:.6g}"
-    f["residual_p"].setText("1e-6")
-    f["residual_p"].editingFinished.emit()
-    assert window.project.sim.solvers.residual_p == pytest.approx(1e-6)
-    f["residual_k"].setText("0")  # invalid: reverts with a message
-    f["residual_k"].editingFinished.emit()
-    assert window.project.sim.solvers.residual_k == pytest.approx(1e-5) and "residual_k" in window.statusBar().currentMessage()
+    assert set(f) == {"iterations", "write_interval", "relaxation"}  # residual targets: Stopping Criteria node
 
 
 def test_mesh_node_has_layer_sizing_rows(window: MainWindow) -> None:

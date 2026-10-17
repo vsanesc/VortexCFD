@@ -16,6 +16,9 @@ class RunRecord:
     final_residuals: dict[str, float] = field(default_factory=dict)
     inputs_hash: str = ""  # hash of the solver inputs the results were computed from
     exit_code: int | None = None
+    # Stopping criteria of the run (descriptions, convergence.describe) and those that stopped it.
+    criteria: tuple[str, ...] = ()
+    stopped_by: tuple[str, ...] = ()
 
     @property
     def label(self) -> str:
@@ -29,6 +32,8 @@ def write_run_record(case_dir: Path, record: RunRecord) -> None:
         "final_residuals": dict(record.final_residuals),
         "inputs_hash": record.inputs_hash,
         "exit_code": record.exit_code,
+        "criteria": list(record.criteria),
+        "stopped_by": list(record.stopped_by),
     }
     (Path(case_dir) / RUN_RECORD_NAME).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
@@ -43,7 +48,9 @@ def read_run_record(case_dir: Path) -> RunRecord | None:
         residuals = {str(k): float(v) for k, v in dict(data.get("final_residuals", {})).items()}
         code = data.get("exit_code")
         return RunRecord(state, int(data["iterations"]), residuals, str(data["inputs_hash"]),
-                         None if code is None else int(code))
+                         None if code is None else int(code),
+                         tuple(str(c) for c in data.get("criteria", [])),
+                         tuple(str(c) for c in data.get("stopped_by", [])))
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
 

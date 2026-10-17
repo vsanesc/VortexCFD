@@ -1,24 +1,23 @@
 # Status
 
-Updated 2026-10-17. Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
+Updated 2026-10-17 (Task 6.1 Part A). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
 task (CLAUDE.md).
 
 ## Current branch
 
-**task/6.2-results** (not yet published; Tasks 4A and 4B were merged in PR #13). Done on it:
-- Lost parts in meshing (D-052; schema v5): post-mesh guard (a part patch with 0 faces fails the mesh
-  and blocks Run Solver), automatic seed lines for small or thin parts, per-part surface levels.
-- Task 6.2 (D-053 to D-055): Results Scene with field, colormap and range selection, scalar
-  bar, walls/section display, field-range telemetry and the stale strip; Open in ParaView with a
-  Preferences path.
+**task/6.1-monitors** (not yet published; Task 6.2 was merged in PR #14). Done on it:
+- Part A (D-058, D-059; schema v6): stopping criteria under Solvers (residual and asymptotic criteria,
+  "all"/"any", minimum iterations; the iteration limit always applies) written as OpenFOAM's
+  runTimeControl function object (residualControl is no longer written); a Stopping Criteria node;
+  a convergence banner and a per-criterion table (value, threshold, satisfied) in the monitors
+  column; the oscillation warning. Real run: an asymptotic criterion on Cd stopped simpleFoam at
+  iteration 49 of 150 on the coarse sphere.
 
-Review of 2026-10-17 applied: D-052 to D-055 Accepted; small parts are seeded automatically (the item 54
-case now meshes with both parts with default settings); inward-normals warning at import (D-056);
-wrapping Results Scene strip and upstream camera (D-053); status bar messages left, selection right
-(D-057).
+Open: docs/QUESTIONS.md items 60 (the asymptotic tolerance is absolute; the test can be met by chance),
+61 (oscillation around a zero mean is not flagged) and 62 (run state label).
 
-Next steps: a convergence banner and restarting a run from the latest time (Phase 6.1 / D-046), and a
-total cell estimate (today only background cells are estimated). No open QUESTIONS items from this branch.
+Next steps on this branch: Part B (force breakdown, mass balance, wall shear and separation, y+
+histogram, probes), Part C (Cp on wall sections), Part D (docs).
 
 ## Phases
 
@@ -49,7 +48,7 @@ total cell estimate (today only background cells are estimated). No open QUESTIO
 | 5.3 | M3: alternative volume mesher | not started (cfMesh build spike pending) |
 | 5.4 | M4: prism layer robustness | not started |
 | 5.5 | M5: own mesher (go/no-go) | not started |
-| 6.1 | Monitors and reports | report slots with Cd, Cl, Cm pitch and wall y+ (D-048); reference values (D-047); convergence banner not started |
+| 6.1 | Monitors and reports | report slots with Cd, Cl, Cm pitch and wall y+ (D-048); reference values (D-047); stopping criteria through runTimeControl, convergence banner and oscillation warning (D-058, D-059) |
 | 6.2 | Scenes and derived parts | scalar scenes done (D-053): field/colormap/range selection, scalar bar, section; scene saving, image export, iso-surfaces and streamlines not started |
 | 6.3 | Data export and reports | not started |
 | 7.1-7.3 | Coupled solver analysis | not started |
@@ -73,7 +72,6 @@ total cell estimate (today only background cells are estimated). No open QUESTIO
 - Total cell estimate: only background cells are estimated today.
 - Per-part surface size (one target surface size for all parts today).
 - Task 0.1 (STAR-CCM+ feature inventory) not done.
-- Convergence banner (Phase 6.1); the run state is in the Solvers node and the status line.
 - Solver restart from the latest time: every run starts from 0 (D-046).
 - The mesh scene is read on the GUI thread after meshing (MeshView.load): a multi-million-cell mesh
   freezes the window for a moment (docs/QUESTIONS.md item 5).

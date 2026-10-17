@@ -101,7 +101,7 @@ def test_case_b_runs_converge_within_budget(case_b) -> None:
     runs, rows, _ = case_b
     for row in rows:
         print(f"\n{row['cells_normal']} wall-normal cells: {row['iterations']} iterations, {row['wall_time_s']:.0f} s")
-        assert row["converged"], "residualControl (initial residuals < 1e-5) not met"
+        assert row["converged"], "residual criteria (initial residuals < 1e-5) not met"
         assert row["wall_time_s"] < GRID_BUDGET_S
 
 

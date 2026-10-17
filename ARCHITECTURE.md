@@ -55,7 +55,8 @@ src/vortexcfd/
   - `foam/runner.py`: process execution via `run_foam` and streaming runner `FoamRun` returning `RunResult`. Clean stop works for single-process solvers launched through `FoamRun` with `clean_stop=True`.
   - `foam/logparse.py`: incremental solver log parsing via `LogParser` recording `TimeStep` events (and `Converged` when the SIMPLE residualControl is reached).
   - `foam/solver_run.py`: `SolverRun` runs simpleFoam through `FoamRun(clean_stop=True)` on a worker thread, parses the log and classifies the end state (converged, iteration limit, stopped, crashed).
-  - `foam/run_record.py`: `case/vortexcfd_run.json`, the last run's state, iterations, final residuals and results inputs hash.
+  - `foam/run_record.py`: `case/vortexcfd_run.json`, the last run's state, iterations, final residuals, results inputs hash and the stopping criteria (all of them and those that stopped the run).
+  - `foam/convergence.py`: stopping criteria as the runTimeControl function object (`run_time_control`, condition names and start-up), their live evaluation with the same formulas (`evaluate`, `asymptotic_delta`), and the oscillation check (`oscillation`) (D-058, D-059). `LogParser` reports runTimeControl's stop as the `CriteriaMet` event.
   - `foam/residuals.py`: `ResidualHistory` (initial residual per field and iteration) and `decimate` (at most about 2000 points per series).
   - `foam/postprocessing.py`: tails the forceCoeffs (`coefficient.dat`), forces (`force.dat`) and yPlus (`yPlus.dat`) output files (`ReportMonitor`, `TailReader`), tolerating a partial last line; y+ across walls is face-count weighted from `constant/polyMesh/boundary`; `project_coefficients` projects a force onto the drag and lift directions.
   - `foam/physics_case.py` also resolves the forceCoeffs reference values (`reference_values`: overrides from `Reports` or the parts' bounding box).
@@ -73,7 +74,7 @@ src/vortexcfd/
   - `gui/theme.py`: design tokens (`Theme`), Fusion palette/stylesheet and font zoom; `gui/icons.py` draws tree icons in code.
   - `gui/widgets.py`: shared pieces (section header, badge, search field, glyph pixmaps, `FlowLayout` for rows that wrap).
   - `gui/topbar.py`: top bar (brand, project file and state, mesh and results staleness badges, camera buttons, wireframe, Generate Mesh / Run Solver).
-  - `gui/monitors.py`: right column: live log-scale residual chart drawn with QPainter (legend, autoscroll, decimated series, palette in `theme.RESIDUAL_STYLES`) and the report slots (assignment menu, last value, sparkline), polled from the postProcessing files on a GUI-thread timer.
+  - `gui/monitors.py`: right column: the convergence banner, per-criterion table and oscillation warnings (`ConvergencePanel`), live log-scale residual chart drawn with QPainter (legend, autoscroll, decimated series, palette in `theme.RESIDUAL_STYLES`) and the report slots (assignment menu, last value, sparkline), polled from the postProcessing files on a GUI-thread timer.
   - `gui/viewport.py`: VTK-drawn viewport pieces (ground grid, empty-scene message, telemetry card) and telemetry settings.
   - `gui/settings_store.py`: the shared `QSettings` accessor.
   - `gui/scene.py`: one VTK actor per Part kept in sync with the Project (picking, visibility, selection colour), part file status, cached surface reports, and the translucent domain box (`DomainView`).
@@ -86,7 +87,7 @@ src/vortexcfd/
   - `gui/solver_worker.py`: Qt wrapper around `SolverRun` (signals only, like `MeshWorker`).
   - `gui/mesh_worker.py`: Qt wrapper around `MeshRun`; the worker and reader threads only emit signals, slots run in the GUI thread. `gui/scene.py` also holds `MeshView` (part patches of the generated mesh with edges).
   - `gui/console.py`: output console fed by a logging handler on the `vortexcfd` logger.
-  - `gui/properties_panel.py`: properties rows (label left, mono value box right) for the selected node, including the Reference Values node; `gui/dialogs.py`: injectable file/confirm dialogs.
+  - `gui/properties_panel.py`: properties rows (label left, mono value box right) for the selected node, including the Reference Values node and the Stopping Criteria node (rows rebuilt per criterion); `gui/dialogs.py`: injectable file/confirm dialogs.
   - The viewer runs with `QtInteractor(auto_update=False)`: pyvistaqt's 5 Hz render timer made offscreen test runs abort intermittently (VTK render without GL), so the window renders explicitly after every change; interaction still renders through VTK events.
   - Spin boxes hide their buttons through the stylesheet (`::up-button/::down-button { width: 0 }`) and their inner QLineEdit is unstyled: `setButtonSymbols(NoButtons)` combined with a stylesheet collapses the edit field to 1 px.
   - May import `core` and `foam`.

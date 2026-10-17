@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from vortexcfd.core.model import Inflow, Mesh, Physics, Solvers
+from vortexcfd.core.model import Inflow, Mesh, Physics, Solvers, StoppingCriteria
 from vortexcfd.foam.case_writer import write_case
 from vortexcfd.foam.dictfile import read_foam_file
 from vortexcfd.foam.mesh_case import MeshCaseInput, build_mesh_files, snappy_hex_mesh_dict
@@ -158,10 +158,7 @@ def test_schemes_and_solution_follow_the_motorbike_tutorial() -> None:
     assert s["divSchemes"]["div(phi,k)"] == ("bounded", "Gauss", "upwind")
     assert s["gradSchemes"]["grad(U)"] == ("cellLimited", "Gauss", "linear", 1)
     sol = f["system/fvSolution"].content
-    assert sol["SIMPLE"] == {
-        "nNonOrthogonalCorrectors": 0, "consistent": True,
-        "residualControl": {"p": 1e-4, "U": 1e-5, "k": 1e-5, "omega": 1e-5},
-    }
+    assert sol["SIMPLE"] == {"nNonOrthogonalCorrectors": 0, "consistent": True}  # no residualControl (D-058)
     assert sol["relaxationFactors"]["equations"] == {"U": 0.9, "k": 0.7, "omega": 0.7}
     assert sol["solvers"]["p"]["solver"] == "GAMG" and sol["solvers"]["p"]["relTol"] == 0.01
     assert sol["solvers"]["U"]["solver"] == "smoothSolver" and sol["solvers"]["omega"]["nSweeps"] == 1
@@ -324,11 +321,16 @@ def test_snappy_accepts_absolute_layers_and_first_layer_is_the_first_cell(tmp_pa
     assert result.report.extruded_percent == 100.0
 
 
-def test_residual_targets_are_written_as_simple_residual_control() -> None:
-    solvers = Solvers(residual_p=1e-6, residual_u=2e-6, residual_k=3e-6, residual_omega=4e-6)
-    f = build_solver_files(make(solvers=solvers))
-    assert f["system/fvSolution"].content["SIMPLE"]["residualControl"] == {
-        "p": 1e-6, "U": 2e-6, "k": 3e-6, "omega": 4e-6}
+def test_stopping_criteria_are_a_run_time_control_after_the_force_coefficients() -> None:
+    """The criteria are a runTimeControl object placed after forceCoeffs1 (it reads its results);
+    without criteria there is none, and fvSolution never has residualControl (D-058)."""
+    f = build_solver_files(make())
+    functions = f["system/controlDict"].content["functions"]
+    assert list(functions)[-1] == "runTimeControl1"
+    assert list(functions).index("forceCoeffs1") < list(functions).index("runTimeControl1")
+    assert "residualControl" not in f["system/fvSolution"].content["SIMPLE"]
+    none = Solvers(stopping=StoppingCriteria(criteria=[]))
+    assert "runTimeControl1" not in build_solver_files(make(solvers=none))["system/controlDict"].content["functions"]
 
 
 # -- layer count from y+ ----------------------------------------------------------------------------------------

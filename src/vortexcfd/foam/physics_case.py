@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 
 from vortexcfd.core.model import Inflow, Physics, Reports, Solvers
 from vortexcfd.foam.case_writer import FoamFileSpec
+from vortexcfd.foam.convergence import FUNCTION_NAME as RUN_TIME_CONTROL, run_time_control
 
 Bounds = tuple[float, float, float, float, float, float]  # xmin, xmax, ymin, ymax, zmin, zmax
 
@@ -163,6 +164,22 @@ def _forces(inp: SolverCaseInput) -> dict:
 
 
 def control_dict(inp: SolverCaseInput) -> FoamFileSpec:
+    """controlDict: endTime is the iteration limit; the stopping criteria are a runTimeControl
+    function object placed after the function objects whose results it reads (D-058)."""
+    functions = {
+        "forceCoeffs1": _force_coeffs(inp),
+        "forces1": _forces(inp),
+        "yPlus1": {
+            "type": "yPlus",
+            "libs": ["fieldFunctionObjects"],
+            "writeFields": True,
+            "executeControl": "writeTime",
+            "writeControl": "writeTime",
+        },
+    }
+    stop = run_time_control(inp.solvers.stopping)
+    if stop is not None:
+        functions[RUN_TIME_CONTROL] = stop
     return FoamFileSpec(content={
         "application": "simpleFoam",
         "startFrom": "startTime",
@@ -179,17 +196,7 @@ def control_dict(inp: SolverCaseInput) -> FoamFileSpec:
         "timeFormat": "general",
         "timePrecision": 6,
         "runTimeModifiable": True,
-        "functions": {
-            "forceCoeffs1": _force_coeffs(inp),
-            "forces1": _forces(inp),
-            "yPlus1": {
-                "type": "yPlus",
-                "libs": ["fieldFunctionObjects"],
-                "writeFields": True,
-                "executeControl": "writeTime",
-                "writeControl": "writeTime",
-            },
-        },
+        "functions": functions,
     })
 
 
@@ -215,8 +222,11 @@ def fv_schemes() -> FoamFileSpec:
 
 
 def fv_solution(solvers: Solvers) -> FoamFileSpec:
-    """motorBike fvSolution (v2606), preset "robust": SIMPLEC (consistent), U 0.9, k/omega 0.7,
-    plus residualControl (the airFoil2D tutorial's mechanism) from the solver settings."""
+    """motorBike fvSolution (v2606), preset "robust": SIMPLEC (consistent), U 0.9, k/omega 0.7.
+
+    No residualControl: the stop is the runTimeControl function object of the stopping criteria
+    (controlDict), which also honours the minimum iterations and the "any" combination;
+    residualControl would end the run on its own targets regardless (D-058)."""
     p = {"solver": "GAMG", "smoother": "GaussSeidel", "tolerance": 1e-7, "relTol": 0.01}
     smooth = {"solver": "smoothSolver", "smoother": "GaussSeidel", "tolerance": 1e-8, "relTol": 0.1,
               "nSweeps": 1}
@@ -225,10 +235,6 @@ def fv_solution(solvers: Solvers) -> FoamFileSpec:
         "SIMPLE": {
             "nNonOrthogonalCorrectors": 0,
             "consistent": True,
-            "residualControl": {
-                "p": solvers.residual_p, "U": solvers.residual_u,
-                "k": solvers.residual_k, "omega": solvers.residual_omega,
-            },
         },
         "potentialFlow": {"nNonOrthogonalCorrectors": 10},
         "relaxationFactors": {"equations": {"U": 0.9, "k": 0.7, "omega": 0.7}},

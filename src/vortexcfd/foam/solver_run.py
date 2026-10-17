@@ -8,7 +8,9 @@ End states (D-046), decided from the exit code and the LogParser events:
 - ``crashed``: a ``SolverCrash`` (stack trace) or ``FatalError`` block, or a non-zero exit code that
   the user did not cause by stopping;
 - ``stopped``: the user (or the timeout) stopped the run;
-- ``converged``: the solution control printed "SIMPLE solution converged" (residualControl reached);
+- ``converged``: the stopping criteria were met (runTimeControl printed "Stopping calculation",
+  D-058) or, in logs written before them, the SIMPLE residualControl printed "SIMPLE solution
+  converged";
 - ``iteration_limit``: the solver ended normally at endTime without converging.
 """
 
@@ -46,6 +48,7 @@ class SolverRunResult:
     crash: str | None = None  # the crash or fatal-error block, if any
     log_file: Path | None = None
     duration_s: float = 0.0
+    criteria_met: tuple[str, ...] = ()  # runTimeControl condition names that stopped the run
 
     @property
     def label(self) -> str:
@@ -72,7 +75,7 @@ def classify(exit_code: int | None, stop_requested: bool, parser: LogParser) -> 
         return STOPPED
     if exit_code != 0:
         return CRASHED
-    if parser.converged is not None:
+    if parser.criteria_met is not None or parser.converged is not None:
         return CONVERGED
     return ITERATION_LIMIT
 
@@ -174,6 +177,7 @@ class SolverRun:
             result = SolverRunResult(
                 state, res.exit_code, _iterations(self.parser), final_residuals(self.parser),
                 self.parser.crash or self.parser.fatal_error, res.log_file, res.duration_s,
+                self.parser.criteria_met.conditions if self.parser.criteria_met else (),
             )
         self._result = result
         if self._on_done is not None:

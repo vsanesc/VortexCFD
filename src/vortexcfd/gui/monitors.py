@@ -7,6 +7,7 @@ from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QApplication,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMenu,
@@ -16,7 +17,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from vortexcfd.core.model import REPORT_IDS, REPORT_SLOTS
+from vortexcfd.core.model import REPORT_IDS, REPORT_SLOTS, AsymptoticCriterion, StoppingCriteria
+from vortexcfd.foam.convergence import CriterionStatus, Oscillation, evaluate, oscillation
 from vortexcfd.foam.logparse import TimeStep
 from vortexcfd.foam.postprocessing import REPORT_LABELS, ReportMonitor
 from vortexcfd.foam.residuals import ResidualHistory
@@ -339,6 +341,137 @@ class ReportSlots(QWidget):
             button.setIconSize(QSize(m.u, m.u))
 
 
+def set_state(label: QLabel, state: str | None) -> None:
+    """Colour a value label: "ok" (success), "warn", "error" or None (text)."""
+    for prop in ("ok", "warn", "error"):
+        label.setProperty(prop, "true" if state == prop else "false")
+    label.style().unpolish(label)
+    label.style().polish(label)
+
+
+# Banner texts (D-058). The run states are those of foam/solver_run.py.
+BANNER_RUNNING = "Solving: stopping criteria not met yet"
+BANNER_LIMIT = "Iteration limit reached without meeting the criteria"
+BANNER_STOPPED = "Stopped by the user before the criteria were met"
+BANNER_CRASHED = "The solver crashed before the criteria were met"
+BANNER_NO_RUN = "No solver run yet"
+
+
+def banner_for(state: str | None, stopped_by: tuple[str, ...], iterations: int | None) -> tuple[str, str | None]:
+    """(text, colour state) of the convergence banner for a run state (None: running)."""
+    if state is None:
+        return BANNER_RUNNING, None
+    if state == "converged":
+        at = f" at iteration {iterations}" if iterations else ""
+        if stopped_by:
+            return f"Criteria met{at}: " + "; ".join(stopped_by), "ok"
+        return f"Converged{at} (SIMPLE residual control)", "ok"
+    if state == "iteration_limit":
+        return BANNER_LIMIT, "warn"
+    if state == "stopped":
+        return BANNER_STOPPED, "warn"
+    if state == "crashed":
+        return BANNER_CRASHED, "error"
+    return BANNER_NO_RUN, None
+
+
+class ConvergencePanel(QWidget):
+    """Convergence banner, per-criterion state and oscillation warnings (D-058, D-059).
+
+    The banner and the criteria table are shown only when stopping criteria exist; oscillation
+    warnings whenever a monitored quantity oscillates.
+    """
+
+    HEADERS = ("Criterion", "Value", "Threshold", "Satisfied")
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("convergenceBox")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.banner = QLabel()
+        self.banner.setObjectName("checkValue")
+        self.banner.setWordWrap(True)
+        self._grid_host = QWidget()
+        self.grid = QGridLayout(self._grid_host)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.rows: list[tuple[QLabel, QLabel, QLabel, QLabel]] = []
+        self.warnings: list[QLabel] = []
+        self._warning_box = QVBoxLayout()
+        self._warning_box.setContentsMargins(0, 0, 0, 0)
+        self._layout = QVBoxLayout(self)
+        self._layout.addWidget(self.banner)
+        self._layout.addWidget(self._grid_host)
+        self._layout.addLayout(self._warning_box)
+        for col, text in enumerate(self.HEADERS):
+            head = QLabel(text)
+            head.setObjectName("kpiTitle")
+            self.grid.addWidget(head, 0, col)
+        self.grid.setColumnStretch(0, 1)
+        self._has_criteria = False
+        self._font = mono_font(QApplication.font(), 0.75)
+        self.set_view(False, ("", None), [], [])
+
+    def set_view(self, has_criteria: bool, banner: tuple[str, str | None], statuses: list[CriterionStatus],
+                 oscillations: list[Oscillation]) -> None:
+        self._has_criteria = has_criteria
+        self.banner.setText(banner[0])
+        set_state(self.banner, banner[1])
+        self.banner.setVisible(has_criteria)
+        self._grid_host.setVisible(has_criteria and bool(statuses))
+        while len(self.rows) > len(statuses):
+            for label in self.rows.pop():
+                self.grid.removeWidget(label)
+                label.deleteLater()
+        while len(self.rows) < len(statuses):
+            r = len(self.rows) + 1
+            labels = tuple(QLabel() for _ in self.HEADERS)
+            for col, label in enumerate(labels):
+                label.setObjectName("checkValue")
+                label.setFont(self._font)
+                if col == 0:  # elided by the layout instead of widening the column
+                    label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+                self.grid.addWidget(label, r, col)
+            self.rows.append(labels)  # type: ignore[arg-type]
+        for labels, status in zip(self.rows, statuses):
+            name, value, threshold, met = labels
+            name.setText(status.label or status.description)
+            name.setToolTip(status.description + (f" ({status.note})" if status.note else ""))
+            value.setText(EMPTY if status.value is None else f"{status.value:.3g}")
+            threshold.setText(f"{status.threshold:.3g}")
+            met.setText("yes" if status.satisfied else "no")
+            met.setToolTip(status.note)
+            set_state(met, "ok" if status.satisfied else None)
+        for label in self.warnings:
+            self._warning_box.removeWidget(label)
+            label.deleteLater()
+        self.warnings = []
+        for osc in oscillations:
+            label = QLabel(osc.message())
+            label.setObjectName("checkValue")
+            label.setWordWrap(True)
+            set_state(label, "warn")
+            self._warning_box.addWidget(label)
+            self.warnings.append(label)
+        self.setVisible(has_criteria or bool(oscillations))
+
+    @property
+    def statuses_text(self) -> list[tuple[str, str, str, str]]:
+        return [tuple(label.text() for label in row) for row in self.rows]  # type: ignore[misc]
+
+    def configure(self, m: Metrics, t: Theme) -> None:
+        self._layout.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
+        self._layout.setSpacing(m.s1)
+        self.grid.setHorizontalSpacing(m.s2)
+        self.grid.setVerticalSpacing(m.s1)
+        self._font = mono_font(QApplication.font(), 0.75)
+        small = mono_font(QApplication.font(), 0.75)
+        for i in range(self.grid.count()):
+            widget = self.grid.itemAt(i).widget()
+            if widget is not None:
+                widget.setFont(small)
+        self.banner.setFont(QApplication.font())
+
+
 class MonitorsPanel(QWidget):
     """Header + residual chart + report slots, fed live while the solver runs.
 
@@ -355,6 +488,7 @@ class MonitorsPanel(QWidget):
         self.header = SectionHeader("Residuals & Force Monitors")
         self.header.add_badge("Log10 Scale")
         self.chart = ResidualChart()
+        self.convergence = ConvergencePanel()
         self.kpis = ReportSlots()
         self.kpis.assigned.connect(self.slot_assigned)
         layout = QVBoxLayout(self)
@@ -362,9 +496,14 @@ class MonitorsPanel(QWidget):
         layout.setSpacing(0)
         layout.addWidget(self.header)
         layout.addWidget(self.chart, 1)
+        layout.addWidget(self.convergence)
         layout.addWidget(self.kpis)
         self.history = ResidualHistory()
         self.reports: ReportMonitor | None = None
+        # The criteria the shown run uses, and its outcome: (state, stopped_by, iterations);
+        # state None = running, outcome None = no run.
+        self.stopping: StoppingCriteria | None = None
+        self.outcome: tuple[str | None, tuple[str, ...], int | None] | None = None
         self._dirty = False
         self._timer = QTimer(self)
         self._timer.setInterval(REFRESH_MS)
@@ -375,14 +514,33 @@ class MonitorsPanel(QWidget):
         self._timer.stop()
         self.history.clear()
         self.reports = None
+        self.outcome = None
         self.chart.set_series({})
         self.kpis.set_series(None)
+        self._update_convergence()
 
-    def start_run(self, case_dir: Path) -> None:
+    def set_stopping(self, stopping: StoppingCriteria | None) -> None:
+        """The stopping criteria to evaluate (the run's, or the project's when no run is going)."""
+        if stopping != self.stopping:
+            self.stopping = stopping
+            self._dirty = True
+            self.refresh()
+
+    def start_run(self, case_dir: Path, stopping: StoppingCriteria | None = None) -> None:
         """A solver run starts in ``case_dir``: forget the previous run, poll its files."""
         self.clear()
+        self.stopping = stopping
         self.reports = ReportMonitor(case_dir)
+        self.outcome = (None, (), None)
         self._timer.start()
+        self._update_convergence()
+
+    def set_outcome(self, state: str, stopped_by: tuple[str, ...] = (), iterations: int | None = None) -> None:
+        """How the shown run ended (solver_run states; ``stopped_by``: descriptions of the criteria
+        that stopped it)."""
+        self.outcome = (state, tuple(stopped_by), iterations)
+        self._dirty = True
+        self.refresh()
 
     def add_step(self, step: TimeStep) -> None:
         """One completed solver iteration (logparse.TimeStep), in the GUI thread."""
@@ -395,11 +553,12 @@ class MonitorsPanel(QWidget):
         self._dirty = True
         self.refresh()
 
-    def load_run(self, case_dir: Path, steps) -> None:
+    def load_run(self, case_dir: Path, steps, outcome: tuple[str, tuple[str, ...], int | None] | None = None) -> None:
         """Show a finished run (project open): its log's steps and its postProcessing files."""
         self.clear()
         self.history.extend(steps)
         self.reports = ReportMonitor(case_dir)
+        self.outcome = outcome
         self._dirty = True
         self.refresh()
 
@@ -418,8 +577,36 @@ class MonitorsPanel(QWidget):
         self._dirty = False
         self.chart.set_series(self.history.decimated())
         self.kpis.set_series(self.reports.series if self.reports is not None else None)
+        self._update_convergence()
+
+    def monitored_quantities(self) -> list[str]:
+        """Quantities checked for oscillation: the asymptotic criteria's and the assigned report
+        slots' (y+ is written only at write times and is left out)."""
+        names: list[str] = []
+        if self.stopping is not None:
+            names += [c.quantity for c in self.stopping.criteria if isinstance(c, AsymptoticCriterion)]
+        names += [r for r in self.kpis.assignments if r and not r.startswith("yplus")]
+        return list(dict.fromkeys(names))
+
+    def _update_convergence(self) -> None:
+        stop = self.stopping
+        has = stop is not None and bool(stop.criteria)
+        series_of = self.reports.series if self.reports is not None else (lambda _q: [])
+        statuses = evaluate(stop, self.history.series, series_of) if has and self.outcome is not None else []
+        if self.outcome is None:
+            banner = (BANNER_NO_RUN, None)
+        else:
+            banner = banner_for(*self.outcome)
+        oscillations = []
+        if stop is not None and self.reports is not None:
+            for name in self.monitored_quantities():
+                osc = oscillation(name, series_of(name), stop.oscillation_window, stop.oscillation_threshold)
+                if osc is not None:
+                    oscillations.append(osc)
+        self.convergence.set_view(has, banner, statuses, oscillations)
 
     def configure(self, m: Metrics, t: Theme) -> None:
         self.header.configure(m)
         self.chart.configure(m, t)
+        self.convergence.configure(m, t)
         self.kpis.configure(m, t)

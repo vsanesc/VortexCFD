@@ -42,7 +42,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from vortexcfd.core.model import Part
+from vortexcfd.core.model import Part, StoppingCriteria
+from vortexcfd.foam import convergence
 from vortexcfd.core.project import Project
 from vortexcfd.gui import console as console_log
 from vortexcfd.gui.console import ConsolePanel
@@ -307,6 +308,7 @@ class MainWindow(QMainWindow):
         self.run_record: RunRecord | None = None
         self.results_stale = False
         self._solve_hash: str | None = None  # results hash at the start of the running solver
+        self._solve_stopping: StoppingCriteria | None = None  # the running solver's stopping criteria
         self.solver_worker = SolverWorker(self)
         self.solver_timeout_s: float | None = None  # wall-clock limit of a solver run (tests set one)
         self.solver_worker.line.connect(self._on_solver_line)
@@ -795,6 +797,8 @@ class MainWindow(QMainWindow):
         self._update_results_stale()
         self._update_run_button()
         self.monitors.set_assignments(list(sim.reports.slots))
+        if not self.solver_worker.is_running():  # a running solver keeps the criteria it started with
+            self.monitors.set_stopping(sim.solvers.stopping)
         self._update_results_tab()
 
     def _node_icon(self, glyph: str, token: str) -> QIcon:
@@ -846,7 +850,8 @@ class MainWindow(QMainWindow):
                     add(fluid, f"boundary_{bname}", None, bname, "dot", "accent")
             for i, part in enumerate(parts):  # one wall patch per part
                 add(fluid, "wall", i, f"{part.name} (wall)", "dot", "accent")
-            add(root, "solvers", None, "Solvers", "folder", "text")
+            solvers_item = add(root, "solvers", None, "Solvers", "folder", "text")
+            add(solvers_item, "stopping", None, "Stopping Criteria", "dot", "accent")
             reports = add(root, "reports", None, "Reports & Monitors", "folder", "text")
             add(reports, "reference_values", None, "Reference Values", "dot", "accent")
             self.tree.expandAll()
@@ -1161,9 +1166,10 @@ class MainWindow(QMainWindow):
             self.show_message(f"Could not write the solver case: {exc}", "error")
             return
         self._solve_hash = solving.results_hash(self._project)
+        self._solve_stopping = self._project.sim.solvers.stopping.model_copy(deep=True)
         self.run_record = None
         self.properties.set_run_record(None)
-        self.monitors.start_run(case_dir)
+        self.monitors.start_run(case_dir, self._solve_stopping)
         self.top_bar.set_run_state("Solving")
         log.info("Running simpleFoam in %s", case_dir)
         self.solver_worker.start(case_dir, timeout_s=self.solver_timeout_s)
@@ -1187,7 +1193,9 @@ class MainWindow(QMainWindow):
             text = (case_dir / "log.simpleFoam").read_text(encoding="utf-8", errors="replace")
         except OSError:
             text = ""
-        self.monitors.load_run(case_dir, parse_log_text(text))
+        record = self.run_record
+        self.monitors.set_stopping(project.sim.solvers.stopping)
+        self.monitors.load_run(case_dir, parse_log_text(text), (record.state, record.stopped_by, record.iterations))
 
     def _assign_report(self, slot: int, report_id) -> None:
         """A report slot's menu: store the assignment in the project (undoable)."""
@@ -1217,11 +1225,14 @@ class MainWindow(QMainWindow):
 
     def _on_solver_done(self, result) -> None:
         self.top_bar.set_run_state(None)
+        stopping = self._solve_stopping or StoppingCriteria(criteria=[])
+        criteria, stopped_by = convergence.criteria_outcome(stopping, result.criteria_met)
+        self.monitors.set_outcome(result.state, stopped_by, result.iterations)
         self.monitors.end_run()
         if result.crash:
             self.console.append_error(result.crash)
         record = RunRecord(result.state, result.iterations, result.final_residuals,
-                           self._solve_hash or "", result.exit_code)
+                           self._solve_hash or "", result.exit_code, criteria, stopped_by)
         self.run_record = record
         try:
             write_run_record(case_dir_for(self._project), record)
@@ -1229,6 +1240,10 @@ class MainWindow(QMainWindow):
             log.warning("Could not save the run record: %s", exc)
         residuals = ", ".join(f"{k} {v:.3g}" for k, v in result.final_residuals.items()) or "none"
         text = f"Solver: {result.label} after {result.iterations} iterations"
+        if stopped_by:
+            text += f" ({'; '.join(stopped_by)})"
+        elif result.state == "iteration_limit" and criteria:
+            text += " without meeting the stopping criteria"
         if result.state == "converged":
             log.info("%s (final residuals: %s)", text, residuals)
             self.show_message(text, "success", log_it=False)
