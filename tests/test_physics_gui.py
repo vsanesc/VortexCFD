@@ -109,12 +109,17 @@ def test_mesh_node_has_layer_sizing_rows(window: MainWindow) -> None:
     p = window.properties
     f = p.mesh_fields
     assert f["layer_sizing"].currentText() == "relative" and f["target_yplus"].value() == 1.0
+    assert not p.mesh_yplus_note.isVisible()  # relative sizing: no y+ guidance
     f["target_yplus"].setValue(30.0)
     f["target_yplus"].editingFinished.emit()
     assert window.project.sim.mesh.target_yplus == 30.0
     f["layer_sizing"].setCurrentText("absolute_yplus")
     assert window.project.sim.mesh.layer_sizing == "absolute_yplus"
     assert window.project.undo_label == "Edit mesh (layer_sizing)"
+    assert p.mesh_yplus_note.isVisible() and p.mesh_yplus_note.objectName() == "muted"
+    assert "Cf about 6% low at y+ 1, about 3.6% low at y+ 0.5" in p.mesh_yplus_note.text()
+    _select(window, "physics")
+    assert not p.mesh_yplus_note.isVisible()
 
 
 def test_group_editors_are_hidden_on_other_nodes(window: MainWindow) -> None:

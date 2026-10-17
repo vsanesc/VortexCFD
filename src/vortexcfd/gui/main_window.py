@@ -1,4 +1,4 @@
-"""Main window bound to a Project, laid out after docs/design/design_preview.png."""
+"""Main window bound to a Project, laid out after docs/design/mockup-v1.png."""
 
 import logging
 import os

@@ -5,20 +5,15 @@ task (CLAUDE.md).
 
 ## Current branch
 
-**task/4a-physics** (Task 4A, [NUMERICS-REVIEW], not yet published). Done on it: physics model and
-schema v3 with editors, solver case files (D-022, D-023), y+ estimator (D-024), layer count from y+
-(D-026), residual control (D-027), flat plate validation (D-036), decision records and this file.
+**task/4a-physics** (not yet published). Task 4A is **done**: physics model and schema v3 with editors,
+solver case files (D-022, D-023), y+ estimator (D-024), layer count from y+ (D-026), residual control
+(D-027), flat plate verification against TMR (PASS WITH NOTE, -3.3 %, D-036), minTetQuality relaxed only
+in `relaxed` (D-044) with the relaxed controls used from the first layer iteration for y+ layers
+(D-045: the y+ 30 sphere gets 100 % layer coverage, Mesh OK). D-022, D-023, D-024 and D-027 were
+accepted in the review chat on 2026-10-17. Full flat plate study in scripts/validation/flat_plate_study.py
+(about 80 min); the pytest `validation` test runs the coarse and medium grids (about 20 min).
 
-Done on it on 2026-10-17: TMR-based flat plate verification (PASS WITH NOTE, -3.3 % vs the TMR
-incompressible SST reference, D-036), k wall BC sensitivity (no effect at y+ 0.23), minTetQuality relaxed
-only in `relaxed` (D-044). Full study in scripts/validation/flat_plate_study.py (about 80 min; 2 h with --k-wall);
-the pytest `validation` test runs the coarse and medium grids (about 20 min).
-
-Pending on it:
-- Vic's review of D-022, D-023, D-024 and D-027 (Proposed) and docs/QUESTIONS.md items 37, 38 and 46
-  (y+ 30 sphere layer coverage 13 % with nRelaxedIter 20; the sphere test is a strict xfail).
-- Run Solver in the GUI is still disabled ("Available in Phase 4"): the solver files are generated
-  and tested, but not run from the app yet.
+Next on it: Task 4B (run the solver from the GUI, reference values, live residuals, report slots).
 
 ## Phases
 
@@ -39,12 +34,12 @@ Pending on it:
 | 3.3 | Geometry repair | not started |
 | 3.4 | Domain and boundary definition | done |
 | 3.5 | Surface-to-patch assignment | not started (one patch per part) |
-| 4.1 | Physics continua | in progress on task/4a-physics (steady incompressible RANS only) |
-| 4.2 | Boundary condition library | in progress on task/4a-physics (external-aerodynamics set, D-022) |
-| 4.3 | Turbulence module | in progress on task/4a-physics (kOmegaSST, y+ estimator, flat plate verified against TMR: PASS WITH NOTE); docs/reference/turbulence_mapping.md not written |
-| 4.4 | Numerics presets | in progress on task/4a-physics (preset "robust" only) |
+| 4.1 | Physics continua | done for steady incompressible RANS (task/4a-physics) |
+| 4.2 | Boundary condition library | done for the external-aerodynamics set (D-022, task/4a-physics) |
+| 4.3 | Turbulence module | done for kOmegaSST (y+ estimator, flat plate verified against TMR: PASS WITH NOTE; task/4a-physics); docs/reference/turbulence_mapping.md not written |
+| 4.4 | Numerics presets | preset "robust" only (task/4a-physics) |
 | 5.0 | Meshing benchmark suite | not started |
-| 5.1 | M1: GUI over snappyHexMesh | done (published in PR #11 and #12); y+ layer sizing in progress on task/4a-physics |
+| 5.1 | M1: GUI over snappyHexMesh | done (published in PR #11 and #12); y+ layer sizing done on task/4a-physics (D-024, D-026, D-045) |
 | 5.2 | M2: surface preparation | not started |
 | 5.3 | M3: alternative volume mesher | not started (cfMesh build spike pending) |
 | 5.4 | M4: prism layer robustness | not started |
@@ -77,3 +72,6 @@ Pending on it:
 - Report slot assignment and convergence banner (Phase 6.1).
 - The mesh scene is read on the GUI thread after meshing (MeshView.load): a multi-million-cell mesh
   freezes the window for a moment (docs/QUESTIONS.md item 5).
+- Flat plate Cf is 3.3 % below the TMR incompressible SST reference (grid-extrapolated Cf(0.97),
+  D-036) and the gap is not explained. Candidates: the omegaWallFunction blending, OpenFOAM's SST
+  implementation (TMR's note on standard OpenFOAM), nutUSpaldingWallFunction.

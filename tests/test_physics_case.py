@@ -227,10 +227,10 @@ def test_absolute_yplus_layers_use_the_first_layer_thickness() -> None:
     layers = snappy_hex_mesh_dict(_mesh_input(mesh, 4e-5)).content["addLayersControls"]
     assert layers["relativeSizes"] is False
     quality = snappy_hex_mesh_dict(_mesh_input(mesh, 4e-5)).content["meshQualityControls"]
-    # The install's meshQualityDict value stays in force; only the relaxed controls drop the tet test,
-    # and the layer addition switches to them after nRelaxedIter iterations.
+    # The install's meshQualityDict value stays in force for snapping; only the relaxed controls drop
+    # the tet test, and the layer addition uses them from its first iteration (nRelaxedIter 0, D-045).
     assert quality["minTetQuality"] == 1e-15 and quality["relaxed"] == {"minTetQuality": -1e30}
-    assert layers["nRelaxedIter"] == 20 < layers["nLayerIter"]
+    assert layers["nRelaxedIter"] == 0
     assert layers["firstLayerThickness"] == 4e-5 and layers["expansionRatio"] == 1.3  # reused
     assert layers["minThickness"] == pytest.approx(0.2 * 4e-5)
     assert "finalLayerThickness" not in layers
@@ -351,15 +351,10 @@ def test_snappy_uses_the_computed_layer_count_for_absolute_sizing() -> None:
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-    strict=True,
-    reason="NOT MET (docs/QUESTIONS.md item 46, D-044): with minTetQuality relaxed only in `relaxed` "
-           "(nRelaxedIter 20) the layer iterations stop at iteration 11, before the relaxed controls apply; "
-           "coverage 1.74 / 13 layers (13 %), thickness 44.7 %, extruded 68.5 %; not relaxed further.",
-)
 def test_yplus_30_layer_count_gives_good_coverage_on_the_shared_sphere(sphere_mesh, tmp_path: Path) -> None:
     """Shared coarse sphere at 20 m/s with target y+ 30 and the computed layer count: layer coverage
-    (average layers and thickness) of at least 80 %. The y+ 1 case is expected to warn instead."""
+    (average layers and thickness) of at least 80 % and checkMesh "Mesh OK" with the relaxed controls
+    used from the first layer iteration (nRelaxedIter 0, D-045). The y+ 1 case is expected to warn."""
     import pyvista as pv
 
     from vortexcfd.foam.mesh_case import TRI_SURFACE, prepare_case_dir
@@ -385,7 +380,7 @@ def test_yplus_30_layer_count_gives_good_coverage_on_the_shared_sphere(sphere_me
     cov = result.report.layers[0]
     print(f"\ny+ 30 sphere: n={plan.count} first={plan.first:.3g} m total={plan.total:.3g} m "
           f"final={plan.final:.3g} m; coverage {cov.description()} ({cov.thickness_m:.3g} m), "
-          f"extruded {result.report.extruded_percent}%")
+          f"extruded {result.report.extruded_percent}%; checkMesh: {result.report.summary()}")
     assert cov.target_layers == plan.count
     assert cov.layers_percent >= 80.0 and cov.thickness_percent >= 80.0, cov
     assert result.report.extruded_percent >= 80.0 and result.report.mesh_ok

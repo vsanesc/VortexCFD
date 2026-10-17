@@ -194,14 +194,16 @@ def _layer_sizing(inp: MeshCaseInput) -> dict:
 
 
 # Layer iterations with the main quality controls before snappyHexMesh switches to the `relaxed`
-# ones (the value of etc/caseDicts/annotated/snappyHexMeshDict; the v2606 default never switches).
-RELAXED_AFTER_LAYER_ITER = 20
+# ones. 0 for absolute (y+) layers: the layer addition uses the relaxed controls from its first
+# iteration while snapping keeps the main ones (D-045). Relative sizing writes no nRelaxedIter and
+# keeps the v2606 default (labelMax: never relaxed), as the tutorial.
+RELAXED_AFTER_LAYER_ITER = 0
 
 
 def _quality_controls(m: Mesh) -> dict:
     """meshQualityControls: the install's meshQualityDict values for every sizing. With absolute (y+)
     layers the face-decomposition tet-quality test is relaxed only in the `relaxed` sub-dictionary
-    (minTetQuality -1e30), which the layer addition uses after RELAXED_AFTER_LAYER_ITER iterations: a
+    (minTetQuality -1e30), which the layer addition uses after RELAXED_AFTER_LAYER_ITER (0) iterations: a
     stack of thin, high-aspect layers trips that test on usable meshes, while every other check keeps
     the main values; checkMesh still judges the final mesh. [NUMERICS-REVIEW]"""
     controls = dict(MESH_QUALITY)

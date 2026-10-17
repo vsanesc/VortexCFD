@@ -7,8 +7,8 @@ Each item is tagged (triage of 2026-10-17):
 - **OPEN**: still needs Vic's answer or review.
 - **OBSOLETE**: no longer applies (one-line reason).
 
-New items get the next number and start as OPEN. Items 36 to 43 are on task/4a-physics, which is not yet
-reviewed.
+New items get the next number and start as OPEN. Items 36 to 46 are on task/4a-physics; the review chat
+settled the open ones on 2026-10-17.
 
 ## Tasks 3.4 and 5.1 (decisions taken while Vic was away)
 
@@ -66,8 +66,8 @@ reviewed.
 ## Task 4A (physics case files)
 
 36. **[OBSOLETE: superseded by items 41 and 42 (layer count from y+, minTetQuality).]** **Thin y+ layers on coarse surface meshes collapse.** With absolute layer sizing and the estimator's first layer (18 um for y+ 1, 0.5 mm for y+ 30, 1.8 mm for y+ 100) snappyHexMesh extruded 0 of 744 faces on the coarse test sphere (60 mm surface cells), while a 10 mm first layer extruded 100 % and gave the expected total thickness h (1 + r + r^2). Real y+ meshes need much finer surface refinement; I did not investigate the layer-quality controls. The unit test therefore uses an explicit 10 mm first layer.
-37. **[OPEN: recorded in D-022, which is Proposed until the [NUMERICS-REVIEW] of task/4a-physics.]** **nut on the far field is `calculated`, not `slip`** (the motorBike tutorial does the same); U, p, k and omega use `slip` there. The wall function for nut is `nutUSpaldingWallFunction` as requested (the tutorial uses nutkWallFunction).
-38. **[OPEN: recorded in D-027, which is Proposed until task/4a-physics is reviewed.]** **residualControl** was absent at first; it is now written from the Solvers settings (D-027).
+37. **[DECIDED: Accepted (reviewed 2026-10-17); recorded in D-022.]** **nut on the far field is `calculated`, not `slip`** (the motorBike tutorial does the same); U, p, k and omega use `slip` there. The wall function for nut is `nutUSpaldingWallFunction` as requested (the tutorial uses nutkWallFunction).
+38. **[DECIDED: Accepted (reviewed 2026-10-17); recorded in D-027.]** **residualControl** was absent at first; it is now written from the Solvers settings (D-027).
 
 ## Task 4A flat plate validation: Case B (the arbiter) NOT MET (needs a decision)
 
@@ -79,9 +79,9 @@ reviewed.
 
 ## Triage of 2026-10-17
 
-44. **[OPEN]** **"STAR-CCM+-style" outside the GUI.** D-040 says the Simcenter, STAR-CCM+ and Siemens names are never used. The GUI shows none of them, but "STAR-CCM+-style" appears in the pyproject.toml description, the package docstring (src/vortexcfd/__init__.py), ARCHITECTURE.md and docs/PLAN.md (where task 0.1 is a STAR-CCM+ feature inventory). Should these internal references be reworded?
-45. **[OPEN]** **Mockup file name.** The review chat names the layout reference docs/design/mockup-v1.png; the repository has docs/design/design_preview.png only. D-041 cites the existing file. Rename, or add the other file?
+44. **[DECIDED: the pyproject.toml description and the package docstring now read "Integrated CFD workflow GUI for OpenFOAM"; ARCHITECTURE.md and docs/PLAN.md keep the internal reference (D-040).]** **"STAR-CCM+-style" outside the GUI.** D-040 says the Simcenter, STAR-CCM+ and Siemens names are never used. The GUI shows none of them, but "STAR-CCM+-style" appears in the pyproject.toml description, the package docstring (src/vortexcfd/__init__.py), ARCHITECTURE.md and docs/PLAN.md (where task 0.1 is a STAR-CCM+ feature inventory). Should these internal references be reworded?
+45. **[DECIDED: renamed to docs/design/mockup-v1.png with git mv, references updated (D-041).]** **Mockup file name.** The review chat names the layout reference docs/design/mockup-v1.png; the repository has docs/design/design_preview.png only. D-041 cites the existing file. Rename, or add the other file?
 
 ## Task 4A: relaxed minTetQuality (D-044)
 
-46. **[OPEN]** **y+ 30 layer coverage with minTetQuality relaxed only in `relaxed`.** Coarse test sphere (tests/test_physics_case.py, 20 m/s, target y+ 30, computed 13 layers, first layer from the estimator): snappyHexMesh's layer iterations stop at iteration 11 (0 faces removed), before nRelaxedIter 20, so `relaxed` is never used. Result: 1.74 / 13 layers (13.4 %), thickness 44.7 % (11.7 mm), 6481 of 9460 faces extruded (68.5 %); checkMesh "Mesh OK" (max non-orthogonality 64.0, max skewness 1.28, max aspect ratio 8.3). Below 80 %, so I stopped and did not relax further. Diagnostic only, not applied: the same case with nRelaxedIter 0 (relaxed controls from the first layer iteration) gives 13.0 / 13 layers, thickness 100 % (26.2 mm), 100 % extruded, checkMesh "Mesh OK" (max non-orthogonality 41.3, max skewness 0.65). Options: keep nRelaxedIter 20 and accept the low coverage; lower nRelaxedIter (for example 0 or 5) so the relaxed controls apply; or address the layer collapse otherwise (surface refinement, layer controls). [NUMERICS-REVIEW]
+46. **[DECIDED: nRelaxedIter 0 for absolute y+ sizing, approved in the review chat on 2026-10-17 (D-045); the sphere test now asserts coverage >= 80 % and Mesh OK.]** **y+ 30 layer coverage with minTetQuality relaxed only in `relaxed`.** Coarse test sphere (tests/test_physics_case.py, 20 m/s, target y+ 30, computed 13 layers, first layer from the estimator): snappyHexMesh's layer iterations stop at iteration 11 (0 faces removed), before nRelaxedIter 20, so `relaxed` is never used. Result: 1.74 / 13 layers (13.4 %), thickness 44.7 % (11.7 mm), 6481 of 9460 faces extruded (68.5 %); checkMesh "Mesh OK" (max non-orthogonality 64.0, max skewness 1.28, max aspect ratio 8.3). Below 80 %, so I stopped and did not relax further. Diagnostic only, not applied: the same case with nRelaxedIter 0 (relaxed controls from the first layer iteration) gives 13.0 / 13 layers, thickness 100 % (26.2 mm), 100 % extruded, checkMesh "Mesh OK" (max non-orthogonality 41.3, max skewness 0.65). Options: keep nRelaxedIter 20 and accept the low coverage; lower nRelaxedIter (for example 0 or 5) so the relaxed controls apply; or address the layer collapse otherwise (surface refinement, layer controls). [NUMERICS-REVIEW]

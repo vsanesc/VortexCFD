@@ -122,6 +122,9 @@ MESH_SETTINGS = (
     ("target_yplus", "Target y+", lambda: _dspin(0.01, 1000.0, 3)),
 )
 MESH_OPTIONAL = frozenset({"base_size", "surface_level_min", "surface_level_max"})
+# Shown under Target y+ with absolute (y+) layer sizing (D-024).
+YPLUS_NOTE = ("Flat-plate verification: Cf about 6% low at y+ 1, about 3.6% low at y+ 0.5 "
+              "(docs/validation/flat_plate)")
 
 # Physics / Inflow / Solvers nodes: model section, update method and editable fields.
 GROUPS: dict[str, dict] = {
@@ -351,6 +354,11 @@ class PropertiesPanel(QWidget):
                 self.mesh_base_used = self._ro_row("mset_base_used", "Base size used")
             if key == "surface_level_max":
                 self.mesh_levels_used = self._ro_row("mset_levels_used", "Levels used")
+            if key == "target_yplus":
+                self.mesh_yplus_note = QLabel(YPLUS_NOTE)
+                self.mesh_yplus_note.setObjectName("muted")
+                _wrap(self.mesh_yplus_note)
+                self._layout.addWidget(self.mesh_yplus_note)
         self._section("mesh_estimate", "Estimate")
         self.mesh_bg_cells = self._ro_row("mset_bg_cells", "Background cells")
         self.mesh_surface_cells = self._ro_row("mset_surface_cells", "Surface cell size")
@@ -593,8 +601,10 @@ class PropertiesPanel(QWidget):
             self._sections[key].setVisible(show)
         self.mesh_title.setVisible(show and self._mesh_report is not None)
         if not show:
+            self.mesh_yplus_note.setVisible(False)
             return
         mesh = self._project.sim.mesh
+        self.mesh_yplus_note.setVisible(mesh.layer_sizing == "absolute_yplus")
         widgets = list(self.mesh_fields.values())
         for w in widgets:
             w.blockSignals(True)

@@ -37,12 +37,12 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-019 | 2026-10-16 | Far-field domain box from multipliers of L | Accepted |
 | D-020 | 2026-10-16 | Schema v2 adds the domain, with migration | Accepted |
 | D-021 | 2026-10-16 | Marker-protected meshing case, background runs | Accepted |
-| D-022 | 2026-10-16 | External-aerodynamics BCs and motorBike numerics | Proposed |
-| D-023 | 2026-10-16 | Inlet turbulence from intensity and viscosity ratio | Proposed |
-| D-024 | 2026-10-16 | y+ estimator and absolute layer sizing | Proposed |
+| D-022 | 2026-10-16 | External-aerodynamics BCs and motorBike numerics | Accepted |
+| D-023 | 2026-10-16 | Inlet turbulence from intensity and viscosity ratio | Accepted |
+| D-024 | 2026-10-16 | y+ estimator and absolute layer sizing | Accepted |
 | D-025 | 2026-10-16 | Validation marker and policy | Accepted |
 | D-026 | 2026-10-16 | Layer count from the y+ first layer | Accepted; minTetQuality part superseded by D-044 |
-| D-027 | 2026-10-16 | Residual targets as SIMPLE residualControl | Proposed |
+| D-027 | 2026-10-16 | Residual targets as SIMPLE residualControl | Accepted |
 | D-028 | 2026-10-16 | Part patch names | Accepted |
 | D-029 | 2026-10-16 | Regions tree layout | Accepted |
 | D-030 | 2026-10-16 | snappyHexMesh case conventions | Accepted |
@@ -59,7 +59,8 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-041 | 2026-10-17 | Visual language: owner palette and mockup layout | Accepted |
 | D-042 | 2026-10-17 | Meshing defaults | Accepted |
 | D-043 | 2026-10-17 | Test conventions | Accepted |
-| D-044 | 2026-10-17 | minTetQuality relaxed only in `relaxed` | Accepted |
+| D-044 | 2026-10-17 | minTetQuality relaxed only in `relaxed` | Accepted; nRelaxedIter part superseded by D-045 |
+| D-045 | 2026-10-17 | Relaxed controls from the first layer iteration for y+ layers | Accepted |
 
 ---
 
@@ -170,7 +171,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 
 ## D-016 Layout follows the mockup; no fake data
 - Status: Superseded by D-039 (no fake data) and D-041 (layout)
-- Context: the owner supplied the target design, docs/design/design_preview.png.
+- Context: the owner supplied the target design, docs/design/mockup-v1.png (named design_preview.png until 2026-10-17).
 - Decision: top bar, tree and properties left, scene tabs and viewer, monitors right, console bottom; no fake data; controls for missing features omitted or disabled with a phase tooltip.
 - Alternatives considered: the sidebar layout of D-015.
 - Consequences: the rules continue unchanged in D-039 and D-041.
@@ -211,25 +212,25 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: user files are never deleted; long runs do not freeze the GUI.
 
 ## D-022 External-aerodynamics BCs and motorBike numerics
-- Status: Proposed (Task 4A, [NUMERICS-REVIEW], pending review on task/4a-physics)
+- Status: Accepted (reviewed 2026-10-17 in the review chat; was Proposed on task/4a-physics, docs/QUESTIONS.md item 37)
 - Context: Task 4A, steady incompressible kOmegaSST.
 - Decision: inlet fixedValue U/k/omega, p zeroGradient; outlet p fixedValue 0, U/k/omega inletOutlet; sides/top/bottom slip (nut calculated, as the motorBike tutorial); symmetry symmetryPlane; part walls noSlip, kqRWallFunction, omegaWallFunction, nutUSpaldingWallFunction. Schemes and solution settings: motorBike tutorial (preset "robust").
 - Alternatives considered: the tutorial's nutkWallFunction (not valid down to y+ about 1).
 - Consequences: behaves like a known-good tutorial case. The k wall BC sensitivity is studied in docs/validation/flat_plate/README.md.
 
 ## D-023 Inlet turbulence from intensity and viscosity ratio
-- Status: Proposed (Task 4A, pending review)
+- Status: Accepted (reviewed 2026-10-17 in the review chat)
 - Context: Task 4A.
 - Decision: k = 1.5 (V I)^2, omega = k / (nu ratio).
 - Alternatives considered: raw k and omega (the motorBike tutorial's fixed values).
 - Consequences: the user enters the two numbers an engineer knows.
 
 ## D-024 y+ estimator and absolute layer sizing
-- Status: Proposed (Task 4A, pending review)
+- Status: Accepted (reviewed 2026-10-17 in the review chat)
 - Context: Task 4A.
 - Decision: first cell height from Cf = 0.026 / Re^(1/7) (y = y+ nu / u*); with layer_sizing "absolute_yplus" snappyHexMesh uses relativeSizes false with that firstLayerThickness and the reused expansion ratio.
 - Alternatives considered: not recorded.
-- Consequences: measured y+ on the flat plate is within 6 % of the estimate (docs/validation/flat_plate/README.md).
+- Consequences: measured y+ on the flat plate is within 6 % of the estimate (docs/validation/flat_plate/README.md). Guidance (added 2026-10-17): the flat-plate verification gives Cf about 6 % low at y+ 1 and about 3.6 % low at y+ 0.5 against the TMR SST reference (docs/validation/flat_plate); the Mesh properties show this as a muted note under Target y+ when the layer sizing is absolute y+.
 
 ## D-025 Validation marker and policy
 - Status: Accepted (confirmed by D-043)
@@ -246,7 +247,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: layers blend into the volume cells without the user counting them.
 
 ## D-027 Residual targets as SIMPLE residualControl
-- Status: Proposed (Task 4A, pending review)
+- Status: Accepted (reviewed 2026-10-17 in the review chat; docs/QUESTIONS.md item 38)
 - Context: Task 4A.
 - Decision: Solvers settings carry residual targets (p 1e-4; U, k, omega 1e-5) written as SIMPLE residualControl; the validation cases use the same mechanism.
 - Alternatives considered: a fixed iteration count.
@@ -346,12 +347,12 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Context: decided in the review chat.
 - Decision: the app is VortexCFD; the Simcenter, STAR-CCM+ and Siemens names and logos are never used in the product.
 - Alternatives considered: not recorded.
-- Consequences: the GUI shows none of these names. On 2026-10-17 "STAR-CCM+-style" still appears in the pyproject.toml description, the package docstring (src/vortexcfd/__init__.py), ARCHITECTURE.md and docs/PLAN.md; whether those references are allowed is open (docs/QUESTIONS.md item 44).
+- Consequences: the GUI shows none of these names. Since 2026-10-17 the pyproject.toml description and the package docstring read "Integrated CFD workflow GUI for OpenFOAM"; "STAR-CCM+-style" stays only in the internal planning docs ARCHITECTURE.md and docs/PLAN.md (docs/QUESTIONS.md item 44).
 
 ## D-041 Visual language: owner palette and mockup layout
 - Status: Accepted (supersedes D-014 and the layout part of D-016)
 - Context: decided in the review chat; the owner defines the visual identity.
-- Decision: palette "Tungsten & Amber" fixed by the owner, values asserted in tests/test_theme.py; layout follows the owner's mockup (named mockup-v1.png in the review chat; the file in the repository is docs/design/design_preview.png). Owner values change only on his request.
+- Decision: palette "Tungsten & Amber" fixed by the owner, values asserted in tests/test_theme.py; layout follows the owner's mockup docs/design/mockup-v1.png (renamed from design_preview.png on 2026-10-17, docs/QUESTIONS.md item 45). Owner values change only on his request.
 - Alternatives considered: not recorded.
 - Consequences: agents do not tune colours or proportions on their own (current proportions: D-034).
 
@@ -370,8 +371,15 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: iterate with `-m "not slow and not validation"`; run the full suite offscreen and on the real display before each commit.
 
 ## D-044 minTetQuality relaxed only in `relaxed`
-- Status: Accepted (supersedes the minTetQuality part of D-026; decided in the review chat, docs/QUESTIONS.md item 41)
+- Status: Accepted (supersedes the minTetQuality part of D-026; decided in the review chat, docs/QUESTIONS.md item 41). The nRelaxedIter 20 part is superseded by D-045.
 - Context: D-026 set minTetQuality -1e30 in the main meshQualityControls for absolute y+ layers, which relaxed the tet-quality check for snapping and every layer iteration.
 - Decision: the main meshQualityControls keep the install's etc/caseDicts/meshQualityDict values (minTetQuality 1e-15) for every sizing. With absolute y+ layers, only the `relaxed` sub-dictionary sets minTetQuality -1e30, and addLayersControls sets nRelaxedIter 20 (the value of the annotated v2606 snappyHexMeshDict; v2606's default, labelMax, never switches to `relaxed`).
 - Alternatives considered: minTetQuality -1e30 in the main controls (D-026); not relaxing at all.
 - Consequences: on the coarse test sphere at y+ 30 (13 layers) the layer iterations converge at iteration 11, before nRelaxedIter, so the relaxed controls never apply: coverage 1.74 / 13 layers (13 %), thickness 44.7 %, 68.5 % of faces extruded; checkMesh OK. Not relaxed further; the test is a strict xfail and the options are in docs/QUESTIONS.md item 46.
+
+## D-045 Relaxed controls from the first layer iteration for y+ layers
+- Status: Accepted (reviewed and approved in the review chat on 2026-10-17; supersedes the nRelaxedIter part of D-044; docs/QUESTIONS.md item 46)
+- Context: with nRelaxedIter 20 (D-044) the layer iterations on the coarse test sphere at y+ 30 (13 layers) converged at iteration 11, before the relaxed controls applied: 13 % of the layers, thickness 44.7 %. The same case with nRelaxedIter 0 gave 100 % with checkMesh "Mesh OK".
+- Decision: with layer_sizing "absolute_yplus", addLayersControls writes nRelaxedIter 0, so the layer addition uses the `relaxed` meshQualityControls (only minTetQuality -1e30) from its first iteration while snapping keeps the main (install meshQualityDict) controls. Relative sizing writes no nRelaxedIter and keeps the motorBike tutorial set-up (v2606 default: never relaxed).
+- Alternatives considered: nRelaxedIter 20 (D-044, low coverage); an intermediate value such as 5; relaxing the main controls (D-026, also loosens snapping).
+- Consequences: the y+ 30 test sphere gets 13 / 13 layers (100 %), thickness 100 % (26.2 mm), 100 % of the faces extruded, checkMesh "Mesh OK" (286820 cells, max non-orthogonality 41.3, max skewness 0.652); the test asserts coverage >= 80 % (both metrics) and "Mesh OK" instead of a strict xfail. checkMesh still judges every final mesh.
