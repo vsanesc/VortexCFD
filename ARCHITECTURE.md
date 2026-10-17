@@ -34,6 +34,7 @@ src/vortexcfd/
   - Encapsulates the simulation data model.
   - `core/model.py`: defines the simulation tree data models validated via Pydantic.
   - `core/project_io.py`: handles saving, loading, validation, and migration of JSON project files.
+  - `core/reports.py`: the report ids (force coefficients of all walls or per part, their pressure/viscous parts, x_cp, mass imbalance, y+, probes), their labels and the lists offered to report slots and asymptotic criteria (D-060).
   - `core/project.py`: Qt-free `Project` document wrapping a `Simulation` with validated edits, snapshot undo/redo, dirty tracking and change observers.
   - `Project` is not thread-safe: only the GUI thread may call its methods.
   - Must **NOT** import Qt (`PySide6`), `pyvista`, `pyvistaqt`, or anything GUI-related.
@@ -58,7 +59,8 @@ src/vortexcfd/
   - `foam/run_record.py`: `case/vortexcfd_run.json`, the last run's state, iterations, final residuals, results inputs hash and the stopping criteria (all of them and those that stopped the run).
   - `foam/convergence.py`: stopping criteria as the runTimeControl function object (`run_time_control`, condition names and start-up), their live evaluation with the same formulas (`evaluate`, `asymptotic_delta`), and the oscillation check (`oscillation`) (D-058, D-059). `LogParser` reports runTimeControl's stop as the `CriteriaMet` event.
   - `foam/residuals.py`: `ResidualHistory` (initial residual per field and iteration) and `decimate` (at most about 2000 points per series).
-  - `foam/postprocessing.py`: tails the forceCoeffs (`coefficient.dat`), forces (`force.dat`) and yPlus (`yPlus.dat`) output files (`ReportMonitor`, `TailReader`), tolerating a partial last line; y+ across walls is face-count weighted from `constant/polyMesh/boundary`; `project_coefficients` projects a force onto the drag and lift directions.
+  - `foam/forces.py`: force breakdown (pressure / viscous coefficients from force.dat with the coefficient.dat header), Cm and centre of pressure, mass imbalance (D-060). `foam/wall_fields.py`: Cf and Cf_x from wallShearStress, the y+ histogram and wall face values of a field file (D-061).
+  - `foam/postprocessing.py`: tails the forceCoeffs (`coefficient.dat`), forces (`force.dat`) and yPlus (`yPlus.dat`) output files (`ReportMonitor`, `TailReader`), tolerating a partial last line; `ReportMonitor` also finds the per-part forces, massFlow_<patch> and probe_<name> objects by name and serves every report id of core/reports.py; y+ across walls is face-count weighted from `constant/polyMesh/boundary`; `project_coefficients` projects a force onto the drag and lift directions.
   - `foam/physics_case.py` also resolves the forceCoeffs reference values (`reference_values`: overrides from `Reports` or the parts' bounding box).
   - `SolverCrash` (logparse): event for an OpenFOAM `[stack trace]` block. A diverging solver dies with SIGFPE and prints no nan residuals, so the process exit code is the reliable failure signal.
   - `FoamRun.is_running()` is False and `FoamRun.wait()` raises `RuntimeError` before `start()` has been called.
@@ -81,6 +83,7 @@ src/vortexcfd/
   - `gui/meshing.py`: Qt-free orchestration joining core, geometry and foam (it cannot live in `foam/`, which must not depend on `geometry/`): `readiness(project)` says why a project cannot be meshed and `prepare_job(project)` writes <project>/case (dictionaries and part STLs in metres).
   - `foam/mesh_estimate.py`: `estimate_mesh` gives background cells, refinement levels and surface cell size from the sizing targets (limit 2,000,000 background cells).
   - `gui/results_scene.py`: Results Scene: `read_results` (PyVista OpenFOAM reader, run by `ResultsLoader` on a worker thread, signals only), `ResultsView` (fields on the walls and the section plane, range modes, scalar bar in the `text` token).
+  - `gui/charts.py`: QPainter charts (y+ histogram, line chart); `gui/report_views.py`: the Forces table of the Reports & Monitors node.
   - `gui/colormaps.py`: the Results Scene colormaps (matplotlib lookup tables, D-054), the one place to add one.
   - `gui/paraview.py`: Open in ParaView (executable from Preferences or detected under /mnt/c/Program Files, `wslpath -w`, detached launch).
   - `gui/solving.py`: Qt-free solver orchestration: `readiness` (why Run Solver is disabled), `prepare_solver_case` (clears the previous outputs, writes the solver files) and `results_hash`.

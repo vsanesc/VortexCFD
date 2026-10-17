@@ -20,7 +20,7 @@ class FieldSpec:
     label: str  # shown in the selector and the scalar bar
     units: str
     source: str  # the OpenFOAM field file it comes from
-    component: int | None = None  # 0, 1, 2 for a vector component; None: scalar or magnitude
+    component: int | None = None  # 0, 1, 2 for a vector component (-1: along the free stream); None: scalar or magnitude
     magnitude: bool = False
 
     @property
@@ -42,6 +42,10 @@ FIELD_SPECS = (
     FieldSpec("yPlus", "y+", "", "yPlus"),
     FieldSpec("wallShearStress_mag", "|wallShearStress| (kinematic)", "m²/s²", "wallShearStress",
               magnitude=True),
+    # Skin friction on the walls (foam/wall_fields.py, D-061): |tau| / (0.5 U_ref^2) and its signed
+    # component along the free stream (negative where the near-wall flow runs back).
+    FieldSpec("Cf", "Cf", "", "wallShearStress", magnitude=True),
+    FieldSpec("Cf_x", "Cf_x (free-stream direction)", "", "wallShearStress", component=-1),
 )
 FIELDS_BY_KEY = {f.key: f for f in FIELD_SPECS}
 
@@ -108,12 +112,18 @@ def pressure_coefficient(p, u_ref: float):
     return np.asarray(p, dtype=float) / (0.5 * u_ref * u_ref)
 
 
-def field_values(spec: FieldSpec, data: dict, u_ref: float):
+def field_values(spec: FieldSpec, data: dict, u_ref: float, direction=(1.0, 0.0, 0.0)):
     """The values of ``spec`` from the arrays read from the case (``data``: source name -> array,
-    vectors as (n, 3))."""
+    vectors as (n, 3)); ``direction`` is the free-stream direction (for Cf_x)."""
+    from vortexcfd.foam.wall_fields import skin_friction, skin_friction_along
+
     raw = np.asarray(data[spec.source], dtype=float)
     if spec.key == "Cp":
         return pressure_coefficient(raw, u_ref)
+    if spec.key == "Cf":
+        return skin_friction(raw, u_ref)
+    if spec.key == "Cf_x":
+        return skin_friction_along(raw, direction, u_ref)
     if spec.magnitude:
         return np.linalg.norm(raw, axis=1)
     if spec.component is not None:

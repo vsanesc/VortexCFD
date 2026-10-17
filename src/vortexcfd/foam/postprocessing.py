@@ -15,6 +15,9 @@ app's own controlDict, fixtures in tests/data/sphere_run/):
   (executeControl/writeControl writeTime). ``average`` is the mean over the patch's faces; across
   several walls the average is weighted by each patch's face count (constant/polyMesh/boundary).
 
+- forces per part, surfaceFieldValue sum(phi) and probes (D-060): foam/forces.py and
+  ``ReportMonitor`` below.
+
 The files are tailed: each poll reads only the bytes appended since the last one and keeps an
 incomplete last line for the next poll.
 """
@@ -23,24 +26,27 @@ import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from vortexcfd.core.reports import BREAKDOWN, MASS, split_part, split_probe
 from vortexcfd.foam.dictfile import read_foam_file
+from vortexcfd.foam.forces import (
+    CoeffAxes,
+    ForceRow,
+    ForceSample,
+    breakdown,
+    mass_imbalance,
+    parse_vector_row,
+    read_coeff_axes,
+)
 
 FORCE_COEFFS = "forceCoeffs1"
 FORCE_COEFFS_FILE = "coefficient.dat"
 FORCES = "forces1"
 FORCES_FILE = "force.dat"
+MOMENT_FILE = "moment.dat"
+MASS_FILE = "surfaceFieldValue.dat"
 YPLUS = "yPlus1"
 YPLUS_FILE = "yPlus.dat"
 
-# Report ids (core.model.REPORT_IDS) -> label shown in the report slot.
-REPORT_LABELS = {
-    "Cd": "Cd",
-    "Cl": "Cl",
-    "CmPitch": "Cm (pitch)",
-    "yplus_min": "y+ min (walls)",
-    "yplus_avg": "y+ avg (walls)",
-    "yplus_max": "y+ max (walls)",
-}
 FORCE_REPORTS = ("Cd", "Cl", "CmPitch")
 YPLUS_REPORTS = {"yplus_min": "min", "yplus_avg": "average", "yplus_max": "max"}
 
@@ -229,37 +235,255 @@ def patch_face_counts(case_dir: Path) -> dict[str, int]:
     return counts
 
 
+class ScalarTail:
+    """(time, value) rows of a two-column file: surfaceFieldValue.dat or a one-probe scalar file."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+        self.values: list[tuple[float, float]] = []
+        self._reader = TailReader(self.path)
+
+    def poll(self) -> int:
+        added = 0
+        for line in self._reader.read_lines():
+            parts = line.split()
+            if len(parts) != 2 or line.lstrip().startswith("#"):
+                continue
+            values = _floats(parts)
+            if values is not None:
+                self.values.append((values[0], values[1]))
+                added += 1
+        return added
+
+
+class VectorTail:
+    """(time, (x, y, z)) rows of a one-probe vector file (``1  (18.8 -9.6e-05 -0.0003)``)."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+        self.values: list[tuple[float, tuple[float, float, float]]] = []
+        self._reader = TailReader(self.path)
+
+    def poll(self) -> int:
+        added = 0
+        for line in self._reader.read_lines():
+            if line.lstrip().startswith("#"):
+                continue
+            values = _floats(line.replace("(", " ").replace(")", " ").split())
+            if values is not None and len(values) == 4:
+                self.values.append((values[0], (values[1], values[2], values[3])))
+                added += 1
+        return added
+
+
+class ForceVectorTail:
+    """force.dat / moment.dat rows: (time, (total, pressure, viscous))."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+        self.rows: list = []
+        self._reader = TailReader(self.path)
+
+    def poll(self) -> int:
+        added = 0
+        for line in self._reader.read_lines():
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            row = parse_vector_row(line)
+            if row is not None:
+                self.rows.append(row)
+                added += 1
+        return added
+
+
+def _last_per_time(rows):
+    """{time: value}, the last value written for each time (writeAndEnd repeats the final row)."""
+    return {t: v for t, v in rows}
+
+
 class ReportMonitor:
-    """All report series of a run, polled from the case's postProcessing files."""
+    """All report series of a run, polled from the case's postProcessing files (D-048, D-060).
+
+    Function objects are found by their names (foam/physics_case.py): forceCoeffs1 / forces1 for all
+    walls, forceCoeffs_<patch> / forces_<patch> per part, massFlow_<patch>, probe_<name>, yPlus1.
+    Report ids are those of core/reports.py.
+    """
 
     def __init__(self, case_dir: Path) -> None:
         self.case_dir = Path(case_dir)
-        self._forces: ForceCoeffsTail | None = None
+        self._coeffs: dict[str | None, ForceCoeffsTail] = {}
+        self._force: dict[str | None, ForceVectorTail] = {}
+        self._moment: dict[str | None, ForceVectorTail] = {}
+        self._axes: dict[str | None, CoeffAxes] = {}
+        self._mass: dict[str, ScalarTail] = {}
+        self._probe_p: dict[str, ScalarTail] = {}
+        self._probe_u: dict[str, VectorTail] = {}
         self._yplus: YPlusTail | None = None
         self._face_counts: dict[str, int] = {}
+        self._rho: float | None = None
+
+    # -- discovery --------------------------------------------------------------------------
+
+    def _discover(self) -> None:
+        folder = self.case_dir / "postProcessing"
+        if not folder.is_dir():
+            return
+        for child in folder.iterdir():
+            name = child.name
+            if name == FORCE_COEFFS or name.startswith("forceCoeffs_"):
+                key = None if name == FORCE_COEFFS else name[len("forceCoeffs_"):]
+                if key not in self._coeffs:
+                    path = output_file(self.case_dir, name, FORCE_COEFFS_FILE)
+                    if path is not None:
+                        self._coeffs[key] = ForceCoeffsTail(path)
+            elif name == FORCES or name.startswith("forces_"):
+                key = None if name == FORCES else name[len("forces_"):]
+                for store, file_name in ((self._force, FORCES_FILE), (self._moment, MOMENT_FILE)):
+                    if key not in store:
+                        path = output_file(self.case_dir, name, file_name)
+                        if path is not None:
+                            store[key] = ForceVectorTail(path)
+            elif name.startswith("massFlow_") and name[len("massFlow_"):] not in self._mass:
+                path = output_file(self.case_dir, name, MASS_FILE)
+                if path is not None:
+                    self._mass[name[len("massFlow_"):]] = ScalarTail(path)
+            elif name.startswith("probe_"):
+                probe = name[len("probe_"):]
+                if probe not in self._probe_p and (path := output_file(self.case_dir, name, "p")) is not None:
+                    self._probe_p[probe] = ScalarTail(path)
+                if probe not in self._probe_u and (path := output_file(self.case_dir, name, "U")) is not None:
+                    self._probe_u[probe] = VectorTail(path)
+            elif name == YPLUS and self._yplus is None:
+                path = output_file(self.case_dir, YPLUS, YPLUS_FILE)
+                if path is not None:
+                    self._yplus = YPlusTail(path)
+                    self._face_counts = patch_face_counts(self.case_dir)
+
+    def _tails(self):
+        yield from self._coeffs.values()
+        yield from self._force.values()
+        yield from self._moment.values()
+        yield from self._mass.values()
+        yield from self._probe_p.values()
+        yield from self._probe_u.values()
+        if self._yplus is not None:
+            yield self._yplus
 
     def poll(self) -> bool:
         """Read whatever was appended; True if anything new arrived."""
-        if self._forces is None:
-            path = output_file(self.case_dir, FORCE_COEFFS, FORCE_COEFFS_FILE)
-            self._forces = ForceCoeffsTail(path) if path is not None else None
-        if self._yplus is None:
-            path = output_file(self.case_dir, YPLUS, YPLUS_FILE)
-            self._yplus = YPlusTail(path) if path is not None else None
-            if self._yplus is not None:
-                self._face_counts = patch_face_counts(self.case_dir)
-        added = 0
-        for tail in (self._forces, self._yplus):
-            if tail is not None:
-                added += tail.poll()
-        return added > 0
+        self._discover()
+        return sum(tail.poll() for tail in self._tails()) > 0
 
-    def series(self, report_id: str) -> list[tuple[float, float]]:
-        """(iteration, value) pairs of a report (REPORT_LABELS), empty when not written yet."""
-        if report_id in FORCE_REPORTS:
-            return list(self._forces.series.get(report_id, [])) if self._forces is not None else []
+    # -- reference values ----------------------------------------------------------------------
+
+    def rho(self) -> float | None:
+        """rhoInf of the forces function object (system/controlDict)."""
+        if self._rho is None:
+            try:
+                functions = read_foam_file(self.case_dir / "system" / "controlDict").get("functions", {})
+                self._rho = float(functions[FORCES]["rhoInf"])
+            except Exception:  # missing file, entry or parser errors: no breakdown
+                return None
+        return self._rho
+
+    def axes(self, key: str | None) -> CoeffAxes | None:
+        if key not in self._axes and key in self._coeffs:
+            axes = read_coeff_axes(self._coeffs[key].path)
+            if axes is not None:
+                self._axes[key] = axes
+        return self._axes.get(key)
+
+    # -- series ----------------------------------------------------------------------------------
+
+    def part_keys(self) -> list[str]:
+        """Part patches with their own force objects, sorted."""
+        return sorted(k for k in self._force if k is not None)
+
+    def _samples(self, key: str | None) -> list[ForceSample]:
+        forces = self._force.get(key)
+        if forces is None:
+            return []
+        moments = _last_per_time(self._moment[key].rows) if key in self._moment else {}
+        return [ForceSample(t, f, moments.get(t)) for t, f in _last_per_time(forces.rows).items()]
+
+    def _breakdown_series(self, base: str, key: str | None) -> list[tuple[float, float]]:
+        axes, rho = self.axes(key), self.rho()
+        if axes is None or rho is None:
+            return []
+        out = []
+        for sample in self._samples(key):
+            row = breakdown("", sample, axes, rho)
+            value = {"Cd_pressure": row.cd_pressure, "Cd_viscous": row.cd_viscous,
+                     "Cl_pressure": row.cl_pressure, "Cl_viscous": row.cl_viscous, "x_cp": row.x_cp}[base]
+            if value is not None:
+                out.append((sample.time, value))
+        return out
+
+    def mass_series(self) -> list[tuple[float, float]]:
+        """Mass imbalance (% of the inlet flux) per iteration, from massFlow_inlet / _outlet."""
+        if "inlet" not in self._mass or "outlet" not in self._mass:
+            return []
+        inlet = _last_per_time(self._mass["inlet"].values)
+        outlet = _last_per_time(self._mass["outlet"].values)
+        out = []
+        for t in inlet:
+            if t in outlet:
+                value = mass_imbalance(inlet[t], outlet[t])
+                if value is not None:
+                    out.append((t, value))
+        return out
+
+    def series(self, report_id: str) -> list:
+        """(iteration, value) pairs of a report (core/reports.py ids), empty when not written yet.
+        ``probe:<name>:U`` gives (iteration, (Ux, Uy, Uz))."""
+        probe = split_probe(report_id)
+        if probe is not None:
+            name, comp = probe
+            if comp == "p":
+                return list(self._probe_p[name].values) if name in self._probe_p else []
+            if name not in self._probe_u:
+                return []
+            vectors = self._probe_u[name].values
+            if comp == "U":
+                return list(vectors)
+            if comp == "Umag":
+                return [(t, math.sqrt(v[0] ** 2 + v[1] ** 2 + v[2] ** 2)) for t, v in vectors]
+            return [(t, v["xyz".index(comp[1])]) for t, v in vectors]
         if report_id in YPLUS_REPORTS:
             if self._yplus is None:
                 return []
             return self._yplus.series(YPLUS_REPORTS[report_id], self._face_counts)
+        if report_id == MASS:
+            return self.mass_series()
+        base, patch = split_part(report_id)
+        if base in FORCE_REPORTS:
+            tail = self._coeffs.get(patch)
+            return list(tail.series.get(base, [])) if tail is not None else []
+        if base in BREAKDOWN or base == "x_cp":
+            return self._breakdown_series(base, patch)
         raise KeyError(report_id)
+
+    # -- tables ----------------------------------------------------------------------------------
+
+    def breakdown_rows(self) -> list[ForceRow]:
+        """The latest force breakdown of all walls ("All walls") and of each part."""
+        rho = self.rho()
+        rows = []
+        for key in (None, *self.part_keys()):
+            axes, samples = self.axes(key), self._samples(key)
+            if axes is None or rho is None or not samples:
+                continue
+            rows.append(breakdown("All walls" if key is None else key, samples[-1], axes, rho))
+        return rows
+
+    def mass_balance(self) -> tuple[float, float, float | None] | None:
+        """(inlet flux, outlet flux, imbalance %) at the latest iteration (None: not written)."""
+        if "inlet" not in self._mass or "outlet" not in self._mass:
+            return None
+        inlet = _last_per_time(self._mass["inlet"].values)
+        outlet = _last_per_time(self._mass["outlet"].values)
+        common = sorted(set(inlet) & set(outlet))
+        if not common:
+            return None
+        t = common[-1]
+        return inlet[t], outlet[t], mass_imbalance(inlet[t], outlet[t])

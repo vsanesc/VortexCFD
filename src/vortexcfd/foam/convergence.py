@@ -25,12 +25,36 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from vortexcfd.core.model import AsymptoticCriterion, ResidualCriterion, StoppingCriteria
+from vortexcfd.core.reports import report_label, split_part, split_probe
 
 FUNCTION_NAME = "runTimeControl1"
-# Monitored quantity -> (function object, result name) read by an ``average`` condition.
-QUANTITY_SOURCES = {"Cd": ("forceCoeffs1", "Cd"), "Cl": ("forceCoeffs1", "Cl"),
-                    "CmPitch": ("forceCoeffs1", "CmPitch")}
-QUANTITY_LABELS = {"Cd": "Cd", "Cl": "Cl", "CmPitch": "Cm (pitch)"}
+# forceCoeffs result names (forceCoeffs.C: setResult(coeff & "pressure") camel-cases the suffix).
+COEFF_RESULTS = {"Cd": "Cd", "Cl": "Cl", "CmPitch": "CmPitch", "Cd_pressure": "CdPressure",
+                 "Cd_viscous": "CdViscous", "Cl_pressure": "ClPressure", "Cl_viscous": "ClViscous"}
+
+
+def force_coeffs_name(patch: str | None) -> str:
+    """forceCoeffs1 for all walls, forceCoeffs_<patch> for one part."""
+    return "forceCoeffs1" if patch is None else f"forceCoeffs_{patch}"
+
+
+def probe_function_name(name: str) -> str:
+    return f"probe_{name}"
+
+
+def quantity_source(quantity: str) -> tuple[str, str]:
+    """(function object, result name) an ``average`` condition reads for the quantity: a forceCoeffs
+    result, or a probes object's "average(p)" / "average(U)" (one probe per object, so the
+    average over its probes is the probe's value; Probes.C setResult)."""
+    probe = split_probe(quantity)
+    if probe is not None:
+        return probe_function_name(probe[0]), f"average({probe[1]})"
+    base, patch = split_part(quantity)
+    return force_coeffs_name(patch), COEFF_RESULTS[base]
+
+
+def quantity_label(quantity: str) -> str:
+    return report_label(quantity)
 # The equationInitialResidual condition never checks the first two time indices.
 FIRST_RESIDUAL_CHECK = 3
 # ``average``: nIterStartUp N first allows a stop at iteration N + START_UP_OFFSET (real run, D-058).
@@ -49,7 +73,7 @@ def describe(criterion) -> str:
     """One line stating the criterion exactly."""
     if isinstance(criterion, ResidualCriterion):
         return f"{criterion.field} initial residual < {criterion.threshold:.3g}"
-    label = QUANTITY_LABELS.get(criterion.quantity, criterion.quantity)
+    label = quantity_label(criterion.quantity)
     return f"{label}: |value - mean of last {criterion.window}| <= {criterion.tolerance:.3g}"
 
 
@@ -57,7 +81,7 @@ def short_label(criterion) -> str:
     """A few words naming the criterion (tables; ``describe`` states it exactly)."""
     if isinstance(criterion, ResidualCriterion):
         return f"{criterion.field} residual"
-    return f"{QUANTITY_LABELS.get(criterion.quantity, criterion.quantity)} asymptotic"
+    return f"{quantity_label(criterion.quantity)} asymptotic"
 
 
 def n_iter_start_up(criterion: AsymptoticCriterion, min_iterations: int) -> int:
@@ -83,7 +107,7 @@ def run_time_control(stopping: StoppingCriteria) -> dict | None:
             entry = {"type": "equationInitialResidual", "fields": [c.field], "value": c.threshold,
                      "mode": "minimum", "timeStart": stopping.min_iterations}
         else:
-            function, result = QUANTITY_SOURCES[c.quantity]
+            function, result = quantity_source(c.quantity)
             entry = {"type": "average", "functionObject": function, "fields": [result],
                      "tolerance": c.tolerance, "window": c.window, "windowType": "exact",
                      "nIterStartUp": n_iter_start_up(c, stopping.min_iterations)}
@@ -110,13 +134,17 @@ def unique_by_iteration(series: Series) -> list[tuple[float, float]]:
     return out
 
 
-def asymptotic_delta(series: Series, window: int) -> float | None:
+def asymptotic_delta(series, window: int) -> float | None:
     """|x_n - mean of the last ``window`` values| (x_n included), as the ``average`` condition
-    computes it; None until ``window`` values exist."""
+    computes it (``mag``: for a vector the length of the difference); None until ``window`` values
+    exist."""
     values = [v for _, v in unique_by_iteration(series)]
     if len(values) < window:
         return None
     last = values[-window:]
+    if isinstance(values[-1], tuple):
+        mean = [sum(v[i] for v in last) / window for i in range(len(values[-1]))]
+        return math.sqrt(sum((values[-1][i] - mean[i]) ** 2 for i in range(len(mean))))
     return abs(values[-1] - sum(last) / window)
 
 
@@ -175,7 +203,7 @@ class Oscillation:
     mean: float
 
     def message(self) -> str:
-        label = QUANTITY_LABELS.get(self.quantity, self.quantity)
+        label = quantity_label(self.quantity)
         return (f"{label} oscillates by {100 * self.amplitude:.2g}% - the flow may be unsteady; "
                 "a steady solution may not exist")
 
@@ -207,8 +235,8 @@ def oscillation(quantity: str, series: Series, window: int, threshold: float) ->
     ``window`` values or a mean below MEAN_FLOOR in magnitude.
     """
     values = [v for _, v in unique_by_iteration(series)]
-    if len(values) < window or window < 2:
-        return None
+    if len(values) < window or window < 2 or any(isinstance(v, tuple) for v in values[-1:]):
+        return None  # too short, or a vector (a probe's U): not checked
     last = values[-window:]
     mean = sum(last) / window
     spread = max(last) - min(last)

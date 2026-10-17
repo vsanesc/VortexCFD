@@ -1,0 +1,209 @@
+FoamFile
+{
+    version 2.0;
+    format ascii;
+    class dictionary;
+    location "system";
+    object controlDict;
+}
+
+application simpleFoam;
+
+startFrom startTime;
+
+startTime 0;
+
+stopAt endTime;
+
+endTime 300;
+
+deltaT 1;
+
+writeControl timeStep;
+
+writeInterval 150;
+
+purgeWrite 0;
+
+writeFormat ascii;
+
+writePrecision 6;
+
+writeCompression no;
+
+timeFormat general;
+
+timePrecision 6;
+
+runTimeModifiable yes;
+
+functions
+{
+    forceCoeffs1
+    {
+    
+        type forceCoeffs;
+    
+        libs (forces);
+    
+        writeControl timeStep;
+    
+        writeInterval 1;
+    
+        log yes;
+    
+        patches (Sphere);
+    
+        rho rhoInf;
+    
+        rhoInf 1.225;
+    
+        liftDir (-0.0 0.0 1.0);
+    
+        dragDir (1.0 0.0 0.0);
+    
+        CofR (0.0 0.0 0.0);
+    
+        pitchAxis (0.0 1.0 0.0);
+    
+        magUInf 20.0;
+    
+        lRef 0.9976687431335449;
+    
+        Aref 0.9976687431335449;
+    }
+    forces1
+    {
+    
+        type forces;
+    
+        libs (forces);
+    
+        writeControl timeStep;
+    
+        writeInterval 1;
+    
+        log no;
+    
+        patches (Sphere);
+    
+        rho rhoInf;
+    
+        rhoInf 1.225;
+    
+        CofR (0.0 0.0 0.0);
+    }
+    massFlow_inlet
+    {
+    
+        type surfaceFieldValue;
+    
+        libs (fieldFunctionObjects);
+    
+        regionType patch;
+    
+        name inlet;
+    
+        operation sum;
+    
+        fields (phi);
+    
+        writeFields no;
+    
+        writeControl timeStep;
+    
+        writeInterval 1;
+    
+        log no;
+    }
+    massFlow_outlet
+    {
+    
+        type surfaceFieldValue;
+    
+        libs (fieldFunctionObjects);
+    
+        regionType patch;
+    
+        name outlet;
+    
+        operation sum;
+    
+        fields (phi);
+    
+        writeFields no;
+    
+        writeControl timeStep;
+    
+        writeInterval 1;
+    
+        log no;
+    }
+    yPlus1
+    {
+    
+        type yPlus;
+    
+        libs (fieldFunctionObjects);
+    
+        writeFields yes;
+    
+        executeControl writeTime;
+    
+        writeControl writeTime;
+    }
+    wallShearStress1
+    {
+    
+        type wallShearStress;
+    
+        libs (fieldFunctionObjects);
+    
+        patches (Sphere);
+    
+        writeFields yes;
+    
+        executeControl writeTime;
+    
+        writeControl writeTime;
+    }
+    probe_wake
+    {
+    
+        type probes;
+    
+        libs (sampling);
+    
+        fields (p U);
+    
+        probeLocations ((1.5 0.0 0.0));
+    
+        sampleOnExecute yes;
+    
+        writeControl timeStep;
+    
+        writeInterval 1;
+    }
+    probe_front
+    {
+    
+        type probes;
+    
+        libs (sampling);
+    
+        fields (p U);
+    
+        probeLocations ((-1.0 0.0 0.0));
+    
+        sampleOnExecute yes;
+    
+        writeControl timeStep;
+    
+        writeInterval 1;
+    }
+}
+
+OptimisationSwitches
+{
+    stopAtWriteNowSignal 10;
+}

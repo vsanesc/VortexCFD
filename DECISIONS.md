@@ -63,7 +63,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-045 | 2026-10-17 | Relaxed controls from the first layer iteration for y+ layers | Accepted |
 | D-046 | 2026-10-17 | Running the solver: run states, run record, results staleness | Accepted |
 | D-047 | 2026-10-17 | Reference values for the force coefficients (schema v4) | Accepted (with the A_ref basis) |
-| D-048 | 2026-10-17 | Live residuals and report slots | Accepted (face-weighted y+ average) |
+| D-048 | 2026-10-17 | Live residuals and report slots | Accepted (face-weighted y+ average); report list extended by D-060 |
 | D-049 | 2026-10-17 | Residual chart palette | Accepted |
 | D-050 | 2026-10-17 | forceCoeffs projection checked against a forces function object | Accepted |
 | D-051 | 2026-10-17 | A new mesh deletes the previous results | Accepted |
@@ -75,6 +75,8 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-057 | 2026-10-17 | Status bar: messages left, selection right | Accepted |
 | D-058 | 2026-10-17 | Stopping criteria through runTimeControl, convergence banner (schema v6) | Proposed |
 | D-059 | 2026-10-17 | Oscillation warning for monitored quantities | Proposed |
+| D-060 | 2026-10-17 | Force breakdown, centre of pressure, mass balance and probes as reports | Proposed |
+| D-061 | 2026-10-17 | Wall shear stress, skin friction Cf / Cf_x, separation highlight, y+ histogram | Proposed |
 
 ---
 
@@ -508,4 +510,30 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Decision: for each monitored quantity (the asymptotic criteria's quantities and the report slots' assignments; y+ is left out, it is written only at write times), over the last W = `StoppingCriteria.oscillation_window` iterations (default 100; one value per iteration): mean m, relative amplitude a = (max - min) / |m|. Not drifting: the least-squares straight line through the W values changes by less than 0.5 * (max - min) across the window (a monotonic ramp changes by about its whole range; a sine over at least two periods by less than half of it). The warning "<quantity> oscillates by <a, 2 significant digits>% - the flow may be unsteady; a steady solution may not exist" is shown in the warning colour under the convergence banner when a > `oscillation_threshold` (default 0.01, i.e. 1 %, editable on the Stopping Criteria node as a percentage) and the mean is not drifting. Not evaluated with fewer than W values or with |m| < 1e-3 (the relative amplitude is undefined near zero, e.g. Cl of a symmetric body at zero incidence). It is a warning only, never a stop.
 - Alternatives considered: a spectral test (FFT peak; needs many periods and more code for the same message); standard deviation instead of max - min (less direct to state as "oscillates by X %").
 - Consequences: on the real 172-iteration coarse-sphere run (tests/data/oscillation_run) iterations 73-172 give Cl 0.038-0.092 around 0.061 (88 %) and Cd 0.161-0.180 around 0.169 (11 %): both flagged. A quantity oscillating around zero is never flagged (item 61).
+
+## D-060 Force breakdown, centre of pressure, mass balance and probes as reports
+- Status: Proposed (Task 6.1 Part B, [NUMERICS-REVIEW]; docs/QUESTIONS.md items 63 and 64)
+- Context: Cd and Cl alone do not validate a result; the user needs to see where the force comes from (pressure or friction, which part), whether mass is conserved, and point values in the flow.
+- Decision:
+  - Function objects added to controlDict (keywords checked by tests against the v2606 sources): with two or more parts, per part `forceCoeffs_<patch>` and `forces_<patch>` (same settings as forceCoeffs1 / forces1 on that patch only; with one part they would equal the totals and are not written); `massFlow_inlet` and `massFlow_outlet` (surfaceFieldValue, regionType patch, operation sum, fields (phi), every iteration; the far-field patches are slip and the symmetry plane is symmetryPlane, so their flux is zero by construction and they are not summed); one `probe_<name>` probes object per probe (fields (p U), one probeLocations point, cell value, sampleOnExecute so that its results average(p) / average(U) are the probe's values).
+  - Breakdown: from force.dat and moment.dat (total, pressure, viscous vectors in the global axes, N and N m with rho = rhoInf) and the axes and reference values printed in the matching coefficient.dat header: C_d = F . dragDir / (q A_ref), C_l = F . liftDir / (q A_ref), q = 0.5 rho U^2, for the total, pressure and viscous force; C_m = M_y / (q A_ref l_ref) about CofR (pitch axis +y, D-047). Checked on real runs: the projection equals forceCoeffs' Cd, Cl and CmPitch to 1e-7 for all walls and for each part, and the parts add up to all walls.
+  - Centre of pressure along x: the point on the line through CofR parallel to x where the resultant gives the same pitching moment, x_cp = x_CofR - M_y / F_z (global axes). Undefined (shown "undefined", not plotted) when |F_z| / (q A_ref) < 0.01.
+  - Mass balance: imbalance = 100 (sum(phi)_inlet + sum(phi)_outlet) / |sum(phi)_inlet| % (sum(phi) is positive out of the domain). Above 0.1 % in magnitude it is shown in the warning colour on the Reports & Monitors node and as a warning under the convergence banner ("Mass imbalance X% of the inlet flux (above 0.1%): the continuity solution is not converged").
+  - Report ids (core/reports.py) replace the fixed list of D-048: Cd, Cl, CmPitch; Cd_pressure, Cd_viscous, Cl_pressure, Cl_viscous, x_cp; the same per part as `<base>@<patch>` (offered only with several parts); mass_imbalance; yplus_min/avg/max; `probe:<name>:<p|Ux|Uy|Uz|Umag>`. The slot menus group them in submenus (All walls, Part <patch>, Probe <name>). An id whose part or probe was removed stays assigned and is marked "(not available)".
+  - Asymptotic criteria (D-058) may watch any force coefficient of all walls or of one part (forceCoeffs results Cd, Cl, CmPitch and, camel-cased by v2606's word operator&, CdPressure, CdViscous, ClPressure, ClViscous) and `probe:<name>:p` or `probe:<name>:U` (the average condition takes the length of the vector difference for U). Run Solver is blocked when a criterion watches a removed part or probe.
+  - Model (schema v6, extended in place on the unpublished task branch): `Reports.probes` (name: letter then letters, digits or _, at most 32; unique; location x y z), `Reports.slots` take any valid report id, `AsymptoticCriterion.quantity` any criterion quantity.
+  - GUI: the Reports & Monitors node shows a Forces table (rows Cd, Cd,p, Cd,v, Cl, Cl,p, Cl,v, Cm, x_cp; columns All walls and each part; latest iteration, live), the mass balance rows and the y+ histogram (D-061); a Probes node adds (default name probeN, located one parts length behind the parts on their centre line), edits (name, "x y z") and removes probes.
+- Alternatives considered: pressure/viscous coefficients from forceCoeffs' results (only in the solver log, not in its file); one probes object for all probes (its results are only the average, min and max over the probes, so a criterion could not watch one probe); summing the flux of every open boundary (zero on slip and symmetry patches).
+- Consequences: real coarse-sphere run (300 iterations, 20 m/s, frontal A_ref 0.9977 m2): Cd 0.1721 = pressure 0.1604 + viscous 0.01165 (93 % pressure drag), mass imbalance 0 % at iteration 300 (inlet and outlet sum(phi) equal to the 7 written digits; at most 0.0083 % at iteration 2). Two-part run (Ball + Pod at 4 deg, 30 iterations): Ball 0.07346 + Pod 0.01790 = 0.09136. More files per run (a few kB per 100 iterations per object).
+
+## D-061 Wall shear stress, skin friction Cf / Cf_x, separation highlight, y+ histogram
+- Status: Proposed (Task 6.1 Part B, [NUMERICS-REVIEW])
+- Context: separation and wall resolution are part of judging a result; the wall shear stress field was only available as |wallShearStress|.
+- Decision:
+  - controlDict gets `wallShearStress1` (wallShearStress on the part patches, writeFields, at write times, like yPlus1).
+  - v2606 writes tau = n_in . devReff with n_in pointing into the fluid (wallShearStress.C: `(-Sf/magSf) & Reff`): the stress the wall exerts on the fluid, kinematic. The skin friction on the body is its opposite. Results Scene fields: Cf = |tau| / (0.5 U_ref^2) and Cf_x = -(tau . d) / (0.5 U_ref^2) with d = (cos a, 0, sin a) the free-stream direction: Cf_x > 0 where the near-wall flow goes downstream, < 0 where it runs back. Checked on the real sphere: -rho sum(tau A) over the wall equals the viscous force of forces1 (2.849 N vs 2.848 N), Cf_x > 0 on the whole windward half, negative on 23 % of the faces, from about 110-120 deg from the stagnation point.
+  - A "Separation" toggle in the Results Scene strip draws the wall faces with Cf_x < 0 in the theme's error colour over the field (enabled when wallShearStress exists; its tooltip gives the share of faces).
+  - y+ histogram on the Reports & Monitors node (QPainter, no new dependency): the fraction of the wall faces of the latest yPlus field in [0, 1), [1, 5), [5, 30), [30, 300) and [300, inf) (a value on an edge goes to the upper bin), with the face count and time.
+- Alternatives considered: Cf_x with the sign of tau itself (negative on attached flow, the opposite of the usual convention); a histogram weighted by face area (the task asks for the fraction of faces).
+- Consequences: real sphere (300 iterations, three 1.2-ratio layers): y+ 3.5 % in [5, 30), 96.5 % in [30, 300), none below 5 or above 300.
 

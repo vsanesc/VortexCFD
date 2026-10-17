@@ -27,7 +27,8 @@ from dataclasses import dataclass, field
 
 from vortexcfd.core.model import Inflow, Physics, Reports, Solvers
 from vortexcfd.foam.case_writer import FoamFileSpec
-from vortexcfd.foam.convergence import FUNCTION_NAME as RUN_TIME_CONTROL, run_time_control
+from vortexcfd.foam.convergence import FUNCTION_NAME as RUN_TIME_CONTROL
+from vortexcfd.foam.convergence import force_coeffs_name, probe_function_name, run_time_control
 
 Bounds = tuple[float, float, float, float, float, float]  # xmin, xmax, ymin, ymax, zmin, zmax
 
@@ -116,7 +117,7 @@ def reference_values(parts_bounds: Bounds, reports: Reports) -> ReferenceValues:
     )
 
 
-def _force_coeffs(inp: SolverCaseInput) -> dict:
+def _force_coeffs(inp: SolverCaseInput, patches: tuple[str, ...] | None = None) -> dict:
     """The motorBike tutorial's forceCoeffs entry for the part walls (incompressible: rhoInf).
 
     v2606 (forces::setCoordinateSystem): with CofR, liftDir is e3 and dragDir e1 of the coefficient
@@ -130,8 +131,8 @@ def _force_coeffs(inp: SolverCaseInput) -> dict:
         "libs": ["forces"],
         "writeControl": "timeStep",
         "writeInterval": 1,
-        "log": True,
-        "patches": list(inp.patches),
+        "log": patches is None,  # only the total in the solver log
+        "patches": list(inp.patches if patches is None else patches),
         "rho": "rhoInf",
         "rhoInf": inp.physics.rho_ref,
         "liftDir": [-math.sin(a), 0.0, math.cos(a)],
@@ -144,7 +145,7 @@ def _force_coeffs(inp: SolverCaseInput) -> dict:
     }
 
 
-def _forces(inp: SolverCaseInput) -> dict:
+def _forces(inp: SolverCaseInput, patches: tuple[str, ...] | None = None) -> dict:
     """Total, pressure and viscous force and moment on the part walls in the GLOBAL axes (CofR with
     no direction entries: e1 = x, e3 = z), next to forceCoeffs so its projection can be checked
     (D-050). Output: postProcessing/forces1/<start time>/force.dat and moment.dat (N and N m with
@@ -156,10 +157,64 @@ def _forces(inp: SolverCaseInput) -> dict:
         "writeControl": "timeStep",
         "writeInterval": 1,
         "log": False,
-        "patches": list(inp.patches),
+        "patches": list(inp.patches if patches is None else patches),
         "rho": "rhoInf",
         "rhoInf": inp.physics.rho_ref,
         "CofR": list(ref.cofr),
+    }
+
+
+# Open boundaries whose flux is summed for the mass balance; the far-field patches are slip and
+# the symmetry plane is symmetryPlane, so their flux is zero by construction (D-060).
+MASS_FLOW_PATCHES = ("inlet", "outlet")
+
+
+def mass_flow_name(patch: str) -> str:
+    return f"massFlow_{patch}"
+
+
+def _mass_flow(patch: str) -> dict:
+    """sum(phi) over a patch every iteration (surfaceFieldValue, v2606 keywords): m3/s, positive out
+    of the domain. Output: postProcessing/massFlow_<patch>/<start time>/surfaceFieldValue.dat."""
+    return {
+        "type": "surfaceFieldValue",
+        "libs": ["fieldFunctionObjects"],
+        "regionType": "patch",
+        "name": patch,
+        "operation": "sum",
+        "fields": ["phi"],
+        "writeFields": False,
+        "writeControl": "timeStep",
+        "writeInterval": 1,
+        "log": False,
+    }
+
+
+def _wall_shear_stress(inp: SolverCaseInput) -> dict:
+    """The kinematic wall shear stress field on the part walls at write times (wallShearStress,
+    v2606): tau = n_in . devReff, the wall's stress on the fluid (foam/wall_fields.py)."""
+    return {
+        "type": "wallShearStress",
+        "libs": ["fieldFunctionObjects"],
+        "patches": list(inp.patches),
+        "writeFields": True,
+        "executeControl": "writeTime",
+        "writeControl": "writeTime",
+    }
+
+
+def _probe(location) -> dict:
+    """One probes object per probe (p and U at one point, cell value), sampled every iteration;
+    its results average(p) / average(U) are that probe's values (the runTimeControl source).
+    Output: postProcessing/probe_<name>/<start time>/p and U."""
+    return {
+        "type": "probes",
+        "libs": ["sampling"],
+        "fields": ["p", "U"],
+        "probeLocations": [list(location)],
+        "sampleOnExecute": True,
+        "writeControl": "timeStep",
+        "writeInterval": 1,
     }
 
 
@@ -169,14 +224,23 @@ def control_dict(inp: SolverCaseInput) -> FoamFileSpec:
     functions = {
         "forceCoeffs1": _force_coeffs(inp),
         "forces1": _forces(inp),
-        "yPlus1": {
-            "type": "yPlus",
-            "libs": ["fieldFunctionObjects"],
-            "writeFields": True,
-            "executeControl": "writeTime",
-            "writeControl": "writeTime",
-        },
     }
+    if len(inp.patches) > 1:  # per part (D-060); with one part these equal the totals
+        for patch in inp.patches:
+            functions[force_coeffs_name(patch)] = _force_coeffs(inp, (patch,))
+            functions[f"forces_{patch}"] = _forces(inp, (patch,))
+    for patch in MASS_FLOW_PATCHES:
+        functions[mass_flow_name(patch)] = _mass_flow(patch)
+    functions["yPlus1"] = {
+        "type": "yPlus",
+        "libs": ["fieldFunctionObjects"],
+        "writeFields": True,
+        "executeControl": "writeTime",
+        "writeControl": "writeTime",
+    }
+    functions["wallShearStress1"] = _wall_shear_stress(inp)
+    for probe in inp.reports.probes:
+        functions[probe_function_name(probe.name)] = _probe(probe.location)
     stop = run_time_control(inp.solvers.stopping)
     if stop is not None:
         functions[RUN_TIME_CONTROL] = stop

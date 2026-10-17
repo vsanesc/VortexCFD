@@ -88,23 +88,25 @@ def test_nice_ticks() -> None:
 def test_slot_menu_assigns_and_the_assignment_is_saved(make_window, qtbot: QtBot) -> None:
     w = make_window()
     slots = w.monitors.kpis
-    labels = [a.text() for a in slots.menus[2].actions()]
-    assert labels == ["Not assigned", "Cd", "Cl", "Cm (pitch)", "y+ min (walls)", "y+ avg (walls)",
+    labels = [a.text() for a in slots.slot_actions(2)]
+    assert labels == ["Not assigned", "Cd", "Cl", "Cm (pitch)", "Cd pressure", "Cd viscous", "Cl pressure",
+                      "Cl viscous", "x_cp (m)", "Mass imbalance (%)", "y+ min (walls)", "y+ avg (walls)",
                       "y+ max (walls)"]
-    next(a for a in slots.menus[2].actions() if a.text() == "Cd").trigger()
+    assert [a.text() for a in slots.menus[2].actions()][:2] == ["Not assigned", "All walls"]  # submenu
+    next(a for a in slots.slot_actions(2) if a.text() == "Cd").trigger()
     assert w.project.sim.reports.slots == [None, "Cd", None]
     assert slots.subtitles[2].text() == "Cd" and slots.values[2].text() == "—"  # no run yet
     assert w.project.undo_label == "Edit reports (slots)" and w.project.dirty
     assert not w.results_stale  # a slot choice does not change the results
-    next(a for a in slots.menus[3].actions() if a.text() == "y+ avg (walls)").trigger()
+    next(a for a in slots.slot_actions(3) if a.text() == "y+ avg (walls)").trigger()
     w.project.save()
     reopened = Project.open(w.project.path)
     assert reopened.sim.reports.slots == [None, "Cd", "yplus_avg"]
     w.act_undo.trigger()
     assert slots.subtitles[3].text() == "Not assigned"
-    checked = [a.text() for a in slots.menus[2].actions() if a.isChecked()]
+    checked = [a.text() for a in slots.slot_actions(2) if a.isChecked()]
     assert checked == ["Cd"]
-    next(a for a in slots.menus[2].actions() if a.text() == "Not assigned").trigger()
+    next(a for a in slots.slot_actions(2) if a.text() == "Not assigned").trigger()
     assert w.project.sim.reports.slots == [None, None, None] and slots.subtitles[2].text() == "Not assigned"
 
 

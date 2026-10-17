@@ -1,5 +1,6 @@
 """Properties panel: edits the node selected in the simulation tree through the Project."""
 
+from pathlib import Path
 from typing import get_args
 
 from PySide6.QtCore import Qt, Signal
@@ -24,14 +25,19 @@ from PySide6.QtWidgets import (
 )
 
 from vortexcfd.core.model import (
-    ASYMPTOTIC_QUANTITIES,
     RESIDUAL_FIELDS,
     AsymptoticCriterion,
     Domain,
     Part,
     ResidualCriterion,
 )
-from vortexcfd.foam.convergence import QUANTITY_LABELS, earliest_iteration
+from vortexcfd.core.model import Probe
+from vortexcfd.core.reports import PROBE_NAME_RE, criterion_quantities, missing_reference, report_label
+from vortexcfd.foam.forces import MASS_WARNING
+from vortexcfd.foam.wall_fields import case_yplus_histogram
+from vortexcfd.gui.charts import YPlusHistogramChart
+from vortexcfd.gui.report_views import ForcesTable
+from vortexcfd.foam.convergence import earliest_iteration
 from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.foam.run_record import RunRecord
@@ -511,6 +517,52 @@ class PropertiesPanel(QWidget):
         self.ref_note.setObjectName("muted")
         _wrap(self.ref_note)
         self._layout.addWidget(self.ref_note)
+        # Reports & Monitors node (D-060, D-061): latest force breakdown, mass balance, y+ bins.
+        self._report_monitor = None  # foam.postprocessing.ReportMonitor of the shown run
+        self._report_case: Path | None = None
+        self._yplus_cache: tuple | None = None
+        self._section("rep_forces", "Forces (latest iteration)")
+        self.forces_table = ForcesTable()
+        self._forces_host = QWidget()
+        self._forces_box = QVBoxLayout(self._forces_host)
+        self._forces_box.addWidget(self.forces_table)
+        self._layout.addWidget(self._forces_host)
+        self._section("rep_mass", "Mass balance")
+        self.mass_inlet = self._ro_row("rep_mass_inlet", "Inlet flux sum(phi)")
+        self.mass_outlet = self._ro_row("rep_mass_outlet", "Outlet flux sum(phi)")
+        self.mass_imbalance = self._ro_row("rep_mass_imbalance", "Imbalance")
+        self._section("rep_yplus", "y+ on the walls")
+        self.yplus_chart = YPlusHistogramChart()
+        self._yplus_host = QWidget()
+        self._yplus_box = QVBoxLayout(self._yplus_host)
+        self._yplus_box.addWidget(self.yplus_chart)
+        self._layout.addWidget(self._yplus_host)
+        self.yplus_faces = self._ro_row("rep_yplus_faces", "Wall faces")
+        self.reports_empty = QLabel("No solver run yet")
+        self.reports_empty.setObjectName("muted")
+        _wrap(self.reports_empty)
+        self._layout.addWidget(self.reports_empty)
+        # Probes node (under Reports & Monitors): one block per probe, Add probe.
+        self.probe_add = QPushButton("Add probe")
+        self.probe_add.setObjectName("tbBtn")
+        self.probe_add.setToolTip("A point probe of p and U, written every iteration (probes function object)")
+        self.probe_add.clicked.connect(self._add_probe)
+        self._probe_add_host = QWidget()
+        self._probe_add_row = QHBoxLayout(self._probe_add_host)
+        self._probe_add_row.addWidget(self.probe_add, 1)
+        self._layout.addWidget(self._probe_add_host)
+        self._probe_box = QVBoxLayout()
+        self._probe_box.setContentsMargins(0, 0, 0, 0)
+        self._probe_box.setSpacing(0)
+        self._layout.addLayout(self._probe_box)
+        self._probe_rows: list[QWidget] = []
+        self._probe_titles: list[tuple[QWidget, ElidedLabel]] = []
+        self._probe_count: int | None = None
+        self.probe_widgets: list[dict[str, QWidget]] = []
+        self.probes_empty = QLabel("No probes")
+        self.probes_empty.setObjectName("muted")
+        _wrap(self.probes_empty)
+        self._layout.addWidget(self.probes_empty)
         # Stopping Criteria node (under Solvers): combination, limits, oscillation check, criteria.
         self.stop_combine = _combo(("all", "any"))
         self.stop_min = _spin(0, 10_000_000)
@@ -640,7 +692,7 @@ class PropertiesPanel(QWidget):
 
     def _dynamic_titles(self) -> list[tuple[QWidget, "ElidedLabel"]]:
         """Rows built at refresh time (layer coverage, stopping criteria) with their labels."""
-        return [*self._layer_titles, *getattr(self, "_criteria_titles", [])]
+        return [*self._layer_titles, *getattr(self, "_criteria_titles", []), *getattr(self, "_probe_titles", [])]
 
     def _fit_content_height(self) -> None:
         """Make the scroll area aware of the rows' real height (a layout change inside the content
@@ -694,6 +746,16 @@ class PropertiesPanel(QWidget):
         self.mesh_empty.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
         self.stop_empty.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
         self._stop_add_row.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
+        self._probe_add_row.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
+        self.probe_add.setMinimumHeight(m.field)
+        self._forces_box.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
+        self._yplus_box.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
+        self.forces_table.configure(m.s3)
+        self.yplus_chart.configure(theme, 8 * m.u)
+        for label in (self.reports_empty, self.probes_empty):
+            label.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
+        if getattr(self, "_probe_count", None) is not None:
+            self._probe_count = None  # rebuilt at the next refresh with the new metrics
         self._stop_add_row.setSpacing(m.s2)
         for button in (self.stop_add_residual, self.stop_add_asymptotic):
             button.setMinimumHeight(m.field)
@@ -752,11 +814,14 @@ class PropertiesPanel(QWidget):
         self._refresh_groups()
         self._refresh_run(self._kind == "solvers")
         self._refresh_stopping(self._kind == "stopping")
+        self._refresh_reports(self._kind == "reports")
+        self._refresh_probes(self._kind == "probes")
         self._refresh_reference(self._kind == "reference_values")
         self._refresh_mesh_settings(self._kind == "mesh")
         self._refresh_mesh(self._kind == "mesh")
         self.info_label.setVisible(
-            not show_name and not is_domain and self._kind not in ("mesh", "reference_values", "stopping")
+            not show_name and not is_domain
+            and self._kind not in ("mesh", "reference_values", "stopping", "reports", "probes")
             and self._kind not in GROUPS
         )
         self._apply_label_column()
@@ -1042,8 +1107,9 @@ class PropertiesPanel(QWidget):
         self.stop_add.setVisible(show)
         stop = self._project.sim.solvers.stopping
         kinds = [c.kind for c in stop.criteria] if show else []
-        if kinds != self._criteria_kinds:
-            self._build_criteria_rows(kinds)
+        options = self._quantity_options() if show else []
+        if (kinds, options) != self._criteria_kinds:
+            self._build_criteria_rows(kinds, options)
         self.stop_empty.setVisible(show and not kinds)
         if not show:
             return
@@ -1062,7 +1128,12 @@ class PropertiesPanel(QWidget):
                     row["field"].setCurrentText(c.field)
                     row["threshold"].setValue(c.threshold)
                 else:
-                    row["quantity"].setCurrentIndex(ASYMPTOTIC_QUANTITIES.index(c.quantity))
+                    combo = row["quantity"]
+                    if combo.findData(c.quantity) < 0:  # a removed part or probe: kept, flagged
+                        names, probes = self._patches_and_probes()
+                        why = missing_reference(c.quantity, names, probes) or "not available"
+                        combo.addItem(f"{report_label(c.quantity)} ({why})", c.quantity)
+                    combo.setCurrentIndex(combo.findData(c.quantity))
                     row["window"].setValue(c.window)
                     row["tolerance"].setValue(c.tolerance)
                 row["earliest"].setText(f"iteration {earliest_iteration(c, stop.min_iterations)}")
@@ -1091,14 +1162,24 @@ class PropertiesPanel(QWidget):
         row.show()  # now, not at the next event loop pass: the content height must count it
         self._criteria_rows.append(row)
 
-    def _build_criteria_rows(self, kinds: list[str]) -> None:
+    def _patches_and_probes(self) -> tuple[list[str], list[str]]:
+        sim = self._project.sim
+        return (safe_part_names([p.name for p in sim.geometry.parts]),
+                [p.name for p in sim.reports.probes])
+
+    def _quantity_options(self) -> list[str]:
+        """Quantities an asymptotic criterion can watch in this project (D-060)."""
+        return criterion_quantities(*self._patches_and_probes())
+
+    def _build_criteria_rows(self, kinds: list[str], options: list[str] | None = None) -> None:
         """One block of rows per criterion: a title row (type and Remove), then its settings."""
         for row in self._criteria_rows:
             self._criteria_box.removeWidget(row)
             row.hide()
             row.deleteLater()
         self._criteria_rows, self._criteria_titles, self.criterion_widgets = [], [], []
-        self._criteria_kinds = list(kinds)
+        options = list(options or [])
+        self._criteria_kinds = (list(kinds), options)
         for i, kind in enumerate(kinds):
             remove = QPushButton("Remove")
             remove.setObjectName("tbBtn")
@@ -1121,8 +1202,8 @@ class PropertiesPanel(QWidget):
                 widgets.update(field=field, threshold=threshold)
             else:
                 quantity = QComboBox()
-                for q in ASYMPTOTIC_QUANTITIES:
-                    quantity.addItem(QUANTITY_LABELS[q], q)
+                for q in options:
+                    quantity.addItem(report_label(q), q)
                 window = _spin(2, 10_000_000, " it.")
                 tolerance = _sci()
                 tolerance.setToolTip("Absolute, in the quantity's units: |value - window mean| <= tolerance")
@@ -1196,6 +1277,180 @@ class PropertiesPanel(QWidget):
         if self._kind != "stopping":
             return
         self._edit_stopping(lambda d: d["criteria"].pop(index))
+
+    # -- reports: forces, mass balance, y+ -------------------------------------------------------
+
+    def set_report_monitor(self, monitor, case_dir: Path | None) -> None:
+        """The postProcessing reader of the shown run (None: no run) and its case directory; called
+        after every monitors refresh, so the Reports & Monitors node follows a live run."""
+        if monitor is not self._report_monitor or case_dir != self._report_case:
+            self._report_monitor, self._report_case = monitor, case_dir
+            self._yplus_cache = None
+        if self._kind == "reports":
+            self._refresh_reports(True)
+
+    def refresh_reports(self) -> None:
+        """New postProcessing data arrived (the monitors refreshed)."""
+        if self._kind == "reports":
+            self._refresh_reports(True)
+
+    def _yplus_histogram(self):
+        case = self._report_case
+        if case is None:
+            return None
+        from vortexcfd.foam.results import latest_result_time
+
+        time = latest_result_time(case)
+        key = (str(case), time)
+        if self._yplus_cache is None or self._yplus_cache[0] != key:
+            patches = safe_part_names([p.name for p in self._project.sim.geometry.parts])
+            try:
+                result = case_yplus_histogram(case, patches)
+            except Exception:  # unreadable field file: shown as missing
+                result = None
+            self._yplus_cache = (key, result)
+        return self._yplus_cache[1]
+
+    def _refresh_reports(self, show: bool) -> None:
+        monitor = self._report_monitor
+        rows = monitor.breakdown_rows() if (show and monitor is not None) else []
+        balance = monitor.mass_balance() if (show and monitor is not None) else None
+        yplus = self._yplus_histogram() if show else None
+        has_any = bool(rows) or balance is not None or yplus is not None
+        self._sections["rep_forces"].setVisible(show and bool(rows))
+        self._sections["rep_mass"].setVisible(show and balance is not None)
+        self._sections["rep_yplus"].setVisible(show and has_any)
+        self._forces_host.setVisible(show and bool(rows))
+        for key in ("rep_mass_inlet", "rep_mass_outlet", "rep_mass_imbalance"):
+            self._rows[key].setVisible(show and balance is not None)
+        self._yplus_host.setVisible(show and has_any)
+        self._rows["rep_yplus_faces"].setVisible(show and yplus is not None)
+        self.reports_empty.setVisible(show and not has_any)
+        if not show:
+            return
+        self.forces_table.set_rows(rows)
+        if balance is not None:
+            inlet, outlet, pct = balance
+            self.mass_inlet.setText(f"{inlet:.6g} m\u00b3/s")
+            self.mass_outlet.setText(f"{outlet:.6g} m\u00b3/s")
+            if pct is None:
+                self.mass_imbalance.setText("\u2014 (no inflow)")
+                self._set_warn(self.mass_imbalance, False)
+            else:
+                warn = abs(pct) > MASS_WARNING
+                self.mass_imbalance.setText(f"{pct:.3g} % of the inlet flux" + (f" (above {MASS_WARNING:g} %)" if warn else ""))
+                self._set_warn(self.mass_imbalance, warn)
+        self.yplus_chart.set_histogram(yplus[1] if yplus is not None else None)
+        if yplus is not None:
+            self.yplus_faces.setText(f"{yplus[1].faces:,} at time {yplus[0]}")
+        self._fit_content_height()
+
+    # -- probes --------------------------------------------------------------------------------
+
+    def _refresh_probes(self, show: bool) -> None:
+        probes = self._project.sim.reports.probes if show else []
+        self._probe_add_host.setVisible(show)
+        self.probes_empty.setVisible(show and not probes)
+        if len(probes) != self._probe_count or not show:
+            self._build_probe_rows(len(probes) if show else 0)
+        for probe, row in zip(probes, self.probe_widgets):
+            for w in row.values():
+                w.blockSignals(True)
+            row["name"].setText(probe.name)
+            row["location"].setText(format_vector(probe.location))
+            for w in row.values():
+                w.blockSignals(False)
+
+    def _probe_row(self, text: str, field: QWidget) -> None:
+        row = QWidget()
+        row.setObjectName("propRow")
+        row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        box = QHBoxLayout(row)
+        box.setContentsMargins(*self._row_margins)
+        title = ElidedLabel(text)
+        title.setObjectName("muted")
+        box.addWidget(title)
+        box.addWidget(field, 1)
+        if isinstance(field, QLineEdit):
+            field.setMinimumHeight(metrics().field)
+            field.setMinimumWidth(1)
+            field.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            field.setFont(mono_font(QApplication.font(), 0.9))
+        row.setMinimumHeight(self._row_min_height)
+        self._probe_titles.append((row, title))
+        self._probe_box.addWidget(row)
+        row.show()
+        self._probe_rows.append(row)
+
+    def _build_probe_rows(self, count: int) -> None:
+        for row in self._probe_rows:
+            self._probe_box.removeWidget(row)
+            row.hide()
+            row.deleteLater()
+        self._probe_rows, self._probe_titles, self.probe_widgets = [], [], []
+        self._probe_count = count
+        for i in range(count):
+            remove = QPushButton("Remove")
+            remove.setObjectName("tbBtn")
+            remove.clicked.connect(lambda _=False, n=i: self._remove_probe(n))
+            self._probe_row(f"Probe {i + 1}", remove)
+            name = QLineEdit()
+            name.setToolTip("Letters, digits and _, starting with a letter; used in the report names")
+            location = QLineEdit()
+            location.setToolTip("x y z in metres (a point in the fluid)")
+            self._probe_row("Name", name)
+            self._probe_row("Location", location)
+            name.editingFinished.connect(lambda n=i: self._commit_probe(n, "name"))
+            location.editingFinished.connect(lambda n=i: self._commit_probe(n, "location"))
+            self.probe_widgets.append({"name": name, "location": location, "remove": remove})
+        self._apply_label_column()
+
+    def _edit_probes(self, mutate) -> None:
+        probes = [p.model_dump() for p in self._project.sim.reports.probes]
+        try:
+            mutate(probes)
+            self._project.update_reports(probes=probes)
+        except (ValueError, TypeError) as exc:  # includes pydantic errors
+            self.message.emit(str(exc))
+        self.refresh()
+
+    def _commit_probe(self, index: int, key: str) -> None:
+        if self._kind != "probes" or index >= len(self.probe_widgets):
+            return
+        text = self.probe_widgets[index][key].text()
+
+        def mutate(probes: list[dict]) -> None:
+            if key == "name":
+                probes[index]["name"] = text.strip()
+            else:
+                vector = parse_vector(text)
+                if vector is None:
+                    raise ValueError("Probe location: expected three numbers (x y z)")
+                probes[index]["location"] = vector
+
+        self._edit_probes(mutate)
+
+    def _add_probe(self) -> None:
+        """A probe downstream of the parts (one parts length behind them, on their centre line)."""
+        if self._kind != "probes":
+            return
+        taken = {p.name for p in self._project.sim.reports.probes}
+        n = 1
+        while f"probe{n}" in taken:
+            n += 1
+        try:
+            _box, _names, b = parts_layout(self._project)
+        except MeshingNotReady:
+            b = None
+        location = ((b[1] + (b[1] - b[0]), (b[2] + b[3]) / 2, (b[4] + b[5]) / 2) if b is not None
+                    else (1.0, 0.0, 0.0))
+        new = Probe(name=f"probe{n}", location=location)
+        self._edit_probes(lambda probes: probes.append(new.model_dump()))
+
+    def _remove_probe(self, index: int) -> None:
+        if self._kind != "probes":
+            return
+        self._edit_probes(lambda probes: probes.pop(index))
 
     def set_run_record(self, record: RunRecord | None, stale: bool = False) -> None:
         """The last solver run shown on the Solvers node (None: no run yet)."""

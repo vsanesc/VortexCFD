@@ -11,7 +11,8 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from vortexcfd.core.model import Simulation
+from vortexcfd.core.model import AsymptoticCriterion, Simulation
+from vortexcfd.core.reports import missing_reference, report_label
 from vortexcfd.core.project import Project
 from vortexcfd.foam.case_writer import enable_clean_stop
 from vortexcfd.foam.dictfile import write_foam_file
@@ -43,6 +44,13 @@ def physics_problem(project: Project) -> str | None:
         return str(exc)
     if bounds is None:
         return "Import at least one part."
+    sim = project.sim
+    probes = [p.name for p in sim.reports.probes]
+    for i, c in enumerate(sim.solvers.stopping.criteria, start=1):
+        if isinstance(c, AsymptoticCriterion):
+            why = missing_reference(c.quantity, _names, probes)
+            if why is not None:
+                return f"Stopping criterion {i} watches {report_label(c.quantity)}: {why}."
     ref = reference_values(bounds, project.sim.reports)
     if ref.l_ref <= 0:
         return "The reference length is zero (the parts have no extent along x): set l_ref."

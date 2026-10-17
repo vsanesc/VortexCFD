@@ -43,7 +43,9 @@ from PySide6.QtWidgets import (
 )
 
 from vortexcfd.core.model import Part, StoppingCriteria
+from vortexcfd.core.reports import available_reports
 from vortexcfd.foam import convergence
+from vortexcfd.foam.physics_case import flow_direction
 from vortexcfd.core.project import Project
 from vortexcfd.gui import console as console_log
 from vortexcfd.gui.console import ConsolePanel
@@ -54,7 +56,7 @@ from vortexcfd.geometry.checks import surface_report
 from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.gui.properties_panel import PropertiesPanel
 from vortexcfd.geometry.domain import BOUNDARY_NAMES
-from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError, remove_results
+from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError, remove_results, safe_part_names
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.gui.mesh_worker import MeshWorker
@@ -489,6 +491,8 @@ class MainWindow(QMainWindow):
         # -- right: monitors, bottom: console ----------------------------------------
         self.monitors = MonitorsPanel()
         self.monitors.slot_assigned.connect(self._assign_report)
+        self.monitors.updated.connect(
+            lambda: self.properties.set_report_monitor(self.monitors.reports, self.monitors.case_dir))
         self.console = ConsolePanel()
         self._console_handler = console_log.attach(self.console)
         handler = self._console_handler
@@ -796,6 +800,8 @@ class MainWindow(QMainWindow):
         self._update_mesh_button()
         self._update_results_stale()
         self._update_run_button()
+        self.monitors.kpis.set_options(available_reports(
+            safe_part_names([p.name for p in sim.geometry.parts]), [p.name for p in sim.reports.probes]))
         self.monitors.set_assignments(list(sim.reports.slots))
         if not self.solver_worker.is_running():  # a running solver keeps the criteria it started with
             self.monitors.set_stopping(sim.solvers.stopping)
@@ -854,6 +860,7 @@ class MainWindow(QMainWindow):
             add(solvers_item, "stopping", None, "Stopping Criteria", "dot", "accent")
             reports = add(root, "reports", None, "Reports & Monitors", "folder", "text")
             add(reports, "reference_values", None, "Reference Values", "dot", "accent")
+            add(reports, "probes", None, "Probes", "dot", "accent")
             self.tree.expandAll()
             self._root_item = root
             self.tree.setRootIndex(self.tree.indexFromItem(root))  # hide the root row
@@ -1356,6 +1363,11 @@ class MainWindow(QMainWindow):
         self.display_combo.setToolTip("Show the field on the walls, on the section plane, or both")
         for combo in (self.field_combo, self.colormap_combo, self.range_combo, self.display_combo):
             combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.separation_toggle = DotButton("Separation")
+        self.separation_toggle.setCheckable(True)
+        self.separation_toggle.setToolTip("Highlight the wall faces where Cf_x < 0 (near-wall flow running "
+                                          "upstream: separated or recirculating) in the error colour")
+        self.separation_toggle.toggled.connect(lambda _on: self._apply_results_controls())
         self.results_stale_label = QLabel("Results out of date: run the solver again")
         self.results_stale_label.setObjectName("statusWarn")
         self.results_stale_label.setVisible(False)
@@ -1363,7 +1375,7 @@ class MainWindow(QMainWindow):
         self.paraview_button.setObjectName("tbBtn")
         self.paraview_button.clicked.connect(self.open_in_paraview)
         for widget in (self.field_combo, self.colormap_combo, self.range_combo, self.range_min,
-                       self.range_max, self.display_combo):
+                       self.range_max, self.display_combo, self.separation_toggle):
             row.addWidget(widget)
         row.addWidget(self.results_stale_label)
         row.addWidget(self.paraview_button)
@@ -1375,7 +1387,7 @@ class MainWindow(QMainWindow):
 
     def _results_widgets(self) -> list[QWidget]:
         return [self.field_combo, self.colormap_combo, self.range_combo, self.range_min, self.range_max,
-                self.display_combo, self.paraview_button]
+                self.display_combo, self.separation_toggle, self.paraview_button]
 
     def results_time(self) -> str | None:
         """The latest time directory with results in the project's case, or None."""
@@ -1458,6 +1470,8 @@ class MainWindow(QMainWindow):
             fixed_range=(self.range_min.value(), self.range_max.value()) if fixed else None,
             display=self.display_combo.currentText(),
             u_ref=self._project.sim.inflow.speed,
+            flow_direction=flow_direction(self._project.sim.inflow.alpha_deg),
+            highlight_separation=self.separation_toggle.isChecked(),
             font_size=self._point_size,
         )
         if data is not None:
@@ -1474,6 +1488,12 @@ class MainWindow(QMainWindow):
                     spin.blockSignals(True)
                     spin.setValue(value)
                     spin.blockSignals(False)
+        self.separation_toggle.setEnabled(view.can_show_separation)
+        frac = view.separated_fraction() if view.can_show_separation else None
+        self.separation_toggle.setToolTip(
+            "Highlight the wall faces where Cf_x < 0 (near-wall flow running upstream: separated or "
+            "recirculating) in the error colour" + (f". Now: {100 * frac:.1f} % of the wall faces" if frac is not None
+                                                     else ". Needs the wallShearStress field"))
         self._sync_section_controls()
         self._update_telemetry()
         if self.viewer is not None:

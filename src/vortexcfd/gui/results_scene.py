@@ -13,6 +13,7 @@ import pyvista as pv
 from PySide6.QtCore import QObject, Signal
 
 from vortexcfd.foam.results import FIELDS_BY_KEY, FieldSpec, available_fields, field_values
+from vortexcfd.foam.wall_fields import skin_friction_along
 from vortexcfd.gui.colormaps import DEFAULT_COLORMAP, matplotlib_name
 from vortexcfd.gui.theme import Theme
 
@@ -119,6 +120,9 @@ class ResultsView:
         self.fixed_range: tuple[float, float] | None = None
         self.display = "Walls"
         self.u_ref = 1.0
+        self.flow_direction = (1.0, 0.0, 0.0)
+        self.highlight_separation = False  # walls with Cf_x < 0 in the error colour (D-061)
+        self.separation_actors: list = []
         self.section_axis = 1
         self.section_position: float | None = None
         self.font_size = 11
@@ -172,7 +176,7 @@ class ResultsView:
 
     def set_visible(self, visible: bool) -> None:
         self._visible = visible
-        for actor in (*self.actors, self.section_actor, self.scalar_bar):
+        for actor in (*self.actors, *self.separation_actors, self.section_actor, self.scalar_bar):
             if actor is not None:
                 actor.SetVisibility(visible)
 
@@ -207,7 +211,7 @@ class ResultsView:
         spec = self.field()
         if spec is None or spec.source not in dataset.cell_data:
             return None
-        return field_values(spec, {spec.source: dataset.cell_data[spec.source]}, self.u_ref)
+        return field_values(spec, {spec.source: dataset.cell_data[spec.source]}, self.u_ref, self.flow_direction)
 
     def shown_values(self) -> np.ndarray:
         """All values currently drawn (walls and/or section)."""
@@ -232,10 +236,25 @@ class ResultsView:
 
     # -- drawing -----------------------------------------------------------------------------
 
+    @property
+    def can_show_separation(self) -> bool:
+        """The walls carry wallShearStress (Cf_x can be computed)."""
+        return self.has_results and any("wallShearStress" in s.cell_data for s in self.data.patches.values())
+
+    def separated_fraction(self) -> float | None:
+        """Share of the wall faces with Cf_x < 0 (None without wallShearStress)."""
+        values = [skin_friction_along(s.cell_data["wallShearStress"], self.flow_direction, self.u_ref)
+                  for s in self.data.patches.values() if "wallShearStress" in s.cell_data] if self.has_results else []
+        if not values:
+            return None
+        allv = np.concatenate(values)
+        return float(np.mean(allv < 0)) if allv.size else None
+
     def _remove_actors(self) -> None:
-        for actor in self.actors:
+        for actor in (*self.actors, *self.separation_actors):
             self.plotter.remove_actor(actor, render=False)
         self.actors = []
+        self.separation_actors = []
         self.plotter.remove_actor(self.SECTION_NAME, render=False)
         self.section_actor = None
         if self.scalar_bar is not None:
@@ -282,6 +301,17 @@ class ResultsView:
                       pickable=False, reset_camera=False, render=False, preference="cell")
         for name, dataset in walls:
             self.actors.append(self.plotter.add_mesh(dataset, name=f"results_{name}", **common))
+            if self.highlight_separation and "wallShearStress" in dataset.cell_data:
+                cfx = skin_friction_along(dataset.cell_data["wallShearStress"], self.flow_direction, self.u_ref)
+                ids = np.flatnonzero(cfx < 0)
+                if ids.size:
+                    back = dataset.extract_cells(ids)
+                    actor = self.plotter.add_mesh(back, name=f"results_sep_{name}", color=self.theme.error,
+                                                  lighting=True, pickable=False, reset_camera=False, render=False)
+                    mapper = actor.GetMapper()  # drawn over the field: same faces, pulled forward
+                    mapper.SetResolveCoincidentTopologyToPolygonOffset()
+                    mapper.SetRelativeCoincidentTopologyPolygonOffsetParameters(-1.0, -1.0)
+                    self.separation_actors.append(actor)
         if section is not None:
             self.section_actor = self.plotter.add_mesh(section, name=self.SECTION_NAME,
                                                        **{**common, "lighting": False})

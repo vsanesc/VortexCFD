@@ -52,7 +52,7 @@ def test_wall_shear_stress_is_listed_when_written(tmp_path: Path) -> None:
     text = (case / "5" / "U").read_text().replace("object      U;", "object      wallShearStress;")
     (case / "5" / "wallShearStress").write_text(text)  # a vector field file of that name
     keys = [f.key for f in available_fields(case)]
-    assert keys[-1] == "wallShearStress_mag"
+    assert keys[-3:] == ["wallShearStress_mag", "Cf", "Cf_x"]  # skin friction from the same field (D-061)
     (case / "5" / "k").write_text((case / "5" / "U").read_text())  # a vector named k is not a scalar k
     assert "k" not in [f.key for f in available_fields(case)]
 

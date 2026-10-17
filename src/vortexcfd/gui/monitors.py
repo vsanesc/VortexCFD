@@ -17,10 +17,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from vortexcfd.core.model import REPORT_IDS, REPORT_SLOTS, AsymptoticCriterion, StoppingCriteria
-from vortexcfd.foam.convergence import CriterionStatus, Oscillation, evaluate, oscillation
+from vortexcfd.core.model import REPORT_SLOTS, AsymptoticCriterion, StoppingCriteria
+from vortexcfd.core.reports import YPLUS, available_reports, report_label
+from vortexcfd.foam.convergence import CriterionStatus, evaluate, oscillation
+from vortexcfd.foam.forces import MASS_WARNING
 from vortexcfd.foam.logparse import TimeStep
-from vortexcfd.foam.postprocessing import REPORT_LABELS, ReportMonitor
+from vortexcfd.foam.postprocessing import ReportMonitor
 from vortexcfd.foam.residuals import ResidualHistory
 from vortexcfd.gui.icons import make_glyph
 from vortexcfd.gui.theme import DARK, Metrics, Theme, mono_font, residual_style
@@ -239,8 +241,9 @@ class ReportSlots(QWidget):
     """Report slot cards: title, chevron menu to assign a report, last value, sparkline, name."""
 
     NOT_ASSIGNED = "Not assigned"
-    ASSIGN_TOOLTIP = ("Assign a report: Cd, Cl and Cm (pitch) from forceCoeffs, y+ min / avg / max on the "
-                      "walls from the yPlus function object (written at each write interval)")
+    ASSIGN_TOOLTIP = ("Assign a report: force coefficients of all walls or of one part (with their pressure "
+                      "and viscous parts and the centre of pressure), the mass imbalance, y+ min / avg / max on "
+                      "the walls (written at each write interval) or a probe's p and U")
     assigned = Signal(int, object)  # slot (0-based), report id or None
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -254,6 +257,7 @@ class ReportSlots(QWidget):
         self.assign_buttons: dict[int, QToolButton] = {}
         self.menus: dict[int, QMenu] = {}
         self.assignments: list[str | None] = [None] * REPORT_SLOTS
+        self.options: list[str] = available_reports([], [])
         self._layouts: list[QVBoxLayout] = []
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
@@ -272,7 +276,8 @@ class ReportSlots(QWidget):
             button.setToolTip(self.ASSIGN_TOOLTIP)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-            menu = self._build_menu(slot - 1)
+            menu = QMenu(self)
+            self._fill_menu(menu, slot - 1)
             button.setMenu(menu)
             head.addWidget(title)
             head.addStretch(1)
@@ -292,27 +297,73 @@ class ReportSlots(QWidget):
             self._layouts.append(box)
             row.addWidget(cell, 1)
 
-    def _build_menu(self, index: int) -> QMenu:
-        menu = QMenu(self)
+    @staticmethod
+    def _group(report_id: str) -> str | None:
+        """Submenu of a report id (None: top level)."""
+        base, _sep, patch = report_id.partition("@")
+        if patch:
+            return f"Part {patch}"
+        if report_id.startswith("probe:"):
+            return f"Probe {report_id.split(':')[1]}"
+        if report_id == "mass_imbalance" or report_id in YPLUS:
+            return None
+        return "All walls"
+
+    def _fill_menu(self, menu: QMenu, index: int) -> None:
+        menu.clear()
         group = QActionGroup(menu)
-        for report_id in (None, *REPORT_IDS):
-            action = QAction(REPORT_LABELS[report_id] if report_id else self.NOT_ASSIGNED, menu)
+        submenus: dict[str, QMenu] = {}
+        ids = list(self.options)
+        current = self.assignments[index]
+        if current is not None and current not in ids:  # a removed part or probe: still shown
+            ids.append(current)
+        for report_id in (None, *ids):
+            name = self._group(report_id) if report_id else None
+            target = menu
+            if name is not None:
+                if name not in submenus:
+                    submenus[name] = menu.addMenu(name)
+                target = submenus[name]
+            label = report_label(report_id) if report_id else self.NOT_ASSIGNED
+            if report_id is not None and report_id not in self.options:
+                label += " (not available)"
+            action = QAction(label, target)
             action.setCheckable(True)
             action.setData(report_id)
-            action.setChecked(report_id is None)
+            action.setChecked(report_id == current)
             group.addAction(action)
-            menu.addAction(action)
+            target.addAction(action)
             action.triggered.connect(lambda _=False, r=report_id: self.assigned.emit(index, r))
-        return menu
+
+    def slot_actions(self, slot: int) -> list[QAction]:
+        """Every assignable action of a slot's menu (submenus flattened), in menu order."""
+        out = []
+
+        def walk(menu: QMenu) -> None:
+            for action in menu.actions():
+                if action.menu() is not None:
+                    walk(action.menu())
+                elif action.isCheckable():
+                    out.append(action)
+
+        walk(self.menus[slot])
+        return out
+
+    def set_options(self, options: list[str]) -> None:
+        """The reports this project offers (core/reports.available_reports)."""
+        if options != self.options:
+            self.options = list(options)
+            for slot in range(1, REPORT_SLOTS + 1):
+                self._fill_menu(self.menus[slot], slot - 1)
 
     def set_assignments(self, assignments: list[str | None]) -> None:
         """Show which report each slot carries (values are cleared until ``set_series``)."""
         self.assignments = list(assignments)
         for slot in range(1, REPORT_SLOTS + 1):
             report_id = self.assignments[slot - 1]
-            self.subtitles[slot].setText(REPORT_LABELS[report_id] if report_id else self.NOT_ASSIGNED)
-            for action in self.menus[slot].actions():
-                action.setChecked(action.data() == report_id)
+            self.subtitles[slot].setText(report_label(report_id) if report_id else self.NOT_ASSIGNED)
+            self.subtitles[slot].setToolTip(self.subtitles[slot].text())
+            self._fill_menu(self.menus[slot], slot - 1)
 
     def set_series(self, series_of) -> None:
         """Fill the values from ``series_of(report_id)`` -> [(iteration, value)] (None: no run)."""
@@ -347,6 +398,11 @@ def set_state(label: QLabel, state: str | None) -> None:
         label.setProperty(prop, "true" if state == prop else "false")
     label.style().unpolish(label)
     label.style().polish(label)
+
+
+def mass_warning(percent: float) -> str:
+    return (f"Mass imbalance {percent:.3g}% of the inlet flux (above {MASS_WARNING:g}%): "
+            "the continuity solution is not converged")
 
 
 # Banner texts (D-058). The run states are those of foam/solver_run.py.
@@ -412,7 +468,8 @@ class ConvergencePanel(QWidget):
         self.set_view(False, ("", None), [], [])
 
     def set_view(self, has_criteria: bool, banner: tuple[str, str | None], statuses: list[CriterionStatus],
-                 oscillations: list[Oscillation]) -> None:
+                 warnings: list[str]) -> None:
+        """``warnings``: oscillation and mass balance messages (warning colour)."""
         self._has_criteria = has_criteria
         self.banner.setText(banner[0])
         set_state(self.banner, banner[1])
@@ -445,14 +502,14 @@ class ConvergencePanel(QWidget):
             self._warning_box.removeWidget(label)
             label.deleteLater()
         self.warnings = []
-        for osc in oscillations:
-            label = QLabel(osc.message())
+        for text in warnings:
+            label = QLabel(text)
             label.setObjectName("checkValue")
             label.setWordWrap(True)
             set_state(label, "warn")
             self._warning_box.addWidget(label)
             self.warnings.append(label)
-        self.setVisible(has_criteria or bool(oscillations))
+        self.setVisible(has_criteria or bool(warnings))
 
     @property
     def statuses_text(self) -> list[tuple[str, str, str, str]]:
@@ -480,9 +537,11 @@ class MonitorsPanel(QWidget):
     """
 
     slot_assigned = Signal(int, object)  # slot (0-based), report id or None
+    updated = Signal()  # new data was shown (the report readers polled something)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.case_dir: Path | None = None  # case of the shown run
         self.setObjectName("panel")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.header = SectionHeader("Residuals & Force Monitors")
@@ -514,10 +573,12 @@ class MonitorsPanel(QWidget):
         self._timer.stop()
         self.history.clear()
         self.reports = None
+        self.case_dir = None
         self.outcome = None
         self.chart.set_series({})
         self.kpis.set_series(None)
         self._update_convergence()
+        self.updated.emit()
 
     def set_stopping(self, stopping: StoppingCriteria | None) -> None:
         """The stopping criteria to evaluate (the run's, or the project's when no run is going)."""
@@ -531,6 +592,7 @@ class MonitorsPanel(QWidget):
         self.clear()
         self.stopping = stopping
         self.reports = ReportMonitor(case_dir)
+        self.case_dir = Path(case_dir)
         self.outcome = (None, (), None)
         self._timer.start()
         self._update_convergence()
@@ -558,6 +620,7 @@ class MonitorsPanel(QWidget):
         self.clear()
         self.history.extend(steps)
         self.reports = ReportMonitor(case_dir)
+        self.case_dir = Path(case_dir)
         self.outcome = outcome
         self._dirty = True
         self.refresh()
@@ -578,6 +641,7 @@ class MonitorsPanel(QWidget):
         self.chart.set_series(self.history.decimated())
         self.kpis.set_series(self.reports.series if self.reports is not None else None)
         self._update_convergence()
+        self.updated.emit()
 
     def monitored_quantities(self) -> list[str]:
         """Quantities checked for oscillation: the asymptotic criteria's and the assigned report
@@ -585,7 +649,8 @@ class MonitorsPanel(QWidget):
         names: list[str] = []
         if self.stopping is not None:
             names += [c.quantity for c in self.stopping.criteria if isinstance(c, AsymptoticCriterion)]
-        names += [r for r in self.kpis.assignments if r and not r.startswith("yplus")]
+        names += [r for r in self.kpis.assignments
+                  if r and not r.startswith("yplus") and r != "mass_imbalance" and not r.startswith("x_cp")]
         return list(dict.fromkeys(names))
 
     def _update_convergence(self) -> None:
@@ -597,13 +662,17 @@ class MonitorsPanel(QWidget):
             banner = (BANNER_NO_RUN, None)
         else:
             banner = banner_for(*self.outcome)
-        oscillations = []
+        warnings = []
         if stop is not None and self.reports is not None:
             for name in self.monitored_quantities():
                 osc = oscillation(name, series_of(name), stop.oscillation_window, stop.oscillation_threshold)
                 if osc is not None:
-                    oscillations.append(osc)
-        self.convergence.set_view(has, banner, statuses, oscillations)
+                    warnings.append(osc.message())
+        if self.reports is not None:
+            balance = self.reports.mass_balance()
+            if balance is not None and balance[2] is not None and abs(balance[2]) > MASS_WARNING:
+                warnings.append(mass_warning(balance[2]))
+        self.convergence.set_view(has, banner, statuses, warnings)
 
     def configure(self, m: Metrics, t: Theme) -> None:
         self.header.configure(m)

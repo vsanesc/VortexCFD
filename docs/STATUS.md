@@ -1,6 +1,6 @@
 # Status
 
-Updated 2026-10-17 (Task 6.1 Part A). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
+Updated 2026-10-17 (Task 6.1 Part B). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
 task (CLAUDE.md).
 
 ## Current branch
@@ -12,12 +12,16 @@ task (CLAUDE.md).
   a convergence banner and a per-criterion table (value, threshold, satisfied) in the monitors
   column; the oscillation warning. Real run: an asymptotic criterion on Cd stopped simpleFoam at
   iteration 49 of 150 on the coarse sphere.
+- Part B (D-060, D-061): Cd and Cl split into pressure and viscous parts per part and in total, Cm,
+  centre of pressure, mass balance (warning above 0.1 %), probes (reports and asymptotic criteria),
+  wallShearStress written at write times, Cf and Cf_x in the Results Scene with a separation
+  highlight, and the y+ histogram on the Reports & Monitors node.
 
 Open: docs/QUESTIONS.md items 60 (the asymptotic tolerance is absolute; the test can be met by chance),
-61 (oscillation around a zero mean is not flagged) and 62 (run state label).
+61 (oscillation around a zero mean is not flagged), 62 (run state label), 63 (x_cp axes) and 64 (probe
+interpolation).
 
-Next steps on this branch: Part B (force breakdown, mass balance, wall shear and separation, y+
-histogram, probes), Part C (Cp on wall sections), Part D (docs).
+Next steps on this branch: Part C (Cp on wall sections), Part D (docs).
 
 ## Phases
 
@@ -48,8 +52,8 @@ histogram, probes), Part C (Cp on wall sections), Part D (docs).
 | 5.3 | M3: alternative volume mesher | not started (cfMesh build spike pending) |
 | 5.4 | M4: prism layer robustness | not started |
 | 5.5 | M5: own mesher (go/no-go) | not started |
-| 6.1 | Monitors and reports | report slots with Cd, Cl, Cm pitch and wall y+ (D-048); reference values (D-047); stopping criteria through runTimeControl, convergence banner and oscillation warning (D-058, D-059) |
-| 6.2 | Scenes and derived parts | scalar scenes done (D-053): field/colormap/range selection, scalar bar, section; scene saving, image export, iso-surfaces and streamlines not started |
+| 6.1 | Monitors and reports | report slots with Cd, Cl, Cm pitch and wall y+ (D-048); reference values (D-047); stopping criteria through runTimeControl, convergence banner and oscillation warning (D-058, D-059); force breakdown, x_cp, mass balance, probes (D-060) |
+| 6.2 | Scenes and derived parts | Cf / Cf_x and separation highlight (D-061); scalar scenes done (D-053): field/colormap/range selection, scalar bar, section; scene saving, image export, iso-surfaces and streamlines not started |
 | 6.3 | Data export and reports | not started |
 | 7.1-7.3 | Coupled solver analysis | not started |
 | 8.1-8.5 | Moving meshes | not started |

@@ -1,7 +1,9 @@
 """Simulation tree data models."""
 
 from typing import Annotated, Literal, Union
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from vortexcfd.core.reports import PROBE_NAME_RE, is_criterion_quantity, is_report_id
 
 CURRENT_SCHEMA_VERSION: int = 6
 
@@ -100,8 +102,7 @@ class Inflow(StrictModel):
 
 # Fields a residual criterion can watch (the solved equations; U is the largest component residual).
 RESIDUAL_FIELDS = ("p", "U", "k", "omega")
-# Quantities an asymptotic criterion can watch: the forceCoeffs coefficients.
-ASYMPTOTIC_QUANTITIES = ("Cd", "Cl", "CmPitch")
+# Quantities an asymptotic criterion can watch: core/reports.criterion_quantities (D-060).
 
 
 class ResidualCriterion(StrictModel):
@@ -117,12 +118,20 @@ class ResidualCriterion(StrictModel):
 class AsymptoticCriterion(StrictModel):
     """Stop when a monitored quantity has settled: |x_n - mean of the last ``window`` values
     (x_n included)| <= ``tolerance``, in the quantity's own units (absolute). This is OpenFOAM's
-    runTimeControl condition ``average`` with an exact window (D-058)."""
+    runTimeControl condition ``average`` with an exact window (D-058). ``quantity`` is a force
+    coefficient of all walls or of one part, or a probe's p or U (core/reports.py, D-060)."""
 
     kind: Literal["asymptotic"] = "asymptotic"
-    quantity: Literal["Cd", "Cl", "CmPitch"]
+    quantity: str
     window: int = Field(default=50, ge=2)
     tolerance: float = Field(default=1e-4, gt=0)
+
+    @field_validator("quantity")
+    @classmethod
+    def _known_quantity(cls, value: str) -> str:
+        if not is_criterion_quantity(value):
+            raise ValueError(f"not a quantity an asymptotic criterion can watch: {value!r}")
+        return value
 
 
 Criterion = Annotated[Union[ResidualCriterion, AsymptoticCriterion], Field(discriminator="kind")]
@@ -163,8 +172,22 @@ class Solvers(StrictModel):
 
 # Number of report slots in the monitors panel (the one place to change it).
 REPORT_SLOTS = 3
-# Reports a slot can show: forceCoeffs coefficients and the yPlus function object's wall values.
-REPORT_IDS = ("Cd", "Cl", "CmPitch", "yplus_min", "yplus_avg", "yplus_max")
+
+
+class Probe(StrictModel):
+    """A point probe of p and U (the probes function object, D-060). The name is part of the
+    report ids (``probe:<name>:p``) and of the function object name."""
+
+    name: str
+    location: tuple[float, float, float]
+
+    @field_validator("name")
+    @classmethod
+    def _valid_name(cls, value: str) -> str:
+        if not PROBE_NAME_RE.match(value):
+            raise ValueError("a probe name starts with a letter and has only letters, digits and _ "
+                             "(at most 32 characters)")
+        return value
 
 
 class Reports(StrictModel):
@@ -175,16 +198,33 @@ class Reports(StrictModel):
     The reference length (m) and centre of rotation (m) are optional overrides: None means "auto"
     from the parts' bounding box (see foam/physics_case.reference_values). The reference density is
     Physics.rho_ref and the reference speed is the inflow speed. ``slots`` holds one report id
-    (REPORT_IDS) or None ("Not assigned") per monitor slot.
+    (core/reports.py) or None ("Not assigned") per monitor slot; ``probes`` are the point probes.
     """
 
     reference_area_basis: Literal["planform", "frontal", "custom"] = "planform"
     reference_area: float | None = Field(default=None, gt=0)
     reference_length: float | None = Field(default=None, gt=0)
     center_of_rotation: tuple[float, float, float] | None = None
-    slots: list[Literal["Cd", "Cl", "CmPitch", "yplus_min", "yplus_avg", "yplus_max"] | None] = Field(
+    slots: list[str | None] = Field(
         default_factory=lambda: [None] * REPORT_SLOTS, min_length=REPORT_SLOTS, max_length=REPORT_SLOTS,
     )
+    probes: list[Probe] = Field(default_factory=list)
+
+    @field_validator("slots")
+    @classmethod
+    def _known_reports(cls, slots: list[str | None]) -> list[str | None]:
+        for report_id in slots:
+            if report_id is not None and not is_report_id(report_id):
+                raise ValueError(f"unknown report {report_id!r}")
+        return slots
+
+    @field_validator("probes")
+    @classmethod
+    def _unique_probes(cls, probes: list[Probe]) -> list[Probe]:
+        names = [p.name for p in probes]
+        if len(set(names)) != len(names):
+            raise ValueError("probe names must be unique")
+        return probes
 
     @model_validator(mode="before")
     @classmethod

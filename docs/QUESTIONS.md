@@ -120,3 +120,8 @@ settled the open ones on 2026-10-17.
 61. **Oscillation check near zero.** The relative amplitude (max - min) / |mean| is not evaluated when |mean| < 1e-3 (D-059), so a Cl swinging +-0.05 around zero (vortex shedding on a symmetric body) is not flagged. A coefficient-specific scale (for example the mean force coefficient magnitude) would catch it. [NUMERICS-REVIEW]
 62. **Run state label.** A run stopped by an asymptotic criterion is labelled "Converged" (the existing state, D-046); the banner states the criterion. "Criteria met" might be the more honest label.
 
+## Task 6.1 Part B: force breakdown and wall fields (decisions taken while Vic was away)
+
+63. **Centre of pressure definition.** x_cp = x_CofR - M_y / F_z in the global axes, undefined when |F_z| / (q A_ref) < 0.01 (D-060). At an angle of attack the usual aerofoil definition uses the normal force in the body axes and the chord line; with the global z axis the two coincide only at zero incidence. Should x_cp use the lift direction or a body axis? [NUMERICS-REVIEW]
+64. **Probe values are cell values.** The probes objects use the default interpolationScheme (cell): the value of the cell containing the point, not interpolated. Near walls or in coarse cells this can differ noticeably from the field at the point; `cellPoint` would interpolate. [NUMERICS-REVIEW]
+
