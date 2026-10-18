@@ -38,11 +38,13 @@ def test_clean_surface_needs_no_repair() -> None:
     assert result.method == "none" and result.notes == ["The surface needs no repair."]
 
 
-def test_pymeshfix_losing_geometry_falls_back_to_the_envelope() -> None:
+def test_pymeshfix_losing_geometry_falls_back_to_the_envelope(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
     result = repair.repair_surface(BROKEN["self-intersection"]())
     assert result.notes[0].startswith("pymeshfix: the bounding box changed by")
     assert result.mesh.bounds[1] == pytest.approx(0.8, abs=0.01)  # both spheres kept
     assert 0.7 < result.after.signed_volume < 0.76  # their union (0.752 m3 exactly)
+    assert list(tmp_path.iterdir()) == []  # no fTetWild debug file left behind
 
 
 def test_a_defect_that_remains_is_reported(monkeypatch) -> None:

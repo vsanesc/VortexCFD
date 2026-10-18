@@ -9,6 +9,7 @@ or whose points left the original surface, falls back to the envelope (D-072).
 
 import warnings
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import pyvista as pv
@@ -97,10 +98,18 @@ def envelope(mesh: pv.PolyData) -> pv.PolyData:
     surface within ENVELOPE_EPSILON of the input (a "wrap" of a leaky or self-intersecting one)."""
     import pytetwild
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")  # pytetwild 0.4.2 uses a deprecated PyVista accessor
-        grid = pytetwild.tetrahedralize_pv(pv.PolyData(mesh.points, mesh.faces), edge_length_fac=ENVELOPE_EDGE_FACTOR,
-                                           epsilon=ENVELOPE_EPSILON, quiet=True)
+    # fTetWild writes a debug copy of its surface to "__tracked_surface.stl" in the current directory.
+    debug_file = Path.cwd() / "__tracked_surface.stl"
+    existed = debug_file.exists()
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # pytetwild 0.4.2 uses a deprecated PyVista accessor
+            grid = pytetwild.tetrahedralize_pv(pv.PolyData(mesh.points, mesh.faces),
+                                               edge_length_fac=ENVELOPE_EDGE_FACTOR, epsilon=ENVELOPE_EPSILON,
+                                               quiet=True)
+    finally:
+        if not existed:
+            debug_file.unlink(missing_ok=True)
     surface = grid.extract_surface(algorithm=None).triangulate().clean()
     surface.point_data.clear()
     surface.cell_data.clear()
