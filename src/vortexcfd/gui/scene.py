@@ -6,11 +6,11 @@ from pathlib import Path
 
 import numpy as np
 import pyvista as pv
-from vtkmodules.vtkRenderingCore import vtkPropPicker
+from vtkmodules.vtkRenderingCore import vtkCellPicker, vtkPropPicker
 
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
-from vortexcfd.geometry.checks import SurfaceReport, surface_report
+from vortexcfd.geometry.checks import SurfaceReport, basic_report, cached_report
 from vortexcfd.geometry.domain import DomainBox, compute_domain, face_corners
 from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
 from vortexcfd.gui.theme import BOUNDARY_FACE_OPACITY, SECTION_EPS_FRACTION, DOMAIN_OPACITY, HIGHLIGHT_OPACITY, PICK_MOVE_TOLERANCE_PX, Theme
@@ -39,19 +39,21 @@ def part_status(project: Project, part: Part) -> str:
 
 
 def report_for_part(project: Project, part: Part) -> SurfaceReport | None:
-    """Surface report for the part's file (cached); None if there is no loadable file."""
+    """Surface report for the part's file (cached); None if there is no loadable file. Without the
+    self-intersection pass until the background check has cached the full report (D-073)."""
     path = part_file(project, part)
     if path is None or not path.is_file():
         return None
     try:
-        return surface_report(path, part.units)  # cached: never recomputed on selection
+        return basic_report(path, part.units)  # cached: never recomputed on selection
     except (OSError, SurfaceLoadError):
         return None
 
 
 class _Record:
-    def __init__(self, key, actor, status: str, name: str) -> None:
+    def __init__(self, key, actor, status: str, name: str, source=None) -> None:
         self.key, self.actor, self.status, self.name = key, actor, status, name
+        self.source = source  # (resolved path, units) of a loaded part, for its surface report
 
 
 class PartScene:
@@ -65,6 +67,9 @@ class PartScene:
         self._counter = 0
         self.enabled = True  # False hides every part actor (e.g. in the mesh scene)
         self._press: tuple[int, int] | None = None
+        self.defect_actor = None  # self-intersecting triangles of the selected part
+        self.region_actor = None  # the selected regions of the selected part (D-071)
+        self.on_cell_pick: Callable[[int, int], None] | None = None  # (part index, triangle)
 
     @property
     def actors(self) -> list:
@@ -100,7 +105,8 @@ class PartScene:
                     except (OSError, SurfaceLoadError) as exc:
                         log.warning("Cannot load part '%s': %s", part.name, exc)
                         status, key = ERROR, None
-            new_records.append(_Record(key, actor, status, part.name))
+            source = (Path(key[0]), part.units) if key is not None else None
+            new_records.append(_Record(key, actor, status, part.name, source))
         for leftovers in pool.values():  # actors no part uses any more
             for rec in leftovers:
                 self.plotter.remove_actor(rec.actor, render=False)
@@ -127,6 +133,46 @@ class PartScene:
         for i, rec in enumerate(self.records):
             if rec.actor is not None:
                 rec.actor.prop.color = self.theme.part_selected if i == index else self.theme.part_surface
+        self._show_defects(index)
+
+    def defect_triangles(self, index: int | None) -> tuple[int, ...]:
+        """Self-intersecting triangles of a loaded part (its cached surface report)."""
+        if index is None or not 0 <= index < len(self.records) or self.records[index].source is None:
+            return ()
+        path, units = self.records[index].source
+        report = cached_report(path, units)  # computed by the background checker (D-073)
+        return report.intersecting if report is not None else ()
+
+    def show_regions(self, index: int | None, triangles) -> None:
+        """Draw the given triangles of a part (its selected regions) in the selection colour."""
+        if self.region_actor is not None:
+            self.plotter.remove_actor(self.region_actor, render=False)
+            self.region_actor = None
+        if index is None or not 0 <= index < len(self.records) or len(triangles) == 0:
+            return
+        rec = self.records[index]
+        if rec.source is None or rec.actor is None or not rec.actor.GetVisibility():
+            return
+        mesh = load_surface(*rec.source).extract_cells(list(triangles))
+        self.region_actor = self.plotter.add_mesh(
+            mesh, color=self.theme.accent, show_edges=False, pickable=False, reset_camera=False,
+            render=False, name="part_regions",
+        )
+
+    def _show_defects(self, index: int | None) -> None:
+        """Draw the selected part's self-intersecting triangles in the error colour (Task 3.1)."""
+        if self.defect_actor is not None:
+            self.plotter.remove_actor(self.defect_actor, render=False)
+            self.defect_actor = None
+        ids = self.defect_triangles(index)
+        rec = self.records[index] if ids else None
+        if rec is None or rec.actor is None or not rec.actor.GetVisibility():
+            return
+        mesh = load_surface(*rec.source).extract_cells(list(ids))
+        self.defect_actor = self.plotter.add_mesh(
+            mesh, color=self.theme.error, show_edges=True, edge_color=self.theme.error, pickable=False,
+            reset_camera=False, render=False, name="part_defects",
+        )
 
     def visible_bounds(self) -> tuple[float, ...] | None:
         """Union of the bounds of the visible part actors (None if there are none)."""
@@ -180,7 +226,14 @@ class PartScene:
             return  # a camera drag, not a click
         picker = vtkPropPicker()
         if picker.Pick(x, y, 0, self.plotter.renderer):
-            self.pick_actor(picker.GetActor())
+            actor = picker.GetActor()
+            self.pick_actor(actor)
+            index = self.index_of(actor)
+            if index is not None and self.on_cell_pick is not None:
+                cells = vtkCellPicker()
+                cells.SetTolerance(0.0005)
+                if cells.Pick(x, y, 0, self.plotter.renderer) and cells.GetActor() is actor:
+                    self.on_cell_pick(index, int(cells.GetCellId()))
 
 
 # -- far-field domain -----------------------------------------------------------------------

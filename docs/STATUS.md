@@ -1,51 +1,45 @@
 # Status
 
-Updated 2026-10-18 (task/6.4-studies: Tasks 6.4 and 6.5 done). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
+Updated 2026-10-18 (task/3-geometry: Phase 3 geometry done). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
 task (CLAUDE.md).
 
 ## Current branch
 
-**task/6.4-studies** (not yet published; Tasks 6.1 and 6.6 were merged in PR #15). Done on it:
-- Part A (D-064, D-043 updated, D-063 Accepted): marker `long` for real runs above 60 s (skipped
-  unless `-m long`; scripts/ship.sh runs `-m "not validation and not long"`), ship suite 963 s ->
-  379 s single-process offscreen (not under 3 min: docs/QUESTIONS.md item 70); `.gitignore` keeps
-  `log.*` except `tests/data/**/log.*` (tests/data/sphere_run/log.simpleFoam is read by a test and
-  is now tracked); speedup study on a 990k-cell sphere (docs/validation/parallel/README.md): 3.0 at
-  8 cores, efficiency >= 0.5 only up to 4 ranks, `--bind-to core` not clearly better, Open MPI's
-  default kept; the Solvers node shows the recommended cores min(physical, cells / 50,000, 4).
+**task/3-geometry** (not yet published). Done on it:
+- Part 0 (D-068): display guard (tests and scripts/screenshots.py run offscreen on the WSLg
+  display unless VORTEXCFD_ALLOW_REAL_DISPLAY=1) and the targeted testing rule in CLAUDE.md. The
+  Task 0.1 feature inventory is kept by the owner outside the repository.
+- Part A, Task 3.1 missing items (D-069, schema v8): multi-solid ASCII STL import (one part with a
+  region per solid, the default, or one part per solid); self-intersection check (own numpy code:
+  pymeshfix's selection returns garbage indices, item 75) with a Checks row and the triangles
+  highlighted in the viewer; 1,005,360 triangles in 7.3-7.9 s, skipped above 2M triangles.
+- Part B, Task 3.2 (D-070): OCP spike passed (cadquery-ocp-novtk 8.0.1.1.0 next to VTK 9.7.1, no
+  conflict); File > Import Geometry reads STEP/IGES/BREP with face names, colours and assemblies;
+  tessellation per part with editable linear / angular deflection (cached files, one undo step).
+- Part C, Task 3.3 (D-072): Edit > Repair part: pymeshfix with a fidelity check, fTetWild
+  envelope fallback, new file version, before / after report; the four broken test surfaces
+  (holes, flipped patch, duplicated faces, self-intersection) all end snappy-ready.
+- Part D, Task 3.5 (D-071): regions from CAD faces, STL solids or an angle split; rename, merge,
+  split, patch assignment (list and viewer picking); one snappyHexMesh region and wall patch per
+  patch, lost-part guard per patch; real two-patch cube mesh: front 724 and body 3,888 faces.
 
-- Part B (freestream far field) STOPPED at the validation step, not applied (docs/QUESTIONS.md
-  item 71, docs/notes/freestream_far_field.md and .patch): at alpha 10 deg the freestream far field
-  raises Cl of the flattened ellipsoid from 0.041 to about 0.068 but the run oscillates; the flat
-  plate validation could not reach its verdict (medium Case B grid stalled, coarse Cf -0.60 %). The
-  app keeps the slip far field of D-022.
+- Follow-up (D-073, D-074): CAD reading / tessellation, re-tessellation, self-intersection checks
+  and repair run on background threads; per-part forces sum all of a part's patches (checked on a
+  real run); THIRD_PARTY_LICENSES.md; pymeshfix kept; repair report shows the fidelity metrics.
 
-- Part C, Task 6.4 (D-066, schema v7): foam/gci.py (Celik 2008, checked against the paper's worked
-  example; oscillatory, divergent and undefined cases get no GCI); a Mesh Study node under Reports &
-  Monitors (ratio, current settings as fine or medium, quantities, cores; estimated cells and time
-  per level; the same absolute prism-layer stack on every level); levels in case_study/level_<n>/,
-  each judged by the stopping criteria (unreliable GCI otherwise); results window (GCI table, levels,
-  value against h, CSV) and case_study/study.json. Real study on the coarse sphere at Re 200: all
-  levels met the criteria; Cd divergent and Cl oscillatory (not in the asymptotic range; actual h
-  ratios 1.31 and 1.33, docs/QUESTIONS.md item 72).
+- Fix (D-076): Import Geometry never asks to save (untitled projects import into a temporary
+  workspace moved next to the project on the first save); project files are .vcfd; a save never
+  overwrites a geometry file, a geometry source or a non-project file.
 
-- Part D, Task 6.5 (D-067): a Polar Sweep node (range or list of angles, cores, initialise from the
-  previous converged point); points in case_sweep/point_<n>/ on the current mesh, each judged by the
-  stopping criteria (flagged otherwise); results window (table, CL-alpha, drag polar, CM-alpha with
-  hollow flagged points, CSV) and case_sweep/sweep.json. Real sweep of the flattened ellipsoid at 0,
-  5, 10 deg: CL -0.0002, 0.0233, 0.0408, all criteria met.
-
-Tasks 6.4 and 6.5 are complete on this branch (Part B, the freestream far field, was stopped at
-the validation step and waits for review). Next candidates: unsteady runs (pimpleFoam), MRF
-rotating zones for propellers (PLAN 8.2), STEP import (PLAN 3.2), STL repair (PLAN 3.3). Open: docs/QUESTIONS.md items 67 (an
-offscreen worker crash), 69 (the core cap), 70 (ship suite time), 71 (freestream far field), 72
-(actual refinement ratio), 73 (an intermittent offscreen test).
+Next candidates: unsteady runs (pimpleFoam), MRF rotating zones (PLAN 8.2), the meshing track
+(5.0 benchmark suite, 5.2 surface preparation). Open: docs/QUESTIONS.md items 67, 69, 70, 71, 72,
+73 and 75 (pymeshfix's broken self-intersection selection).
 
 ## Phases
 
 | Phase | Title | State |
 |---|---|---|
-| 0.1 | STAR-CCM+ reference inventory | not started |
+| 0.1 | Commercial reference workflow inventory | done (feature map kept by the owner outside the repository) |
 | 0.2 | Open-source landscape survey | done for geometry and meshing (docs/reference/oss_survey.md); other modules not surveyed |
 | 0.3 | Repo, environment, architecture | done (no CI service: scripts/ship.sh runs the suite before publishing) |
 | 1.1 | Simulation data model | done |
@@ -55,11 +49,11 @@ offscreen worker crash), 69 (the core cap), 70 (ship suite time), 71 (freestream
 | 2.1 | Main window | done |
 | 2.2 | 3D viewer | done for parts, picking, visibility, the mesh scene and the results scene (scalar fields on walls and section) |
 | 2.3 | Console and live monitors | done: console streams the solver log (crash block in the error colour), live residual chart (D-048, D-049) |
-| 3.1 | Surface mesh import and checks | done (self-intersections not detected) |
-| 3.2 | CAD import (STEP/IGES/BREP) | not started (spike pending) |
-| 3.3 | Geometry repair | not started |
+| 3.1 | Surface mesh import and checks | done: multi-solid STL, self-intersections (D-069) |
+| 3.2 | CAD import (STEP/IGES/BREP) | done (D-070): OCP, face names and colours, assemblies, editable deflections |
+| 3.3 | Geometry repair | done (D-072): pymeshfix + fTetWild envelope, before / after report |
 | 3.4 | Domain and boundary definition | done |
-| 3.5 | Surface-to-patch assignment | not started (one patch per part) |
+| 3.5 | Surface-to-patch assignment | done (D-071): regions, angle split, patches in the meshing dictionary |
 | 4.1 | Physics continua | done for steady incompressible RANS (merged in PR #13) |
 | 4.2 | Boundary condition library | done for the external-aerodynamics set (D-022) |
 | 4.3 | Turbulence module | done for kOmegaSST (y+ estimator, flat plate verified against TMR: PASS WITH NOTE); docs/reference/turbulence_mapping.md not written |
@@ -82,6 +76,10 @@ offscreen worker crash), 69 (the core cap), 70 (ship suite time), 71 (freestream
 | 9.2 | Scripting API | not started |
 | 9.3 | Installer and docs | not started |
 
+## Known issues
+
+- Results at angle of attack != 0 are biased by the angled-inlet method with slip far field (QUESTIONS 71, open).
+
 ## Known debts
 
 - GPU environment variables (GALLIUM_DRIVER=d3d12, MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA) are set in
@@ -91,12 +89,10 @@ offscreen worker crash), 69 (the core cap), 70 (ship suite time), 71 (freestream
 - Courant number: parsed from logs (foam/logparse.py) but no warning in the GUI.
 - Parallel speedup saturates at about 3 on 8 cores (memory-bandwidth bound, docs/validation/parallel/README.md); the recommended-core cap of 4 is a constant for this machine (item 69).
 - Location of user projects and run outputs in the released app (run/ is development only).
-- STEP import spike: OCP novtk wheel next to PyVista's VTK (docs/reference/oss_survey.md).
-- STL repair: pymeshfix (wrapper licence to confirm) / pytetwild.
+- Changing a CAD part's deflection re-tessellates from the CAD and drops an earlier repair (D-072).
 - cfMesh build spike on v2606.
 - Total cell estimate: only background cells are estimated today.
 - Per-part surface size (one target surface size for all parts today).
-- Task 0.1 (STAR-CCM+ feature inventory) not done.
 - Solver restart from the latest time: every run starts from 0 (D-046).
 - The mesh scene is read on the GUI thread after meshing (MeshView.load): a multi-million-cell mesh
   freezes the window for a moment (docs/QUESTIONS.md item 5).

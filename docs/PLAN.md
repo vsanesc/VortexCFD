@@ -1,6 +1,6 @@
 # Open-source CFD GUI on OpenFOAM — Development Plan
 
-Working name: VortexCFD. Target: a STAR-CCM+-style workflow (single simulation tree, integrated geometry → mesh → physics → solve → post) running on OpenFOAM as the numerical backend.
+Working name: VortexCFD. Target: an integrated CFD workflow (single simulation tree, integrated geometry → mesh → physics → solve → post) running on OpenFOAM as the numerical backend.
 
 Progress marks after the sub-phase titles (*done*, *partly done*) follow docs/STATUS.md, which is the
 source of truth for the state of each sub-phase.
@@ -38,9 +38,9 @@ source of truth for the state of each sub-phase.
 
 ## Phase 0 — Reference analysis & foundation
 
-### 0.1 STAR-CCM+ reference inventory
-- Goal: precise map of what STAR-CCM+ does that we want to match.
-- Deliverable: `docs/reference/starccm_feature_map.md` covering: simulation tree structure, object types, meshing operations (surface wrapper, remesher, trimmer, polyhedral, thin mesher, prism layers), mesh controls (base size, relative sizes, custom controls, volumetric controls), physics continua and model selection, turbulence models and wall treatments, solvers (segregated/coupled), reports/monitors/scenes, automation.
+### 0.1 Commercial reference workflow inventory
+- Goal: precise map of what a commercial reference workflow does that we want to match.
+- Deliverable: a feature inventory (kept by the owner outside the repository) covering: simulation tree structure, object types, meshing operations (surface wrapper, remesher, trimmer, polyhedral, thin mesher, prism layers), mesh controls (base size, relative sizes, custom controls, volumetric controls), physics continua and model selection, turbulence models and wall treatments, solvers (segregated/coupled), reports/monitors/scenes, automation.
 - Acceptance: each item has a column "OpenFOAM equivalent", "Gap" (none/partial/missing) and "Priority" (P1/P2/P3).
 
 ### 0.2 Open-source landscape survey
@@ -143,7 +143,7 @@ source of truth for the state of each sub-phase.
 
 ## Phase 5 — Meshing (staged track; the hardest part)
 
-Reality check: "as powerful as STAR-CCM+" is not a deliverable that can be verified. It is replaced here by measurable levels (below). Each level must beat the previous one on the benchmark suite, or it is not adopted.
+Reality check: "as powerful as a commercial mesher" is not a deliverable that can be verified. It is replaced here by measurable levels (below). Each level must beat the previous one on the benchmark suite, or it is not adopted.
 
 ### 5.0 Benchmark suite and quality metrics (do first)
 - Geometries: simple (sphere, cylinder), aerodynamic (NACA 0012 wing, wing-fuselage with thin trailing edge), complex (VTOL UAV with props/booms), dirty (broken STLs from 3.1).

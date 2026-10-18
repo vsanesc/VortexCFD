@@ -87,6 +87,24 @@ class MeshCaseInput:
     # both sizings (mesh study levels share one stack, D-066); the quality controls still follow
     # mesh.layer_sizing. None: the sizing above.
     fixed_layers: tuple[float, int] | None = None
+    # Per part, in the order of ``parts``: its wall patches (safe names, part_patch_names). Empty, or
+    # a part whose only patch is its own name: the part's surface is one patch, as before regions.
+    # Otherwise the part's STL holds one solid per patch and each becomes a snappyHexMesh region
+    # with its own wall patch (D-071).
+    part_patches: tuple[tuple[str, ...], ...] = ()
+
+    def patches_of(self, index: int) -> tuple[str, ...]:
+        if index < len(self.part_patches) and self.part_patches[index]:
+            return self.part_patches[index]
+        return (self.parts[index],)
+
+    def has_regions(self, index: int) -> bool:
+        return self.patches_of(index) != (self.parts[index],)
+
+    @property
+    def patches(self) -> tuple[str, ...]:
+        """Every part wall patch of the mesh (the lost-part guard checks each one)."""
+        return tuple(p for i in range(len(self.parts)) for p in self.patches_of(i))
 
 
 def safe_part_names(names: Sequence[str]) -> list[str]:
@@ -107,6 +125,41 @@ def safe_part_names(names: Sequence[str]) -> list[str]:
         used.add(candidate)
         result.append(candidate)
     return result
+
+
+def part_patch_names(parts: Sequence) -> list[tuple[str, ...]]:
+    """Per part (core.model.Part), its safe wall patch names in Part.patch_names() order.
+
+    Every name of every part goes through ``safe_part_names`` together, so a patch name used by
+    two parts becomes two patches (the second gets a suffix); a part without regions has the one
+    patch it always had."""
+    raw = [part.patch_names() for part in parts]
+    safe = safe_part_names([name for names in raw for name in names])
+    out, k = [], 0
+    for names in raw:
+        out.append(tuple(safe[k:k + len(names)]))
+        k += len(names)
+    return out
+
+
+def wall_patch_names(parts: Sequence) -> tuple[str, ...]:
+    """Every part wall patch of the mesh, in part and region order."""
+    return tuple(name for names in part_patch_names(parts) for name in names)
+
+
+def part_force_groups(parts: Sequence) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """(key, patches) of every part with several patches: its per-part force objects cover ALL its
+    patches. The key is the part's safe name; a part whose safe name is also a patch name gets no
+    group (that patch keeps the key)."""
+    patches = part_patch_names(parts)
+    taken = {p for names in patches for p in names}
+    return tuple((key, names) for key, names in zip(safe_part_names([p.name for p in parts]), patches)
+                 if len(names) > 1 and key not in taken)
+
+
+def force_report_keys(parts: Sequence) -> tuple[str, ...]:
+    """Keys of the per-wall force reports: every patch, then every multi-patch part."""
+    return wall_patch_names(parts) + tuple(key for key, _ in part_force_groups(parts))
 
 
 # snappyHexMesh finds a surface only where a segment between two neighbouring cell centres crosses
@@ -326,7 +379,11 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
     m = inp.mesh
     est = estimate_mesh(inp.domain_bounds, inp.reference_length, m)
     cells = est.cells
-    geometry = {f"{n}.stl": {"type": "triSurfaceMesh", "name": n} for n in inp.parts}
+    geometry = {}
+    for i, n in enumerate(inp.parts):
+        geometry[f"{n}.stl"] = {"type": "triSurfaceMesh", "name": n}
+        if inp.has_regions(i):  # the STL's solids are named after the patches (D-071)
+            geometry[f"{n}.stl"]["regions"] = {p: {"name": p} for p in inp.patches_of(i)}
     levels = [
         part_level_range(est.level_min, est.level_max,
                          inp.part_levels[i] if i < len(inp.part_levels) else (None, None))
@@ -339,6 +396,12 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
         }
         for i, n in enumerate(inp.parts)
     }
+    for i, n in enumerate(inp.parts):
+        if inp.has_regions(i):
+            refinement_surfaces[n]["regions"] = {
+                p: {"level": list(levels[i]), "patchInfo": {"type": "wall", "inGroups": [f"{n}Group"]}}
+                for p in inp.patches_of(i)
+            }
     features = [{"file": f'"{n}.eMesh"', "level": levels[i][1]} for i, n in enumerate(inp.parts)]
     features += [{"file": f'"{seed_file_name(inp.parts[i])}"', "level": levels[i][1]}
                  for i in seeded_parts(inp, est.base_size, est.level_min, est.level_max)]
@@ -347,7 +410,11 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
         n_layers = inp.layer_count
     if inp.fixed_layers is not None:
         n_layers = inp.fixed_layers[1]
-    layers = {f'"{n}.*"': {"nSurfaceLayers": n_layers} for n in inp.parts} if n_layers > 0 else {}
+    layers = {}
+    if n_layers > 0:
+        for i, n in enumerate(inp.parts):
+            for key in (inp.patches_of(i) if inp.has_regions(i) else (f'"{n}.*"',)):
+                layers[key] = {"nSurfaceLayers": n_layers}
     content = {
         "castellatedMesh": True,
         "snap": True,

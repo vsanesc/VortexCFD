@@ -5,6 +5,7 @@ foam (case files). case/ is never touched: every level is a marker-protected cas
 own, <project dir>/case_study/level_<n>/.
 """
 
+import dataclasses
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,7 +36,14 @@ from vortexcfd.foam.mesh_study import (
 from vortexcfd.foam.run_record import read_run_record
 from vortexcfd.foam.yplus import first_layer_thickness
 from vortexcfd.geometry.domain import union_bounds
-from vortexcfd.gui.meshing import MeshingNotReady, _loaded_parts, _part_overrides, case_dir_for, readiness
+from vortexcfd.gui.meshing import (
+    MeshingNotReady,
+    _loaded_parts,
+    _part_overrides,
+    case_dir_for,
+    readiness,
+    write_part_surfaces,
+)
 from vortexcfd.gui.solving import clear_results, physics_problem, solver_input
 from vortexcfd.foam.physics_case import build_solver_files
 
@@ -149,7 +157,7 @@ def prepare_study(project: Project) -> tuple[Path, StudyRecord, MeshCaseInput]:
     plan = plan_study(project)
     settings = project.sim.studies.mesh
     box, names, meshes = _loaded_parts(project)
-    from vortexcfd.foam.mesh_case import safe_part_names
+    from vortexcfd.foam.mesh_case import part_patch_names, safe_part_names
 
     bounds = [tuple(float(x) for x in m.bounds) for m in meshes]
     safe = safe_part_names(names)
@@ -162,14 +170,14 @@ def prepare_study(project: Project) -> tuple[Path, StudyRecord, MeshCaseInput]:
             domain_bounds=box.bounds, symmetric=project.sim.domain.symmetry == "y_min", parts=tuple(safe),
             parts_bounds=union_bounds(bounds), reference_length=box.reference_length, mesh=lp.level.mesh,
             part_bounds=tuple(bounds), part_levels=_part_overrides(project),
+            part_patches=tuple(part_patch_names(project.sim.geometry.parts)),
             fixed_layers=fixed if fixed is not None else (1.0, 0),
         )
         case = level_dir(study, lp.level.index)
         if case.is_dir():
             clear_results(case) if (case / "constant" / "polyMesh").is_dir() else None
         prepare_case_dir(case, build_mesh_files(inputs))
-        for name, surface in zip(safe, meshes):
-            surface.save(str(case / TRI_SURFACE / f"{name}.stl"))
+        write_part_surfaces(case, project, inputs, meshes)
         write_seed_edge_meshes(case, inputs)
         levels.append(LevelResult(lp.level.index, lp.level.name, lp.level.factor, estimated_cells=lp.estimated_cells))
     record = StudyRecord(settings.ratio, settings.current_as, list(settings.quantities), settings.cores,
@@ -182,8 +190,7 @@ def solver_writer(project: Project):
     level directory, run on the study's worker thread (it uses only plain data captured here)."""
     inp = solver_input(project)
     cores = project.sim.studies.mesh.cores
-    inp = type(inp)(inp.physics, inp.inflow, inp.solvers.model_copy(update={"cores": cores}), inp.patches,
-                    inp.parts_bounds, inp.symmetric, inp.reports)
+    inp = dataclasses.replace(inp, solvers=inp.solvers.model_copy(update={"cores": cores}))
     files = enable_clean_stop(build_solver_files(inp))
 
     def write(case: Path) -> None:

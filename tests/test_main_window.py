@@ -37,11 +37,11 @@ def _select_part(window: MainWindow, index: int) -> None:
 
 
 def test_title_follows_dirty(make_window, tmp_path: Path) -> None:
-    window, dialogs = make_window(save_path=tmp_path / "demo.json")
+    window, dialogs = make_window(save_path=tmp_path / "demo.vcfd")
     assert window.windowTitle() == "Demo[*] - Untitled - VortexCFD"
     assert window.isWindowModified()
     window.save()
-    assert window.windowTitle() == "Demo[*] - demo.json - VortexCFD"
+    assert window.windowTitle() == "Demo[*] - demo.vcfd - VortexCFD"
     assert not window.isWindowModified()
     window.act_add_part.trigger()
     assert window.isWindowModified()
@@ -128,7 +128,7 @@ def test_remove_part_and_selection_fallback(make_window) -> None:
 
 
 def test_save_as_writes_file(make_window, tmp_path: Path) -> None:
-    target = tmp_path / "out.json"
+    target = tmp_path / "out.vcfd"
     window, _ = make_window(save_path=target)
     window.act_save_as.trigger()
     assert target.exists()
@@ -181,7 +181,7 @@ def test_close_dirty_discard_closes(make_window) -> None:
 
 
 def test_close_dirty_save_writes_and_closes(make_window, tmp_path: Path) -> None:
-    target = tmp_path / "saved.json"
+    target = tmp_path / "saved.vcfd"
     window, _ = make_window(discard="save", save_path=target)
     assert window.close()
     assert target.exists()
@@ -286,7 +286,7 @@ def _type_name(window: MainWindow, text: str, qtbot: QtBot) -> None:
 
 
 def test_save_shortcut_commits_pending_name(make_window, qtbot: QtBot, tmp_path: Path) -> None:
-    target = tmp_path / "p.json"
+    target = tmp_path / "p.vcfd"
     window, _ = make_window(save_path=target)
     _type_name(window, "Typed", qtbot)
     window.act_save.trigger()  # same slot the Ctrl+S shortcut fires
@@ -313,7 +313,7 @@ def test_close_commits_pending_then_asks(make_window, qtbot: QtBot) -> None:
 
 
 def test_empty_pending_name_keeps_previous_and_reports(make_window, qtbot: QtBot, tmp_path: Path) -> None:
-    target = tmp_path / "p.json"
+    target = tmp_path / "p.vcfd"
     window, _ = make_window(save_path=target)
     edit = window.properties.name_edit
     focus_widget(qtbot, window, edit)
@@ -327,7 +327,7 @@ def test_empty_pending_name_keeps_previous_and_reports(make_window, qtbot: QtBot
 
 
 def test_save_shortcut_key_event(make_window, qtbot: QtBot, tmp_path: Path) -> None:
-    target = tmp_path / "k.json"
+    target = tmp_path / "k.vcfd"
     window, _ = make_window(save_path=target)
     _type_name(window, "Keyed", qtbot)
     qtbot.keyClick(window.properties.name_edit, Qt.Key.Key_S, Qt.KeyboardModifier.ControlModifier)

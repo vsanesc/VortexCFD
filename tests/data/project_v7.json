@@ -1,0 +1,12 @@
+{
+  "schema_version": 7,
+  "name": "v7 project",
+  "geometry": {"parts": [{"name": "Ball", "source_file": "geometry/ball.stl", "units": "mm",
+                          "surface_level_max": 4},
+                         {"name": "Fin", "source_file": "geometry/fin.stl", "units": "m"}]},
+  "mesh": {"background_cells_target": 60000},
+  "inflow": {"speed": 12.0},
+  "solvers": {"iterations": 300},
+  "reports": {"slots": ["Cd", null, null]},
+  "studies": {"mesh": {"ratio": 1.5, "current_as": "medium"}, "polar": {"mode": "list", "values": [0.0, 4.0]}}
+}

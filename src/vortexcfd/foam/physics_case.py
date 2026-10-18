@@ -49,6 +49,9 @@ class SolverCaseInput:
     parts_bounds: Bounds  # union of the parts' bounding boxes
     symmetric: bool = False  # a symmetry plane patch exists
     reports: Reports = field(default_factory=Reports)  # reference value overrides (None = auto)
+    # (part key, its patches) for every part with several patches (mesh_case.part_force_groups):
+    # the per-part force objects sum all of the part's patches.
+    part_groups: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
 
 def flow_direction(alpha_deg: float) -> tuple[float, float, float]:
@@ -233,10 +236,13 @@ def control_dict(inp: SolverCaseInput) -> FoamFileSpec:
         "forceCoeffs1": _force_coeffs(inp),
         "forces1": _forces(inp),
     }
-    if len(inp.patches) > 1:  # per part (D-060); with one part these equal the totals
+    if len(inp.patches) > 1:  # per patch (D-060); with one patch these equal the totals
         for patch in inp.patches:
             functions[force_coeffs_name(patch)] = _force_coeffs(inp, (patch,))
             functions[f"forces_{patch}"] = _forces(inp, (patch,))
+    for key, patches in inp.part_groups:  # per part over ALL its patches (D-071)
+        functions[force_coeffs_name(key)] = _force_coeffs(inp, tuple(patches))
+        functions[f"forces_{key}"] = _forces(inp, tuple(patches))
     for patch in MASS_FLOW_PATCHES:
         functions[mass_flow_name(patch)] = _mass_flow(patch)
     functions["yPlus1"] = {

@@ -28,7 +28,9 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
     overrides (unset: nothing to fill, the version is bumped); v5 -> v6 turns the residual targets
     (``solvers.residual_p/u/k/omega``, the SIMPLE residualControl) into residual stopping criteria
     combined with "all" (the same stop, D-058); a target the file did not set takes its old default;
-    v6 -> v7 adds ``studies`` (mesh study and polar sweep settings, defaults: nothing to fill).
+    v6 -> v7 adds ``studies`` (mesh study and polar sweep settings, defaults: nothing to fill);
+    v7 -> v8 adds the per-part surface regions, region id file and CAD source (unset: one region,
+    the part's own patch, as before; D-070, D-071).
     Data already at the current version (or not a dict /
     without a version) is returned unchanged.
     """
@@ -61,6 +63,8 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
         data["schema_version"] = 6
     if data.get("schema_version") == 6:
         data["schema_version"] = 7  # Simulation.studies defaults (mesh study, polar sweep; D-066, D-067)
+    if data.get("schema_version") == 7:
+        data["schema_version"] = 8  # Part.regions / region_ids / cad default to unset (D-070, D-071)
     return data
 
 

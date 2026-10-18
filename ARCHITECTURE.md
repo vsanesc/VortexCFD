@@ -1,7 +1,7 @@
 # ARCHITECTURE.md
 
 ## 1. Overview and Target
-`vortexcfd` is a Python-based desktop application providing a STAR-CCM+-style workflow (single simulation tree, integrated geometry → mesh → physics → solve → post-processing) orchestrating OpenFOAM as its numerical backend.
+`vortexcfd` is a Python-based desktop application providing an integrated CFD workflow (single simulation tree, integrated geometry → mesh → physics → solve → post-processing) orchestrating OpenFOAM as its numerical backend.
 
 ## 2. Runtime Environment
 - The entire application runs inside **WSL2** running **Ubuntu 24.04**.
@@ -36,6 +36,8 @@ src/vortexcfd/
   - `core/project_io.py`: handles saving, loading, validation, and migration of JSON project files.
   - `core/reports.py`: the report ids (force coefficients of all walls or per part, their pressure/viscous parts, x_cp, mass imbalance, y+, probes), their labels, the lists offered to report slots and asymptotic criteria and the default scale floor of the relative range (D-058, D-060).
   - `core/project.py`: Qt-free `Project` document wrapping a `Simulation` with validated edits, snapshot undo/redo, dirty tracking and change observers.
+  - `core/workspace.py`: the temporary workspace of an untitled project (imports before the first save) and `check_save_target` (never a geometry file or a non-project file; enforced by `Project.save`), the .vcfd extension (D-076).
+  - `core/display_guard.py`: `apply_display_guard()`, called before Qt is imported by tests/conftest.py and by scripts that open windows: offscreen on the WSLg display unless `VORTEXCFD_ALLOW_REAL_DISPLAY=1` (D-068).
   - `Project` is not thread-safe: only the GUI thread may call its methods.
   - Must **NOT** import Qt (`PySide6`), `pyvista`, `pyvistaqt`, or anything GUI-related.
   - Must **NOT** import `vortexcfd.gui`.
@@ -44,7 +46,7 @@ src/vortexcfd/
   - `foam/dictfile.py`: thin wrapper encapsulating `foamlib` for OpenFOAM dictionary reading and writing.
   - `foam/case_writer.py`: orchestrates writing complete OpenFOAM case directory trees from file dictionaries.
   - `foam/reference_cases/`: generators for standard reference cases (e.g. cavity).
-  - `foam/mesh_case.py`: meshing dictionaries (blockMeshDict, surfaceFeatureExtractDict, snappyHexMeshDict, controlDict, fvSchemes/fvSolution) from plain data, `locationInMesh`, and the marker-protected case directory.
+  - `foam/mesh_case.py`: meshing dictionaries (blockMeshDict, surfaceFeatureExtractDict, snappyHexMeshDict, controlDict, fvSchemes/fvSolution) from plain data, `locationInMesh`, and the marker-protected case directory; `part_patch_names` / `wall_patch_names` give every part's wall patches (one snappyHexMesh region per patch, D-071); `part_force_groups` the per-part force objects over all of a part's patches (D-073).
   - `foam/physics_case.py`: solver case files (controlDict with forceCoeffs and yPlus, fvSchemes, fvSolution, transport/turbulence properties, 0/ fields) from the physics, inflow and solver settings, and the inlet k/omega formulas.
   - `foam/yplus.py`: first-layer thickness for a target y+ from the flat-plate skin friction, and its inverse.
   - `foam/mesh_run.py`: `MeshRun` runs blockMesh, surfaceFeatureExtract, snappyHexMesh -overwrite and checkMesh in sequence on a worker thread through `FoamRun`.
@@ -72,8 +74,12 @@ src/vortexcfd/
   - Must **NOT** import `vortexcfd.gui`.
 - **`geometry/`**:
   - Surface geometry; may import numpy and pyvista, must **NOT** import Qt, pyvistaqt or `vortexcfd.gui`; `core/` must not import it.
-  - `geometry/loader.py`: `load_surface(path, units)` reads STL/OBJ/PLY as a triangulated PyVista mesh in metres (cached by path, mtime and units).
-  - `geometry/checks.py`: `check_surface(mesh)` returns a `SurfaceReport` (open and non-manifold edges, degenerate and duplicate triangles, orientation, watertightness).
+  - `geometry/loader.py`: `load_surface(path, units)` reads STL/OBJ/PLY as a triangulated PyVista mesh in metres (cached by path, mtime and units); STL triangles keep their `solid` block index (`stl_solid_names`, D-069).
+  - `geometry/checks.py`: `check_surface(mesh)` returns a `SurfaceReport` (open and non-manifold edges, degenerate and duplicate triangles, orientation, watertightness, self-intersections, `snappy_ready`).
+  - `geometry/intersections.py`: self-intersecting triangles (grid broad phase, edge-triangle tests; skipped above 2M triangles, D-069).
+  - `geometry/cad.py`: STEP/IGES/BREP through OCP (bodies, face names and colours, assemblies) and `tessellate` with a CAD face id per triangle (D-070).
+  - `geometry/regions.py`: per-triangle base ids (.npy files, content-hashed names), region and patch labels, the angle split, id transfer to a changed surface, the multi-solid STL writer (D-071).
+  - `geometry/repair.py`: `repair_surface`: pymeshfix with a fidelity check, the pytetwild envelope as the fallback, before / after reports (D-072).
   - `geometry/domain.py`: `compute_domain(parts_bounds, domain)` returns the far-field `DomainBox` (reference length L, named boundaries, warnings).
 - **`gui/`**:
   - Implements UI components, main window, and 3D visualization using PySide6 and PyVista/pyvistaqt.
@@ -84,6 +90,8 @@ src/vortexcfd/
   - `gui/viewport.py`: VTK-drawn viewport pieces (ground grid, empty-scene message, telemetry card) and telemetry settings.
   - `gui/settings_store.py`: the shared `QSettings` accessor.
   - `gui/scene.py`: one VTK actor per Part kept in sync with the Project (picking, visibility, selection colour), part file status, cached surface reports, and the translucent domain box (`DomainView`).
+  - `gui/part_ops.py`: Qt-free part geometry operations returning the Part fields of one undoable edit: multi-solid STL and CAD import, re-tessellation, repair into a new file version, region rename / merge / split / patch assignment (D-069 to D-072).
+  - `gui/geometry_worker.py`: `GeometryWorker` (one geometry job at a time on a background thread: CAD reading and tessellation, re-tessellation, repair) and `IntersectionChecker` (self-intersection reports in the background); signals only, results applied on the GUI thread (D-073).
   - `gui/meshing.py`: Qt-free orchestration joining core, geometry and foam (it cannot live in `foam/`, which must not depend on `geometry/`): `readiness(project)` says why a project cannot be meshed and `prepare_job(project)` writes <project>/case (dictionaries and part STLs in metres).
   - `foam/mesh_estimate.py`: `estimate_mesh` gives background cells, refinement levels and surface cell size from the sizing targets (limit 2,000,000 background cells).
   - `gui/results_scene.py`: Results Scene: `read_results` (PyVista OpenFOAM reader, run by `ResultsLoader` on a worker thread, signals only), `ResultsView` (fields on the walls and the section plane, range modes, scalar bar in the `text` token).

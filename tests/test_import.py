@@ -29,6 +29,12 @@ def sphere_stl(tmp_path: Path) -> Path:
     return path
 
 
+def wait_geometry(qtbot, window, timeout: int = 60000) -> None:
+    """Wait until the window's geometry job and background self-intersection checks are done (D-073)."""
+    qtbot.waitUntil(lambda: not window.geometry_busy and not window.geometry_worker.is_running()
+                    and not window.intersections.busy(), timeout=timeout)
+
+
 @pytest.fixture
 def make_window(qtbot: QtBot, tmp_path: Path):
     made: list[MainWindow] = []
@@ -40,6 +46,7 @@ def make_window(qtbot: QtBot, tmp_path: Path):
             project.save(tmp_path / "proj" / "proj.json")
         dialogs = FakeDialogs(import_path=import_path, units=units, save_path=save_path)
         window = MainWindow(project, dialogs, with_viewer=with_viewer)
+        window._qtbot = qtbot
         qtbot.addWidget(window)
         window.show()
         made.append(window)
@@ -47,6 +54,7 @@ def make_window(qtbot: QtBot, tmp_path: Path):
 
     yield make
     for w in made:
+        w.geometry_worker.wait(60)
         assert not w.project.observer_errors
         w.project.save = lambda *a, **k: None
         w.close()
@@ -71,21 +79,15 @@ def test_import_copies_file_and_is_one_undo_step(make_window, sphere_stl: Path, 
     assert (project_dir / "geometry" / "wing.stl").is_file()  # the copy stays on disk
 
 
-def test_import_on_unsaved_project_runs_save_as_first(make_window, sphere_stl: Path, tmp_path: Path) -> None:
-    target = tmp_path / "new" / "p.json"
-    target.parent.mkdir()
-    w = make_window(import_path=sphere_stl, saved=False, save_path=target)
+def test_import_on_unsaved_project_never_asks_to_save(make_window, sphere_stl: Path, tmp_path: Path) -> None:
+    """D-076: the untitled project imports into its temporary workspace; no save dialog."""
+    w = make_window(import_path=sphere_stl, saved=False, save_path=tmp_path / "never.vcfd")
     w.act_import.trigger()
-    assert target.is_file() and (target.parent / "geometry" / "wing.stl").is_file()
-    assert w.project.path == target
-    assert w.project.sim.geometry.parts[0].source_file == "geometry/wing.stl"
-
-
-def test_import_aborts_when_save_as_is_cancelled(make_window, sphere_stl: Path, tmp_path: Path) -> None:
-    w = make_window(import_path=sphere_stl, saved=False, save_path=None)
-    w.act_import.trigger()
-    assert w.project.sim.geometry.parts == [] and w.project.path is None
-    assert not (tmp_path / "geometry").exists()
+    assert w.dialogs.save_asked == [] and w.project.path is None
+    (part,) = w.project.sim.geometry.parts
+    assert part.source_file == "geometry/wing.stl"
+    assert (w.project.workspace / "geometry" / "wing.stl").is_file()
+    assert not (tmp_path / "never.vcfd").exists()
 
 
 def test_second_import_gets_unique_names(make_window, sphere_stl: Path, tmp_path: Path) -> None:
@@ -98,13 +100,13 @@ def test_second_import_gets_unique_names(make_window, sphere_stl: Path, tmp_path
 
 
 def test_import_of_unsupported_file_leaves_nothing_behind(make_window, tmp_path: Path) -> None:
-    bad = tmp_path / "src" / "model.step"
+    bad = tmp_path / "src" / "model.x_t"
     bad.parent.mkdir()
-    bad.write_text("ISO-10303-21;")
+    bad.write_text("**PARASOLID")
     w = make_window(import_path=bad)
     w.act_import.trigger()
     assert w.project.sim.geometry.parts == []
-    assert not (tmp_path / "proj" / "geometry" / "model.step").exists()
+    assert not (tmp_path / "proj" / "geometry" / "model.x_t").exists()
     assert "Unsupported file type" in w.statusBar().currentMessage()
     assert w.statusBar().property("level") == "error"
 
@@ -258,7 +260,7 @@ def test_telemetry_has_a_triangles_field(make_window) -> None:
 def test_import_action_is_in_the_file_menu(make_window) -> None:
     w = make_window()
     file_menu = w.menuBar().actions()[0].menu()
-    assert w.act_import in file_menu.actions() and w.act_import.text() == "&Import Surface..."
+    assert w.act_import in file_menu.actions() and w.act_import.text() == "&Import Geometry..."
 
 
 def test_works_without_viewer(make_window, sphere_stl: Path) -> None:
@@ -273,14 +275,16 @@ def test_selecting_a_part_twice_runs_the_check_once(make_window, sphere_stl: Pat
 
     calls = []
     original = checks.check_surface
-    monkeypatch.setattr(checks, "check_surface", lambda mesh: (calls.append(1), original(mesh))[1])
+    monkeypatch.setattr(checks, "check_surface", lambda mesh, **kw: (calls.append(kw), original(mesh, **kw))[1])
     w = make_window(import_path=sphere_stl)
-    w.act_import.trigger()  # the report is computed here
+    w.act_import.trigger()  # the basic report is computed here, the full one in the background
+    qtbot = w._qtbot
+    wait_geometry(qtbot, w)
     for _ in range(2):
         w._select_root()
         w.tree.setCurrentItem(w._items[("part", 0)])
     w.properties.refresh()
-    assert len(calls) == 1
+    assert calls == [{"intersections": False}, {}]
 
 
 def test_part_edges_are_off_until_wireframe(make_window, sphere_stl: Path) -> None:

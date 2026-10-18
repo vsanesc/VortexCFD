@@ -7,6 +7,9 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
+    QAbstractItemView,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QBoxLayout,
     QFrame,
@@ -31,7 +34,7 @@ from vortexcfd.core.model import (
     Part,
     ResidualCriterion,
 )
-from vortexcfd.core.model import Probe
+from vortexcfd.core.model import Probe, SurfaceRegion
 from vortexcfd.core.reports import (PROBE_NAME_RE, criterion_quantities, default_floor, missing_reference,
                                     report_label)
 from vortexcfd.foam.forces import MASS_WARNING
@@ -43,7 +46,11 @@ from vortexcfd.foam.convergence import earliest_iteration
 from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.foam.run_record import RunRecord
-from vortexcfd.foam.mesh_case import safe_part_names
+from vortexcfd.foam.mesh_case import force_report_keys, part_patch_names, wall_patch_names
+from vortexcfd.geometry.cad import CadImportError
+from vortexcfd.geometry.loader import SurfaceLoadError
+from vortexcfd.geometry.regions import RegionError
+from vortexcfd.gui import part_ops
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.physics_case import (
     AREA_BASIS_LABELS,
@@ -53,7 +60,7 @@ from vortexcfd.foam.physics_case import (
     reference_values,
 )
 from vortexcfd.gui.meshing import MeshingNotReady, parts_layout, plan_layers_for, thin_part_warnings
-from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_status, report_for_part
+from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_file, part_status, report_for_part
 from vortexcfd.gui.study_rows import StudyRowsMixin
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
 
@@ -252,6 +259,7 @@ CHECK_ROWS = (
     ("degenerate", "Degenerate triangles"),
     ("duplicates", "Duplicate faces"),
     ("orientation", "Flipped normals"),
+    ("intersections", "Self-intersections"),
     ("normals", "Normals"),
     ("watertight", "Watertight"),
 )
@@ -312,6 +320,9 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
     pending_changed = Signal()  # an uncommitted name edit appeared or was resolved
     study_run_requested = Signal(str)  # "mesh" or "polar": Run / Stop on a study node (D-066, D-067)
     study_results_requested = Signal(str)
+    regions_selected = Signal(int, list)  # part index, selected region names (viewer highlight, D-071)
+    # part index, linear (m) or None, angular (deg) or None: re-tessellate on the worker (D-073)
+    retessellate_requested = Signal(int, object, object)
 
     def __init__(self, project: Project, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -375,6 +386,62 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             self.part_level_fields[key] = spin
             self._layout.addWidget(self._make_row(f"part_{key}", text, spin))
             spin.editingFinished.connect(lambda k=key: self._commit_part_level(k))
+        # CAD source (Task 3.2, D-070): the file and the tessellation deflections; editing a
+        # deflection re-tessellates the part as one undoable step.
+        self.cad_file_label = QLineEdit()
+        self.cad_file_label.setReadOnly(True)
+        self._layout.addWidget(self._make_row("cad_file", "CAD file", self.cad_file_label))
+        self.cad_linear = _sci()
+        self.cad_linear.setToolTip("Largest distance between a triangle and the CAD surface (m)")
+        self._layout.addWidget(self._make_row("cad_linear", "Linear deflection (m)", self.cad_linear))
+        self.cad_angular = _dspin(0.1, 90.0, 1, " deg")
+        self.cad_angular.setToolTip("Largest angle between the normals of neighbouring triangles")
+        self._layout.addWidget(self._make_row("cad_angular", "Angular deflection", self.cad_angular))
+        self.cad_linear.editingFinished.connect(lambda: self._commit_cad("linear"))
+        self.cad_angular.editingFinished.connect(lambda: self._commit_cad("angular"))
+        # Regions of a Part (Task 3.5, D-071): list (multi-select; also selected by picking in the
+        # viewer), rename, merge, split by feature angle, patch assignment.
+        self._section("regions", "Regions")
+        self.region_list = QListWidget()
+        self.region_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.region_list.setObjectName("regionList")
+        self.region_list.setMinimumHeight(96)
+        self.region_list.itemSelectionChanged.connect(self._on_region_selection)
+        self._regions_host = QWidget()
+        box = QVBoxLayout(self._regions_host)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.addWidget(self.region_list)
+        self._layout.addWidget(self._regions_host)
+        self.region_name = QLineEdit()
+        self.region_name.setToolTip("Name of the selected region")
+        self.region_name.editingFinished.connect(self._commit_region_name)
+        self._layout.addWidget(self._make_row("region_name", "Region name", self.region_name))
+        self.region_patch = QLineEdit()
+        self.region_patch.setPlaceholderText("part patch")
+        self.region_patch.setToolTip("Mesh patch of the selected regions (empty: the part's own patch)")
+        self.region_patch.editingFinished.connect(self._commit_region_patch)
+        self._layout.addWidget(self._make_row("region_patch", "Patch", self.region_patch))
+        self.region_angle = _dspin(1.0, 179.0, 1, " deg")
+        self.region_angle.setValue(30.0)
+        self.region_angle.setToolTip("Split along edges sharper than this angle")
+        self._layout.addWidget(self._make_row("region_angle", "Feature angle", self.region_angle))
+        self.region_split = QPushButton("Split")
+        self.region_split.setToolTip("Split the selected region (or the whole part) by the feature angle")
+        self.region_merge = QPushButton("Merge")
+        self.region_merge.setToolTip("Merge the selected regions into the first one")
+        self.region_own_patches = QPushButton("Patch per region")
+        self.region_own_patches.setToolTip("Put every region on its own patch, named after it")
+        self._region_buttons = QWidget()
+        buttons = QHBoxLayout(self._region_buttons)
+        for button in (self.region_split, self.region_merge, self.region_own_patches):
+            button.setObjectName("tbBtn")
+            buttons.addWidget(button, 1)
+        self._layout.addWidget(self._region_buttons)
+        self.geometry_busy = False
+        self.request_intersections = None  # callable(path, units): background check (D-073)
+        self.region_split.clicked.connect(self._split_region)
+        self.region_merge.clicked.connect(self._merge_regions)
+        self.region_own_patches.clicked.connect(self._patch_per_region)
         # File status and the read-only "Checks" group (surface report) for a Part.
         self.status_value = QLabel()
         self.status_value.setObjectName("checkValue")
@@ -752,7 +819,7 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         for label in (*self.check_values.values(), *self.mesh_values.values(), self.status_value):
             label.setFont(mono)
         for widget in (self.name_edit, self.source_label, self.units_combo, self.patch_label,
-                       *self.mesh_fields.values()):
+                       self.cad_file_label, self.cad_linear, self.cad_angular, *self.mesh_fields.values()):
             widget.setFont(mono)
         self.mesh_title.setFont(section_title_font(QApplication.font()))
         self.mesh_title.setContentsMargins(m.s3, m.s3, m.s3, m.s2)
@@ -827,8 +894,10 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
                 spin.setValue(spin.minimum() if value is None else value)
                 spin.blockSignals(False)
         if part is not None:
-            patches = safe_part_names([p.name for p in sim.geometry.parts])
-            self.patch_label.setText(patches[self._index])
+            patches = part_patch_names(sim.geometry.parts)
+            self.patch_label.setText(", ".join(patches[self._index]))
+        self._refresh_cad(part)
+        self._refresh_regions(part)
         self._refresh_file_info(part)
         self._rows["name"].setVisible(show_name)
         is_domain = self._kind == "fluid_domain"
@@ -1199,8 +1268,7 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
 
     def _patches_and_probes(self) -> tuple[list[str], list[str]]:
         sim = self._project.sim
-        return (safe_part_names([p.name for p in sim.geometry.parts]),
-                [p.name for p in sim.reports.probes])
+        return (list(force_report_keys(sim.geometry.parts)), [p.name for p in sim.reports.probes])
 
     def _quantity_options(self) -> list[str]:
         """Quantities an asymptotic criterion can watch in this project (D-060)."""
@@ -1352,7 +1420,7 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         time = latest_result_time(case)
         key = (str(case), time)
         if self._yplus_cache is None or self._yplus_cache[0] != key:
-            patches = safe_part_names([p.name for p in self._project.sim.geometry.parts])
+            patches = wall_patch_names(self._project.sim.geometry.parts)
             try:
                 result = case_yplus_histogram(case, patches)
             except Exception:  # unreadable field file: shown as missing
@@ -1587,6 +1655,8 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             self._rows[f"check_{key}"].setVisible(report is not None)
         if report is None:
             return
+        if report.intersections_pending and self.request_intersections is not None:
+            self.request_intersections(part_file(self._project, part), part.units)
         size = " \u00d7 ".join(f"{v:.4g}" for v in report.size)
         values = {
             "triangles": (str(report.n_triangles), False),
@@ -1597,6 +1667,10 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             "degenerate": (str(report.degenerate_triangles), False),
             "duplicates": (str(report.duplicate_faces), False),
             "orientation": (str(report.inconsistent_orientation), False),
+            "intersections": ((str(report.self_intersections), report.self_intersections > 0)
+                              if report.self_intersections is not None
+                              else ("checking\u2026", False) if report.intersections_pending
+                              else (report.intersections_note, True)),
             "watertight": ("yes" if report.watertight else "no", not report.watertight),
             "normals": (("point inward", True) if report.normals_inward
                         else ("outward", False) if report.watertight else ("\u2014 (open surface)", False)),
@@ -1658,6 +1732,162 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         except (ValueError, TypeError, IndexError) as exc:  # includes pydantic errors
             self.message.emit(str(exc))
         self.refresh()
+
+    # -- regions (Task 3.5) ------------------------------------------------------------------
+
+    def _region_part(self) -> tuple[int, Part] | None:
+        if self._kind != "part" or self._index is None:
+            return None
+        parts = self._project.sim.geometry.parts
+        return (self._index, parts[self._index]) if 0 <= self._index < len(parts) else None
+
+    def _refresh_regions(self, part: Part | None) -> None:
+        loaded = part is not None and part_status(self._project, part) == OK
+        if self._index != getattr(self, "_regions_part_index", None) or not loaded:
+            self.region_list.clearSelection()  # a selection belongs to one part
+        self._regions_part_index = self._index if loaded else None
+        self._sections["regions"].setVisible(loaded)
+        for key in ("region_name", "region_patch", "region_angle"):
+            self._rows[key].setVisible(loaded)
+        self._regions_host.setVisible(loaded)
+        self._region_buttons.setVisible(loaded)
+        if not loaded:
+            if self._regions_part_index is None and self._index is not None:
+                self.regions_selected.emit(self._index, [])
+            return
+        selected = set(self.selected_regions())
+        self.region_list.blockSignals(True)
+        self.region_list.clear()
+        regions_ = part.regions or [SurfaceRegion(name=part.name)]
+        for region in regions_:
+            item = QListWidgetItem(f"{region.name}  \u2192  {part.region_patch(region)}")
+            item.setData(Qt.ItemDataRole.UserRole, region.name)
+            self.region_list.addItem(item)
+            item.setSelected(region.name in selected)
+        self.region_list.blockSignals(False)
+        self._update_region_fields()
+        self.regions_selected.emit(self._index, self.selected_regions())
+
+    def selected_regions(self) -> list[str]:
+        return [item.data(Qt.ItemDataRole.UserRole) for item in self.region_list.selectedItems()]
+
+    def select_regions(self, names: list[str]) -> None:
+        """Select regions by name (e.g. picked in the viewer)."""
+        for i in range(self.region_list.count()):
+            item = self.region_list.item(i)
+            item.setSelected(item.data(Qt.ItemDataRole.UserRole) in names)
+
+    def _update_region_fields(self) -> None:
+        names = self.selected_regions()
+        current = self._region_part()
+        part = current[1] if current else None
+        by_name = {r.name: r for r in (part.regions if part else [])}
+        self.region_name.blockSignals(True)
+        self.region_patch.blockSignals(True)
+        self.region_name.setText(names[0] if len(names) == 1 else "")
+        self.region_name.setEnabled(len(names) == 1 and bool(part and part.regions))
+        patches = {by_name[n].patch if n in by_name else None for n in names}
+        self.region_patch.setText(next(iter(patches)) or "" if len(patches) == 1 else "")
+        self.region_patch.setEnabled(bool(names))
+        self.region_merge.setEnabled(len(names) >= 2)
+        self.region_split.setEnabled(len(names) <= 1)
+        if self.geometry_busy:  # a geometry job is running (D-073)
+            for widget in (self.region_name, self.region_patch, self.region_split, self.region_merge):
+                widget.setEnabled(False)
+        self.region_name.blockSignals(False)
+        self.region_patch.blockSignals(False)
+
+    def _on_region_selection(self) -> None:
+        self._update_region_fields()
+        current = self._region_part()
+        if current is not None:
+            self.regions_selected.emit(current[0], self.selected_regions())
+
+    def _apply_region_edit(self, make_fields, keep: list[str] | None = None) -> None:
+        current = self._region_part()
+        if current is None:
+            return
+        try:
+            fields = make_fields(current[0])
+            if fields:
+                self._project.update_part(current[0], **fields)
+        except (ValueError, TypeError, IndexError, OSError, RegionError, SurfaceLoadError) as exc:
+            self.message.emit(str(exc))
+        self.refresh()
+        if keep is not None:
+            self.select_regions(keep)
+
+    def _commit_region_name(self) -> None:
+        names = self.selected_regions()
+        new = self.region_name.text().strip()
+        if len(names) != 1 or not new or new == names[0]:
+            return
+        self._apply_region_edit(lambda i: part_ops.rename_region(self._project, i, names[0], new), [new])
+
+    def _commit_region_patch(self) -> None:
+        names = self.selected_regions()
+        if not names:
+            return
+        patch = self.region_patch.text().strip() or None
+        self._apply_region_edit(lambda i: part_ops.assign_patch(self._project, i, names, patch), names)
+
+    def _merge_regions(self) -> None:
+        names = self.selected_regions()
+        self._apply_region_edit(lambda i: part_ops.merge_regions(self._project, i, names), names[:1])
+
+    def _split_region(self) -> None:
+        names = self.selected_regions()
+        angle = self.region_angle.value()
+        self._apply_region_edit(lambda i: part_ops.split_region(self._project, i, names[0] if names else None, angle))
+
+    def _patch_per_region(self) -> None:
+        self._apply_region_edit(lambda i: part_ops.patch_per_region(self._project, i), self.selected_regions())
+
+    def _refresh_cad(self, part: Part | None) -> None:
+        cad = part.cad if part is not None else None
+        for key in ("cad_file", "cad_linear", "cad_angular"):
+            self._rows[key].setVisible(cad is not None)
+        if cad is None:
+            return
+        for widget in (self.cad_linear, self.cad_angular):
+            widget.blockSignals(True)
+        self.cad_file_label.setText(cad.file)
+        self.cad_linear.setValue(cad.linear_deflection)
+        self.cad_angular.setValue(cad.angular_deflection)
+        for widget in (self.cad_linear, self.cad_angular):
+            widget.blockSignals(False)
+
+    def _commit_cad(self, which: str) -> None:
+        """Ask for a re-tessellation with the edited deflection (run on the geometry worker and
+        applied as one undoable step, D-073)."""
+        if self._kind != "part" or self._index is None or self.geometry_busy:
+            return
+        part = self._project.sim.geometry.parts[self._index]
+        if part.cad is None:
+            return
+        if which == "linear":
+            value = self.cad_linear.value()
+            if value == part.cad.linear_deflection:
+                return
+            if not value > 0:
+                self.message.emit("The linear deflection must be a positive length")
+                self.refresh()
+                return
+            self.retessellate_requested.emit(self._index, value, None)
+        else:
+            value = round(self.cad_angular.value(), 1)
+            if value == part.cad.angular_deflection:
+                return
+            self.retessellate_requested.emit(self._index, None, value)
+
+    def set_geometry_busy(self, busy: bool) -> None:
+        """Disable the part geometry edits while a geometry job runs (D-073)."""
+        self.geometry_busy = busy
+        for widget in (self.cad_linear, self.cad_angular, self.region_name, self.region_patch,
+                       self.region_split, self.region_merge, self.region_own_patches, self.units_combo):
+            widget.setEnabled(not busy)
+        if not busy:
+            self._update_region_fields()
 
     def _commit_units(self, units: str) -> None:
         try:

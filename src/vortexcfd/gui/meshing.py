@@ -19,9 +19,12 @@ from vortexcfd.foam.mesh_case import (
     needs_seeding,
     part_level_range,
     prepare_case_dir,
+    part_patch_names,
     safe_part_names,
+    wall_patch_names,
     write_seed_edge_meshes,
 )
+from vortexcfd.geometry import regions
 from vortexcfd.geometry.domain import DomainBox, compute_domain, union_bounds
 from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
 
@@ -71,14 +74,31 @@ def _loaded_parts(project: Project):
 
 
 def parts_layout(project: Project) -> tuple[DomainBox, tuple[str, ...], tuple[float, ...]]:
-    """(domain box, part patch names, union of the parts' bounding boxes in metres).
+    """(domain box, every part wall patch name, union of the parts' bounding boxes in metres).
 
     Raises:
         MeshingNotReady: a part cannot be loaded.
     """
-    box, names, meshes = _loaded_parts(project)
+    box, _names, meshes = _loaded_parts(project)
     bounds = [tuple(float(b) for b in m.bounds) for m in meshes]
-    return box, tuple(safe_part_names(names)), union_bounds(bounds) if bounds else None
+    return box, wall_patch_names(project.sim.geometry.parts), union_bounds(bounds) if bounds else None
+
+
+def write_part_surfaces(case_dir: Path, project: Project, inputs: MeshCaseInput, meshes) -> None:
+    """The part STLs of a meshing case (metres): a part with several patches (or one renamed patch)
+    gets one solid per patch, named after it (D-071); other parts are written as loaded."""
+    for i, (name, mesh) in enumerate(zip(inputs.parts, meshes)):
+        path = case_dir / TRI_SURFACE / f"{name}.stl"
+        if not inputs.has_regions(i):
+            mesh.save(str(path))  # already scaled to metres
+            continue
+        part = project.sim.geometry.parts[i]
+        try:
+            ids = regions.base_ids(part, mesh, project.folder)
+        except regions.RegionError as exc:
+            raise MeshingNotReady(f"Part '{part.name}': {exc}") from exc
+        labels = regions.patch_labels(part, ids, part.patch_names())
+        regions.write_patch_stl(path, mesh, labels, list(inputs.patches_of(i)))
 
 
 def plan_layers_for(project: Project, box: DomainBox) -> LayerPlan:
@@ -151,11 +171,11 @@ def prepare_job(project: Project) -> MeshJob:
         layer_count=layer_count,
         part_bounds=tuple(bounds),
         part_levels=_part_overrides(project),
+        part_patches=tuple(part_patch_names(project.sim.geometry.parts)),
     )
     case_dir = case_dir_for(project)
     prepare_case_dir(case_dir, build_mesh_files(inputs))
-    for name, mesh in zip(safe, meshes):
-        mesh.save(str(case_dir / TRI_SURFACE / f"{name}.stl"))  # already scaled to metres
+    write_part_surfaces(case_dir, project, inputs, meshes)
     write_seed_edge_meshes(case_dir, inputs)
     return MeshJob(case_dir, inputs, box)
 
@@ -213,7 +233,12 @@ def inputs_hash(project: Project) -> str:
     for part in project.sim.geometry.parts:
         path = project.resolve_part_path(part) if part.source_file and project.path else None
         digest = _hash_file(path) if path is not None and path.is_file() else None
-        parts.append([part.name, part.units, digest, part.surface_level_min, part.surface_level_max])
+        entry = [part.name, part.units, digest, part.surface_level_min, part.surface_level_max]
+        if part.regions or part.region_ids:  # regions change the patches (D-071); old hashes stay valid
+            ids = project.path.parent / part.region_ids if part.region_ids and project.path else None
+            entry.append([[r.name, r.members, r.patch] for r in part.regions])
+            entry.append(_hash_file(ids) if ids is not None and ids.is_file() else None)
+        parts.append(entry)
     payload = {
         "parts": parts,
         "domain": project.sim.domain.model_dump(),

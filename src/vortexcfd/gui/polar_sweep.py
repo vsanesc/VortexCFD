@@ -4,6 +4,7 @@ Every point uses the current mesh of case/ (copied once into case_sweep/mesh/pol
 project's physics with its own angle of attack; case/ is never written.
 """
 
+import dataclasses
 import shutil
 from pathlib import Path
 
@@ -60,8 +61,7 @@ def point_writer(project: Project):
     solvers = inp.solvers.model_copy(update={"cores": cores})
 
     def write(case: Path, alpha: float) -> None:
-        point = type(inp)(inp.physics, inp.inflow.model_copy(update={"alpha_deg": alpha}), solvers, inp.patches,
-                          inp.parts_bounds, inp.symmetric, inp.reports)
+        point = dataclasses.replace(inp, inflow=inp.inflow.model_copy(update={"alpha_deg": alpha}), solvers=solvers)
         for rel, spec in enable_clean_stop(build_solver_files(point)).items():
             write_foam_file(case / rel, spec.content, object_name=Path(rel).name, class_name=spec.class_name)
 

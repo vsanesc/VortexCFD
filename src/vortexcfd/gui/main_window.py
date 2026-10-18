@@ -1,4 +1,4 @@
-"""Main window bound to a Project, laid out after docs/design/mockup-v1.png."""
+"""Main window bound to a Project, laid out after the owner's local design mockup (D-041)."""
 
 import logging
 import os
@@ -6,6 +6,8 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import numpy as np
 
 from PySide6.QtCore import QEvent, QPointF, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import (
@@ -47,18 +49,35 @@ from vortexcfd.core.reports import available_reports
 from vortexcfd.foam import convergence
 from vortexcfd.foam.physics_case import flow_direction
 from vortexcfd.core.project import Project
+from vortexcfd.core.workspace import (
+    GEOMETRY_EXTENSIONS,
+    LEGACY_PROJECT_EXTENSIONS,
+    SaveTargetError,
+    check_save_target,
+    with_project_extension,
+)
 from vortexcfd.gui import console as console_log
 from vortexcfd.gui.console import ConsolePanel
 from vortexcfd.gui.dialogs import Dialogs
 from vortexcfd.gui.icons import logo_icon, make_glyph
 from vortexcfd.gui.monitors import MonitorsPanel
-from vortexcfd.geometry.checks import surface_report
+from vortexcfd.geometry.checks import basic_report, cached_report
+from vortexcfd.geometry.cad import BREP_EXTENSIONS, CAD_EXTENSIONS, CadImportError, read_cad
+from vortexcfd.geometry.loader import stl_solid_names
+from vortexcfd.geometry.regions import RegionError
+from vortexcfd.gui import part_ops
 from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.gui.properties_panel import PropertiesPanel
 from vortexcfd.geometry.domain import BOUNDARY_NAMES
-from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError, remove_results, safe_part_names
+from vortexcfd.foam.mesh_case import (
+    CaseDirectoryNotOursError,
+    force_report_keys,
+    part_patch_names,
+    remove_results,
+)
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.mesh_report import MeshReport
+from vortexcfd.gui.geometry_worker import GeometryWorker, IntersectionChecker, snapshot
 from vortexcfd.gui.mesh_worker import MeshWorker
 from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam.run_record import RunRecord, read_run_record, write_run_record
@@ -306,6 +325,15 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.mesh_view: MeshView | None = None
         self._scene_mode = "geometry"
         self._mesh_patches: tuple[str, ...] = ()
+        # Geometry jobs and self-intersection checks off the GUI thread (D-073).
+        self.geometry_worker = GeometryWorker(self)
+        self.geometry_worker.finished.connect(self._on_geometry_finished)
+        self.geometry_worker.failed.connect(self._on_geometry_failed)
+        self._geometry_jobs: dict[int, tuple] = {}
+        self.geometry_busy = False
+        self.intersections = IntersectionChecker(self)
+        self.intersections.checked.connect(self._on_intersections_checked)
+        self._announce_checks: dict[tuple[str, str], str] = {}
         self.mesh_worker = MeshWorker(self)
         self.mesh_worker.line.connect(self._on_mesh_line)
         self.mesh_worker.step.connect(self._on_mesh_step)
@@ -337,6 +365,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.tree.eye_clicked.connect(self._on_eye_clicked)
         self.properties = PropertiesPanel(project)
         self.properties.message.connect(lambda text: self.show_message(text, "warning"))
+        self.properties.regions_selected.connect(self._on_regions_selected)
+        self.properties.retessellate_requested.connect(self._retessellate)
+        self.properties.request_intersections = self.intersections.request
         self.properties.pending_changed.connect(self._update_actions)
         self._build_actions()
 
@@ -469,6 +500,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self.viewer.view_isometric()
             self.viewer.reset_camera()
             self.scene = PartScene(self.viewer, self._theme, self._on_viewer_pick)
+            self.scene.on_cell_pick = self._on_triangle_pick
             self.domain_view = DomainView(self.viewer, self._theme)
             self.mesh_view = MeshView(self.viewer, self._theme)
             self.results_view = ResultsView(self.viewer, self._theme)
@@ -809,7 +841,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._update_results_stale()
         self._update_run_button()
         self.monitors.kpis.set_options(available_reports(
-            safe_part_names([p.name for p in sim.geometry.parts]), [p.name for p in sim.reports.probes]))
+            force_report_keys(sim.geometry.parts), [p.name for p in sim.reports.probes]))
         self.monitors.set_assignments(list(sim.reports.slots))
         if not self.solver_worker.is_running():  # a running solver keeps the criteria it started with
             self.monitors.set_stopping(sim.solvers.stopping)
@@ -862,8 +894,10 @@ class MainWindow(StudyControlMixin, QMainWindow):
                     if bname == "symmetry" and domain.symmetry != "y_min":
                         continue
                     add(fluid, f"boundary_{bname}", None, bname, "dot", "accent")
-            for i, part in enumerate(parts):  # one wall patch per part
-                add(fluid, "wall", i, f"{part.name} (wall)", "dot", "accent")
+            labels = [label for part, patches in zip(parts, part_patch_names(parts))
+                      for label in (patches if part.regions else (part.name,))]
+            for i, label in enumerate(labels):  # one wall per patch (D-071); a plain part shows its name
+                add(fluid, "wall", i, f"{label} (wall)", "dot", "accent")
             solvers_item = add(root, "solvers", None, "Solvers", "folder", "text")
             add(solvers_item, "stopping", None, "Stopping Criteria", "dot", "accent")
             reports = add(root, "reports", None, "Reports & Monitors", "folder", "text")
@@ -919,6 +953,33 @@ class MainWindow(StudyControlMixin, QMainWindow):
         if item is not None:
             self.tree.setCurrentItem(item)
 
+    def _on_triangle_pick(self, index: int, triangle: int) -> None:
+        """A triangle of a part was clicked: select its region in the part's Regions list (D-071)."""
+        if self._selected_part_index() != index:
+            return
+        try:
+            name = part_ops.region_of_triangle(self._project, index, triangle)
+        except (OSError, SurfaceLoadError, RegionError, ValueError):
+            return
+        if name is not None:
+            self.properties.select_regions([name])
+
+    def _on_regions_selected(self, index: int, names: list) -> None:
+        """Highlight the selected regions' triangles in the viewer."""
+        if self.scene is None:
+            return
+        triangles = []
+        if names and index == self._selected_part_index():
+            try:
+                part = self._project.sim.geometry.parts[index]
+                ids = part_ops.part_base_ids(self._project, part)
+                members = [m for r in part_ops.effective_regions(part, ids) if r.name in names for m in r.members]
+                triangles = np.flatnonzero(np.isin(ids, members)).tolist()
+            except (OSError, SurfaceLoadError, RegionError, ValueError, IndexError):
+                triangles = []
+        self.scene.show_regions(index if triangles else None, triangles)
+        self.viewer.render()
+
     def _selected_part(self) -> Part | None:
         index = self._selected_part_index()
         parts = self._project.sim.geometry.parts
@@ -973,6 +1034,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._sync_domain()
         if self.scene is not None:
             self.scene.set_selected(self._selected_part_index())
+            if self._selected_part_index() is None:
+                self.scene.show_regions(None, [])
             self.viewer.render()
         name = self._selected_name()
         self.props_name.setText(name)
@@ -1026,6 +1089,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
             reason = "The solver is running: stop it first."
         if not running and self.study_running():
             reason = self.study_running()
+        if not running and self.geometry_busy:
+            reason = f"{self.geometry_worker.label} is running."
         warning = None
         if not running and reason is None:
             warnings = [w for w in (layer_warning(self._project), *thin_part_warnings(self._project)) if w]
@@ -1034,6 +1099,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
 
     def generate_mesh(self) -> None:
         """Generate Mesh / Stop: write the meshing case and run it in the background."""
+        if self.geometry_busy and not self.mesh_worker.is_running():
+            self.show_message(f"{self.geometry_worker.label} is running.", "error")
+            return
         if self.solver_worker.is_running():
             self.show_message("The solver is running: stop it first.", "error")
             return
@@ -1054,7 +1122,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         except OSError as exc:
             self.show_message(f"Could not prepare the meshing case: {exc}", "error")
             return
-        self._mesh_patches = job.inputs.parts
+        self._mesh_patches = job.inputs.patches
         self._run_hash = inputs_hash(self._project)
         self.mesh_report = None
         self._mesh_hash = None
@@ -1066,7 +1134,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
                  est.level_min, est.level_max, est.surface_size)
         for text in thin_part_warnings(self._project):
             log.warning(text)
-        self.mesh_worker.start(job.case_dir, job.inputs.parts)
+        self.mesh_worker.start(job.case_dir, job.inputs.patches)
         self._update_mesh_stale()
         self._update_mesh_button()
         self._update_run_button()
@@ -1844,7 +1912,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         S = QKeySequence.StandardKey
         self.act_new = action("&New", self.new_project, S.New)
         self.act_open = action("&Open...", self.open_project, S.Open)
-        self.act_import = action("&Import Surface...", self.import_surface, "Ctrl+I")
+        self.act_import = action("&Import Geometry...", self.import_surface, "Ctrl+I")
         self.act_save = action("&Save", self.save, S.Save)
         self.act_save_as = action("Save &As...", self.save_as, S.SaveAs)
         self.act_quit = action("&Quit", self.close, S.Quit)
@@ -1855,6 +1923,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         # Delete applies only while the tree has focus, so text fields keep their Delete key.
         self.act_remove_part.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.tree.addAction(self.act_remove_part)
+        self.act_repair_part = action("Re&pair part", self.repair_selected_part)
 
         self.act_zoom_in = action("Zoom &In", lambda: self.set_point_size(self._point_size + 1))
         self.act_zoom_in.setShortcuts([QKeySequence("Ctrl+="), QKeySequence("Ctrl++")])
@@ -1879,7 +1948,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         edit_menu = self.menuBar().addMenu("&Edit")
         edit_menu.addActions([self.act_undo, self.act_redo])
         edit_menu.addSeparator()
-        edit_menu.addActions([self.act_add_part, self.act_remove_part])
+        edit_menu.addActions([self.act_add_part, self.act_remove_part, self.act_repair_part])
         edit_menu.addSeparator()
         self.act_preferences = action("&Preferences...", self.edit_preferences)
         edit_menu.addAction(self.act_preferences)
@@ -1917,6 +1986,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.act_redo.setEnabled(p.can_redo)
         self.act_redo.setText(f"Redo {p.redo_label}" if p.redo_label else "Redo")
         self.act_remove_part.setEnabled(self._selected_part_index() is not None)
+        self.act_repair_part.setEnabled(self._selected_part_file() is not None and not self.geometry_busy)
+        self.act_import.setEnabled(not self.geometry_busy)
 
     def _selected_part_index(self) -> int | None:
         if self._selection and self._selection[0] == "part":
@@ -1956,6 +2027,127 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self._selection = previous
             self.show_message(str(exc), "warning")
 
+    def _selected_part_file(self) -> Path | None:
+        index = self._selected_part_index()
+        if index is None or self._project.folder is None:
+            return None
+        parts = self._project.sim.geometry.parts
+        if not 0 <= index < len(parts) or not parts[index].source_file:
+            return None
+        path = self._project.resolve_part_path(parts[index])
+        return path if path.is_file() else None
+
+    def repair_selected_part(self) -> None:
+        """Edit > Repair part (Task 3.3, D-072): repair into a new file on the geometry worker, then
+        point the part to it as one undoable step and show the before / after report (D-073)."""
+        self._flush_edits()
+        index = self._selected_part_index()
+        if index is None or self._selected_part_file() is None:
+            return
+        snap = snapshot(self._project)
+        part = snap.sim.geometry.parts[index]
+        self._start_geometry_job(f"Repairing '{part.name}'", lambda: part_ops.repair_part(snap, index),
+                                 lambda out: self._repair_done(index, part, out))
+
+    def _repair_done(self, index: int, part: Part, out) -> None:
+        fields, result = out
+        name = part.name
+        if fields and not self._apply_part_fields(index, part, fields, "repair"):
+            return
+        remaining = result.remaining
+        summary = (f"Repaired '{name}' ({result.method})" if result.method != "none"
+                   else f"'{name}' needs no repair")
+        if remaining:
+            summary += "; still: " + ", ".join(remaining)
+        log.info("%s: %s -> %s", summary, result.before.summary(), result.after.summary())
+        if result.fidelity is not None:
+            log.info("Repair of '%s': %s", name, result.fidelity.text())
+        for note in result.notes:
+            log.info("Repair of '%s': %s", name, note)
+        self.dialogs.show_repair_report(name, result.method, part_ops.repair_rows(result), result.notes)
+        self.show_message(summary, "warning" if remaining else "success", log_it=False)
+
+    def _apply_part_fields(self, index: int, before: Part, fields: dict, what: str) -> bool:
+        """Apply a worker's Part fields as one undoable step if the part is unchanged since the job
+        started (an undo meanwhile, for example); otherwise discard them with a message."""
+        parts = self._project.sim.geometry.parts
+        if not 0 <= index < len(parts) or parts[index] != before:
+            self.show_message(f"Part '{before.name}' changed during the {what}: the result was discarded", "warning")
+            return False
+        self._run_edit(lambda: self._project.update_part(index, **fields))
+        return True
+
+    # -- background geometry jobs (D-073) ------------------------------------------------------
+
+    def _start_geometry_job(self, label: str, function, on_done, on_error=None) -> bool:
+        """Run ``function`` on the geometry worker; ``on_done(result)`` / ``on_error(exc)`` run on the
+        GUI thread. The geometry actions are disabled meanwhile."""
+        if self.geometry_worker.is_running():
+            self.show_message(f"{self.geometry_worker.label} is still running", "warning")
+            return False
+        job = self.geometry_worker.start(label, function)
+        self._geometry_jobs[job] = (label, on_done, on_error)
+        log.info("%s...", label)
+        self.show_message(f"{label}...", "info", log_it=False)
+        self._set_geometry_busy(True)
+        return True
+
+    def _on_geometry_finished(self, job: int, result) -> None:
+        label, on_done, _ = self._geometry_jobs.pop(job, ("", None, None))
+        self._set_geometry_busy(False)
+        if on_done is not None:
+            on_done(result)
+
+    def _on_geometry_failed(self, job: int, exc) -> None:
+        label, _, on_error = self._geometry_jobs.pop(job, ("", None, None))
+        self._set_geometry_busy(False)
+        if on_error is not None:
+            on_error(exc)
+        else:
+            self.show_message(f"{label} failed: {exc}", "error")
+
+    def _set_geometry_busy(self, busy: bool) -> None:
+        self.geometry_busy = busy
+        self.properties.set_geometry_busy(busy)
+        self._update_actions()
+        self._update_mesh_button()
+
+    def _retessellate(self, index: int, linear: float | None, angular: float | None) -> None:
+        """A CAD part's deflection was edited: re-tessellate on the worker, apply as one undo step."""
+        snap = snapshot(self._project)
+        part = snap.sim.geometry.parts[index]
+
+        def done(fields: dict) -> None:
+            if self._apply_part_fields(index, part, fields, "tessellation"):
+                log.info("Re-tessellated '%s' (%g m, %g deg)", part.name, fields["cad"]["linear_deflection"],
+                         fields["cad"]["angular_deflection"])
+                self.show_message(f"Re-tessellated '{part.name}'", "success", log_it=False)
+
+        def failed(exc) -> None:
+            self.show_message(f"Could not re-tessellate '{part.name}': {exc}", "error")
+            self.properties.refresh()
+
+        self._start_geometry_job(f"Tessellating '{part.name}'",
+                                 lambda: part_ops.retessellate(snap, index, linear, angular), done, failed)
+
+    def _on_intersections_checked(self, path: str, units: str) -> None:
+        """A background self-intersection check finished: refresh the Checks rows and the highlight,
+        and warn about a part imported in this session that has some."""
+        name = self._announce_checks.pop((path, units), None)
+        report = cached_report(Path(path), units)
+        if name is not None and report is not None and report.self_intersections:
+            log.warning("Part '%s': %d self-intersecting triangles (highlighted when the part is selected)",
+                        name, report.self_intersections)
+        self.properties.refresh()
+        self._update_selection_views()
+
+    def _request_checks(self, parts) -> None:
+        """Queue the self-intersection check of newly imported parts (announced when done)."""
+        for part in parts:
+            path = (self._project.folder / part.source_file).resolve()
+            self._announce_checks[(str(path), part.units)] = part.name
+            self.intersections.request(path, part.units)
+
     def remove_selected_part(self) -> None:
         index = self._selected_part_index()
         if index is not None:
@@ -1964,23 +2156,50 @@ class MainWindow(StudyControlMixin, QMainWindow):
     # -- file operations -----------------------------------------------------
 
     def save(self) -> bool:
-        """Save to the project's path (Save As if it has none). False if not saved."""
+        """Save to the project's path (Save As if it has none). False if not saved. A project opened
+        from a legacy .json file is saved as <name>.vcfd next to it (D-076)."""
         self._flush_edits()
         if self._project.path is None:
             return self.save_as()
+        if self._project.path.suffix.lower() in LEGACY_PROJECT_EXTENSIONS:
+            return self._save_checked(with_project_extension(self._project.path))
         return self._save_to(None)
 
     def save_as(self) -> bool:
+        """Save As: the dialog's file gets the .vcfd extension when it lacks it; a geometry file, a
+        geometry source of the project or an existing non-project file is refused (the dialog's
+        result is not used); an existing project is overwritten only after confirmation (D-076)."""
         self._flush_edits()
-        path = self.dialogs.ask_save_path(self._project.path)
-        if path is None:
+        current = self._project.path
+        suggested = with_project_extension(current) if current is not None else None
+        chosen = self.dialogs.ask_save_path(suggested)
+        if chosen is None:
             return False
-        return self._save_to(path)
+        if Path(chosen).suffix.lower() in GEOMETRY_EXTENSIONS:  # never append to a geometry name
+            return self._refuse_save(SaveTargetError(
+                f"{Path(chosen).name} is a geometry file: a project is never saved over it."))
+        return self._save_checked(with_project_extension(Path(chosen)))
+
+    def _save_checked(self, target: Path) -> bool:
+        try:
+            check_save_target(target, self._project.geometry_sources())
+        except SaveTargetError as exc:
+            return self._refuse_save(exc)
+        current = self._project.path
+        if target.exists() and (current is None or target.resolve() != current.resolve()):
+            if not self.dialogs.confirm_overwrite(target):
+                return False
+        return self._save_to(target)
+
+    def _refuse_save(self, exc: Exception) -> bool:
+        self.show_message(f"Not saved: {exc}", "error")
+        self.dialogs.show_error("Save project", f"Not saved: {exc}")
+        return False
 
     def _save_to(self, path: Path | None) -> bool:
         try:
             self._project.save(path)
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError) as exc:  # SaveTargetError included: the hard rule in Project.save
             self.show_message(f"Save failed: {exc}", "error")
             return False
         log.info("Saved %s", self._project.path)
@@ -1988,24 +2207,27 @@ class MainWindow(StudyControlMixin, QMainWindow):
         return True
 
     def import_surface(self) -> None:
-        """File > Import Surface: copy a surface file into <project>/geometry/ and add a Part."""
+        """File > Import Geometry: copy a surface or CAD file into <project folder>/geometry/ and add
+        Parts. Never asks to save first: an untitled project imports into its temporary workspace,
+        moved next to the project file on the first save (D-076)."""
         self._flush_edits()
-        if self._project.path is None and not self.save_as():  # the copy needs a project folder
-            return
         source = self.dialogs.ask_import_path()
         if source is None:
+            return
+        if source.suffix.lower() in CAD_EXTENSIONS:
+            self._import_cad(source)
             return
         units = self.dialogs.ask_units()
         if units is None:
             return
-        project_dir = self._project.path.parent
+        project_dir = self._project.ensure_folder()
         folder = project_dir / "geometry"
         dest = None
         try:
             folder.mkdir(exist_ok=True)
             dest = self._unique_path(folder, source.name)
             shutil.copy2(source, dest)
-            report = surface_report(dest, units)
+            report = basic_report(dest, units)  # self-intersections: background check (D-073)
         except (OSError, SurfaceLoadError) as exc:
             if dest is not None:
                 dest.unlink(missing_ok=True)
@@ -2014,21 +2236,112 @@ class MainWindow(StudyControlMixin, QMainWindow):
         taken = {p.name for p in self._project.sim.geometry.parts}
         name = self._unique_name(source.stem, taken)
         relative = Path(os.path.relpath(dest, project_dir)).as_posix()
+        solids = stl_solid_names(dest) if dest.suffix.lower() == ".stl" else []
+        parts = [Part(name=name, source_file=relative, units=units)]
+        if len(solids) > 1:  # Task 3.1: regions (default) or one part per solid
+            mode = self.dialogs.ask_solids_mode(source.name, solids)
+            if mode is None:
+                dest.unlink(missing_ok=True)
+                return
+            try:
+                if mode == "parts":
+                    parts = part_ops.parts_per_solid(project_dir, dest, units, solids, taken)
+                else:
+                    parts = [part_ops.part_with_solid_regions(project_dir, name, dest, units, solids)]
+            except (OSError, SurfaceLoadError, ValueError) as exc:
+                dest.unlink(missing_ok=True)
+                self.show_message(f"Could not import {source.name}: {exc}", "error")
+                return
+            if mode == "parts":
+                dest.unlink(missing_ok=True)
         previous = self._selection
         self._selection = ("part", len(taken))  # the observer refresh selects the new part
         try:
-            self._project.add_part(Part(name=name, source_file=relative, units=units))
+            if len(parts) == 1:
+                self._project.add_part(parts[0])
+            else:
+                self._project.add_parts(parts, f"Import {source.name} ({len(parts)} parts)")
         except (ValueError, TypeError) as exc:
             self._selection = previous
             dest.unlink(missing_ok=True)
             self.show_message(f"Could not import {source.name}: {exc}", "error")
             return
-        log.info("Imported %s as part '%s' (units: %s)", source.name, name, units)
+        names = ", ".join(f"'{p.name}'" for p in parts)
+        log.info("Imported %s as part%s %s (units: %s)", source.name, "s" if len(parts) > 1 else "", names, units)
+        if len(parts) == 1 and parts[0].regions:
+            log.info("Part '%s' has %d regions: %s", name, len(parts[0].regions),
+                     ", ".join(r.name for r in parts[0].regions))
         log.info("Checks for '%s': %s", name, report.summary())
         if report.normals_inward:
             log.warning("Part '%s': normals point inward (closed surface with negative signed volume); "
                         "the file was not changed", name)
-        self.show_message(f"Imported {source.name} as '{name}'", "success", log_it=False)
+        self._request_checks(parts)
+        self.show_message(f"Imported {source.name} as {names}", "success", log_it=False)
+
+    def _import_cad(self, source: Path) -> None:
+        """STEP / IGES (millimetres) or BREP (units asked): one Part, or one Part per body, with a
+        region per named face group (Task 3.2, D-070). Reading and tessellation run on the geometry
+        worker (D-073); the parts are added on the GUI thread as one undoable step."""
+        units = None
+        if source.suffix.lower() in BREP_EXTENSIONS:
+            units = self.dialogs.ask_units()
+            if units is None:
+                return
+        project_dir = self._project.ensure_folder()
+        folder = project_dir / "geometry"
+        try:
+            folder.mkdir(exist_ok=True)
+            dest = self._unique_path(folder, source.name)
+            shutil.copy2(source, dest)
+        except OSError as exc:
+            self.show_message(f"Could not import {source.name}: {exc}", "error")
+            return
+
+        def failed(exc) -> None:
+            dest.unlink(missing_ok=True)
+            self.show_message(f"Could not import {source.name}: {exc}", "error")
+
+        def tessellate(model) -> None:
+            mode = "regions"
+            if len(model.bodies) > 1:
+                mode = self.dialogs.ask_solids_mode(source.name, [b.name for b in model.bodies])
+                if mode is None:
+                    dest.unlink(missing_ok=True)
+                    return
+            taken = {p.name for p in self._project.sim.geometry.parts}
+            self._start_geometry_job(
+                f"Tessellating {source.name}",
+                lambda: part_ops.cad_parts(project_dir, dest, units, mode, taken, model=model),
+                lambda parts: self._add_cad_parts(source, model, parts), failed)
+
+        self._start_geometry_job(f"Reading {source.name}", lambda: read_cad(dest), tessellate, failed)
+
+    def _add_cad_parts(self, source: Path, model, parts: list[Part]) -> None:
+        project_dir = self._project.folder
+        taken = {p.name for p in self._project.sim.geometry.parts}
+        previous = self._selection
+        self._selection = ("part", len(taken))
+        try:
+            if len(parts) == 1:
+                self._project.add_part(parts[0])
+            else:
+                self._project.add_parts(parts, f"Import {source.name} ({len(parts)} parts)")
+        except (ValueError, TypeError) as exc:
+            self._selection = previous
+            self.show_message(f"Could not import {source.name}: {exc}", "error")
+            return
+        for part in parts:
+            report = basic_report(project_dir / part.source_file, part.units)
+            log.info("Imported %s as part '%s' (units: %s; %d bodies, %d faces; tessellation %g m, %g deg): %s",
+                     source.name, part.name, part.units, len(part.cad.bodies or model.bodies),
+                     sum(len(r.members) for r in part.regions) or len(model.faces),
+                     part.cad.linear_deflection, part.cad.angular_deflection, report.summary())
+            if part.regions:
+                log.info("Part '%s' has %d regions: %s", part.name, len(part.regions),
+                         ", ".join(r.name for r in part.regions))
+        self._request_checks(parts)
+        names = ", ".join(f"'{p.name}'" for p in parts)
+        self.show_message(f"Imported {source.name} as {names}", "success", log_it=False)
 
     @staticmethod
     def _unique_path(folder: Path, file_name: str) -> Path:
@@ -2059,6 +2372,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
 
     def new_project(self) -> None:
         if self._confirm_discard():
+            self._project.discard_workspace()  # an untitled project's imports go with it (D-076)
             self.set_project(Project.new("Untitled"))
 
     def open_project(self) -> None:
@@ -2073,6 +2387,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             log.exception("Could not open project %s", path)
             self.show_message(f"Could not open {path}: {exc}", "error", log_it=False)
             return
+        self._project.discard_workspace()
         self.set_project(project)
         log.info("Opened %s", path)
         self.show_message(f"Opened {path}")
@@ -2081,6 +2396,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         if not self._confirm_discard():
             event.ignore()
             return
+        self.geometry_worker.wait(30)  # a job may still write into the workspace
+        self._project.discard_workspace()  # closing an untitled project without saving (D-076)
         if self.mesh_worker.is_running():
             self.mesh_worker.request_stop()
         if self.solver_worker.is_running():
