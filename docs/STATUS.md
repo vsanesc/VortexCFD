@@ -1,6 +1,6 @@
 # Status
 
-Updated 2026-10-18 (task/6.4-studies Part A). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
+Updated 2026-10-18 (task/6.4-studies Parts A and B). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
 task (CLAUDE.md).
 
 ## Current branch
@@ -14,9 +14,15 @@ task (CLAUDE.md).
   8 cores, efficiency >= 0.5 only up to 4 ranks, `--bind-to core` not clearly better, Open MPI's
   default kept; the Solvers node shows the recommended cores min(physical, cells / 50,000, 4).
 
-Next on this branch: Part B (freestream far field), Part C (6.4 mesh study with the GCI), Part D
-(6.5 polar sweep), Part E (docs). Open: docs/QUESTIONS.md items 67 (an offscreen worker crash),
-69 (the core cap), 70 (ship suite time).
+- Part B (freestream far field) STOPPED at the validation step, not applied (docs/QUESTIONS.md
+  item 71, docs/notes/freestream_far_field.md and .patch): at alpha 10 deg the freestream far field
+  raises Cl of the flattened ellipsoid from 0.041 to about 0.068 but the run oscillates; the flat
+  plate validation could not reach its verdict (medium Case B grid stalled, coarse Cf -0.60 %). The
+  app keeps the slip far field of D-022.
+
+Next on this branch: Part C (6.4 mesh study with the GCI), Part D (6.5 polar sweep), Part E (docs).
+Open: docs/QUESTIONS.md items 67 (an offscreen worker crash), 69 (the core cap), 70 (ship suite
+time), 71 (freestream far field).
 
 ## Phases
 

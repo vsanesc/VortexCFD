@@ -1,0 +1,3518 @@
+diff --git a/ARCHITECTURE.md b/ARCHITECTURE.md
+index 363b9f4..7ddb3c3 100644
+--- a/ARCHITECTURE.md
++++ b/ARCHITECTURE.md
+@@ -45,7 +45,7 @@ src/vortexcfd/
+   - `foam/case_writer.py`: orchestrates writing complete OpenFOAM case directory trees from file dictionaries.
+   - `foam/reference_cases/`: generators for standard reference cases (e.g. cavity).
+   - `foam/mesh_case.py`: meshing dictionaries (blockMeshDict, surfaceFeatureExtractDict, snappyHexMeshDict, controlDict, fvSchemes/fvSolution) from plain data, `locationInMesh`, and the marker-protected case directory.
+-  - `foam/physics_case.py`: solver case files (controlDict with forceCoeffs and yPlus, fvSchemes, fvSolution, transport/turbulence properties, 0/ fields) from the physics, inflow and solver settings, and the inlet k/omega formulas.
++  - `foam/physics_case.py`: solver case files (controlDict with forceCoeffs and yPlus, fvSchemes, fvSolution, transport/turbulence properties, 0/ fields with the freestream far field, D-065) from the physics, inflow and solver settings, and the inlet k/omega formulas.
+   - `foam/yplus.py`: first-layer thickness for a target y+ from the flat-plate skin friction, and its inverse.
+   - `foam/mesh_run.py`: `MeshRun` runs blockMesh, surfaceFeatureExtract, snappyHexMesh -overwrite and checkMesh in sequence on a worker thread through `FoamRun`.
+   - `foam/mesh_report.py`: `parse_check_mesh` turns checkMesh output into a `MeshReport`; `parse_layer_table` reads snappyHexMesh's final layer table (per-patch `LayerCoverage`, overall extruded-face share).
+diff --git a/src/vortexcfd/foam/physics_case.py b/src/vortexcfd/foam/physics_case.py
+index 17fcba3..8be3c6d 100644
+--- a/src/vortexcfd/foam/physics_case.py
++++ b/src/vortexcfd/foam/physics_case.py
+@@ -33,8 +33,11 @@ from vortexcfd.foam.parallel import DECOMPOSE_DICT, decompose_par_dict
+ 
+ Bounds = tuple[float, float, float, float, float, float]  # xmin, xmax, ymin, ymax, zmin, zmax
+ 
+-# Far-field patches (as the motorBike tutorial's upperWall / frontAndBack): slip for the flow
+-# fields; nut stays "calculated" there, like the tutorial.
++# Far-field patches: freestream conditions, as the airFoil2D tutorial's far field (D-065): U
++# freestreamVelocity and p freestreamPressure with the free-stream values, which blend between a
++# fixed value where the flow enters and zero gradient where it leaves (by the sign of U . n), so an
++# angled free stream crosses them instead of being turned parallel to them (slip did that, D-022);
++# k and omega inletOutlet with the inlet values; nut calculated.
+ FAR_FIELD = ("sides", "top", "bottom")
+ 
+ 
+@@ -165,9 +168,9 @@ def _forces(inp: SolverCaseInput, patches: tuple[str, ...] | None = None) -> dic
+     }
+ 
+ 
+-# Open boundaries whose flux is summed for the mass balance; the far-field patches are slip and
+-# the symmetry plane is symmetryPlane, so their flux is zero by construction (D-060).
+-MASS_FLOW_PATCHES = ("inlet", "outlet")
++# Open boundaries whose flux is summed for the mass balance: the inlet, the outlet and the freestream
++# far field (D-065); the symmetry plane is symmetryPlane, so its flux is zero by construction (D-060).
++MASS_FLOW_PATCHES = ("inlet", "outlet", *FAR_FIELD)
+ 
+ 
+ def mass_flow_name(patch: str) -> str:
+@@ -351,7 +354,9 @@ def initial_fields(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
+ 
+     inlet: U fixedValue V (cos a, 0, sin a); p zeroGradient; k, omega fixedValue; nut calculated.
+     outlet: p fixedValue 0; U, k, omega inletOutlet; nut calculated.
+-    sides/top/bottom: slip (nut calculated); symmetry: symmetryPlane.
++    sides/top/bottom (D-065): U freestreamVelocity (freestreamValue = the inlet velocity); p
++    freestreamPressure (freestreamValue 0, the outlet's reference); k, omega inletOutlet with the
++    inlet values; nut calculated. symmetry: symmetryPlane.
+     part walls: U noSlip; p zeroGradient; k kqRWallFunction; omega omegaWallFunction;
+     nut nutUSpaldingWallFunction.
+     """
+@@ -359,29 +364,32 @@ def initial_fields(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
+     velocity = [inp.inflow.speed * c for c in d]
+     k, omega = inlet_turbulence(inp.inflow.speed, inp.inflow.turbulence_intensity, inp.physics.nu,
+                                 inp.inflow.viscosity_ratio)
+-    slip = {"type": "slip"}
++    # freestreamVelocity / freestreamPressure (v2606, src/finiteVolume/fields/fvPatchFields/derived):
++    # mixed conditions with valueFraction 0.5 -/+ 0.5 (U . n) / |U| (U: fixed value on inflow, p: fixed
++    # value on outflow); "freestreamValue" is required, "value" defaults to it.
+     u = _field(
+         inp, "volVectorField", [0, 1, -1, 0, 0, 0, 0], velocity,
+         inlet={"type": "fixedValue", "value": velocity},
+         outlet={"type": "inletOutlet", "inletValue": [0.0, 0.0, 0.0], "value": velocity},
+-        far=slip, wall={"type": "noSlip"},
++        far={"type": "freestreamVelocity", "freestreamValue": velocity}, wall={"type": "noSlip"},
+     )
+     p = _field(
+         inp, "volScalarField", [0, 2, -2, 0, 0, 0, 0], 0.0,
+         inlet={"type": "zeroGradient"}, outlet={"type": "fixedValue", "value": 0.0},
+-        far=slip, wall={"type": "zeroGradient"},
++        far={"type": "freestreamPressure", "freestreamValue": 0.0}, wall={"type": "zeroGradient"},
+     )
+     kf = _field(
+         inp, "volScalarField", [0, 2, -2, 0, 0, 0, 0], k,
+         inlet={"type": "fixedValue", "value": k},
+         outlet={"type": "inletOutlet", "inletValue": k, "value": k},
+-        far=slip, wall={"type": "kqRWallFunction", "value": k},
++        far={"type": "inletOutlet", "inletValue": k, "value": k}, wall={"type": "kqRWallFunction", "value": k},
+     )
+     of = _field(
+         inp, "volScalarField", [0, 0, -1, 0, 0, 0, 0], omega,
+         inlet={"type": "fixedValue", "value": omega},
+         outlet={"type": "inletOutlet", "inletValue": omega, "value": omega},
+-        far=slip, wall={"type": "omegaWallFunction", "value": omega},
++        far={"type": "inletOutlet", "inletValue": omega, "value": omega},
++        wall={"type": "omegaWallFunction", "value": omega},
+     )
+     calc = {"type": "calculated", "value": 0.0}
+     nut = _field(
+diff --git a/src/vortexcfd/foam/postprocessing.py b/src/vortexcfd/foam/postprocessing.py
+index f924387..785b99f 100644
+--- a/src/vortexcfd/foam/postprocessing.py
++++ b/src/vortexcfd/foam/postprocessing.py
+@@ -419,16 +419,29 @@ class ReportMonitor:
+                 out.append((sample.time, value))
+         return out
+ 
++    def _far_field(self) -> dict[float, float]:
++        """sum(phi) over the far-field patches (massFlow_sides / _top / _bottom, D-065) per iteration;
++        only iterations every far-field file has. Empty when the run wrote none (older runs with a
++        slip far field, whose flux is zero)."""
++        names = [n for n in self._mass if n not in ("inlet", "outlet")]
++        if not names:
++            return {}
++        series = [_last_per_time(self._mass[n].values) for n in names]
++        common = set(series[0]).intersection(*series[1:])
++        return {t: sum(s[t] for s in series) for t in common}
++
+     def mass_series(self) -> list[tuple[float, float]]:
+-        """Mass imbalance (% of the inlet flux) per iteration, from massFlow_inlet / _outlet."""
++        """Mass imbalance (% of the inlet flux) per iteration, from massFlow_inlet / _outlet and the
++        far-field patches when they were written."""
+         if "inlet" not in self._mass or "outlet" not in self._mass:
+             return []
+         inlet = _last_per_time(self._mass["inlet"].values)
+         outlet = _last_per_time(self._mass["outlet"].values)
++        far = self._far_field()
+         out = []
+         for t in inlet:
+-            if t in outlet:
+-                value = mass_imbalance(inlet[t], outlet[t])
++            if t in outlet and (not far or t in far):
++                value = mass_imbalance(inlet[t], outlet[t], far.get(t, 0.0))
+                 if value is not None:
+                     out.append((t, value))
+         return out
+@@ -476,14 +489,19 @@ class ReportMonitor:
+             rows.append(breakdown("All walls" if key is None else key, samples[-1], axes, rho))
+         return rows
+ 
+-    def mass_balance(self) -> tuple[float, float, float | None] | None:
+-        """(inlet flux, outlet flux, imbalance %) at the latest iteration (None: not written)."""
++    def mass_balance(self) -> tuple[float, float, float | None, float | None] | None:
++        """(inlet flux, outlet flux, imbalance %, far-field flux or None when not written) at the latest
++        iteration (None: not written)."""
+         if "inlet" not in self._mass or "outlet" not in self._mass:
+             return None
+         inlet = _last_per_time(self._mass["inlet"].values)
+         outlet = _last_per_time(self._mass["outlet"].values)
+-        common = sorted(set(inlet) & set(outlet))
++        far = self._far_field()
++        common = set(inlet) & set(outlet)
++        if far:
++            common &= set(far)
+         if not common:
+             return None
+-        t = common[-1]
+-        return inlet[t], outlet[t], mass_imbalance(inlet[t], outlet[t])
++        t = max(common)
++        far_t = far.get(t) if far else None
++        return inlet[t], outlet[t], mass_imbalance(inlet[t], outlet[t], far_t or 0.0), far_t
+diff --git a/src/vortexcfd/gui/properties_panel.py b/src/vortexcfd/gui/properties_panel.py
+index 143c70b..be53705 100644
+--- a/src/vortexcfd/gui/properties_panel.py
++++ b/src/vortexcfd/gui/properties_panel.py
+@@ -542,6 +542,7 @@ class PropertiesPanel(QWidget):
+         self._section("rep_mass", "Mass balance")
+         self.mass_inlet = self._ro_row("rep_mass_inlet", "Inlet flux sum(phi)")
+         self.mass_outlet = self._ro_row("rep_mass_outlet", "Outlet flux sum(phi)")
++        self.mass_far = self._ro_row("rep_mass_far", "Far-field flux sum(phi)")
+         self.mass_imbalance = self._ro_row("rep_mass_imbalance", "Imbalance")
+         self._section("rep_yplus", "y+ on the walls")
+         self.yplus_chart = YPlusHistogramChart()
+@@ -1359,6 +1360,7 @@ class PropertiesPanel(QWidget):
+         self._forces_host.setVisible(show and bool(rows))
+         for key in ("rep_mass_inlet", "rep_mass_outlet", "rep_mass_imbalance"):
+             self._rows[key].setVisible(show and balance is not None)
++        self._rows["rep_mass_far"].setVisible(show and balance is not None and balance[3] is not None)
+         self._yplus_host.setVisible(show and has_any)
+         self._rows["rep_yplus_faces"].setVisible(show and yplus is not None)
+         self.reports_empty.setVisible(show and not has_any)
+@@ -1366,9 +1368,11 @@ class PropertiesPanel(QWidget):
+             return
+         self.forces_table.set_rows(rows)
+         if balance is not None:
+-            inlet, outlet, pct = balance
++            inlet, outlet, pct, far = balance
+             self.mass_inlet.setText(f"{inlet:.6g} m\u00b3/s")
+             self.mass_outlet.setText(f"{outlet:.6g} m\u00b3/s")
++            if far is not None:
++                self.mass_far.setText(f"{far:.6g} m\u00b3/s")
+             if pct is None:
+                 self.mass_imbalance.setText("\u2014 (no inflow)")
+                 self._set_warn(self.mass_imbalance, False)
+diff --git a/tests/data/README.md b/tests/data/README.md
+index 8852b64..ea2d864 100644
+--- a/tests/data/README.md
++++ b/tests/data/README.md
+@@ -64,3 +64,6 @@ Real output (ESI OpenFOAM v2606) of the slow test `test_asymptotic_cd_criterion_
+ ## `parallel/log.decomposePar`
+ Real `decomposePar -force` log (ESI OpenFOAM v2606) of the shared coarse sphere mesh (192220 cells) with the app's solver files and `system/decomposeParDict` (numberOfSubdomains 4, method scotch), written while checking the clean stop in parallel (D-063): cells per processor 47575, 47582, 48530 and 48533, 6396 processor faces in total, "Max number of cells = 48533 (0.994694% above average 48055)". Only the Host, PID and Case lines were sanitized.
+ 
++
++## `freestream_run/` (`massFlow_<patch>.dat`, `summary.json`)
++Real output (ESI OpenFOAM v2606) of tests/test_far_field.py::test_slip_against_freestream_far_field_at_ten_degrees (marker `long`, D-065): the flattened ellipsoid `pv.ParametricEllipsoid(0.5, 0.5, 0.15, u_res=48, v_res=24, w_res=24).triangulate().clean()` (part `Body`) meshed with the default `Domain()` and `Mesh()` (192458 cells), `simpleFoam` with the app's solver files at 20 m/s and alpha 10 deg on 4 cores, criteria Cd and Cl asymptotic (window 50, tolerance 0.01), limit 600 iterations, with the freestream far field. `massFlow_<patch>.dat` are the unchanged `postProcessing/massFlow_<patch>/0/surfaceFieldValue.dat` files of that run (inlet, outlet, sides, top, bottom; sum(phi) per iteration, no paths in their headers). `summary.json` is written by the same test: Cl, Cd (last iteration and the mean / range over the last 50), mass balance, iterations and end state of the slip and the freestream runs.
+diff --git a/tests/data/freestream_run/massFlow_bottom.dat b/tests/data/freestream_run/massFlow_bottom.dat
+new file mode 100644
+index 0000000..2ca8c39
+--- /dev/null
++++ b/tests/data/freestream_run/massFlow_bottom.dat
+@@ -0,0 +1,605 @@
++# Region type : patch bottom
++# Faces       : 2562
++# Area        : 1.749787e+02
++# Scale factor: 1.000000e+00
++# Time        	sum(phi)
++1             	-6.074686e+02
++2             	-6.072588e+02
++3             	-6.070738e+02
++4             	-6.069243e+02
++5             	-6.068242e+02
++6             	-6.067692e+02
++7             	-6.067418e+02
++8             	-6.067417e+02
++9             	-6.067592e+02
++10            	-6.067867e+02
++11            	-6.068178e+02
++12            	-6.068489e+02
++13            	-6.068769e+02
++14            	-6.068996e+02
++15            	-6.069156e+02
++16            	-6.069243e+02
++17            	-6.069260e+02
++18            	-6.069219e+02
++19            	-6.069147e+02
++20            	-6.069048e+02
++21            	-6.068949e+02
++22            	-6.068843e+02
++23            	-6.068757e+02
++24            	-6.068698e+02
++25            	-6.068671e+02
++26            	-6.068678e+02
++27            	-6.068725e+02
++28            	-6.068795e+02
++29            	-6.068896e+02
++30            	-6.069021e+02
++31            	-6.069166e+02
++32            	-6.069317e+02
++33            	-6.069476e+02
++34            	-6.069640e+02
++35            	-6.069807e+02
++36            	-6.069973e+02
++37            	-6.070137e+02
++38            	-6.070294e+02
++39            	-6.070442e+02
++40            	-6.070574e+02
++41            	-6.070686e+02
++42            	-6.070777e+02
++43            	-6.070842e+02
++44            	-6.070882e+02
++45            	-6.070893e+02
++46            	-6.070876e+02
++47            	-6.070833e+02
++48            	-6.070772e+02
++49            	-6.070699e+02
++50            	-6.070620e+02
++51            	-6.070543e+02
++52            	-6.070475e+02
++53            	-6.070420e+02
++54            	-6.070379e+02
++55            	-6.070352e+02
++56            	-6.070336e+02
++57            	-6.070333e+02
++58            	-6.070340e+02
++59            	-6.070355e+02
++60            	-6.070380e+02
++61            	-6.070414e+02
++62            	-6.070454e+02
++63            	-6.070502e+02
++64            	-6.070552e+02
++65            	-6.070604e+02
++66            	-6.070659e+02
++67            	-6.070716e+02
++68            	-6.070772e+02
++69            	-6.070829e+02
++70            	-6.070883e+02
++71            	-6.070934e+02
++72            	-6.070982e+02
++73            	-6.071026e+02
++74            	-6.071065e+02
++75            	-6.071099e+02
++76            	-6.071130e+02
++77            	-6.071158e+02
++78            	-6.071185e+02
++79            	-6.071210e+02
++80            	-6.071235e+02
++81            	-6.071260e+02
++82            	-6.071287e+02
++83            	-6.071316e+02
++84            	-6.071346e+02
++85            	-6.071380e+02
++86            	-6.071416e+02
++87            	-6.071456e+02
++88            	-6.071498e+02
++89            	-6.071542e+02
++90            	-6.071585e+02
++91            	-6.071626e+02
++92            	-6.071664e+02
++93            	-6.071696e+02
++94            	-6.071720e+02
++95            	-6.071732e+02
++96            	-6.071731e+02
++97            	-6.071710e+02
++98            	-6.071669e+02
++99            	-6.071605e+02
++100           	-6.071517e+02
++101           	-6.071407e+02
++102           	-6.071287e+02
++103           	-6.071161e+02
++104           	-6.071036e+02
++105           	-6.070919e+02
++106           	-6.070821e+02
++107           	-6.070743e+02
++108           	-6.070691e+02
++109           	-6.070667e+02
++110           	-6.070669e+02
++111           	-6.070697e+02
++112           	-6.070745e+02
++113           	-6.070813e+02
++114           	-6.070890e+02
++115           	-6.070971e+02
++116           	-6.071052e+02
++117           	-6.071126e+02
++118           	-6.071196e+02
++119           	-6.071260e+02
++120           	-6.071318e+02
++121           	-6.071373e+02
++122           	-6.071425e+02
++123           	-6.071477e+02
++124           	-6.071527e+02
++125           	-6.071577e+02
++126           	-6.071623e+02
++127           	-6.071665e+02
++128           	-6.071702e+02
++129           	-6.071732e+02
++130           	-6.071755e+02
++131           	-6.071768e+02
++132           	-6.071774e+02
++133           	-6.071771e+02
++134           	-6.071761e+02
++135           	-6.071746e+02
++136           	-6.071728e+02
++137           	-6.071708e+02
++138           	-6.071689e+02
++139           	-6.071674e+02
++140           	-6.071667e+02
++141           	-6.071672e+02
++142           	-6.071691e+02
++143           	-6.071725e+02
++144           	-6.071774e+02
++145           	-6.071834e+02
++146           	-6.071905e+02
++147           	-6.071978e+02
++148           	-6.072054e+02
++149           	-6.072131e+02
++150           	-6.072208e+02
++151           	-6.072281e+02
++152           	-6.072347e+02
++153           	-6.072405e+02
++154           	-6.072452e+02
++155           	-6.072488e+02
++156           	-6.072509e+02
++157           	-6.072516e+02
++158           	-6.072508e+02
++159           	-6.072488e+02
++160           	-6.072460e+02
++161           	-6.072425e+02
++162           	-6.072386e+02
++163           	-6.072344e+02
++164           	-6.072300e+02
++165           	-6.072254e+02
++166           	-6.072207e+02
++167           	-6.072157e+02
++168           	-6.072108e+02
++169           	-6.072065e+02
++170           	-6.072035e+02
++171           	-6.072024e+02
++172           	-6.072033e+02
++173           	-6.072062e+02
++174           	-6.072111e+02
++175           	-6.072173e+02
++176           	-6.072245e+02
++177           	-6.072323e+02
++178           	-6.072404e+02
++179           	-6.072483e+02
++180           	-6.072560e+02
++181           	-6.072632e+02
++182           	-6.072696e+02
++183           	-6.072749e+02
++184           	-6.072792e+02
++185           	-6.072823e+02
++186           	-6.072842e+02
++187           	-6.072850e+02
++188           	-6.072849e+02
++189           	-6.072842e+02
++190           	-6.072830e+02
++191           	-6.072814e+02
++192           	-6.072795e+02
++193           	-6.072774e+02
++194           	-6.072751e+02
++195           	-6.072725e+02
++196           	-6.072698e+02
++197           	-6.072671e+02
++198           	-6.072642e+02
++199           	-6.072615e+02
++200           	-6.072592e+02
++201           	-6.072579e+02
++202           	-6.072578e+02
++203           	-6.072589e+02
++204           	-6.072615e+02
++205           	-6.072651e+02
++206           	-6.072695e+02
++207           	-6.072742e+02
++208           	-6.072791e+02
++209           	-6.072836e+02
++210           	-6.072877e+02
++211           	-6.072913e+02
++212           	-6.072942e+02
++213           	-6.072964e+02
++214           	-6.072980e+02
++215           	-6.072989e+02
++216           	-6.072995e+02
++217           	-6.072997e+02
++218           	-6.072997e+02
++219           	-6.072997e+02
++220           	-6.072998e+02
++221           	-6.073001e+02
++222           	-6.073007e+02
++223           	-6.073016e+02
++224           	-6.073027e+02
++225           	-6.073041e+02
++226           	-6.073056e+02
++227           	-6.073070e+02
++228           	-6.073082e+02
++229           	-6.073091e+02
++230           	-6.073096e+02
++231           	-6.073096e+02
++232           	-6.073091e+02
++233           	-6.073080e+02
++234           	-6.073065e+02
++235           	-6.073047e+02
++236           	-6.073027e+02
++237           	-6.073006e+02
++238           	-6.072986e+02
++239           	-6.072968e+02
++240           	-6.072953e+02
++241           	-6.072942e+02
++242           	-6.072936e+02
++243           	-6.072935e+02
++244           	-6.072940e+02
++245           	-6.072949e+02
++246           	-6.072962e+02
++247           	-6.072979e+02
++248           	-6.072999e+02
++249           	-6.073021e+02
++250           	-6.073043e+02
++251           	-6.073064e+02
++252           	-6.073081e+02
++253           	-6.073090e+02
++254           	-6.073089e+02
++255           	-6.073073e+02
++256           	-6.073041e+02
++257           	-6.072989e+02
++258           	-6.072916e+02
++259           	-6.072823e+02
++260           	-6.072715e+02
++261           	-6.072599e+02
++262           	-6.072485e+02
++263           	-6.072375e+02
++264           	-6.072277e+02
++265           	-6.072191e+02
++266           	-6.072126e+02
++267           	-6.072085e+02
++268           	-6.072071e+02
++269           	-6.072081e+02
++270           	-6.072114e+02
++271           	-6.072168e+02
++272           	-6.072237e+02
++273           	-6.072318e+02
++274           	-6.072406e+02
++275           	-6.072497e+02
++276           	-6.072586e+02
++277           	-6.072667e+02
++278           	-6.072742e+02
++279           	-6.072806e+02
++280           	-6.072860e+02
++281           	-6.072905e+02
++282           	-6.072939e+02
++283           	-6.072965e+02
++284           	-6.072982e+02
++285           	-6.072992e+02
++286           	-6.072991e+02
++287           	-6.072983e+02
++288           	-6.072966e+02
++289           	-6.072940e+02
++290           	-6.072902e+02
++291           	-6.072854e+02
++292           	-6.072793e+02
++293           	-6.072718e+02
++294           	-6.072630e+02
++295           	-6.072532e+02
++296           	-6.072431e+02
++297           	-6.072330e+02
++298           	-6.072235e+02
++299           	-6.072147e+02
++300           	-6.072072e+02
++301           	-6.072017e+02
++302           	-6.071983e+02
++303           	-6.071970e+02
++304           	-6.071974e+02
++305           	-6.071988e+02
++306           	-6.072007e+02
++307           	-6.072025e+02
++308           	-6.072039e+02
++309           	-6.072046e+02
++310           	-6.072049e+02
++311           	-6.072051e+02
++312           	-6.072053e+02
++313           	-6.072059e+02
++314           	-6.072071e+02
++315           	-6.072090e+02
++316           	-6.072116e+02
++317           	-6.072150e+02
++318           	-6.072188e+02
++319           	-6.072228e+02
++320           	-6.072272e+02
++321           	-6.072315e+02
++322           	-6.072359e+02
++323           	-6.072402e+02
++324           	-6.072444e+02
++325           	-6.072486e+02
++326           	-6.072529e+02
++327           	-6.072572e+02
++328           	-6.072618e+02
++329           	-6.072665e+02
++330           	-6.072713e+02
++331           	-6.072761e+02
++332           	-6.072807e+02
++333           	-6.072848e+02
++334           	-6.072882e+02
++335           	-6.072905e+02
++336           	-6.072915e+02
++337           	-6.072910e+02
++338           	-6.072890e+02
++339           	-6.072855e+02
++340           	-6.072806e+02
++341           	-6.072742e+02
++342           	-6.072656e+02
++343           	-6.072553e+02
++344           	-6.072428e+02
++345           	-6.072286e+02
++346           	-6.072142e+02
++347           	-6.071997e+02
++348           	-6.071864e+02
++349           	-6.071745e+02
++350           	-6.071652e+02
++351           	-6.071592e+02
++352           	-6.071571e+02
++353           	-6.071588e+02
++354           	-6.071642e+02
++355           	-6.071726e+02
++356           	-6.071832e+02
++357           	-6.071951e+02
++358           	-6.072075e+02
++359           	-6.072196e+02
++360           	-6.072307e+02
++361           	-6.072405e+02
++362           	-6.072488e+02
++363           	-6.072553e+02
++364           	-6.072601e+02
++365           	-6.072633e+02
++366           	-6.072651e+02
++367           	-6.072657e+02
++368           	-6.072655e+02
++369           	-6.072649e+02
++370           	-6.072639e+02
++371           	-6.072627e+02
++372           	-6.072616e+02
++373           	-6.072605e+02
++374           	-6.072595e+02
++375           	-6.072583e+02
++376           	-6.072572e+02
++377           	-6.072561e+02
++378           	-6.072552e+02
++379           	-6.072546e+02
++380           	-6.072547e+02
++381           	-6.072556e+02
++382           	-6.072572e+02
++383           	-6.072596e+02
++384           	-6.072624e+02
++385           	-6.072659e+02
++386           	-6.072695e+02
++387           	-6.072732e+02
++388           	-6.072768e+02
++389           	-6.072801e+02
++390           	-6.072832e+02
++391           	-6.072859e+02
++392           	-6.072881e+02
++393           	-6.072897e+02
++394           	-6.072907e+02
++395           	-6.072910e+02
++396           	-6.072905e+02
++397           	-6.072893e+02
++398           	-6.072875e+02
++399           	-6.072853e+02
++400           	-6.072827e+02
++401           	-6.072798e+02
++402           	-6.072770e+02
++403           	-6.072741e+02
++404           	-6.072711e+02
++405           	-6.072681e+02
++406           	-6.072651e+02
++407           	-6.072619e+02
++408           	-6.072589e+02
++409           	-6.072562e+02
++410           	-6.072538e+02
++411           	-6.072521e+02
++412           	-6.072511e+02
++413           	-6.072511e+02
++414           	-6.072519e+02
++415           	-6.072537e+02
++416           	-6.072562e+02
++417           	-6.072593e+02
++418           	-6.072627e+02
++419           	-6.072663e+02
++420           	-6.072696e+02
++421           	-6.072727e+02
++422           	-6.072754e+02
++423           	-6.072777e+02
++424           	-6.072795e+02
++425           	-6.072810e+02
++426           	-6.072821e+02
++427           	-6.072831e+02
++428           	-6.072840e+02
++429           	-6.072849e+02
++430           	-6.072858e+02
++431           	-6.072867e+02
++432           	-6.072877e+02
++433           	-6.072885e+02
++434           	-6.072894e+02
++435           	-6.072901e+02
++436           	-6.072908e+02
++437           	-6.072915e+02
++438           	-6.072920e+02
++439           	-6.072924e+02
++440           	-6.072927e+02
++441           	-6.072928e+02
++442           	-6.072927e+02
++443           	-6.072921e+02
++444           	-6.072912e+02
++445           	-6.072897e+02
++446           	-6.072874e+02
++447           	-6.072845e+02
++448           	-6.072809e+02
++449           	-6.072766e+02
++450           	-6.072717e+02
++451           	-6.072664e+02
++452           	-6.072612e+02
++453           	-6.072563e+02
++454           	-6.072520e+02
++455           	-6.072485e+02
++456           	-6.072463e+02
++457           	-6.072455e+02
++458           	-6.072464e+02
++459           	-6.072488e+02
++460           	-6.072522e+02
++461           	-6.072562e+02
++462           	-6.072604e+02
++463           	-6.072645e+02
++464           	-6.072684e+02
++465           	-6.072716e+02
++466           	-6.072742e+02
++467           	-6.072761e+02
++468           	-6.072773e+02
++469           	-6.072781e+02
++470           	-6.072786e+02
++471           	-6.072787e+02
++472           	-6.072788e+02
++473           	-6.072788e+02
++474           	-6.072790e+02
++475           	-6.072792e+02
++476           	-6.072797e+02
++477           	-6.072804e+02
++478           	-6.072814e+02
++479           	-6.072826e+02
++480           	-6.072842e+02
++481           	-6.072862e+02
++482           	-6.072885e+02
++483           	-6.072912e+02
++484           	-6.072942e+02
++485           	-6.072973e+02
++486           	-6.073005e+02
++487           	-6.073036e+02
++488           	-6.073063e+02
++489           	-6.073083e+02
++490           	-6.073092e+02
++491           	-6.073086e+02
++492           	-6.073067e+02
++493           	-6.073031e+02
++494           	-6.072977e+02
++495           	-6.072906e+02
++496           	-6.072820e+02
++497           	-6.072721e+02
++498           	-6.072614e+02
++499           	-6.072504e+02
++500           	-6.072397e+02
++501           	-6.072295e+02
++502           	-6.072200e+02
++503           	-6.072110e+02
++504           	-6.072031e+02
++505           	-6.071967e+02
++506           	-6.071924e+02
++507           	-6.071904e+02
++508           	-6.071909e+02
++509           	-6.071936e+02
++510           	-6.071988e+02
++511           	-6.072055e+02
++512           	-6.072134e+02
++513           	-6.072223e+02
++514           	-6.072314e+02
++515           	-6.072406e+02
++516           	-6.072493e+02
++517           	-6.072574e+02
++518           	-6.072648e+02
++519           	-6.072714e+02
++520           	-6.072771e+02
++521           	-6.072820e+02
++522           	-6.072862e+02
++523           	-6.072896e+02
++524           	-6.072925e+02
++525           	-6.072948e+02
++526           	-6.072962e+02
++527           	-6.072965e+02
++528           	-6.072955e+02
++529           	-6.072928e+02
++530           	-6.072882e+02
++531           	-6.072823e+02
++532           	-6.072759e+02
++533           	-6.072692e+02
++534           	-6.072627e+02
++535           	-6.072569e+02
++536           	-6.072522e+02
++537           	-6.072487e+02
++538           	-6.072464e+02
++539           	-6.072457e+02
++540           	-6.072466e+02
++541           	-6.072491e+02
++542           	-6.072530e+02
++543           	-6.072576e+02
++544           	-6.072626e+02
++545           	-6.072676e+02
++546           	-6.072724e+02
++547           	-6.072768e+02
++548           	-6.072807e+02
++549           	-6.072839e+02
++550           	-6.072864e+02
++551           	-6.072883e+02
++552           	-6.072897e+02
++553           	-6.072907e+02
++554           	-6.072912e+02
++555           	-6.072913e+02
++556           	-6.072909e+02
++557           	-6.072900e+02
++558           	-6.072888e+02
++559           	-6.072873e+02
++560           	-6.072856e+02
++561           	-6.072838e+02
++562           	-6.072820e+02
++563           	-6.072804e+02
++564           	-6.072791e+02
++565           	-6.072781e+02
++566           	-6.072773e+02
++567           	-6.072769e+02
++568           	-6.072767e+02
++569           	-6.072767e+02
++570           	-6.072768e+02
++571           	-6.072769e+02
++572           	-6.072770e+02
++573           	-6.072770e+02
++574           	-6.072768e+02
++575           	-6.072764e+02
++576           	-6.072759e+02
++577           	-6.072753e+02
++578           	-6.072747e+02
++579           	-6.072742e+02
++580           	-6.072739e+02
++581           	-6.072738e+02
++582           	-6.072740e+02
++583           	-6.072743e+02
++584           	-6.072748e+02
++585           	-6.072752e+02
++586           	-6.072757e+02
++587           	-6.072760e+02
++588           	-6.072762e+02
++589           	-6.072762e+02
++590           	-6.072762e+02
++591           	-6.072761e+02
++592           	-6.072761e+02
++593           	-6.072763e+02
++594           	-6.072770e+02
++595           	-6.072781e+02
++596           	-6.072797e+02
++597           	-6.072817e+02
++598           	-6.072841e+02
++599           	-6.072867e+02
++600           	-6.072892e+02
+diff --git a/tests/data/freestream_run/massFlow_inlet.dat b/tests/data/freestream_run/massFlow_inlet.dat
+new file mode 100644
+index 0000000..d655287
+--- /dev/null
++++ b/tests/data/freestream_run/massFlow_inlet.dat
+@@ -0,0 +1,605 @@
++# Region type : patch inlet
++# Faces       : 1638
++# Area        : 1.126559e+02
++# Scale factor: 1.000000e+00
++# Time        	sum(phi)
++1             	-2.218894e+03
++2             	-2.218894e+03
++3             	-2.218894e+03
++4             	-2.218894e+03
++5             	-2.218894e+03
++6             	-2.218894e+03
++7             	-2.218894e+03
++8             	-2.218894e+03
++9             	-2.218894e+03
++10            	-2.218894e+03
++11            	-2.218894e+03
++12            	-2.218894e+03
++13            	-2.218894e+03
++14            	-2.218894e+03
++15            	-2.218894e+03
++16            	-2.218894e+03
++17            	-2.218894e+03
++18            	-2.218894e+03
++19            	-2.218894e+03
++20            	-2.218894e+03
++21            	-2.218894e+03
++22            	-2.218894e+03
++23            	-2.218894e+03
++24            	-2.218894e+03
++25            	-2.218894e+03
++26            	-2.218894e+03
++27            	-2.218894e+03
++28            	-2.218894e+03
++29            	-2.218894e+03
++30            	-2.218894e+03
++31            	-2.218894e+03
++32            	-2.218894e+03
++33            	-2.218894e+03
++34            	-2.218894e+03
++35            	-2.218894e+03
++36            	-2.218894e+03
++37            	-2.218894e+03
++38            	-2.218894e+03
++39            	-2.218894e+03
++40            	-2.218894e+03
++41            	-2.218894e+03
++42            	-2.218894e+03
++43            	-2.218894e+03
++44            	-2.218894e+03
++45            	-2.218894e+03
++46            	-2.218894e+03
++47            	-2.218894e+03
++48            	-2.218894e+03
++49            	-2.218894e+03
++50            	-2.218894e+03
++51            	-2.218894e+03
++52            	-2.218894e+03
++53            	-2.218894e+03
++54            	-2.218894e+03
++55            	-2.218894e+03
++56            	-2.218894e+03
++57            	-2.218894e+03
++58            	-2.218894e+03
++59            	-2.218894e+03
++60            	-2.218894e+03
++61            	-2.218894e+03
++62            	-2.218894e+03
++63            	-2.218894e+03
++64            	-2.218894e+03
++65            	-2.218894e+03
++66            	-2.218894e+03
++67            	-2.218894e+03
++68            	-2.218894e+03
++69            	-2.218894e+03
++70            	-2.218894e+03
++71            	-2.218894e+03
++72            	-2.218894e+03
++73            	-2.218894e+03
++74            	-2.218894e+03
++75            	-2.218894e+03
++76            	-2.218894e+03
++77            	-2.218894e+03
++78            	-2.218894e+03
++79            	-2.218894e+03
++80            	-2.218894e+03
++81            	-2.218894e+03
++82            	-2.218894e+03
++83            	-2.218894e+03
++84            	-2.218894e+03
++85            	-2.218894e+03
++86            	-2.218894e+03
++87            	-2.218894e+03
++88            	-2.218894e+03
++89            	-2.218894e+03
++90            	-2.218894e+03
++91            	-2.218894e+03
++92            	-2.218894e+03
++93            	-2.218894e+03
++94            	-2.218894e+03
++95            	-2.218894e+03
++96            	-2.218894e+03
++97            	-2.218894e+03
++98            	-2.218894e+03
++99            	-2.218894e+03
++100           	-2.218894e+03
++101           	-2.218894e+03
++102           	-2.218894e+03
++103           	-2.218894e+03
++104           	-2.218894e+03
++105           	-2.218894e+03
++106           	-2.218894e+03
++107           	-2.218894e+03
++108           	-2.218894e+03
++109           	-2.218894e+03
++110           	-2.218894e+03
++111           	-2.218894e+03
++112           	-2.218894e+03
++113           	-2.218894e+03
++114           	-2.218894e+03
++115           	-2.218894e+03
++116           	-2.218894e+03
++117           	-2.218894e+03
++118           	-2.218894e+03
++119           	-2.218894e+03
++120           	-2.218894e+03
++121           	-2.218894e+03
++122           	-2.218894e+03
++123           	-2.218894e+03
++124           	-2.218894e+03
++125           	-2.218894e+03
++126           	-2.218894e+03
++127           	-2.218894e+03
++128           	-2.218894e+03
++129           	-2.218894e+03
++130           	-2.218894e+03
++131           	-2.218894e+03
++132           	-2.218894e+03
++133           	-2.218894e+03
++134           	-2.218894e+03
++135           	-2.218894e+03
++136           	-2.218894e+03
++137           	-2.218894e+03
++138           	-2.218894e+03
++139           	-2.218894e+03
++140           	-2.218894e+03
++141           	-2.218894e+03
++142           	-2.218894e+03
++143           	-2.218894e+03
++144           	-2.218894e+03
++145           	-2.218894e+03
++146           	-2.218894e+03
++147           	-2.218894e+03
++148           	-2.218894e+03
++149           	-2.218894e+03
++150           	-2.218894e+03
++151           	-2.218894e+03
++152           	-2.218894e+03
++153           	-2.218894e+03
++154           	-2.218894e+03
++155           	-2.218894e+03
++156           	-2.218894e+03
++157           	-2.218894e+03
++158           	-2.218894e+03
++159           	-2.218894e+03
++160           	-2.218894e+03
++161           	-2.218894e+03
++162           	-2.218894e+03
++163           	-2.218894e+03
++164           	-2.218894e+03
++165           	-2.218894e+03
++166           	-2.218894e+03
++167           	-2.218894e+03
++168           	-2.218894e+03
++169           	-2.218894e+03
++170           	-2.218894e+03
++171           	-2.218894e+03
++172           	-2.218894e+03
++173           	-2.218894e+03
++174           	-2.218894e+03
++175           	-2.218894e+03
++176           	-2.218894e+03
++177           	-2.218894e+03
++178           	-2.218894e+03
++179           	-2.218894e+03
++180           	-2.218894e+03
++181           	-2.218894e+03
++182           	-2.218894e+03
++183           	-2.218894e+03
++184           	-2.218894e+03
++185           	-2.218894e+03
++186           	-2.218894e+03
++187           	-2.218894e+03
++188           	-2.218894e+03
++189           	-2.218894e+03
++190           	-2.218894e+03
++191           	-2.218894e+03
++192           	-2.218894e+03
++193           	-2.218894e+03
++194           	-2.218894e+03
++195           	-2.218894e+03
++196           	-2.218894e+03
++197           	-2.218894e+03
++198           	-2.218894e+03
++199           	-2.218894e+03
++200           	-2.218894e+03
++201           	-2.218894e+03
++202           	-2.218894e+03
++203           	-2.218894e+03
++204           	-2.218894e+03
++205           	-2.218894e+03
++206           	-2.218894e+03
++207           	-2.218894e+03
++208           	-2.218894e+03
++209           	-2.218894e+03
++210           	-2.218894e+03
++211           	-2.218894e+03
++212           	-2.218894e+03
++213           	-2.218894e+03
++214           	-2.218894e+03
++215           	-2.218894e+03
++216           	-2.218894e+03
++217           	-2.218894e+03
++218           	-2.218894e+03
++219           	-2.218894e+03
++220           	-2.218894e+03
++221           	-2.218894e+03
++222           	-2.218894e+03
++223           	-2.218894e+03
++224           	-2.218894e+03
++225           	-2.218894e+03
++226           	-2.218894e+03
++227           	-2.218894e+03
++228           	-2.218894e+03
++229           	-2.218894e+03
++230           	-2.218894e+03
++231           	-2.218894e+03
++232           	-2.218894e+03
++233           	-2.218894e+03
++234           	-2.218894e+03
++235           	-2.218894e+03
++236           	-2.218894e+03
++237           	-2.218894e+03
++238           	-2.218894e+03
++239           	-2.218894e+03
++240           	-2.218894e+03
++241           	-2.218894e+03
++242           	-2.218894e+03
++243           	-2.218894e+03
++244           	-2.218894e+03
++245           	-2.218894e+03
++246           	-2.218894e+03
++247           	-2.218894e+03
++248           	-2.218894e+03
++249           	-2.218894e+03
++250           	-2.218894e+03
++251           	-2.218894e+03
++252           	-2.218894e+03
++253           	-2.218894e+03
++254           	-2.218894e+03
++255           	-2.218894e+03
++256           	-2.218894e+03
++257           	-2.218894e+03
++258           	-2.218894e+03
++259           	-2.218894e+03
++260           	-2.218894e+03
++261           	-2.218894e+03
++262           	-2.218894e+03
++263           	-2.218894e+03
++264           	-2.218894e+03
++265           	-2.218894e+03
++266           	-2.218894e+03
++267           	-2.218894e+03
++268           	-2.218894e+03
++269           	-2.218894e+03
++270           	-2.218894e+03
++271           	-2.218894e+03
++272           	-2.218894e+03
++273           	-2.218894e+03
++274           	-2.218894e+03
++275           	-2.218894e+03
++276           	-2.218894e+03
++277           	-2.218894e+03
++278           	-2.218894e+03
++279           	-2.218894e+03
++280           	-2.218894e+03
++281           	-2.218894e+03
++282           	-2.218894e+03
++283           	-2.218894e+03
++284           	-2.218894e+03
++285           	-2.218894e+03
++286           	-2.218894e+03
++287           	-2.218894e+03
++288           	-2.218894e+03
++289           	-2.218894e+03
++290           	-2.218894e+03
++291           	-2.218894e+03
++292           	-2.218894e+03
++293           	-2.218894e+03
++294           	-2.218894e+03
++295           	-2.218894e+03
++296           	-2.218894e+03
++297           	-2.218894e+03
++298           	-2.218894e+03
++299           	-2.218894e+03
++300           	-2.218894e+03
++301           	-2.218894e+03
++302           	-2.218894e+03
++303           	-2.218894e+03
++304           	-2.218894e+03
++305           	-2.218894e+03
++306           	-2.218894e+03
++307           	-2.218894e+03
++308           	-2.218894e+03
++309           	-2.218894e+03
++310           	-2.218894e+03
++311           	-2.218894e+03
++312           	-2.218894e+03
++313           	-2.218894e+03
++314           	-2.218894e+03
++315           	-2.218894e+03
++316           	-2.218894e+03
++317           	-2.218894e+03
++318           	-2.218894e+03
++319           	-2.218894e+03
++320           	-2.218894e+03
++321           	-2.218894e+03
++322           	-2.218894e+03
++323           	-2.218894e+03
++324           	-2.218894e+03
++325           	-2.218894e+03
++326           	-2.218894e+03
++327           	-2.218894e+03
++328           	-2.218894e+03
++329           	-2.218894e+03
++330           	-2.218894e+03
++331           	-2.218894e+03
++332           	-2.218894e+03
++333           	-2.218894e+03
++334           	-2.218894e+03
++335           	-2.218894e+03
++336           	-2.218894e+03
++337           	-2.218894e+03
++338           	-2.218894e+03
++339           	-2.218894e+03
++340           	-2.218894e+03
++341           	-2.218894e+03
++342           	-2.218894e+03
++343           	-2.218894e+03
++344           	-2.218894e+03
++345           	-2.218894e+03
++346           	-2.218894e+03
++347           	-2.218894e+03
++348           	-2.218894e+03
++349           	-2.218894e+03
++350           	-2.218894e+03
++351           	-2.218894e+03
++352           	-2.218894e+03
++353           	-2.218894e+03
++354           	-2.218894e+03
++355           	-2.218894e+03
++356           	-2.218894e+03
++357           	-2.218894e+03
++358           	-2.218894e+03
++359           	-2.218894e+03
++360           	-2.218894e+03
++361           	-2.218894e+03
++362           	-2.218894e+03
++363           	-2.218894e+03
++364           	-2.218894e+03
++365           	-2.218894e+03
++366           	-2.218894e+03
++367           	-2.218894e+03
++368           	-2.218894e+03
++369           	-2.218894e+03
++370           	-2.218894e+03
++371           	-2.218894e+03
++372           	-2.218894e+03
++373           	-2.218894e+03
++374           	-2.218894e+03
++375           	-2.218894e+03
++376           	-2.218894e+03
++377           	-2.218894e+03
++378           	-2.218894e+03
++379           	-2.218894e+03
++380           	-2.218894e+03
++381           	-2.218894e+03
++382           	-2.218894e+03
++383           	-2.218894e+03
++384           	-2.218894e+03
++385           	-2.218894e+03
++386           	-2.218894e+03
++387           	-2.218894e+03
++388           	-2.218894e+03
++389           	-2.218894e+03
++390           	-2.218894e+03
++391           	-2.218894e+03
++392           	-2.218894e+03
++393           	-2.218894e+03
++394           	-2.218894e+03
++395           	-2.218894e+03
++396           	-2.218894e+03
++397           	-2.218894e+03
++398           	-2.218894e+03
++399           	-2.218894e+03
++400           	-2.218894e+03
++401           	-2.218894e+03
++402           	-2.218894e+03
++403           	-2.218894e+03
++404           	-2.218894e+03
++405           	-2.218894e+03
++406           	-2.218894e+03
++407           	-2.218894e+03
++408           	-2.218894e+03
++409           	-2.218894e+03
++410           	-2.218894e+03
++411           	-2.218894e+03
++412           	-2.218894e+03
++413           	-2.218894e+03
++414           	-2.218894e+03
++415           	-2.218894e+03
++416           	-2.218894e+03
++417           	-2.218894e+03
++418           	-2.218894e+03
++419           	-2.218894e+03
++420           	-2.218894e+03
++421           	-2.218894e+03
++422           	-2.218894e+03
++423           	-2.218894e+03
++424           	-2.218894e+03
++425           	-2.218894e+03
++426           	-2.218894e+03
++427           	-2.218894e+03
++428           	-2.218894e+03
++429           	-2.218894e+03
++430           	-2.218894e+03
++431           	-2.218894e+03
++432           	-2.218894e+03
++433           	-2.218894e+03
++434           	-2.218894e+03
++435           	-2.218894e+03
++436           	-2.218894e+03
++437           	-2.218894e+03
++438           	-2.218894e+03
++439           	-2.218894e+03
++440           	-2.218894e+03
++441           	-2.218894e+03
++442           	-2.218894e+03
++443           	-2.218894e+03
++444           	-2.218894e+03
++445           	-2.218894e+03
++446           	-2.218894e+03
++447           	-2.218894e+03
++448           	-2.218894e+03
++449           	-2.218894e+03
++450           	-2.218894e+03
++451           	-2.218894e+03
++452           	-2.218894e+03
++453           	-2.218894e+03
++454           	-2.218894e+03
++455           	-2.218894e+03
++456           	-2.218894e+03
++457           	-2.218894e+03
++458           	-2.218894e+03
++459           	-2.218894e+03
++460           	-2.218894e+03
++461           	-2.218894e+03
++462           	-2.218894e+03
++463           	-2.218894e+03
++464           	-2.218894e+03
++465           	-2.218894e+03
++466           	-2.218894e+03
++467           	-2.218894e+03
++468           	-2.218894e+03
++469           	-2.218894e+03
++470           	-2.218894e+03
++471           	-2.218894e+03
++472           	-2.218894e+03
++473           	-2.218894e+03
++474           	-2.218894e+03
++475           	-2.218894e+03
++476           	-2.218894e+03
++477           	-2.218894e+03
++478           	-2.218894e+03
++479           	-2.218894e+03
++480           	-2.218894e+03
++481           	-2.218894e+03
++482           	-2.218894e+03
++483           	-2.218894e+03
++484           	-2.218894e+03
++485           	-2.218894e+03
++486           	-2.218894e+03
++487           	-2.218894e+03
++488           	-2.218894e+03
++489           	-2.218894e+03
++490           	-2.218894e+03
++491           	-2.218894e+03
++492           	-2.218894e+03
++493           	-2.218894e+03
++494           	-2.218894e+03
++495           	-2.218894e+03
++496           	-2.218894e+03
++497           	-2.218894e+03
++498           	-2.218894e+03
++499           	-2.218894e+03
++500           	-2.218894e+03
++501           	-2.218894e+03
++502           	-2.218894e+03
++503           	-2.218894e+03
++504           	-2.218894e+03
++505           	-2.218894e+03
++506           	-2.218894e+03
++507           	-2.218894e+03
++508           	-2.218894e+03
++509           	-2.218894e+03
++510           	-2.218894e+03
++511           	-2.218894e+03
++512           	-2.218894e+03
++513           	-2.218894e+03
++514           	-2.218894e+03
++515           	-2.218894e+03
++516           	-2.218894e+03
++517           	-2.218894e+03
++518           	-2.218894e+03
++519           	-2.218894e+03
++520           	-2.218894e+03
++521           	-2.218894e+03
++522           	-2.218894e+03
++523           	-2.218894e+03
++524           	-2.218894e+03
++525           	-2.218894e+03
++526           	-2.218894e+03
++527           	-2.218894e+03
++528           	-2.218894e+03
++529           	-2.218894e+03
++530           	-2.218894e+03
++531           	-2.218894e+03
++532           	-2.218894e+03
++533           	-2.218894e+03
++534           	-2.218894e+03
++535           	-2.218894e+03
++536           	-2.218894e+03
++537           	-2.218894e+03
++538           	-2.218894e+03
++539           	-2.218894e+03
++540           	-2.218894e+03
++541           	-2.218894e+03
++542           	-2.218894e+03
++543           	-2.218894e+03
++544           	-2.218894e+03
++545           	-2.218894e+03
++546           	-2.218894e+03
++547           	-2.218894e+03
++548           	-2.218894e+03
++549           	-2.218894e+03
++550           	-2.218894e+03
++551           	-2.218894e+03
++552           	-2.218894e+03
++553           	-2.218894e+03
++554           	-2.218894e+03
++555           	-2.218894e+03
++556           	-2.218894e+03
++557           	-2.218894e+03
++558           	-2.218894e+03
++559           	-2.218894e+03
++560           	-2.218894e+03
++561           	-2.218894e+03
++562           	-2.218894e+03
++563           	-2.218894e+03
++564           	-2.218894e+03
++565           	-2.218894e+03
++566           	-2.218894e+03
++567           	-2.218894e+03
++568           	-2.218894e+03
++569           	-2.218894e+03
++570           	-2.218894e+03
++571           	-2.218894e+03
++572           	-2.218894e+03
++573           	-2.218894e+03
++574           	-2.218894e+03
++575           	-2.218894e+03
++576           	-2.218894e+03
++577           	-2.218894e+03
++578           	-2.218894e+03
++579           	-2.218894e+03
++580           	-2.218894e+03
++581           	-2.218894e+03
++582           	-2.218894e+03
++583           	-2.218894e+03
++584           	-2.218894e+03
++585           	-2.218894e+03
++586           	-2.218894e+03
++587           	-2.218894e+03
++588           	-2.218894e+03
++589           	-2.218894e+03
++590           	-2.218894e+03
++591           	-2.218894e+03
++592           	-2.218894e+03
++593           	-2.218894e+03
++594           	-2.218894e+03
++595           	-2.218894e+03
++596           	-2.218894e+03
++597           	-2.218894e+03
++598           	-2.218894e+03
++599           	-2.218894e+03
++600           	-2.218894e+03
+diff --git a/tests/data/freestream_run/massFlow_outlet.dat b/tests/data/freestream_run/massFlow_outlet.dat
+new file mode 100644
+index 0000000..7d76076
+--- /dev/null
++++ b/tests/data/freestream_run/massFlow_outlet.dat
+@@ -0,0 +1,605 @@
++# Region type : patch outlet
++# Faces       : 1638
++# Area        : 1.126559e+02
++# Scale factor: 1.000000e+00
++# Time        	sum(phi)
++1             	2.218847e+03
++2             	2.218827e+03
++3             	2.218738e+03
++4             	2.218639e+03
++5             	2.218561e+03
++6             	2.218509e+03
++7             	2.218491e+03
++8             	2.218496e+03
++9             	2.218520e+03
++10            	2.218560e+03
++11            	2.218610e+03
++12            	2.218667e+03
++13            	2.218725e+03
++14            	2.218779e+03
++15            	2.218825e+03
++16            	2.218861e+03
++17            	2.218887e+03
++18            	2.218904e+03
++19            	2.218914e+03
++20            	2.218918e+03
++21            	2.218920e+03
++22            	2.218921e+03
++23            	2.218920e+03
++24            	2.218919e+03
++25            	2.218918e+03
++26            	2.218917e+03
++27            	2.218915e+03
++28            	2.218914e+03
++29            	2.218912e+03
++30            	2.218910e+03
++31            	2.218908e+03
++32            	2.218906e+03
++33            	2.218904e+03
++34            	2.218902e+03
++35            	2.218901e+03
++36            	2.218901e+03
++37            	2.218901e+03
++38            	2.218903e+03
++39            	2.218905e+03
++40            	2.218908e+03
++41            	2.218911e+03
++42            	2.218915e+03
++43            	2.218919e+03
++44            	2.218923e+03
++45            	2.218928e+03
++46            	2.218933e+03
++47            	2.218937e+03
++48            	2.218942e+03
++49            	2.218947e+03
++50            	2.218952e+03
++51            	2.218956e+03
++52            	2.218960e+03
++53            	2.218964e+03
++54            	2.218967e+03
++55            	2.218970e+03
++56            	2.218972e+03
++57            	2.218974e+03
++58            	2.218976e+03
++59            	2.218977e+03
++60            	2.218978e+03
++61            	2.218979e+03
++62            	2.218979e+03
++63            	2.218979e+03
++64            	2.218978e+03
++65            	2.218978e+03
++66            	2.218977e+03
++67            	2.218976e+03
++68            	2.218975e+03
++69            	2.218975e+03
++70            	2.218974e+03
++71            	2.218974e+03
++72            	2.218974e+03
++73            	2.218973e+03
++74            	2.218973e+03
++75            	2.218973e+03
++76            	2.218973e+03
++77            	2.218973e+03
++78            	2.218973e+03
++79            	2.218973e+03
++80            	2.218973e+03
++81            	2.218973e+03
++82            	2.218972e+03
++83            	2.218972e+03
++84            	2.218972e+03
++85            	2.218971e+03
++86            	2.218970e+03
++87            	2.218969e+03
++88            	2.218967e+03
++89            	2.218966e+03
++90            	2.218964e+03
++91            	2.218963e+03
++92            	2.218961e+03
++93            	2.218960e+03
++94            	2.218958e+03
++95            	2.218957e+03
++96            	2.218957e+03
++97            	2.218957e+03
++98            	2.218957e+03
++99            	2.218959e+03
++100           	2.218961e+03
++101           	2.218964e+03
++102           	2.218967e+03
++103           	2.218972e+03
++104           	2.218976e+03
++105           	2.218981e+03
++106           	2.218985e+03
++107           	2.218989e+03
++108           	2.218992e+03
++109           	2.218993e+03
++110           	2.218994e+03
++111           	2.218994e+03
++112           	2.218993e+03
++113           	2.218991e+03
++114           	2.218989e+03
++115           	2.218987e+03
++116           	2.218985e+03
++117           	2.218983e+03
++118           	2.218982e+03
++119           	2.218980e+03
++120           	2.218979e+03
++121           	2.218978e+03
++122           	2.218977e+03
++123           	2.218976e+03
++124           	2.218975e+03
++125           	2.218974e+03
++126           	2.218974e+03
++127           	2.218973e+03
++128           	2.218972e+03
++129           	2.218971e+03
++130           	2.218970e+03
++131           	2.218969e+03
++132           	2.218968e+03
++133           	2.218967e+03
++134           	2.218967e+03
++135           	2.218968e+03
++136           	2.218969e+03
++137           	2.218970e+03
++138           	2.218972e+03
++139           	2.218974e+03
++140           	2.218976e+03
++141           	2.218977e+03
++142           	2.218979e+03
++143           	2.218980e+03
++144           	2.218980e+03
++145           	2.218979e+03
++146           	2.218978e+03
++147           	2.218976e+03
++148           	2.218974e+03
++149           	2.218972e+03
++150           	2.218970e+03
++151           	2.218968e+03
++152           	2.218965e+03
++153           	2.218963e+03
++154           	2.218961e+03
++155           	2.218960e+03
++156           	2.218958e+03
++157           	2.218958e+03
++158           	2.218957e+03
++159           	2.218958e+03
++160           	2.218959e+03
++161           	2.218961e+03
++162           	2.218963e+03
++163           	2.218965e+03
++164           	2.218967e+03
++165           	2.218970e+03
++166           	2.218973e+03
++167           	2.218975e+03
++168           	2.218978e+03
++169           	2.218980e+03
++170           	2.218983e+03
++171           	2.218985e+03
++172           	2.218986e+03
++173           	2.218987e+03
++174           	2.218987e+03
++175           	2.218986e+03
++176           	2.218985e+03
++177           	2.218984e+03
++178           	2.218982e+03
++179           	2.218980e+03
++180           	2.218978e+03
++181           	2.218976e+03
++182           	2.218973e+03
++183           	2.218971e+03
++184           	2.218969e+03
++185           	2.218968e+03
++186           	2.218967e+03
++187           	2.218966e+03
++188           	2.218966e+03
++189           	2.218965e+03
++190           	2.218965e+03
++191           	2.218966e+03
++192           	2.218966e+03
++193           	2.218966e+03
++194           	2.218967e+03
++195           	2.218968e+03
++196           	2.218969e+03
++197           	2.218970e+03
++198           	2.218971e+03
++199           	2.218972e+03
++200           	2.218973e+03
++201           	2.218974e+03
++202           	2.218974e+03
++203           	2.218974e+03
++204           	2.218974e+03
++205           	2.218974e+03
++206           	2.218973e+03
++207           	2.218971e+03
++208           	2.218970e+03
++209           	2.218968e+03
++210           	2.218966e+03
++211           	2.218965e+03
++212           	2.218963e+03
++213           	2.218962e+03
++214           	2.218961e+03
++215           	2.218961e+03
++216           	2.218961e+03
++217           	2.218960e+03
++218           	2.218960e+03
++219           	2.218960e+03
++220           	2.218960e+03
++221           	2.218960e+03
++222           	2.218960e+03
++223           	2.218959e+03
++224           	2.218958e+03
++225           	2.218958e+03
++226           	2.218957e+03
++227           	2.218956e+03
++228           	2.218954e+03
++229           	2.218953e+03
++230           	2.218952e+03
++231           	2.218951e+03
++232           	2.218950e+03
++233           	2.218949e+03
++234           	2.218949e+03
++235           	2.218948e+03
++236           	2.218948e+03
++237           	2.218948e+03
++238           	2.218948e+03
++239           	2.218948e+03
++240           	2.218948e+03
++241           	2.218948e+03
++242           	2.218948e+03
++243           	2.218948e+03
++244           	2.218947e+03
++245           	2.218947e+03
++246           	2.218946e+03
++247           	2.218945e+03
++248           	2.218944e+03
++249           	2.218942e+03
++250           	2.218941e+03
++251           	2.218939e+03
++252           	2.218938e+03
++253           	2.218937e+03
++254           	2.218936e+03
++255           	2.218935e+03
++256           	2.218935e+03
++257           	2.218936e+03
++258           	2.218938e+03
++259           	2.218941e+03
++260           	2.218944e+03
++261           	2.218949e+03
++262           	2.218955e+03
++263           	2.218960e+03
++264           	2.218966e+03
++265           	2.218972e+03
++266           	2.218976e+03
++267           	2.218980e+03
++268           	2.218983e+03
++269           	2.218985e+03
++270           	2.218985e+03
++271           	2.218985e+03
++272           	2.218984e+03
++273           	2.218983e+03
++274           	2.218981e+03
++275           	2.218979e+03
++276           	2.218976e+03
++277           	2.218973e+03
++278           	2.218969e+03
++279           	2.218966e+03
++280           	2.218962e+03
++281           	2.218959e+03
++282           	2.218956e+03
++283           	2.218953e+03
++284           	2.218951e+03
++285           	2.218950e+03
++286           	2.218948e+03
++287           	2.218947e+03
++288           	2.218946e+03
++289           	2.218946e+03
++290           	2.218946e+03
++291           	2.218946e+03
++292           	2.218947e+03
++293           	2.218948e+03
++294           	2.218950e+03
++295           	2.218953e+03
++296           	2.218956e+03
++297           	2.218960e+03
++298           	2.218965e+03
++299           	2.218969e+03
++300           	2.218973e+03
++301           	2.218977e+03
++302           	2.218980e+03
++303           	2.218982e+03
++304           	2.218984e+03
++305           	2.218984e+03
++306           	2.218985e+03
++307           	2.218984e+03
++308           	2.218984e+03
++309           	2.218983e+03
++310           	2.218983e+03
++311           	2.218983e+03
++312           	2.218983e+03
++313           	2.218983e+03
++314           	2.218982e+03
++315           	2.218982e+03
++316           	2.218982e+03
++317           	2.218981e+03
++318           	2.218980e+03
++319           	2.218979e+03
++320           	2.218978e+03
++321           	2.218977e+03
++322           	2.218976e+03
++323           	2.218975e+03
++324           	2.218974e+03
++325           	2.218973e+03
++326           	2.218972e+03
++327           	2.218970e+03
++328           	2.218969e+03
++329           	2.218966e+03
++330           	2.218964e+03
++331           	2.218960e+03
++332           	2.218957e+03
++333           	2.218954e+03
++334           	2.218950e+03
++335           	2.218947e+03
++336           	2.218945e+03
++337           	2.218943e+03
++338           	2.218941e+03
++339           	2.218941e+03
++340           	2.218941e+03
++341           	2.218942e+03
++342           	2.218944e+03
++343           	2.218947e+03
++344           	2.218951e+03
++345           	2.218956e+03
++346           	2.218962e+03
++347           	2.218968e+03
++348           	2.218975e+03
++349           	2.218981e+03
++350           	2.218986e+03
++351           	2.218991e+03
++352           	2.218994e+03
++353           	2.218996e+03
++354           	2.218997e+03
++355           	2.218996e+03
++356           	2.218994e+03
++357           	2.218992e+03
++358           	2.218988e+03
++359           	2.218985e+03
++360           	2.218982e+03
++361           	2.218979e+03
++362           	2.218976e+03
++363           	2.218974e+03
++364           	2.218972e+03
++365           	2.218971e+03
++366           	2.218970e+03
++367           	2.218970e+03
++368           	2.218970e+03
++369           	2.218970e+03
++370           	2.218970e+03
++371           	2.218971e+03
++372           	2.218971e+03
++373           	2.218972e+03
++374           	2.218972e+03
++375           	2.218973e+03
++376           	2.218973e+03
++377           	2.218974e+03
++378           	2.218975e+03
++379           	2.218975e+03
++380           	2.218975e+03
++381           	2.218975e+03
++382           	2.218975e+03
++383           	2.218975e+03
++384           	2.218973e+03
++385           	2.218972e+03
++386           	2.218970e+03
++387           	2.218969e+03
++388           	2.218967e+03
++389           	2.218964e+03
++390           	2.218962e+03
++391           	2.218961e+03
++392           	2.218959e+03
++393           	2.218958e+03
++394           	2.218956e+03
++395           	2.218956e+03
++396           	2.218955e+03
++397           	2.218955e+03
++398           	2.218955e+03
++399           	2.218956e+03
++400           	2.218957e+03
++401           	2.218958e+03
++402           	2.218959e+03
++403           	2.218961e+03
++404           	2.218962e+03
++405           	2.218964e+03
++406           	2.218965e+03
++407           	2.218967e+03
++408           	2.218968e+03
++409           	2.218969e+03
++410           	2.218970e+03
++411           	2.218971e+03
++412           	2.218972e+03
++413           	2.218972e+03
++414           	2.218972e+03
++415           	2.218972e+03
++416           	2.218971e+03
++417           	2.218971e+03
++418           	2.218970e+03
++419           	2.218969e+03
++420           	2.218968e+03
++421           	2.218967e+03
++422           	2.218966e+03
++423           	2.218966e+03
++424           	2.218965e+03
++425           	2.218965e+03
++426           	2.218964e+03
++427           	2.218964e+03
++428           	2.218964e+03
++429           	2.218964e+03
++430           	2.218964e+03
++431           	2.218963e+03
++432           	2.218963e+03
++433           	2.218963e+03
++434           	2.218963e+03
++435           	2.218962e+03
++436           	2.218962e+03
++437           	2.218961e+03
++438           	2.218961e+03
++439           	2.218960e+03
++440           	2.218960e+03
++441           	2.218959e+03
++442           	2.218959e+03
++443           	2.218958e+03
++444           	2.218958e+03
++445           	2.218958e+03
++446           	2.218958e+03
++447           	2.218958e+03
++448           	2.218958e+03
++449           	2.218959e+03
++450           	2.218960e+03
++451           	2.218961e+03
++452           	2.218963e+03
++453           	2.218965e+03
++454           	2.218966e+03
++455           	2.218968e+03
++456           	2.218969e+03
++457           	2.218970e+03
++458           	2.218971e+03
++459           	2.218971e+03
++460           	2.218970e+03
++461           	2.218970e+03
++462           	2.218969e+03
++463           	2.218968e+03
++464           	2.218967e+03
++465           	2.218966e+03
++466           	2.218965e+03
++467           	2.218964e+03
++468           	2.218963e+03
++469           	2.218962e+03
++470           	2.218962e+03
++471           	2.218961e+03
++472           	2.218961e+03
++473           	2.218960e+03
++474           	2.218960e+03
++475           	2.218959e+03
++476           	2.218958e+03
++477           	2.218958e+03
++478           	2.218956e+03
++479           	2.218955e+03
++480           	2.218954e+03
++481           	2.218952e+03
++482           	2.218950e+03
++483           	2.218948e+03
++484           	2.218946e+03
++485           	2.218943e+03
++486           	2.218941e+03
++487           	2.218938e+03
++488           	2.218936e+03
++489           	2.218933e+03
++490           	2.218931e+03
++491           	2.218929e+03
++492           	2.218928e+03
++493           	2.218928e+03
++494           	2.218929e+03
++495           	2.218930e+03
++496           	2.218933e+03
++497           	2.218937e+03
++498           	2.218942e+03
++499           	2.218947e+03
++500           	2.218953e+03
++501           	2.218960e+03
++502           	2.218966e+03
++503           	2.218971e+03
++504           	2.218976e+03
++505           	2.218980e+03
++506           	2.218983e+03
++507           	2.218986e+03
++508           	2.218987e+03
++509           	2.218988e+03
++510           	2.218989e+03
++511           	2.218988e+03
++512           	2.218988e+03
++513           	2.218986e+03
++514           	2.218985e+03
++515           	2.218983e+03
++516           	2.218981e+03
++517           	2.218980e+03
++518           	2.218977e+03
++519           	2.218975e+03
++520           	2.218973e+03
++521           	2.218971e+03
++522           	2.218969e+03
++523           	2.218966e+03
++524           	2.218964e+03
++525           	2.218962e+03
++526           	2.218960e+03
++527           	2.218958e+03
++528           	2.218957e+03
++529           	2.218957e+03
++530           	2.218957e+03
++531           	2.218958e+03
++532           	2.218959e+03
++533           	2.218961e+03
++534           	2.218963e+03
++535           	2.218965e+03
++536           	2.218967e+03
++537           	2.218969e+03
++538           	2.218971e+03
++539           	2.218973e+03
++540           	2.218974e+03
++541           	2.218974e+03
++542           	2.218974e+03
++543           	2.218974e+03
++544           	2.218974e+03
++545           	2.218973e+03
++546           	2.218972e+03
++547           	2.218970e+03
++548           	2.218969e+03
++549           	2.218968e+03
++550           	2.218967e+03
++551           	2.218965e+03
++552           	2.218964e+03
++553           	2.218964e+03
++554           	2.218963e+03
++555           	2.218962e+03
++556           	2.218962e+03
++557           	2.218961e+03
++558           	2.218961e+03
++559           	2.218961e+03
++560           	2.218961e+03
++561           	2.218961e+03
++562           	2.218961e+03
++563           	2.218962e+03
++564           	2.218962e+03
++565           	2.218963e+03
++566           	2.218963e+03
++567           	2.218964e+03
++568           	2.218964e+03
++569           	2.218965e+03
++570           	2.218965e+03
++571           	2.218965e+03
++572           	2.218965e+03
++573           	2.218964e+03
++574           	2.218964e+03
++575           	2.218964e+03
++576           	2.218964e+03
++577           	2.218964e+03
++578           	2.218964e+03
++579           	2.218964e+03
++580           	2.218964e+03
++581           	2.218964e+03
++582           	2.218964e+03
++583           	2.218964e+03
++584           	2.218963e+03
++585           	2.218963e+03
++586           	2.218963e+03
++587           	2.218962e+03
++588           	2.218961e+03
++589           	2.218960e+03
++590           	2.218959e+03
++591           	2.218958e+03
++592           	2.218957e+03
++593           	2.218956e+03
++594           	2.218955e+03
++595           	2.218954e+03
++596           	2.218952e+03
++597           	2.218951e+03
++598           	2.218949e+03
++599           	2.218948e+03
++600           	2.218946e+03
+diff --git a/tests/data/freestream_run/massFlow_sides.dat b/tests/data/freestream_run/massFlow_sides.dat
+new file mode 100644
+index 0000000..2fef55f
+--- /dev/null
++++ b/tests/data/freestream_run/massFlow_sides.dat
+@@ -0,0 +1,605 @@
++# Region type : patch sides
++# Faces       : 4758
++# Area        : 3.277149e+02
++# Scale factor: 1.000000e+00
++# Time        	sum(phi)
++1             	6.761488e-02
++2             	1.750022e-01
++3             	3.111885e-01
++4             	4.651467e-01
++5             	5.996624e-01
++6             	6.861512e-01
++7             	7.355923e-01
++8             	7.447450e-01
++9             	7.245687e-01
++10            	6.864493e-01
++11            	6.400428e-01
++12            	5.913621e-01
++13            	5.450537e-01
++14            	5.041758e-01
++15            	4.704270e-01
++16            	4.442379e-01
++17            	4.257101e-01
++18            	4.137273e-01
++19            	4.063759e-01
++20            	4.032152e-01
++21            	4.012309e-01
++22            	4.028431e-01
++23            	4.040353e-01
++24            	4.043251e-01
++25            	4.034219e-01
++26            	4.011536e-01
++27            	3.974817e-01
++28            	3.932164e-01
++29            	3.884533e-01
++30            	3.831939e-01
++31            	3.772202e-01
++32            	3.708154e-01
++33            	3.639716e-01
++34            	3.567731e-01
++35            	3.492952e-01
++36            	3.415717e-01
++37            	3.336556e-01
++38            	3.256948e-01
++39            	3.179276e-01
++40            	3.106312e-01
++41            	3.040548e-01
++42            	2.983872e-01
++43            	2.937494e-01
++44            	2.902392e-01
++45            	2.880311e-01
++46            	2.871686e-01
++47            	2.875647e-01
++48            	2.888799e-01
++49            	2.908248e-01
++50            	2.930793e-01
++51            	2.953249e-01
++52            	2.972384e-01
++53            	2.986405e-01
++54            	2.994726e-01
++55            	2.998041e-01
++56            	2.996450e-01
++57            	2.988906e-01
++58            	2.977792e-01
++59            	2.963790e-01
++60            	2.946992e-01
++61            	2.927777e-01
++62            	2.906622e-01
++63            	2.884491e-01
++64            	2.861798e-01
++65            	2.838995e-01
++66            	2.816012e-01
++67            	2.792623e-01
++68            	2.768598e-01
++69            	2.745241e-01
++70            	2.721344e-01
++71            	2.698536e-01
++72            	2.677426e-01
++73            	2.658375e-01
++74            	2.641477e-01
++75            	2.626643e-01
++76            	2.613711e-01
++77            	2.602300e-01
++78            	2.591870e-01
++79            	2.582259e-01
++80            	2.573158e-01
++81            	2.563974e-01
++82            	2.554417e-01
++83            	2.544263e-01
++84            	2.533375e-01
++85            	2.521799e-01
++86            	2.509477e-01
++87            	2.496317e-01
++88            	2.482438e-01
++89            	2.468109e-01
++90            	2.454188e-01
++91            	2.441006e-01
++92            	2.429214e-01
++93            	2.419750e-01
++94            	2.413405e-01
++95            	2.411081e-01
++96            	2.414453e-01
++97            	2.428521e-01
++98            	2.447641e-01
++99            	2.474448e-01
++100           	2.510092e-01
++101           	2.553798e-01
++102           	2.600216e-01
++103           	2.647297e-01
++104           	2.692768e-01
++105           	2.733403e-01
++106           	2.768389e-01
++107           	2.792900e-01
++108           	2.805864e-01
++109           	2.808393e-01
++110           	2.802378e-01
++111           	2.788711e-01
++112           	2.767712e-01
++113           	2.738867e-01
++114           	2.707654e-01
++115           	2.675020e-01
++116           	2.642666e-01
++117           	2.612371e-01
++118           	2.583852e-01
++119           	2.557620e-01
++120           	2.533661e-01
++121           	2.511407e-01
++122           	2.490078e-01
++123           	2.468666e-01
++124           	2.447439e-01
++125           	2.426222e-01
++126           	2.406433e-01
++127           	2.388444e-01
++128           	2.373241e-01
++129           	2.361392e-01
++130           	2.353805e-01
++131           	2.350592e-01
++132           	2.351494e-01
++133           	2.356110e-01
++134           	2.363789e-01
++135           	2.372839e-01
++136           	2.382074e-01
++137           	2.390330e-01
++138           	2.396533e-01
++139           	2.399596e-01
++140           	2.398189e-01
++141           	2.391989e-01
++142           	2.379417e-01
++143           	2.362409e-01
++144           	2.341500e-01
++145           	2.316363e-01
++146           	2.287888e-01
++147           	2.257863e-01
++148           	2.227188e-01
++149           	2.195875e-01
++150           	2.165135e-01
++151           	2.136618e-01
++152           	2.111588e-01
++153           	2.091027e-01
++154           	2.075411e-01
++155           	2.064893e-01
++156           	2.059188e-01
++157           	2.059127e-01
++158           	2.064481e-01
++159           	2.074131e-01
++160           	2.086790e-01
++161           	2.101154e-01
++162           	2.116385e-01
++163           	2.132145e-01
++164           	2.148331e-01
++165           	2.164472e-01
++166           	2.180477e-01
++167           	2.196841e-01
++168           	2.213260e-01
++169           	2.227058e-01
++170           	2.235635e-01
++171           	2.236930e-01
++172           	2.229659e-01
++173           	2.213772e-01
++174           	2.189077e-01
++175           	2.158940e-01
++176           	2.124706e-01
++177           	2.088230e-01
++178           	2.051225e-01
++179           	2.016396e-01
++180           	1.982587e-01
++181           	1.951696e-01
++182           	1.925047e-01
++183           	1.903248e-01
++184           	1.886602e-01
++185           	1.874546e-01
++186           	1.867786e-01
++187           	1.866669e-01
++188           	1.868855e-01
++189           	1.873823e-01
++190           	1.881158e-01
++191           	1.890143e-01
++192           	1.900445e-01
++193           	1.911755e-01
++194           	1.923615e-01
++195           	1.935774e-01
++196           	1.948296e-01
++197           	1.960306e-01
++198           	1.972262e-01
++199           	1.983725e-01
++200           	1.993148e-01
++201           	1.998887e-01
++202           	1.999837e-01
++203           	1.995311e-01
++204           	1.984925e-01
++205           	1.970139e-01
++206           	1.951866e-01
++207           	1.931787e-01
++208           	1.911423e-01
++209           	1.892360e-01
++210           	1.875440e-01
++211           	1.861140e-01
++212           	1.849766e-01
++213           	1.841196e-01
++214           	1.835288e-01
++215           	1.831559e-01
++216           	1.829628e-01
++217           	1.829097e-01
++218           	1.829494e-01
++219           	1.830144e-01
++220           	1.830783e-01
++221           	1.830454e-01
++222           	1.829320e-01
++223           	1.827205e-01
++224           	1.824112e-01
++225           	1.820377e-01
++226           	1.816467e-01
++227           	1.812896e-01
++228           	1.810348e-01
++229           	1.809455e-01
++230           	1.810419e-01
++231           	1.813633e-01
++232           	1.819163e-01
++233           	1.826863e-01
++234           	1.836437e-01
++235           	1.847434e-01
++236           	1.859309e-01
++237           	1.871406e-01
++238           	1.883208e-01
++239           	1.894061e-01
++240           	1.903292e-01
++241           	1.910542e-01
++242           	1.915640e-01
++243           	1.918493e-01
++244           	1.919085e-01
++245           	1.917535e-01
++246           	1.914593e-01
++247           	1.910352e-01
++248           	1.904401e-01
++249           	1.897264e-01
++250           	1.889946e-01
++251           	1.883552e-01
++252           	1.879106e-01
++253           	1.877527e-01
++254           	1.882677e-01
++255           	1.891410e-01
++256           	1.906071e-01
++257           	1.928326e-01
++258           	1.958381e-01
++259           	1.995282e-01
++260           	2.037059e-01
++261           	2.080645e-01
++262           	2.122506e-01
++263           	2.160965e-01
++264           	2.194904e-01
++265           	2.221980e-01
++266           	2.239680e-01
++267           	2.247129e-01
++268           	2.244828e-01
++269           	2.233637e-01
++270           	2.214411e-01
++271           	2.185556e-01
++272           	2.152650e-01
++273           	2.115407e-01
++274           	2.075114e-01
++275           	2.034332e-01
++276           	1.995526e-01
++277           	1.962748e-01
++278           	1.933066e-01
++279           	1.908692e-01
++280           	1.890060e-01
++281           	1.876556e-01
++282           	1.867081e-01
++283           	1.860790e-01
++284           	1.857284e-01
++285           	1.856143e-01
++286           	1.858434e-01
++287           	1.864081e-01
++288           	1.873603e-01
++289           	1.887518e-01
++290           	1.909630e-01
++291           	1.934541e-01
++292           	1.964172e-01
++293           	1.999055e-01
++294           	2.038583e-01
++295           	2.080392e-01
++296           	2.122154e-01
++297           	2.162441e-01
++298           	2.199784e-01
++299           	2.232106e-01
++300           	2.257215e-01
++301           	2.273556e-01
++302           	2.280980e-01
++303           	2.280370e-01
++304           	2.273691e-01
++305           	2.263475e-01
++306           	2.252711e-01
++307           	2.243306e-01
++308           	2.236334e-01
++309           	2.232160e-01
++310           	2.229824e-01
++311           	2.228090e-01
++312           	2.225834e-01
++313           	2.222044e-01
++314           	2.215875e-01
++315           	2.206803e-01
++316           	2.194824e-01
++317           	2.179602e-01
++318           	2.162798e-01
++319           	2.145215e-01
++320           	2.125661e-01
++321           	2.106621e-01
++322           	2.087488e-01
++323           	2.068652e-01
++324           	2.050178e-01
++325           	2.032048e-01
++326           	2.014267e-01
++327           	1.996840e-01
++328           	1.979803e-01
++329           	1.963221e-01
++330           	1.947314e-01
++331           	1.932909e-01
++332           	1.920482e-01
++333           	1.910758e-01
++334           	1.904807e-01
++335           	1.903381e-01
++336           	1.907077e-01
++337           	1.916752e-01
++338           	1.932496e-01
++339           	1.953368e-01
++340           	1.978698e-01
++341           	2.008957e-01
++342           	2.049352e-01
++343           	2.093160e-01
++344           	2.143985e-01
++345           	2.199796e-01
++346           	2.256891e-01
++347           	2.311982e-01
++348           	2.363109e-01
++349           	2.405108e-01
++350           	2.434107e-01
++351           	2.448194e-01
++352           	2.447074e-01
++353           	2.431269e-01
++354           	2.401931e-01
++355           	2.361453e-01
++356           	2.312700e-01
++357           	2.259011e-01
++358           	2.204064e-01
++359           	2.151000e-01
++360           	2.101640e-01
++361           	2.057401e-01
++362           	2.019644e-01
++363           	1.989503e-01
++364           	1.967352e-01
++365           	1.952752e-01
++366           	1.944790e-01
++367           	1.942289e-01
++368           	1.944080e-01
++369           	1.948327e-01
++370           	1.954067e-01
++371           	1.960630e-01
++372           	1.967103e-01
++373           	1.972719e-01
++374           	1.977633e-01
++375           	1.982325e-01
++376           	1.986857e-01
++377           	1.990986e-01
++378           	1.994292e-01
++379           	1.996201e-01
++380           	1.995819e-01
++381           	1.992812e-01
++382           	1.987185e-01
++383           	1.978466e-01
++384           	1.968820e-01
++385           	1.957228e-01
++386           	1.945430e-01
++387           	1.933809e-01
++388           	1.922734e-01
++389           	1.912699e-01
++390           	1.904003e-01
++391           	1.896880e-01
++392           	1.891515e-01
++393           	1.888128e-01
++394           	1.886924e-01
++395           	1.888037e-01
++396           	1.891770e-01
++397           	1.897985e-01
++398           	1.906267e-01
++399           	1.916253e-01
++400           	1.927406e-01
++401           	1.939182e-01
++402           	1.950977e-01
++403           	1.962491e-01
++404           	1.973864e-01
++405           	1.985271e-01
++406           	1.996815e-01
++407           	2.008622e-01
++408           	2.019937e-01
++409           	2.030479e-01
++410           	2.039798e-01
++411           	2.046887e-01
++412           	2.050818e-01
++413           	2.051078e-01
++414           	2.047322e-01
++415           	2.039763e-01
++416           	2.028534e-01
++417           	2.015000e-01
++418           	1.999881e-01
++419           	1.984223e-01
++420           	1.969020e-01
++421           	1.955055e-01
++422           	1.942887e-01
++423           	1.932822e-01
++424           	1.924784e-01
++425           	1.918540e-01
++426           	1.913305e-01
++427           	1.908651e-01
++428           	1.904200e-01
++429           	1.899744e-01
++430           	1.895216e-01
++431           	1.890710e-01
++432           	1.886401e-01
++433           	1.882525e-01
++434           	1.879042e-01
++435           	1.876232e-01
++436           	1.874178e-01
++437           	1.872831e-01
++438           	1.872156e-01
++439           	1.872168e-01
++440           	1.872987e-01
++441           	1.874822e-01
++442           	1.877929e-01
++443           	1.882586e-01
++444           	1.889073e-01
++445           	1.897719e-01
++446           	1.909945e-01
++447           	1.923841e-01
++448           	1.940163e-01
++449           	1.959016e-01
++450           	1.980106e-01
++451           	2.002687e-01
++452           	2.024581e-01
++453           	2.044794e-01
++454           	2.062394e-01
++455           	2.076003e-01
++456           	2.084386e-01
++457           	2.086643e-01
++458           	2.081605e-01
++459           	2.070373e-01
++460           	2.054404e-01
++461           	2.035890e-01
++462           	2.016620e-01
++463           	1.997565e-01
++464           	1.979845e-01
++465           	1.964841e-01
++466           	1.953156e-01
++467           	1.944894e-01
++468           	1.939666e-01
++469           	1.936947e-01
++470           	1.936095e-01
++471           	1.936497e-01
++472           	1.937422e-01
++473           	1.938403e-01
++474           	1.939204e-01
++475           	1.939631e-01
++476           	1.939591e-01
++477           	1.938982e-01
++478           	1.937810e-01
++479           	1.935989e-01
++480           	1.933306e-01
++481           	1.929679e-01
++482           	1.925002e-01
++483           	1.919395e-01
++484           	1.913001e-01
++485           	1.906050e-01
++486           	1.898836e-01
++487           	1.891736e-01
++488           	1.886081e-01
++489           	1.883497e-01
++490           	1.885365e-01
++491           	1.896368e-01
++492           	1.910882e-01
++493           	1.930714e-01
++494           	1.956418e-01
++495           	1.987660e-01
++496           	2.023424e-01
++497           	2.062043e-01
++498           	2.101469e-01
++499           	2.140346e-01
++500           	2.176382e-01
++501           	2.209573e-01
++502           	2.240614e-01
++503           	2.269365e-01
++504           	2.293719e-01
++505           	2.311216e-01
++506           	2.320497e-01
++507           	2.320907e-01
++508           	2.312067e-01
++509           	2.293937e-01
++510           	2.264393e-01
++511           	2.229701e-01
++512           	2.190150e-01
++513           	2.147250e-01
++514           	2.103052e-01
++515           	2.059173e-01
++516           	2.017282e-01
++517           	1.980167e-01
++518           	1.946742e-01
++519           	1.917920e-01
++520           	1.893814e-01
++521           	1.874466e-01
++522           	1.859599e-01
++523           	1.848285e-01
++524           	1.839835e-01
++525           	1.833938e-01
++526           	1.832858e-01
++527           	1.835887e-01
++528           	1.843806e-01
++529           	1.858039e-01
++530           	1.881651e-01
++531           	1.909214e-01
++532           	1.940201e-01
++533           	1.972520e-01
++534           	2.004231e-01
++535           	2.031724e-01
++536           	2.053105e-01
++537           	2.068093e-01
++538           	2.076663e-01
++539           	2.078372e-01
++540           	2.072674e-01
++541           	2.059887e-01
++542           	2.040324e-01
++543           	2.017446e-01
++544           	1.992522e-01
++545           	1.968192e-01
++546           	1.944721e-01
++547           	1.923303e-01
++548           	1.904994e-01
++549           	1.890285e-01
++550           	1.878968e-01
++551           	1.871183e-01
++552           	1.865889e-01
++553           	1.862809e-01
++554           	1.862048e-01
++555           	1.863475e-01
++556           	1.867607e-01
++557           	1.873871e-01
++558           	1.881878e-01
++559           	1.891250e-01
++560           	1.901361e-01
++561           	1.911549e-01
++562           	1.921194e-01
++563           	1.929710e-01
++564           	1.936864e-01
++565           	1.941735e-01
++566           	1.944908e-01
++567           	1.946498e-01
++568           	1.946686e-01
++569           	1.945902e-01
++570           	1.944652e-01
++571           	1.943346e-01
++572           	1.942327e-01
++573           	1.941893e-01
++574           	1.941989e-01
++575           	1.942818e-01
++576           	1.944551e-01
++577           	1.946982e-01
++578           	1.949599e-01
++579           	1.951812e-01
++580           	1.953133e-01
++581           	1.953418e-01
++582           	1.952843e-01
++583           	1.951541e-01
++584           	1.949986e-01
++585           	1.948278e-01
++586           	1.946839e-01
++587           	1.946253e-01
++588           	1.946979e-01
++589           	1.949243e-01
++590           	1.952950e-01
++591           	1.957637e-01
++592           	1.962405e-01
++593           	1.966267e-01
++594           	1.968484e-01
++595           	1.968615e-01
++596           	1.966532e-01
++597           	1.962198e-01
++598           	1.956025e-01
++599           	1.948635e-01
++600           	1.940992e-01
+diff --git a/tests/data/freestream_run/massFlow_top.dat b/tests/data/freestream_run/massFlow_top.dat
+new file mode 100644
+index 0000000..50f7c91
+--- /dev/null
++++ b/tests/data/freestream_run/massFlow_top.dat
+@@ -0,0 +1,605 @@
++# Region type : patch top
++# Faces       : 2562
++# Area        : 1.749787e+02
++# Scale factor: 1.000000e+00
++# Time        	sum(phi)
++1             	6.074556e+02
++2             	6.071902e+02
++3             	6.069417e+02
++4             	6.067230e+02
++5             	6.065610e+02
++6             	6.064568e+02
++7             	6.064027e+02
++8             	6.063918e+02
++9             	6.064082e+02
++10            	6.064371e+02
++11            	6.064670e+02
++12            	6.064922e+02
++13            	6.065105e+02
++14            	6.065218e+02
++15            	6.065266e+02
++16            	6.065255e+02
++17            	6.065194e+02
++18            	6.065093e+02
++19            	6.064978e+02
++20            	6.064849e+02
++21            	6.064699e+02
++22            	6.064588e+02
++23            	6.064502e+02
++24            	6.064451e+02
++25            	6.064439e+02
++26            	6.064467e+02
++27            	6.064544e+02
++28            	6.064658e+02
++29            	6.064822e+02
++30            	6.065022e+02
++31            	6.065249e+02
++32            	6.065487e+02
++33            	6.065734e+02
++34            	6.065985e+02
++35            	6.066234e+02
++36            	6.066477e+02
++37            	6.066711e+02
++38            	6.066931e+02
++39            	6.067132e+02
++40            	6.067308e+02
++41            	6.067453e+02
++42            	6.067563e+02
++43            	6.067636e+02
++44            	6.067669e+02
++45            	6.067658e+02
++46            	6.067604e+02
++47            	6.067512e+02
++48            	6.067393e+02
++49            	6.067254e+02
++50            	6.067107e+02
++51            	6.066964e+02
++52            	6.066837e+02
++53            	6.066732e+02
++54            	6.066652e+02
++55            	6.066596e+02
++56            	6.066562e+02
++57            	6.066548e+02
++58            	6.066550e+02
++59            	6.066568e+02
++60            	6.066600e+02
++61            	6.066646e+02
++62            	6.066704e+02
++63            	6.066773e+02
++64            	6.066849e+02
++65            	6.066930e+02
++66            	6.067014e+02
++67            	6.067101e+02
++68            	6.067187e+02
++69            	6.067274e+02
++70            	6.067355e+02
++71            	6.067433e+02
++72            	6.067504e+02
++73            	6.067569e+02
++74            	6.067626e+02
++75            	6.067677e+02
++76            	6.067721e+02
++77            	6.067762e+02
++78            	6.067800e+02
++79            	6.067836e+02
++80            	6.067873e+02
++81            	6.067910e+02
++82            	6.067950e+02
++83            	6.067993e+02
++84            	6.068040e+02
++85            	6.068092e+02
++86            	6.068150e+02
++87            	6.068214e+02
++88            	6.068284e+02
++89            	6.068356e+02
++90            	6.068427e+02
++91            	6.068495e+02
++92            	6.068557e+02
++93            	6.068610e+02
++94            	6.068651e+02
++95            	6.068674e+02
++96            	6.068673e+02
++97            	6.068646e+02
++98            	6.068583e+02
++99            	6.068480e+02
++100           	6.068336e+02
++101           	6.068154e+02
++102           	6.067952e+02
++103           	6.067737e+02
++104           	6.067522e+02
++105           	6.067321e+02
++106           	6.067151e+02
++107           	6.067015e+02
++108           	6.066923e+02
++109           	6.066877e+02
++110           	6.066877e+02
++111           	6.066920e+02
++112           	6.066998e+02
++113           	6.067103e+02
++114           	6.067229e+02
++115           	6.067363e+02
++116           	6.067497e+02
++117           	6.067623e+02
++118           	6.067738e+02
++119           	6.067842e+02
++120           	6.067937e+02
++121           	6.068024e+02
++122           	6.068106e+02
++123           	6.068187e+02
++124           	6.068265e+02
++125           	6.068343e+02
++126           	6.068417e+02
++127           	6.068486e+02
++128           	6.068547e+02
++129           	6.068598e+02
++130           	6.068638e+02
++131           	6.068664e+02
++132           	6.068676e+02
++133           	6.068674e+02
++134           	6.068659e+02
++135           	6.068633e+02
++136           	6.068598e+02
++137           	6.068558e+02
++138           	6.068518e+02
++139           	6.068483e+02
++140           	6.068459e+02
++141           	6.068451e+02
++142           	6.068467e+02
++143           	6.068509e+02
++144           	6.068578e+02
++145           	6.068670e+02
++146           	6.068780e+02
++147           	6.068899e+02
++148           	6.069024e+02
++149           	6.069153e+02
++150           	6.069280e+02
++151           	6.069402e+02
++152           	6.069515e+02
++153           	6.069614e+02
++154           	6.069696e+02
++155           	6.069758e+02
++156           	6.069797e+02
++157           	6.069811e+02
++158           	6.069799e+02
++159           	6.069765e+02
++160           	6.069713e+02
++161           	6.069648e+02
++162           	6.069575e+02
++163           	6.069495e+02
++164           	6.069411e+02
++165           	6.069326e+02
++166           	6.069237e+02
++167           	6.069146e+02
++168           	6.069056e+02
++169           	6.068975e+02
++170           	6.068915e+02
++171           	6.068883e+02
++172           	6.068887e+02
++173           	6.068924e+02
++174           	6.068994e+02
++175           	6.069091e+02
++176           	6.069207e+02
++177           	6.069337e+02
++178           	6.069473e+02
++179           	6.069610e+02
++180           	6.069742e+02
++181           	6.069866e+02
++182           	6.069978e+02
++183           	6.070072e+02
++184           	6.070149e+02
++185           	6.070207e+02
++186           	6.070243e+02
++187           	6.070259e+02
++188           	6.070261e+02
++189           	6.070250e+02
++190           	6.070230e+02
++191           	6.070203e+02
++192           	6.070171e+02
++193           	6.070134e+02
++194           	6.070094e+02
++195           	6.070050e+02
++196           	6.070002e+02
++197           	6.069954e+02
++198           	6.069904e+02
++199           	6.069855e+02
++200           	6.069812e+02
++201           	6.069785e+02
++202           	6.069777e+02
++203           	6.069791e+02
++204           	6.069828e+02
++205           	6.069885e+02
++206           	6.069957e+02
++207           	6.070039e+02
++208           	6.070124e+02
++209           	6.070206e+02
++210           	6.070281e+02
++211           	6.070346e+02
++212           	6.070399e+02
++213           	6.070440e+02
++214           	6.070469e+02
++215           	6.070489e+02
++216           	6.070500e+02
++217           	6.070505e+02
++218           	6.070506e+02
++219           	6.070506e+02
++220           	6.070507e+02
++221           	6.070512e+02
++222           	6.070523e+02
++223           	6.070539e+02
++224           	6.070560e+02
++225           	6.070586e+02
++226           	6.070614e+02
++227           	6.070642e+02
++228           	6.070669e+02
++229           	6.070691e+02
++230           	6.070707e+02
++231           	6.070714e+02
++232           	6.070713e+02
++233           	6.070703e+02
++234           	6.070685e+02
++235           	6.070660e+02
++236           	6.070631e+02
++237           	6.070600e+02
++238           	6.070569e+02
++239           	6.070540e+02
++240           	6.070516e+02
++241           	6.070498e+02
++242           	6.070489e+02
++243           	6.070487e+02
++244           	6.070495e+02
++245           	6.070511e+02
++246           	6.070536e+02
++247           	6.070567e+02
++248           	6.070602e+02
++249           	6.070641e+02
++250           	6.070681e+02
++251           	6.070720e+02
++252           	6.070753e+02
++253           	6.070774e+02
++254           	6.070781e+02
++255           	6.070762e+02
++256           	6.070714e+02
++257           	6.070632e+02
++258           	6.070512e+02
++259           	6.070357e+02
++260           	6.070170e+02
++261           	6.069964e+02
++262           	6.069754e+02
++263           	6.069549e+02
++264           	6.069362e+02
++265           	6.069198e+02
++266           	6.069069e+02
++267           	6.068984e+02
++268           	6.068944e+02
++269           	6.068948e+02
++270           	6.068993e+02
++271           	6.069071e+02
++272           	6.069181e+02
++273           	6.069313e+02
++274           	6.069460e+02
++275           	6.069615e+02
++276           	6.069772e+02
++277           	6.069922e+02
++278           	6.070061e+02
++279           	6.070184e+02
++280           	6.070291e+02
++281           	6.070382e+02
++282           	6.070455e+02
++283           	6.070512e+02
++284           	6.070553e+02
++285           	6.070578e+02
++286           	6.070586e+02
++287           	6.070580e+02
++288           	6.070559e+02
++289           	6.070522e+02
++290           	6.070470e+02
++291           	6.070395e+02
++292           	6.070297e+02
++293           	6.070174e+02
++294           	6.070027e+02
++295           	6.069859e+02
++296           	6.069682e+02
++297           	6.069502e+02
++298           	6.069327e+02
++299           	6.069164e+02
++300           	6.069023e+02
++301           	6.068914e+02
++302           	6.068842e+02
++303           	6.068807e+02
++304           	6.068803e+02
++305           	6.068822e+02
++306           	6.068852e+02
++307           	6.068883e+02
++308           	6.068910e+02
++309           	6.068926e+02
++310           	6.068935e+02
++311           	6.068940e+02
++312           	6.068945e+02
++313           	6.068955e+02
++314           	6.068973e+02
++315           	6.069004e+02
++316           	6.069047e+02
++317           	6.069102e+02
++318           	6.069166e+02
++319           	6.069233e+02
++320           	6.069306e+02
++321           	6.069381e+02
++322           	6.069455e+02
++323           	6.069527e+02
++324           	6.069599e+02
++325           	6.069670e+02
++326           	6.069743e+02
++327           	6.069819e+02
++328           	6.069899e+02
++329           	6.069984e+02
++330           	6.070074e+02
++331           	6.070166e+02
++332           	6.070255e+02
++333           	6.070339e+02
++334           	6.070410e+02
++335           	6.070463e+02
++336           	6.070493e+02
++337           	6.070496e+02
++338           	6.070472e+02
++339           	6.070421e+02
++340           	6.070343e+02
++341           	6.070236e+02
++342           	6.070097e+02
++343           	6.069921e+02
++344           	6.069707e+02
++345           	6.069460e+02
++346           	6.069203e+02
++347           	6.068944e+02
++348           	6.068699e+02
++349           	6.068480e+02
++350           	6.068305e+02
++351           	6.068186e+02
++352           	6.068132e+02
++353           	6.068144e+02
++354           	6.068221e+02
++355           	6.068352e+02
++356           	6.068524e+02
++357           	6.068722e+02
++358           	6.068932e+02
++359           	6.069140e+02
++360           	6.069333e+02
++361           	6.069505e+02
++362           	6.069648e+02
++363           	6.069763e+02
++364           	6.069848e+02
++365           	6.069905e+02
++366           	6.069938e+02
++367           	6.069949e+02
++368           	6.069946e+02
++369           	6.069933e+02
++370           	6.069915e+02
++371           	6.069895e+02
++372           	6.069875e+02
++373           	6.069856e+02
++374           	6.069836e+02
++375           	6.069816e+02
++376           	6.069795e+02
++377           	6.069775e+02
++378           	6.069757e+02
++379           	6.069744e+02
++380           	6.069742e+02
++381           	6.069752e+02
++382           	6.069776e+02
++383           	6.069814e+02
++384           	6.069863e+02
++385           	6.069923e+02
++386           	6.069988e+02
++387           	6.070055e+02
++388           	6.070121e+02
++389           	6.070185e+02
++390           	6.070243e+02
++391           	6.070295e+02
++392           	6.070338e+02
++393           	6.070370e+02
++394           	6.070392e+02
++395           	6.070401e+02
++396           	6.070397e+02
++397           	6.070380e+02
++398           	6.070351e+02
++399           	6.070312e+02
++400           	6.070266e+02
++401           	6.070215e+02
++402           	6.070162e+02
++403           	6.070107e+02
++404           	6.070052e+02
++405           	6.069997e+02
++406           	6.069941e+02
++407           	6.069884e+02
++408           	6.069830e+02
++409           	6.069780e+02
++410           	6.069738e+02
++411           	6.069705e+02
++412           	6.069685e+02
++413           	6.069681e+02
++414           	6.069693e+02
++415           	6.069719e+02
++416           	6.069759e+02
++417           	6.069810e+02
++418           	6.069867e+02
++419           	6.069927e+02
++420           	6.069986e+02
++421           	6.070041e+02
++422           	6.070089e+02
++423           	6.070129e+02
++424           	6.070162e+02
++425           	6.070188e+02
++426           	6.070208e+02
++427           	6.070225e+02
++428           	6.070239e+02
++429           	6.070254e+02
++430           	6.070269e+02
++431           	6.070284e+02
++432           	6.070300e+02
++433           	6.070315e+02
++434           	6.070329e+02
++435           	6.070343e+02
++436           	6.070356e+02
++437           	6.070368e+02
++438           	6.070378e+02
++439           	6.070387e+02
++440           	6.070394e+02
++441           	6.070398e+02
++442           	6.070397e+02
++443           	6.070392e+02
++444           	6.070379e+02
++445           	6.070357e+02
++446           	6.070325e+02
++447           	6.070280e+02
++448           	6.070223e+02
++449           	6.070154e+02
++450           	6.070074e+02
++451           	6.069986e+02
++452           	6.069896e+02
++453           	6.069811e+02
++454           	6.069735e+02
++455           	6.069672e+02
++456           	6.069629e+02
++457           	6.069609e+02
++458           	6.069618e+02
++459           	6.069650e+02
++460           	6.069704e+02
++461           	6.069769e+02
++462           	6.069841e+02
++463           	6.069913e+02
++464           	6.069981e+02
++465           	6.070040e+02
++466           	6.070087e+02
++467           	6.070123e+02
++468           	6.070148e+02
++469           	6.070165e+02
++470           	6.070176e+02
++471           	6.070182e+02
++472           	6.070186e+02
++473           	6.070191e+02
++474           	6.070197e+02
++475           	6.070206e+02
++476           	6.070218e+02
++477           	6.070236e+02
++478           	6.070258e+02
++479           	6.070285e+02
++480           	6.070318e+02
++481           	6.070357e+02
++482           	6.070404e+02
++483           	6.070456e+02
++484           	6.070514e+02
++485           	6.070576e+02
++486           	6.070638e+02
++487           	6.070699e+02
++488           	6.070753e+02
++489           	6.070797e+02
++490           	6.070823e+02
++491           	6.070830e+02
++492           	6.070807e+02
++493           	6.070754e+02
++494           	6.070668e+02
++495           	6.070549e+02
++496           	6.070399e+02
++497           	6.070223e+02
++498           	6.070029e+02
++499           	6.069825e+02
++500           	6.069623e+02
++501           	6.069427e+02
++502           	6.069244e+02
++503           	6.069076e+02
++504           	6.068927e+02
++505           	6.068807e+02
++506           	6.068722e+02
++507           	6.068676e+02
++508           	6.068672e+02
++509           	6.068707e+02
++510           	6.068778e+02
++511           	6.068882e+02
++512           	6.069009e+02
++513           	6.069152e+02
++514           	6.069303e+02
++515           	6.069456e+02
++516           	6.069603e+02
++517           	6.069742e+02
++518           	6.069870e+02
++519           	6.069986e+02
++520           	6.070089e+02
++521           	6.070179e+02
++522           	6.070258e+02
++523           	6.070329e+02
++524           	6.070387e+02
++525           	6.070434e+02
++526           	6.070466e+02
++527           	6.070481e+02
++528           	6.070472e+02
++529           	6.070436e+02
++530           	6.070370e+02
++531           	6.070275e+02
++532           	6.070166e+02
++533           	6.070048e+02
++534           	6.069930e+02
++535           	6.069824e+02
++536           	6.069735e+02
++537           	6.069665e+02
++538           	6.069617e+02
++539           	6.069595e+02
++540           	6.069600e+02
++541           	6.069632e+02
++542           	6.069688e+02
++543           	6.069759e+02
++544           	6.069841e+02
++545           	6.069925e+02
++546           	6.070008e+02
++547           	6.070085e+02
++548           	6.070154e+02
++549           	6.070213e+02
++550           	6.070262e+02
++551           	6.070300e+02
++552           	6.070328e+02
++553           	6.070348e+02
++554           	6.070360e+02
++555           	6.070365e+02
++556           	6.070362e+02
++557           	6.070351e+02
++558           	6.070333e+02
++559           	6.070310e+02
++560           	6.070282e+02
++561           	6.070252e+02
++562           	6.070222e+02
++563           	6.070193e+02
++564           	6.070167e+02
++565           	6.070146e+02
++566           	6.070130e+02
++567           	6.070120e+02
++568           	6.070115e+02
++569           	6.070114e+02
++570           	6.070116e+02
++571           	6.070119e+02
++572           	6.070122e+02
++573           	6.070125e+02
++574           	6.070125e+02
++575           	6.070122e+02
++576           	6.070117e+02
++577           	6.070110e+02
++578           	6.070102e+02
++579           	6.070095e+02
++580           	6.070090e+02
++581           	6.070089e+02
++582           	6.070092e+02
++583           	6.070098e+02
++584           	6.070108e+02
++585           	6.070119e+02
++586           	6.070130e+02
++587           	6.070140e+02
++588           	6.070149e+02
++589           	6.070156e+02
++590           	6.070162e+02
++591           	6.070167e+02
++592           	6.070173e+02
++593           	6.070183e+02
++594           	6.070198e+02
++595           	6.070220e+02
++596           	6.070250e+02
++597           	6.070287e+02
++598           	6.070331e+02
++599           	6.070378e+02
++600           	6.070425e+02
+diff --git a/tests/data/freestream_run/summary.json b/tests/data/freestream_run/summary.json
+new file mode 100644
+index 0000000..f51c6e3
+--- /dev/null
++++ b/tests/data/freestream_run/summary.json
+@@ -0,0 +1,51 @@
++{
++  "cells": 192458,
++  "slip": {
++    "Cl": 0.04108157,
++    "Cd": 0.03579289,
++    "last_50": {
++      "Cl": {
++        "mean": 0.0408718502,
++        "min": 0.04068201,
++        "max": 0.04108157,
++        "range_percent": 0.9775921521654046
++      },
++      "Cd": {
++        "mean": 0.035725962,
++        "min": 0.03563886,
++        "max": 0.03579299,
++        "range_percent": 0.4314229523056521
++      }
++    },
++    "mass_imbalance_percent": 0.0,
++    "far_field_flux": 0.0,
++    "inlet_flux": -2218.894,
++    "outlet_flux": 2218.894,
++    "iterations": 132,
++    "state": "criteria_met"
++  },
++  "freestream": {
++    "Cl": 0.0649674,
++    "Cd": 0.03410774,
++    "last_50": {
++      "Cl": {
++        "mean": 0.0681791004,
++        "min": 0.0649674,
++        "max": 0.06949797,
++        "range_percent": 6.645100879037137
++      },
++      "Cd": {
++        "mean": 0.032568449400000005,
++        "min": 0.031736,
++        "max": 0.03425949,
++        "range_percent": 7.748265718784867
++      }
++    },
++    "mass_imbalance_percent": -2.7076552548159364e-05,
++    "far_field_flux": -0.05260080000003256,
++    "inlet_flux": -2218.894,
++    "outlet_flux": 2218.946,
++    "iterations": 600,
++    "state": "iteration_limit"
++  }
++}
+diff --git a/tests/test_breakdown.py b/tests/test_breakdown.py
+index 15013c1..d0319bd 100644
+--- a/tests/test_breakdown.py
++++ b/tests/test_breakdown.py
+@@ -105,8 +105,8 @@ def test_function_objects_for_breakdown_mass_wall_shear_and_probes() -> None:
+ 
+     probe = Probe(name="wake", location=(2.0, 0.0, 0.1))
+     functions = build_solver_files(_inp(probes=[probe]))["system/controlDict"].content["functions"]
+-    assert list(functions) == ["forceCoeffs1", "forces1", "massFlow_inlet", "massFlow_outlet", "yPlus1",
+-                               "wallShearStress1", "probe_wake"]  # no criteria: no runTimeControl
++    assert list(functions) == ["forceCoeffs1", "forces1", "massFlow_inlet", "massFlow_outlet", "massFlow_sides",
++                               "massFlow_top", "massFlow_bottom", "yPlus1", "wallShearStress1", "probe_wake"]  # no criteria: no runTimeControl
+     assert functions["massFlow_outlet"] == {
+         "type": "surfaceFieldValue", "libs": ["fieldFunctionObjects"], "regionType": "patch", "name": "outlet",
+         "operation": "sum", "fields": ["phi"], "writeFields": False, "writeControl": "timeStep",
+@@ -272,7 +272,8 @@ def test_mass_imbalance_hand_values_and_real_sphere(tmp_path: Path) -> None:
+     assert mass_imbalance(-100.0, 99.0) == pytest.approx(-1.0)
+     assert mass_imbalance(0.0, 1.0) is None
+     m = _monitor(tmp_path, RUN)
+-    inlet, outlet, pct = m.mass_balance()
++    inlet, outlet, pct, far = m.mass_balance()
++    assert far is None  # a slip far field (before D-065): no far-field flux written
+     assert (inlet, outlet) == (-2419.487, 2419.487) and pct == 0.0  # equal to 7 digits at iteration 300
+     series = m.series("mass_imbalance")
+     assert len(series) == 300 and max(abs(v) for _, v in series) == pytest.approx(0.0083075, abs=1e-6)  # iteration 2
+diff --git a/tests/test_far_field.py b/tests/test_far_field.py
+new file mode 100644
+index 0000000..591cf78
+--- /dev/null
++++ b/tests/test_far_field.py
+@@ -0,0 +1,105 @@
++"""Freestream far field (D-065): the mass balance with far-field fluxes (real output, fixture
++tests/data/freestream_run/) and, marker ``long``, slip against freestream on the flattened ellipsoid
++at alpha = 10 deg (same mesh, same criteria):
++
++    .venv/bin/pytest -m long -s tests/test_far_field.py
++"""
++
++import json
++import shutil
++from pathlib import Path
++
++import pytest
++
++from tests.real_cases import flattened_ellipsoid, mesh_body, run_solver, write_solver_case
++from vortexcfd.core.model import AsymptoticCriterion, Inflow, Solvers, StoppingCriteria
++from vortexcfd.foam.dictfile import read_foam_file, write_foam_file
++from vortexcfd.foam.physics_case import FAR_FIELD
++from vortexcfd.foam.postprocessing import ReportMonitor
++
++DATA = Path(__file__).parent / "data" / "freestream_run"
++FIELDS = ("U", "p", "k", "omega")
++
++
++def test_mass_balance_sums_the_far_field_fluxes(tmp_path: Path) -> None:
++    """Real freestream run (alpha 10 deg): the far field carries flux (in through the bottom, out
++    through the top); the imbalance is 100 (inlet + outlet + far field) / |inlet|."""
++    case = tmp_path / "case"
++    for patch in ("inlet", "outlet", *FAR_FIELD):
++        target = case / "postProcessing" / f"massFlow_{patch}" / "0"
++        target.mkdir(parents=True)
++        shutil.copy(DATA / f"massFlow_{patch}.dat", target / "surfaceFieldValue.dat")
++    monitor = ReportMonitor(case)
++    monitor.poll()
++    inlet, outlet, pct, far = monitor.mass_balance()
++    last = {patch: float((DATA / f"massFlow_{patch}.dat").read_text().split()[-1]) for patch in ("top", "bottom")}
++    assert last["top"] > 0.2 * abs(inlet) and last["bottom"] < -0.2 * abs(inlet)  # flow crosses the far field
++    assert far == pytest.approx(sum(float((DATA / f"massFlow_{p}.dat").read_text().split()[-1]) for p in FAR_FIELD))
++    assert pct == pytest.approx(100 * (inlet + outlet + far) / abs(inlet))
++    summary = json.loads((DATA / "summary.json").read_text())
++    assert pct == pytest.approx(summary["freestream"]["mass_imbalance_percent"], abs=1e-9)
++    assert abs(pct) < 0.1
++    assert len(monitor.series("mass_imbalance")) == summary["freestream"]["iterations"]
++
++
++def _slip_far_field(case: Path) -> None:
++    """The D-022 far field: slip on sides/top/bottom for U, p, k and omega (nut stays calculated)."""
++    for field in FIELDS:
++        data = read_foam_file(case / "0" / field)
++        for patch in FAR_FIELD:
++            data["boundaryField"][patch] = {"type": "slip"}
++        cls = "volVectorField" if field == "U" else "volScalarField"
++        write_foam_file(case / "0" / field, {k: data[k] for k in ("dimensions", "internalField", "boundaryField")},
++                        object_name=field, class_name=cls)
++
++
++@pytest.mark.long
++@pytest.mark.slow
++def test_slip_against_freestream_far_field_at_ten_degrees(tmp_path: Path) -> None:
++    """The flattened ellipsoid (semi-axes 0.5 x 0.5 x 0.15 m, default mesh) at 20 m/s and alpha
++    10 deg, 4 cores, Cd and Cl asymptotic (window 50, tolerance 1 %), at most 600 iterations: Cl,
++    Cd and the mass imbalance with the slip far field (D-022) and the freestream far field (D-065).
++    Writes tests/data/freestream_run/ (summary and the freestream run's mass-flow files)."""
++    meshed = mesh_body(tmp_path / "mesh", flattened_ellipsoid(), "Body")
++    assert meshed.ok, "".join(meshed.lines[-30:])
++    stopping = StoppingCriteria(criteria=[AsymptoticCriterion(quantity="Cd", window=50, tolerance=0.01),
++                                          AsymptoticCriterion(quantity="Cl", window=50, tolerance=0.01)])
++    out = {"cells": meshed.cells}
++    for variant in ("slip", "freestream"):
++        case = tmp_path / variant
++        shutil.copytree(meshed.case_dir, case)
++        copy = type(meshed)(case, meshed.inputs)
++        write_solver_case(copy, inflow=Inflow(alpha_deg=10.0),
++                          solvers=Solvers(iterations=600, write_interval=600, cores=4, stopping=stopping))
++        if variant == "slip":
++            _slip_far_field(case)
++        result = run_solver(case, timeout_s=1800, stopping=stopping, cores=4)
++        assert result is not None and result.state in ("criteria_met", "iteration_limit"), result
++        monitor = ReportMonitor(case)
++        monitor.poll()
++        inlet, outlet, pct, far = monitor.mass_balance()
++        window = {}
++        for q in ("Cl", "Cd"):  # the last 50 iterations: the freestream run oscillates
++            values = [v for _, v in monitor.series(q)][-50:]
++            mean = sum(values) / len(values)
++            window[q] = {"mean": mean, "min": min(values), "max": max(values),
++                         "range_percent": 100 * (max(values) - min(values)) / max(abs(mean), 0.01)}
++        out[variant] = {"Cl": monitor.series("Cl")[-1][1], "Cd": monitor.series("Cd")[-1][1], "last_50": window,
++                        "mass_imbalance_percent": pct, "far_field_flux": far, "inlet_flux": inlet,
++                        "outlet_flux": outlet, "iterations": result.iterations, "state": result.state}
++        if variant == "freestream":
++            DATA.mkdir(parents=True, exist_ok=True)
++            for patch in ("inlet", "outlet", *FAR_FIELD):
++                src = next((case / "postProcessing" / f"massFlow_{patch}").glob("*/surfaceFieldValue.dat"))
++                shutil.copy(src, DATA / f"massFlow_{patch}.dat")
++    (DATA / "summary.json").write_text(json.dumps(out, indent=2) + "\n")
++    print(f"\n{meshed.cells} cells")
++    print("| Far field | Cl (last) | Cd (last) | Cl last 50: mean, range | Cd last 50: mean, range | Mass imbalance "
++          "| Iterations | End |")
++    print("|---|---|---|---|---|---|---|---|")
++    for v in ("slip", "freestream"):
++        r, w = out[v], out[v]["last_50"]
++        imb = "n/a" if r["mass_imbalance_percent"] is None else f"{r['mass_imbalance_percent']:.3g} %"
++        print(f"| {v} | {r['Cl']:.5g} | {r['Cd']:.5g} | {w['Cl']['mean']:.5g}, {w['Cl']['range_percent']:.3g} % | "
++              f"{w['Cd']['mean']:.5g}, {w['Cd']['range_percent']:.3g} % | {imb} | {r['iterations']} | {r['state']} |")
++    assert out["freestream"]["far_field_flux"] is not None and out["slip"]["far_field_flux"] is not None
+diff --git a/tests/test_physics_case.py b/tests/test_physics_case.py
+index d198ff6..529cb4d 100644
+--- a/tests/test_physics_case.py
++++ b/tests/test_physics_case.py
+@@ -19,6 +19,8 @@ from vortexcfd.foam.physics_case import (
+ from vortexcfd.foam.yplus import first_layer_thickness, friction_velocity, skin_friction, yplus_of_first_cell
+ 
+ TUTORIAL = Path("/usr/lib/openfoam/openfoam2606/tutorials/incompressible/simpleFoam/motorBike")
++AIRFOIL = TUTORIAL.parent / "airFoil2D"
++FOAM_SRC = Path("/usr/lib/openfoam/openfoam2606/src")
+ BOUNDS = (0.0, 2.0, -1.0, 1.0, 0.0, 0.5)
+ 
+ 
+@@ -83,9 +85,14 @@ def test_boundary_conditions_inlet_outlet_far_field_walls() -> None:
+     assert bc["0/p"]["outlet"] == {"type": "fixedValue", "value": 0.0}
+     assert bc["0/U"]["outlet"]["type"] == "inletOutlet" and bc["0/U"]["outlet"]["inletValue"] == [0.0, 0.0, 0.0]
+     assert bc["0/k"]["outlet"]["type"] == "inletOutlet" and bc["0/omega"]["outlet"]["type"] == "inletOutlet"
++    for patch in ("sides", "top", "bottom"):  # freestream far field (D-065)
++        assert bc["0/U"][patch] == {"type": "freestreamVelocity", "freestreamValue": [20.0, 0.0, 0.0]}
++        assert bc["0/p"][patch] == {"type": "freestreamPressure", "freestreamValue": 0.0}
++        assert bc["0/k"][patch] == {"type": "inletOutlet", "inletValue": pytest.approx(k), "value": pytest.approx(k)}
++        assert bc["0/omega"][patch] == {"type": "inletOutlet", "inletValue": pytest.approx(omega),
++                                        "value": pytest.approx(omega)}
++        assert bc["0/nut"][patch]["type"] == "calculated"
+     for field in ("0/U", "0/p", "0/k", "0/omega"):
+-        for patch in ("sides", "top", "bottom"):
+-            assert bc[field][patch] == {"type": "slip"}, (field, patch)
+         assert "symmetry" not in bc[field]
+     for patch in ("Wing", "Tail"):
+         assert bc["0/U"][patch] == {"type": "noSlip"} and bc["0/p"][patch] == {"type": "zeroGradient"}
+@@ -184,7 +191,26 @@ def test_keywords_cover_the_motorbike_tutorial_files(tmp_path: Path) -> None:
+         assert wall_type in tut_types and wall_type in ours_types, (field, wall_type)
+         if field != "p":
+             assert "inletOutlet" in tut_types and "inletOutlet" in ours_types, field
+-        assert "slip" in ours_types
++        assert "slip" not in ours_types  # freestream far field (D-065)
++
++
++@pytest.mark.skipif(not AIRFOIL.is_dir(), reason="OpenFOAM tutorials not installed")
++def test_far_field_types_are_those_of_the_airfoil2d_tutorial(tmp_path: Path) -> None:
++    """The far field uses airFoil2D's freestreamVelocity / freestreamPressure with the keyword
++    freestreamValue (D-065); the angled inflow direction is the freestream value."""
++    write_case(tmp_path / "case", build_solver_files(make(inflow=Inflow(alpha_deg=10.0))))
++    for field, kind in (("U", "freestreamVelocity"), ("p", "freestreamPressure")):
++        tut = read_foam_file(AIRFOIL / "0.orig" / field)["boundaryField"]["inlet"]
++        ours = read_foam_file(tmp_path / "case" / "0" / field)["boundaryField"]["top"]
++        assert tut["type"] == ours["type"] == kind and set(tut) == set(ours) == {"type", "freestreamValue"}
++    top = read_foam_file(tmp_path / "case" / "0" / "U")["boundaryField"]["top"]["freestreamValue"]
++    a = math.radians(10.0)
++    assert list(top) == pytest.approx([20 * math.cos(a), 0.0, 20 * math.sin(a)])
++    src = FOAM_SRC / "finiteVolume/fields/fvPatchFields/derived"
++    if src.is_dir():
++        for name in ("freestreamVelocity/freestreamVelocityFvPatchVectorField.cxx",
++                     "freestreamPressure/freestreamPressureFvPatchScalarField.cxx"):
++            assert 'assign("freestreamValue", dict' in (src / name).read_text()
+ 
+ 
+ def test_written_scheme_lines_are_bare_token_sequences(tmp_path: Path) -> None:
+diff --git a/tests/validation/flat_plate_case.py b/tests/validation/flat_plate_case.py
+index 58d29e2..ed35077 100644
+--- a/tests/validation/flat_plate_case.py
++++ b/tests/validation/flat_plate_case.py
+@@ -168,6 +168,8 @@ def build_plate_case(case_dir: Path, setup: PlateSetup = CASE_A, k_wall: dict |
+     files = build_solver_files(inp)
+     for name in ("0/U", "0/p", "0/k", "0/omega", "0/nut"):
+         files[name].content["boundaryField"]["sides"] = {"type": "empty"}
++    # an empty patch has no faces to sum: no mass flow object on it (the far-field ones exist since D-065)
++    files["system/controlDict"].content["functions"].pop("massFlow_sides", None)
+     if k_wall is not None:
+         files["0/k"].content["boundaryField"]["plate"] = dict(k_wall)
+     files["system/blockMeshDict"] = block_mesh_dict(setup)
