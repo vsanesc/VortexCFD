@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Literal
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox, QWidget
 
 from vortexcfd.gui.properties_panel import ALLOWED_UNITS
@@ -68,6 +69,20 @@ class Dialogs:
         box.exec()
         clicked = box.clickedButton()
         return "regions" if clicked is regions else "parts" if clicked is parts else None
+
+    def show_repair_report(self, part: str, method: str, rows: list[tuple[str, str, str]],
+                           notes: list[str]) -> None:
+        """The before / after table of a repair (modal, information only)."""
+        cells = "".join(f"<tr><td>{q}</td><td align='right'>{b}</td><td align='right'>{a}</td></tr>"
+                        for q, b, a in rows)
+        text = (f"<p>Repair of <b>{part}</b>: {method}</p><table cellspacing='6'>"
+                f"<tr><th></th><th>Before</th><th>After</th></tr>{cells}</table>"
+                + "".join(f"<p>{n}</p>" for n in notes))
+        box = QMessageBox(self.parent)
+        box.setWindowTitle("Repair report")
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(text)
+        box.exec()
 
     def ask_paraview_path(self, current: str, detected: Path | None) -> str | None:
         """Preferences: the ParaView executable (empty text = detect automatically)."""

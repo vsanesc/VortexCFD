@@ -1,5 +1,5 @@
 """Part geometry operations joining core and geometry (Qt-free): multi-solid STL and CAD import,
-region edits (Tasks 3.1, 3.2, 3.5).
+repair, region edits (Tasks 3.1, 3.2, 3.3, 3.5).
 
 Every operation that changes a surface or its region ids writes NEW files under
 <project>/geometry/ and returns the Part fields to set; the caller applies them with one
@@ -17,6 +17,7 @@ from vortexcfd.core.model import CadSource, Part, SurfaceRegion
 from vortexcfd.core.project import Project
 from vortexcfd.geometry import cad as cad_module
 from vortexcfd.geometry import regions
+from vortexcfd.geometry import repair as repair_module
 from vortexcfd.geometry.loader import SOLID_ARRAY, UNIT_TO_METRE, load_surface
 
 GEOMETRY_DIR = "geometry"
@@ -285,3 +286,49 @@ def retessellate(project: Project, index: int, linear_deflection: float | None =
     cad = CadSource.model_validate({**part.cad.model_dump(), **update})
     surface, ids = tessellation_files(project.path.parent, part.name, cad, part.units)
     return {"cad": cad.model_dump(), "source_file": surface, "region_ids": ids}
+
+
+# -- repair (Task 3.3) -------------------------------------------------------------------------
+
+REPAIR_ROWS = (
+    ("Watertight", lambda r: "yes" if r.watertight else "no"),
+    ("Open edges", lambda r: str(r.open_edges)),
+    ("Non-manifold edges", lambda r: str(r.non_manifold_edges)),
+    ("Self-intersections", lambda r: str(r.self_intersections) if r.self_intersections is not None
+     else r.intersections_note),
+    ("Duplicate faces", lambda r: str(r.duplicate_faces)),
+    ("Flipped normals", lambda r: str(r.inconsistent_orientation)),
+    ("Triangles", lambda r: str(r.n_triangles)),
+)
+
+
+def repair_rows(result: repair_module.RepairResult) -> list[tuple[str, str, str]]:
+    """(quantity, before, after) rows of the repair report."""
+    return [(label, value(result.before), value(result.after)) for label, value in REPAIR_ROWS]
+
+
+def repair_part(project: Project, index: int) -> tuple[dict, repair_module.RepairResult]:
+    """Repair a part's surface into a NEW file <geometry>/<stem>_repaired[_n].stl (the part's
+    units; the original stays) and return (Part fields, result). Region ids are carried to the new
+    triangles (nearest old triangle). Fields are empty when nothing needed repair."""
+    part = project.sim.geometry.parts[index]
+    project_dir = project.path.parent
+    source = project.resolve_part_path(part)
+    mesh = load_surface(source, part.units)
+    result = repair_module.repair_surface(mesh)
+    if result.method == "none":
+        return {}, result
+    repaired = result.mesh.copy()
+    repaired.points = repaired.points / UNIT_TO_METRE[part.units]
+    folder = project_dir / GEOMETRY_DIR
+    folder.mkdir(parents=True, exist_ok=True)
+    stem = source.stem.split("_repaired")[0]
+    path = unique_path(folder, f"{stem}_repaired.stl")
+    repaired.save(str(path))
+    fields: dict = {"source_file": relative(project_dir, path)}
+    if part.region_ids:
+        old_ids = regions.base_ids(part, mesh, project_dir)
+        new_mesh = load_surface(path, part.units)
+        new_ids = regions.transfer_ids(mesh, old_ids, new_mesh)
+        fields["region_ids"] = relative(project_dir, regions.write_ids(folder, file_stem(part.name), new_ids))
+    return fields, result

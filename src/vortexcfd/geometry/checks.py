@@ -46,8 +46,9 @@ class SurfaceReport:
 
     @property
     def snappy_ready(self) -> bool:
-        """Watertight, no self-intersections (checked) and no duplicate faces."""
-        return self.watertight and self.self_intersections == 0 and self.duplicate_faces == 0
+        """Watertight, consistently oriented, no self-intersections (checked), no duplicate faces."""
+        return (self.watertight and self.self_intersections == 0 and self.duplicate_faces == 0
+                and self.inconsistent_orientation == 0)
 
     @property
     def normals_inward(self) -> bool:

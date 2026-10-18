@@ -86,6 +86,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-069 | 2026-10-18 | Multi-solid STL import and self-intersection check | Proposed |
 | D-070 | 2026-10-18 | CAD import (STEP, IGES, BREP) through OCP | Proposed |
 | D-071 | 2026-10-18 | Surface regions and patch assignment (schema v8) | Proposed |
+| D-072 | 2026-10-18 | Geometry repair: pymeshfix with a fidelity check, fTetWild envelope fallback | Proposed |
 
 ---
 
@@ -643,3 +644,14 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   - Part (schema v8): `cad` = `CadSource(file, linear_deflection` in metres, default 1/1000 of the bounding-box diagonal rounded to 3 significant digits, `angular_deflection` in degrees, default 20, `bodies)`; `source_file` is the tessellation <part>_tess_<key>.stl in model units and `region_ids` the per-triangle CAD face ids <part>_tess_<key>_faces.npy, key = hash of (CAD file content, deflections, bodies). The files are the cache: the same deflections reuse them. Editing a deflection in the Part's properties (CAD file, Linear deflection (m), Angular deflection rows) re-tessellates and updates `cad`, `source_file` and `region_ids` as one undoable step; regions keep their CAD faces.
 - Alternatives considered: the OCP build with VTK (pins its own VTK next to PyVista's); gmsh's OCC import (no face names through its Python API without extra work, not an approved dependency); storing the tessellation inside the project file (large).
 - Consequences: STEP/IGES parts are always in millimetres; a repaired CAD part (D-072) loses the repair when its deflection is changed (the tessellation comes from the CAD again). OCCT writes its transfer messages to stdout. The Python loop over the triangulation nodes takes a few seconds per million triangles.
+
+## D-072 Geometry repair: pymeshfix with a fidelity check, fTetWild envelope fallback
+- Status: Proposed (Task 3.3).
+- Context: PLAN 3.3: an automated repair keeping the original, with a before / after report; the survey chose pymeshfix first and pytetwild's envelope as the fallback.
+- Decision:
+  - Dependencies: `pymeshfix` 0.18.1 (wheel metadata AGPL-3; MeshFix GPL-3; docs/QUESTIONS.md item 74) and `pytetwild` 0.4.2 (MPL-2.0).
+  - geometry/repair.py (no Qt): `repair_surface` returns the input unchanged ("none") when it is already snappy-ready (watertight, consistently oriented, no self-intersections, no duplicate faces; `SurfaceReport.snappy_ready` now also requires consistent orientation); otherwise MeshFix's default repair (fill holes, remove degenerate and self-intersecting triangles) keeping every component. Its result is accepted when it is snappy-ready AND faithful: bounding box within 2 % of the original diagonal and at least 90 % of its points within 1 % of the diagonal from the original surface. Otherwise the fallback is the outer boundary of fTetWild's tetrahedralisation (envelope epsilon 1e-3 of the diagonal, edge length factor 0.05), oriented outward; the report then lists any defect that remains and the notes say why pymeshfix was not used.
+  - Edit > Repair part: the repaired surface is written to a NEW file <geometry>/<file stem>_repaired.stl (then _repaired_2, ...) in the part's units, the original stays; region ids are carried over to the new triangles (nearest old triangle centre) in a new region id file; the part points to the new files as one undoable step. A report shows before / after: watertight, open edges, non-manifold edges, self-intersections, duplicate faces, flipped normals, triangles; the console gets the summaries and the notes.
+  - Corpus results (tests/test_repair.py): holes (11 open edges, 1049 -> 1056 triangles), flipped patch (10 triangles), duplicated faces (5, 11 non-manifold edges; 1061 -> 1042) repaired by pymeshfix; two overlapping spheres (172 self-intersecting triangles) rejected for pymeshfix (bounding box -33.8 %) and wrapped by the envelope (1440 -> 2160 triangles, volume 0.736 m3 for a 0.752 m3 union). Every result is snappy-ready.
+- Alternatives considered: trusting pymeshfix's result when the checks pass (it dropped most of a sphere); the envelope always (changes the triangulation of surfaces with a single hole); repairing in place (the original must stay).
+- Consequences: repair runs on the GUI thread (item 77); changing a CAD part's deflection re-tessellates from the CAD and drops the repair; the fidelity thresholds are a heuristic (item 76).

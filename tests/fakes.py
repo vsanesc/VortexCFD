@@ -9,6 +9,7 @@ class FakeDialogs:
         self.csv_path = csv_path
         self.solids_mode = solids_mode
         self.solids_asked: list = []
+        self.repair_reports: list = []
         self.paraview_path = paraview_path
         self.import_path = import_path
         self.units = units
@@ -35,6 +36,9 @@ class FakeDialogs:
     def ask_solids_mode(self, file_name, solids):
         self.solids_asked.append((file_name, list(solids)))
         return self.solids_mode
+
+    def show_repair_report(self, part, method, rows, notes):
+        self.repair_reports.append((part, method, rows, notes))
 
     def confirm_discard(self):
         self.confirm_calls += 1

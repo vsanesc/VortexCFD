@@ -45,3 +45,45 @@ def two_spheres() -> pv.PolyData:
     a = pv.Sphere(radius=0.5, theta_resolution=20, phi_resolution=20)
     b = pv.Sphere(radius=0.5, center=(0.3, 0, 0), theta_resolution=20, phi_resolution=20)
     return (a + b).clean()
+
+
+def _sphere(n: int = 24) -> pv.PolyData:
+    return pv.Sphere(radius=0.5, theta_resolution=n, phi_resolution=n).clean()
+
+
+def _with_triangles(points: np.ndarray, triangles: np.ndarray) -> pv.PolyData:
+    return pv.PolyData(np.asarray(points, dtype=float), faces=np.hstack([np.full((len(triangles), 1), 3), triangles]).ravel())
+
+
+def sphere_with_holes() -> pv.PolyData:
+    """A sphere with two holes (6 and 1 triangles removed)."""
+    s = _sphere()
+    t = tris(s)
+    centres = s.cell_centers().points
+    hole = np.argsort(np.linalg.norm(centres - (0.5, 0, 0), axis=1))[:6]
+    other = np.argsort(np.linalg.norm(centres - (-0.5, 0, 0), axis=1))[:1]
+    return _with_triangles(s.points, np.delete(t, np.concatenate([hole, other]), axis=0))
+
+
+def sphere_with_flipped_patch() -> pv.PolyData:
+    """A sphere whose 10 triangles nearest +z are reversed (inconsistent orientation)."""
+    s = _sphere()
+    t = tris(s).copy()
+    patch = np.argsort(np.linalg.norm(s.cell_centers().points - (0, 0, 0.5), axis=1))[:10]
+    t[patch] = t[patch][:, ::-1]
+    return _with_triangles(s.points, t)
+
+
+def sphere_with_duplicates() -> pv.PolyData:
+    """A sphere with 5 triangles stored twice."""
+    s = _sphere()
+    t = tris(s)
+    return _with_triangles(s.points, np.vstack([t, t[:5]]))
+
+
+BROKEN = {
+    "holes": sphere_with_holes,
+    "flipped patch": sphere_with_flipped_patch,
+    "duplicated faces": sphere_with_duplicates,
+    "self-intersection": two_spheres,
+}

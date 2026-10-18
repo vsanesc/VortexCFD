@@ -1858,6 +1858,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         # Delete applies only while the tree has focus, so text fields keep their Delete key.
         self.act_remove_part.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.tree.addAction(self.act_remove_part)
+        self.act_repair_part = action("Re&pair part", self.repair_selected_part)
 
         self.act_zoom_in = action("Zoom &In", lambda: self.set_point_size(self._point_size + 1))
         self.act_zoom_in.setShortcuts([QKeySequence("Ctrl+="), QKeySequence("Ctrl++")])
@@ -1882,7 +1883,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         edit_menu = self.menuBar().addMenu("&Edit")
         edit_menu.addActions([self.act_undo, self.act_redo])
         edit_menu.addSeparator()
-        edit_menu.addActions([self.act_add_part, self.act_remove_part])
+        edit_menu.addActions([self.act_add_part, self.act_remove_part, self.act_repair_part])
         edit_menu.addSeparator()
         self.act_preferences = action("&Preferences...", self.edit_preferences)
         edit_menu.addAction(self.act_preferences)
@@ -1920,6 +1921,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.act_redo.setEnabled(p.can_redo)
         self.act_redo.setText(f"Redo {p.redo_label}" if p.redo_label else "Redo")
         self.act_remove_part.setEnabled(self._selected_part_index() is not None)
+        self.act_repair_part.setEnabled(self._selected_part_file() is not None)
 
     def _selected_part_index(self) -> int | None:
         if self._selection and self._selection[0] == "part":
@@ -1958,6 +1960,45 @@ class MainWindow(StudyControlMixin, QMainWindow):
         except (ValueError, TypeError, IndexError) as exc:
             self._selection = previous
             self.show_message(str(exc), "warning")
+
+    def _selected_part_file(self) -> Path | None:
+        index = self._selected_part_index()
+        if index is None or self._project.path is None:
+            return None
+        parts = self._project.sim.geometry.parts
+        if not 0 <= index < len(parts) or not parts[index].source_file:
+            return None
+        path = self._project.resolve_part_path(parts[index])
+        return path if path.is_file() else None
+
+    def repair_selected_part(self) -> None:
+        """Edit > Repair part (Task 3.3, D-072): repair into a new file, point the part to it as one
+        undoable step and show the before / after report."""
+        self._flush_edits()
+        index = self._selected_part_index()
+        if index is None or self._selected_part_file() is None:
+            return
+        name = self._project.sim.geometry.parts[index].name
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            fields, result = part_ops.repair_part(self._project, index)
+        except (OSError, SurfaceLoadError, ValueError, RuntimeError) as exc:
+            self.show_message(f"Could not repair '{name}': {exc}", "error")
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        if fields:
+            self._run_edit(lambda: self._project.update_part(index, **fields))
+        remaining = result.remaining
+        summary = (f"Repaired '{name}' ({result.method})" if result.method != "none"
+                   else f"'{name}' needs no repair")
+        if remaining:
+            summary += "; still: " + ", ".join(remaining)
+        log.info("%s: %s -> %s", summary, result.before.summary(), result.after.summary())
+        for note in result.notes:
+            log.info("Repair of '%s': %s", name, note)
+        self.dialogs.show_repair_report(name, result.method, part_ops.repair_rows(result), result.notes)
+        self.show_message(summary, "warning" if remaining else "success", log_it=False)
 
     def remove_selected_part(self) -> None:
         index = self._selected_part_index()
