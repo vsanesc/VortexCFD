@@ -29,6 +29,12 @@ def sphere_stl(tmp_path: Path) -> Path:
     return path
 
 
+def wait_geometry(qtbot, window, timeout: int = 60000) -> None:
+    """Wait until the window's geometry job and background self-intersection checks are done (D-073)."""
+    qtbot.waitUntil(lambda: not window.geometry_busy and not window.geometry_worker.is_running()
+                    and not window.intersections.busy(), timeout=timeout)
+
+
 @pytest.fixture
 def make_window(qtbot: QtBot, tmp_path: Path):
     made: list[MainWindow] = []
@@ -40,6 +46,7 @@ def make_window(qtbot: QtBot, tmp_path: Path):
             project.save(tmp_path / "proj" / "proj.json")
         dialogs = FakeDialogs(import_path=import_path, units=units, save_path=save_path)
         window = MainWindow(project, dialogs, with_viewer=with_viewer)
+        window._qtbot = qtbot
         qtbot.addWidget(window)
         window.show()
         made.append(window)
@@ -47,6 +54,7 @@ def make_window(qtbot: QtBot, tmp_path: Path):
 
     yield make
     for w in made:
+        w.geometry_worker.wait(60)
         assert not w.project.observer_errors
         w.project.save = lambda *a, **k: None
         w.close()
@@ -273,14 +281,16 @@ def test_selecting_a_part_twice_runs_the_check_once(make_window, sphere_stl: Pat
 
     calls = []
     original = checks.check_surface
-    monkeypatch.setattr(checks, "check_surface", lambda mesh: (calls.append(1), original(mesh))[1])
+    monkeypatch.setattr(checks, "check_surface", lambda mesh, **kw: (calls.append(kw), original(mesh, **kw))[1])
     w = make_window(import_path=sphere_stl)
-    w.act_import.trigger()  # the report is computed here
+    w.act_import.trigger()  # the basic report is computed here, the full one in the background
+    qtbot = w._qtbot
+    wait_geometry(qtbot, w)
     for _ in range(2):
         w._select_root()
         w.tree.setCurrentItem(w._items[("part", 0)])
     w.properties.refresh()
-    assert len(calls) == 1
+    assert calls == [{"intersections": False}, {}]
 
 
 def test_part_edges_are_off_until_wireframe(make_window, sphere_stl: Path) -> None:

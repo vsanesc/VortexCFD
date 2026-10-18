@@ -147,6 +147,21 @@ def wall_patch_names(parts: Sequence) -> tuple[str, ...]:
     return tuple(name for names in part_patch_names(parts) for name in names)
 
 
+def part_force_groups(parts: Sequence) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """(key, patches) of every part with several patches: its per-part force objects cover ALL its
+    patches. The key is the part's safe name; a part whose safe name is also a patch name gets no
+    group (that patch keeps the key)."""
+    patches = part_patch_names(parts)
+    taken = {p for names in patches for p in names}
+    return tuple((key, names) for key, names in zip(safe_part_names([p.name for p in parts]), patches)
+                 if len(names) > 1 and key not in taken)
+
+
+def force_report_keys(parts: Sequence) -> tuple[str, ...]:
+    """Keys of the per-wall force reports: every patch, then every multi-patch part."""
+    return wall_patch_names(parts) + tuple(key for key, _ in part_force_groups(parts))
+
+
 # snappyHexMesh finds a surface only where a segment between two neighbouring cell centres crosses
 # it. Those segments form a lattice of lines spaced one background cell apart, so a convex part is
 # certain to be pierced only if its projection along its thinnest axis holds a disc of this many

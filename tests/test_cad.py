@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from tests import cad_corpus
-from tests.test_import import _fresh_cache, make_window  # noqa: F401 (fixtures)
+from tests.test_import import _fresh_cache, make_window, wait_geometry  # noqa: F401 (fixtures)
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
 from vortexcfd.geometry import regions
@@ -143,6 +143,7 @@ def test_import_step_from_the_file_menu(make_window, tmp_path: Path) -> None:
     step = cad_corpus.named_box_step(tmp_path / "src" / "box.step")
     w = make_window(import_path=step, units=None)  # STEP never asks for units
     w.act_import.trigger()
+    wait_geometry(w._qtbot, w)
     (part,) = w.project.sim.geometry.parts
     assert part.name == "box" and part.units == "mm" and part.cad.file == "geometry/box.step"
     assert [r.name for r in part.regions] == ["inlet", "outlet", "wall", "top", "bottom"]
@@ -154,6 +155,7 @@ def test_import_step_from_the_file_menu(make_window, tmp_path: Path) -> None:
     # Editing the angular deflection re-tessellates as one undo step.
     p.cad_angular.setValue(10.0)
     p.cad_angular.editingFinished.emit()
+    wait_geometry(w._qtbot, w)
     assert w.project.sim.geometry.parts[0].cad.angular_deflection == 10.0
     assert w.project.undo_label == "Edit part 'box' (cad, source_file, region_ids)"
 
@@ -164,6 +166,7 @@ def test_import_assembly_asks_for_parts_or_regions(make_window, tmp_path: Path) 
     w = make_window(import_path=step)
     w.dialogs.solids_mode = "parts"
     w.act_import.trigger()
+    wait_geometry(w._qtbot, w)
     assert w.dialogs.solids_asked == [("pair.step", ["Block", "Pin"])]
     assert [p.name for p in w.project.sim.geometry.parts] == ["Block", "Pin"]
     assert w.project.undo_label == "Import pair.step (2 parts)"
@@ -174,6 +177,7 @@ def test_brep_import_asks_for_units(make_window, tmp_path: Path) -> None:
     brep = cad_corpus.box_brep(tmp_path / "src" / "b.brep")
     w = make_window(import_path=brep, units="cm")
     w.act_import.trigger()
+    wait_geometry(w._qtbot, w)
     (part,) = w.project.sim.geometry.parts
     assert part.units == "cm"
     assert load_surface(w.project.path.parent / part.source_file, "cm").bounds == pytest.approx((0, .1, 0, .2, 0, .3))
@@ -185,6 +189,7 @@ def test_unreadable_cad_import_leaves_nothing(make_window, tmp_path: Path) -> No
     bad.write_text("ISO-10303-21;")
     w = make_window(import_path=bad)
     w.act_import.trigger()
+    wait_geometry(w._qtbot, w)
     assert w.project.sim.geometry.parts == []
     assert list((w.project.path.parent / "geometry").iterdir()) == []
     assert isinstance(Part, type)

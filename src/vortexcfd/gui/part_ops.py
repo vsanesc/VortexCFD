@@ -242,14 +242,15 @@ def tessellation_files(project_dir: Path, part_name: str, cad: CadSource, units:
     return relative(project_dir, stl), relative(project_dir, ids)
 
 
-def cad_parts(project_dir: Path, cad_file: Path, units: str | None, mode: str, taken: set[str]) -> list[Part]:
+def cad_parts(project_dir: Path, cad_file: Path, units: str | None, mode: str, taken: set[str],
+              model: "cad_module.CadModel | None" = None) -> list[Part]:
     """Parts for a CAD file copied into <project>/geometry/: one Part holding every body (``mode``
     "regions") or one Part per body ("parts"). Regions follow the face names (faces sharing a name
     form one region; unnamed faces take their body's name) with the file's colours. ``units`` is
     the file's model units for BREP (STEP and IGES are millimetres); default deflections: 1/1000
     of the model's bounding-box diagonal and 20 degrees (D-070)."""
     project_dir = Path(project_dir)
-    model = cad_module.read_cad(cad_file)
+    model = model if model is not None else cad_module.read_cad(cad_file)
     units = model.units or units or "m"
     linear_m = model.default_linear_deflection() * UNIT_TO_METRE[units]
     if linear_m <= 0:
@@ -303,8 +304,18 @@ REPAIR_ROWS = (
 
 
 def repair_rows(result: repair_module.RepairResult) -> list[tuple[str, str, str]]:
-    """(quantity, before, after) rows of the repair report."""
-    return [(label, value(result.before), value(result.after)) for label, value in REPAIR_ROWS]
+    """(quantity, before, after) rows of the repair report, then the fidelity metrics of the
+    accepted surface (D-072, D-074) in the "after" column."""
+    rows = [(label, value(result.before), value(result.after)) for label, value in REPAIR_ROWS]
+    f = result.fidelity
+    if f is not None:
+        rows += [
+            ("Bounding box change", "", f"{f.box_change:.2%} of the diagonal (limit {repair_module.BOX_TOLERANCE:.0%})"),
+            ("Points on the original surface", "",
+             f"{f.on_surface:.1%} within {repair_module.DISTANCE_TOLERANCE:.0%} of the diagonal "
+             f"(limit {repair_module.ON_SURFACE_FRACTION:.0%})"),
+        ]
+    return rows
 
 
 def repair_part(project: Project, index: int) -> tuple[dict, repair_module.RepairResult]:

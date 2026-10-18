@@ -203,15 +203,17 @@ def test_split_button_on_a_plain_part(make_window, tmp_path: Path) -> None:
 # -- real snappyHexMesh --------------------------------------------------------------------------
 
 
-@pytest.mark.slow
-def test_real_two_patch_part_meshes_both_patches(tmp_path: Path) -> None:
-    """A 1 m cube whose -x side is the patch "front" and the rest "body": both patches exist in
-    constant/polyMesh/boundary with faces (coarse mesh, no layers)."""
+@pytest.fixture(scope="module")
+def two_patch_mesh(tmp_path_factory):
+    """A real coarse mesh (no layers) of a 1 m cube whose -x side is the patch "front" and the
+    other five sides "body", plus a second part "Ball" (sphere r 0.3 m at x = 2 m). Built once."""
     from vortexcfd.foam.mesh_run import MeshRun
-    from vortexcfd.foam.postprocessing import patch_face_counts
 
-    project = _project(tmp_path)
+    project = _project(tmp_path_factory.mktemp("two_patch"))
     _box_part(project, name="Cube")
+    sphere = pv.Sphere(radius=0.3, center=(2.0, 0, 0), theta_resolution=24, phi_resolution=24)
+    sphere.save(str(project.path.parent / "geometry" / "Ball.stl"))
+    project.add_part(Part(name="Ball", source_file="geometry/Ball.stl"))
     project.update_mesh(background_cells_target=20_000, target_surface_size=0.05, layers=0)
     project.update_part(0, **part_ops.split_region(project, 0, None, 30.0))
     part = project.sim.geometry.parts[0]
@@ -222,15 +224,26 @@ def test_real_two_patch_part_meshes_both_patches(tmp_path: Path) -> None:
     project.update_part(0, **part_ops.assign_patch(project, 0, front, "front"))
     project.update_part(0, **part_ops.assign_patch(
         project, 0, [r.name for r in project.sim.geometry.parts[0].regions if r.name not in front], "body"))
+    project.save()
     job = prepare_job(project)
-    assert job.inputs.patches == ("front", "body")
     run = MeshRun(job.case_dir, step_timeout_s=240, parts=job.inputs.patches)
     run.start()
     result = run.wait(280)
     assert result is not None and result.success, result
+    return project, job, result
+
+
+@pytest.mark.slow
+def test_real_two_patch_part_meshes_both_patches(two_patch_mesh) -> None:
+    """Both patches of the cube exist in constant/polyMesh/boundary with faces."""
+    from vortexcfd.foam.postprocessing import patch_face_counts
+
+    _project_, job, result = two_patch_mesh
+    assert job.inputs.patches == ("front", "body", "Ball")
     counts = patch_face_counts(job.case_dir)
     boundary = (job.case_dir / "constant" / "polyMesh" / "boundary").read_text()
-    print(f"\ntwo-patch mesh: {result.report.summary()}; faces front {counts['front']}, body {counts['body']}")
+    print(f"\ntwo-patch mesh: {result.report.summary()}; faces front {counts['front']}, body {counts['body']}, "
+          f"Ball {counts['Ball']}")
     for name in ("front", "body"):
         start = boundary.index(f"    {name}\n")
         print(boundary[start:boundary.index("}", start) + 1])
@@ -239,17 +252,61 @@ def test_real_two_patch_part_meshes_both_patches(tmp_path: Path) -> None:
     assert "Cube" not in counts  # every triangle went to an assigned patch
 
 
-def test_tree_lists_a_wall_per_patch(make_window, tmp_path: Path) -> None:
-    (tmp_path / "src").mkdir()
-    path = write_multi_solid(tmp_path / "src" / "box.stl", box_faces())
-    w = make_window(import_path=path)
-    w.act_import.trigger()
-    fluid = w._items[("fluid_domain", None)]
-    walls = [fluid.child(i).text(0) for i in range(fluid.childCount()) if fluid.child(i).text(0).endswith("(wall)")]
-    assert walls == ["box (wall)"]
-    w.properties.select_regions(["xmin"])
-    w.properties.region_patch.setText("nose")
-    w.properties.region_patch.editingFinished.emit()
-    fluid = w._items[("fluid_domain", None)]
-    walls = [fluid.child(i).text(0) for i in range(fluid.childCount()) if fluid.child(i).text(0).endswith("(wall)")]
-    assert walls == ["nose (wall)", "box (wall)"]
+@pytest.mark.slow
+def test_real_per_part_forces_cover_all_patches(two_patch_mesh) -> None:
+    """[NUMERICS-REVIEW] After a short real run the cube's per-part force is the sum of its patches'
+    forces, and the all-walls total is the sum over the parts."""
+    from tests.real_cases import run_solver
+    from vortexcfd.foam.forces import parse_vector_row
+    from vortexcfd.foam.postprocessing import output_file
+    from vortexcfd.gui.solving import prepare_solver_case
+
+    project, job, _result = two_patch_mesh
+    project.update_solver(iterations=5)
+    case = prepare_solver_case(project)
+    control = (case / "system" / "controlDict").read_text()
+    for name in ("forces_Cube", "forces_front", "forces_body", "forces_Ball", "forceCoeffs_Cube"):
+        assert name in control
+    run = run_solver(case, timeout_s=120)
+    assert run is not None and run.exit_code == 0 and run.iterations == 5, run
+
+    def last(function: str) -> np.ndarray:
+        path = output_file(case, function, "force.dat")
+        rows = [r for r in (parse_vector_row(line) for line in path.read_text().splitlines()
+                            if not line.startswith("#")) if r is not None]
+        return np.array(rows[-1][1])  # (total, pressure, viscous) x (x, y, z)
+
+    cube, front, body, ball, total = (last(f) for f in ("forces_Cube", "forces_front", "forces_body",
+                                                         "forces_Ball", "forces1"))
+    print(f"\nforces at iteration 5 (N, total x y z): Cube {cube[0]}, front {front[0]}, body {body[0]}, "
+          f"front + body {front[0] + body[0]}, Ball {ball[0]}, all walls {total[0]}, Cube + Ball {cube[0] + ball[0]}")
+    scale = np.abs(total).max()
+    assert np.allclose(cube, front + body, rtol=1e-5, atol=1e-6 * scale)
+    assert np.allclose(total, cube + ball, rtol=1e-5, atol=1e-6 * scale)
+    assert np.abs(front[0]).max() > 0 and np.abs(body[0]).max() > 0
+
+
+def test_per_part_force_objects_cover_all_patches() -> None:
+    """[NUMERICS-REVIEW] A part with several patches gets forces_<part> / forceCoeffs_<part> over all
+    of them, next to the per-patch objects; a one-patch part keeps its single per-patch object."""
+    from vortexcfd.core.model import Inflow, Physics, Solvers
+    from vortexcfd.foam.mesh_case import force_report_keys, part_force_groups
+    from vortexcfd.foam.physics_case import SolverCaseInput, control_dict
+
+    cube = Part(name="Cube", source_file="c.stl", regions=[SurfaceRegion(name="a", members=[0], patch="front"),
+                                                            SurfaceRegion(name="b", members=[1], patch="body")])
+    ball = Part(name="Ball", source_file="b.stl")
+    groups = part_force_groups([cube, ball])
+    assert groups == (("Cube", ("front", "body")),)
+    assert force_report_keys([cube, ball]) == ("front", "body", "Ball", "Cube")
+    inp = SolverCaseInput(Physics(), Inflow(), Solvers(), ("front", "body", "Ball"), (-1, 1, -1, 1, -1, 1),
+                          part_groups=groups)
+    functions = control_dict(inp).content["functions"]
+    assert functions["forces_Cube"]["patches"] == ["front", "body"]
+    assert functions["forceCoeffs_Cube"]["patches"] == ["front", "body"]
+    assert functions["forces_front"]["patches"] == ["front"] and functions["forces_Ball"]["patches"] == ["Ball"]
+    assert functions["forces1"]["patches"] == ["front", "body", "Ball"]
+    # A part whose name is also a patch name keeps no separate group (the patch keeps the key).
+    clash = Part(name="front", source_file="f.stl", regions=[SurfaceRegion(name="x", members=[0], patch="p"),
+                                                             SurfaceRegion(name="y", members=[1], patch="q")])
+    assert part_force_groups([cube, clash]) == (("Cube", ("front", "body")),)

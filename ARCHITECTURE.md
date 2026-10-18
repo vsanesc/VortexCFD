@@ -45,7 +45,7 @@ src/vortexcfd/
   - `foam/dictfile.py`: thin wrapper encapsulating `foamlib` for OpenFOAM dictionary reading and writing.
   - `foam/case_writer.py`: orchestrates writing complete OpenFOAM case directory trees from file dictionaries.
   - `foam/reference_cases/`: generators for standard reference cases (e.g. cavity).
-  - `foam/mesh_case.py`: meshing dictionaries (blockMeshDict, surfaceFeatureExtractDict, snappyHexMeshDict, controlDict, fvSchemes/fvSolution) from plain data, `locationInMesh`, and the marker-protected case directory; `part_patch_names` / `wall_patch_names` give every part's wall patches (one snappyHexMesh region per patch, D-071).
+  - `foam/mesh_case.py`: meshing dictionaries (blockMeshDict, surfaceFeatureExtractDict, snappyHexMeshDict, controlDict, fvSchemes/fvSolution) from plain data, `locationInMesh`, and the marker-protected case directory; `part_patch_names` / `wall_patch_names` give every part's wall patches (one snappyHexMesh region per patch, D-071); `part_force_groups` the per-part force objects over all of a part's patches (D-073).
   - `foam/physics_case.py`: solver case files (controlDict with forceCoeffs and yPlus, fvSchemes, fvSolution, transport/turbulence properties, 0/ fields) from the physics, inflow and solver settings, and the inlet k/omega formulas.
   - `foam/yplus.py`: first-layer thickness for a target y+ from the flat-plate skin friction, and its inverse.
   - `foam/mesh_run.py`: `MeshRun` runs blockMesh, surfaceFeatureExtract, snappyHexMesh -overwrite and checkMesh in sequence on a worker thread through `FoamRun`.
@@ -90,6 +90,7 @@ src/vortexcfd/
   - `gui/settings_store.py`: the shared `QSettings` accessor.
   - `gui/scene.py`: one VTK actor per Part kept in sync with the Project (picking, visibility, selection colour), part file status, cached surface reports, and the translucent domain box (`DomainView`).
   - `gui/part_ops.py`: Qt-free part geometry operations returning the Part fields of one undoable edit: multi-solid STL and CAD import, re-tessellation, repair into a new file version, region rename / merge / split / patch assignment (D-069 to D-072).
+  - `gui/geometry_worker.py`: `GeometryWorker` (one geometry job at a time on a background thread: CAD reading and tessellation, re-tessellation, repair) and `IntersectionChecker` (self-intersection reports in the background); signals only, results applied on the GUI thread (D-073).
   - `gui/meshing.py`: Qt-free orchestration joining core, geometry and foam (it cannot live in `foam/`, which must not depend on `geometry/`): `readiness(project)` says why a project cannot be meshed and `prepare_job(project)` writes <project>/case (dictionaries and part STLs in metres).
   - `foam/mesh_estimate.py`: `estimate_mesh` gives background cells, refinement levels and surface cell size from the sizing targets (limit 2,000,000 background cells).
   - `gui/results_scene.py`: Results Scene: `read_results` (PyVista OpenFOAM reader, run by `ResultsLoader` on a worker thread, signals only), `ResultsView` (fields on the walls and the section plane, range modes, scalar bar in the `text` token).

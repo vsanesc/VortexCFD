@@ -27,6 +27,22 @@ ENVELOPE_EPSILON = 1e-3
 ENVELOPE_EDGE_FACTOR = 0.05
 
 
+@dataclass(frozen=True)
+class Fidelity:
+    """How closely a repaired surface follows the original (relative to its bounding-box diagonal)."""
+
+    box_change: float  # largest change of a bounding-box bound
+    on_surface: float  # fraction of the repaired points within DISTANCE_TOLERANCE of the original
+
+    @property
+    def ok(self) -> bool:
+        return self.box_change <= BOX_TOLERANCE and self.on_surface >= ON_SURFACE_FRACTION
+
+    def text(self) -> str:
+        return (f"bounding box changed by {self.box_change:.2%} of the diagonal, {self.on_surface:.1%} of the "
+                f"repaired points within {DISTANCE_TOLERANCE:.0%} of it from the original surface")
+
+
 @dataclass
 class RepairResult:
     mesh: pv.PolyData  # the repaired surface (the input unchanged when method is "none")
@@ -34,6 +50,7 @@ class RepairResult:
     after: SurfaceReport
     method: str  # "none" (already clean), "pymeshfix", "pytetwild envelope"
     notes: list[str] = field(default_factory=list)
+    fidelity: Fidelity | None = None  # of the returned surface (None when nothing was repaired)
 
     @property
     def remaining(self) -> list[str]:
@@ -68,18 +85,25 @@ def _polydata(points: np.ndarray, triangles: np.ndarray) -> pv.PolyData:
                        faces=np.hstack([np.full((len(triangles), 1), 3), triangles]).ravel())
 
 
+def fidelity(original: pv.PolyData, repaired: pv.PolyData) -> Fidelity:
+    """The fidelity metrics of a repaired surface (an empty one: box change 1, nothing on surface)."""
+    if repaired.n_cells == 0:
+        return Fidelity(1.0, 0.0)
+    diag = original.length
+    shift = float(np.abs(np.asarray(repaired.bounds) - np.asarray(original.bounds)).max())
+    distance = np.abs(repaired.compute_implicit_distance(original)["implicit_distance"])
+    return Fidelity(shift / diag, float((distance <= DISTANCE_TOLERANCE * diag).mean()))
+
+
 def faithful(original: pv.PolyData, repaired: pv.PolyData) -> tuple[bool, str]:
     """(ok, reason): see BOX_TOLERANCE and ON_SURFACE_FRACTION."""
     if repaired.n_cells == 0:
         return False, "the repair removed every triangle"
-    diag = original.length
-    shift = np.abs(np.asarray(repaired.bounds) - np.asarray(original.bounds)).max()
-    if shift > BOX_TOLERANCE * diag:
-        return False, f"the bounding box changed by {shift / diag:.1%} of the diagonal"
-    distance = np.abs(repaired.compute_implicit_distance(original)["implicit_distance"])
-    on_surface = float((distance <= DISTANCE_TOLERANCE * diag).mean())
-    if on_surface < ON_SURFACE_FRACTION:
-        return False, f"only {on_surface:.0%} of the repaired points lie on the original surface"
+    f = fidelity(original, repaired)
+    if f.box_change > BOX_TOLERANCE:
+        return False, f"the bounding box changed by {f.box_change:.1%} of the diagonal"
+    if f.on_surface < ON_SURFACE_FRACTION:
+        return False, f"only {f.on_surface:.0%} of the repaired points lie on the original surface"
     return True, ""
 
 
@@ -129,11 +153,11 @@ def repair_surface(mesh: pv.PolyData) -> RepairResult:
     after = check_surface(fixed)
     ok, reason = faithful(clean, fixed)
     if after.snappy_ready and ok:
-        return RepairResult(fixed, before, after, "pymeshfix", notes)
+        return RepairResult(fixed, before, after, "pymeshfix", notes, fidelity(clean, fixed))
     notes.append("pymeshfix: " + (reason if not ok else "; ".join(remaining_defects(after))) + "; using the envelope")
     wrapped = envelope(clean)
     after = check_surface(wrapped)
     ok, reason = faithful(clean, wrapped)
     if not ok:
         notes.append(f"pytetwild envelope: {reason}")
-    return RepairResult(wrapped, before, after, "pytetwild envelope", notes)
+    return RepairResult(wrapped, before, after, "pytetwild envelope", notes, fidelity(clean, wrapped))

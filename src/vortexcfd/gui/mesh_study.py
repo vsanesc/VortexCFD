@@ -5,6 +5,7 @@ foam (case files). case/ is never touched: every level is a marker-protected cas
 own, <project dir>/case_study/level_<n>/.
 """
 
+import dataclasses
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -189,8 +190,7 @@ def solver_writer(project: Project):
     level directory, run on the study's worker thread (it uses only plain data captured here)."""
     inp = solver_input(project)
     cores = project.sim.studies.mesh.cores
-    inp = type(inp)(inp.physics, inp.inflow, inp.solvers.model_copy(update={"cores": cores}), inp.patches,
-                    inp.parts_bounds, inp.symmetric, inp.reports)
+    inp = dataclasses.replace(inp, solvers=inp.solvers.model_copy(update={"cores": cores}))
     files = enable_clean_stop(build_solver_files(inp))
 
     def write(case: Path) -> None:

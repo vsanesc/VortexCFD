@@ -86,7 +86,9 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-069 | 2026-10-18 | Multi-solid STL import and self-intersection check | Proposed |
 | D-070 | 2026-10-18 | CAD import (STEP, IGES, BREP) through OCP | Proposed |
 | D-071 | 2026-10-18 | Surface regions and patch assignment (schema v8) | Proposed |
-| D-072 | 2026-10-18 | Geometry repair: pymeshfix with a fidelity check, fTetWild envelope fallback | Proposed |
+| D-072 | 2026-10-18 | Geometry repair: pymeshfix with a fidelity check, fTetWild envelope fallback | Proposed (fidelity heuristic accepted, D-074) |
+| D-073 | 2026-10-18 | Geometry work on background threads; per-part forces over all patches | Proposed |
+| D-074 | 2026-10-18 | Keep pymeshfix (AGPL-3), third-party licence list, fidelity metrics in the repair report | Accepted |
 
 ---
 
@@ -659,3 +661,21 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   - Corpus results (tests/test_repair.py): holes (11 open edges, 1049 -> 1056 triangles), flipped patch (10 triangles), duplicated faces (5, 11 non-manifold edges; 1061 -> 1042) repaired by pymeshfix; two overlapping spheres (172 self-intersecting triangles) rejected for pymeshfix (bounding box -33.8 %) and wrapped by the envelope (1440 -> 2160 triangles, volume 0.736 m3 for a 0.752 m3 union). Every result is snappy-ready.
 - Alternatives considered: trusting pymeshfix's result when the checks pass (it dropped most of a sphere); the envelope always (changes the triangulation of surfaces with a single hole); repairing in place (the original must stay).
 - Consequences: repair runs on the GUI thread (item 77); changing a CAD part's deflection re-tessellates from the CAD and drops the repair; the fidelity thresholds are a heuristic (item 76).
+
+## D-073 Geometry work on background threads; per-part forces over all patches
+- Status: Proposed. [NUMERICS-REVIEW] for the per-part force objects.
+- Context: docs/QUESTIONS.md item 77: CAD tessellation and repair froze the window (the fTetWild envelope took 6.5 s on 1,440 triangles; the self-intersection check about 8 s per million triangles). Review of D-071: a part split into several patches had per-patch force objects but none for the part.
+- Decision:
+  - gui/geometry_worker.py: `GeometryWorker` runs one job at a time on a Python thread and reports only through signals (job id, result or exception); slots run in the GUI thread. Jobs receive plain data or `snapshot(project)` (a Project over a deep copy of the state, no history) and never touch the live Project. Jobs: reading a CAD file and tessellating it at import (two jobs, the parts-or-regions question in between), re-tessellation after a deflection edit (the properties panel emits `retessellate_requested`), Edit > Repair part. While a job runs, Import Geometry, Repair part, Generate Mesh, the CAD deflection rows, the units and the region edits are disabled, and the status bar and the console show "<label>...". The result is applied with one `update_part` (one undoable step) only if the part still equals the snapshot's part; otherwise it is discarded with a warning ("changed during the repair: the result was discarded").
+  - `IntersectionChecker` computes full surface reports (with self-intersections) one after another on its own thread; the GUI shows the report without the self-intersection pass meanwhile (`checks.basic_report`; the Checks row says "checking..."), and on completion refreshes the Checks rows and the viewer highlight. A part imported in the session gets the console warning when its check finds intersections. The check is pending until the GUI thread has handled its result.
+  - Per-part forces: `mesh_case.part_force_groups` gives every part with several patches its key (the part's safe name; skipped when that name is also a patch name) and patches; the solver case writes `forces_<part>` / `forceCoeffs_<part>` over ALL of the part's patches next to the per-patch objects (`forces_<patch>`, written as before when the mesh has more than one wall patch), and the report lists offer both (`force_report_keys`). Before this change a two-patch part had only per-patch objects.
+  - Checked on a real run (tests/test_patches.py, marker slow): the cube (patches front and body) and a sphere Ball, 30,527 cells, 5 simpleFoam iterations: total force (N, x y z) Cube 284.947, -0.0200936, -0.131601 = front 192.1817, -9.19e-6, -6.80e-6 + body 92.76536, -0.0200844, -0.131594; all walls 312.1847, -0.535030, 0.135279 = Cube + Ball 312.18462, -0.5350302, 0.1352788 (agreement within the 7 significant digits of force.dat).
+- Alternatives considered: QThread subclasses (the existing workers use Python threads with signals); running the checks inside the import job (the part would appear only after the slow check); a modal progress dialog (blocks the window).
+- Consequences: GUI tests wait for the background work (tests/test_import.wait_geometry). The surface caches are plain dicts shared by the GUI and worker threads (single-key reads and writes).
+
+## D-074 Keep pymeshfix (AGPL-3), third-party licence list, fidelity metrics in the repair report
+- Status: Accepted (owner decision, 2026-10-18; docs/QUESTIONS.md items 74 and 76).
+- Context: pymeshfix 0.18.1 declares AGPL-3; the repair's fidelity check (D-072) is a heuristic.
+- Decision: pymeshfix stays: AGPL-3 is combinable with GPL-3 and its network clause does not apply to a desktop application. THIRD_PARTY_LICENSES.md lists every runtime dependency (direct and transitive) with its version and licence from the installed metadata, plus the external programs (OpenFOAM, ParaView). The fidelity heuristic is accepted as documented in D-072; the repair report adds two rows for the accepted surface: "Bounding box change" (percent of the diagonal, limit 2 %) and "Points on the original surface" (percent within 1 % of the diagonal, limit 90 %), and the console logs them.
+- Alternatives considered: replacing pymeshfix before a release (no equivalent hole filler among the approved dependencies).
+- Consequences: THIRD_PARTY_LICENSES.md must be updated whenever a dependency is added or upgraded.

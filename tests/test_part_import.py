@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 
 from tests.geometry_corpus import box_faces, two_spheres, write_multi_solid
-from tests.test_import import _fresh_cache, make_window  # noqa: F401 (fixtures)
+from tests.test_import import _fresh_cache, make_window, wait_geometry  # noqa: F401 (fixtures)
 from vortexcfd.geometry import regions
 from vortexcfd.geometry.loader import load_surface
 
@@ -58,6 +58,8 @@ def test_self_intersections_are_reported_and_highlighted(make_window, tmp_path: 
     two_spheres().save(str(path))
     w = make_window(import_path=path)
     w.act_import.trigger()
+    assert w.properties.check_values["intersections"].text() == "checking\u2026"
+    wait_geometry(w._qtbot, w)
     value = w.properties.check_values["intersections"]
     assert value.text() == "172" and value.property("warn") == "true"
     assert "172 self-intersecting triangles" in w.console.text()
@@ -73,6 +75,7 @@ def test_clean_part_shows_zero_self_intersections(make_window, tmp_path: Path) -
     write_multi_solid(path, [("all", box_faces()[0][1])])  # one solid: no question
     w = make_window(import_path=path)
     w.act_import.trigger()
+    wait_geometry(w._qtbot, w)
     assert w.dialogs.solids_asked == []
     assert w.properties.check_values["intersections"].text() == "0"
     assert w.scene.defect_actor is None

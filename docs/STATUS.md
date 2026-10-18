@@ -23,10 +23,13 @@ task (CLAUDE.md).
   split, patch assignment (list and viewer picking); one snappyHexMesh region and wall patch per
   patch, lost-part guard per patch; real two-patch cube mesh: front 724 and body 3,888 faces.
 
+- Follow-up (D-073, D-074): CAD reading / tessellation, re-tessellation, self-intersection checks
+  and repair run on background threads; per-part forces sum all of a part's patches (checked on a
+  real run); THIRD_PARTY_LICENSES.md; pymeshfix kept; repair report shows the fidelity metrics.
+
 Next candidates: unsteady runs (pimpleFoam), MRF rotating zones (PLAN 8.2), the meshing track
 (5.0 benchmark suite, 5.2 surface preparation). Open: docs/QUESTIONS.md items 67, 69, 70, 71, 72,
-73 and the new 74-77 (pymeshfix licence, its broken selection, repair fidelity heuristic, repair on
-the GUI thread).
+73 and 75 (pymeshfix's broken self-intersection selection).
 
 ## Phases
 
@@ -82,8 +85,6 @@ the GUI thread).
 - Courant number: parsed from logs (foam/logparse.py) but no warning in the GUI.
 - Parallel speedup saturates at about 3 on 8 cores (memory-bandwidth bound, docs/validation/parallel/README.md); the recommended-core cap of 4 is a constant for this machine (item 69).
 - Location of user projects and run outputs in the released app (run/ is development only).
-- pymeshfix 0.18.1 declares AGPL-3 (docs/QUESTIONS.md item 74).
-- Geometry repair and CAD tessellation run on the GUI thread (item 77).
 - Changing a CAD part's deflection re-tessellates from the CAD and drops an earlier repair (D-072).
 - cfMesh build spike on v2606.
 - Total cell estimate: only background cells are estimated today.

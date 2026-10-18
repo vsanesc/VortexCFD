@@ -46,7 +46,7 @@ from vortexcfd.foam.convergence import earliest_iteration
 from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.foam.run_record import RunRecord
-from vortexcfd.foam.mesh_case import part_patch_names, wall_patch_names
+from vortexcfd.foam.mesh_case import force_report_keys, part_patch_names, wall_patch_names
 from vortexcfd.geometry.cad import CadImportError
 from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.geometry.regions import RegionError
@@ -60,7 +60,7 @@ from vortexcfd.foam.physics_case import (
     reference_values,
 )
 from vortexcfd.gui.meshing import MeshingNotReady, parts_layout, plan_layers_for, thin_part_warnings
-from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_status, report_for_part
+from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_file, part_status, report_for_part
 from vortexcfd.gui.study_rows import StudyRowsMixin
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
 
@@ -321,6 +321,8 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
     study_run_requested = Signal(str)  # "mesh" or "polar": Run / Stop on a study node (D-066, D-067)
     study_results_requested = Signal(str)
     regions_selected = Signal(int, list)  # part index, selected region names (viewer highlight, D-071)
+    # part index, linear (m) or None, angular (deg) or None: re-tessellate on the worker (D-073)
+    retessellate_requested = Signal(int, object, object)
 
     def __init__(self, project: Project, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -435,6 +437,8 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             button.setObjectName("tbBtn")
             buttons.addWidget(button, 1)
         self._layout.addWidget(self._region_buttons)
+        self.geometry_busy = False
+        self.request_intersections = None  # callable(path, units): background check (D-073)
         self.region_split.clicked.connect(self._split_region)
         self.region_merge.clicked.connect(self._merge_regions)
         self.region_own_patches.clicked.connect(self._patch_per_region)
@@ -1264,7 +1268,7 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
 
     def _patches_and_probes(self) -> tuple[list[str], list[str]]:
         sim = self._project.sim
-        return (list(wall_patch_names(sim.geometry.parts)), [p.name for p in sim.reports.probes])
+        return (list(force_report_keys(sim.geometry.parts)), [p.name for p in sim.reports.probes])
 
     def _quantity_options(self) -> list[str]:
         """Quantities an asymptotic criterion can watch in this project (D-060)."""
@@ -1651,6 +1655,8 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             self._rows[f"check_{key}"].setVisible(report is not None)
         if report is None:
             return
+        if report.intersections_pending and self.request_intersections is not None:
+            self.request_intersections(part_file(self._project, part), part.units)
         size = " \u00d7 ".join(f"{v:.4g}" for v in report.size)
         values = {
             "triangles": (str(report.n_triangles), False),
@@ -1663,6 +1669,7 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             "orientation": (str(report.inconsistent_orientation), False),
             "intersections": ((str(report.self_intersections), report.self_intersections > 0)
                               if report.self_intersections is not None
+                              else ("checking\u2026", False) if report.intersections_pending
                               else (report.intersections_note, True)),
             "watertight": ("yes" if report.watertight else "no", not report.watertight),
             "normals": (("point inward", True) if report.normals_inward
@@ -1784,6 +1791,9 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         self.region_patch.setEnabled(bool(names))
         self.region_merge.setEnabled(len(names) >= 2)
         self.region_split.setEnabled(len(names) <= 1)
+        if self.geometry_busy:  # a geometry job is running (D-073)
+            for widget in (self.region_name, self.region_patch, self.region_split, self.region_merge):
+                widget.setEnabled(False)
         self.region_name.blockSignals(False)
         self.region_patch.blockSignals(False)
 
@@ -1848,29 +1858,36 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             widget.blockSignals(False)
 
     def _commit_cad(self, which: str) -> None:
-        """Re-tessellate the CAD part with the edited deflection (one undoable step)."""
-        if self._kind != "part" or self._index is None:
+        """Ask for a re-tessellation with the edited deflection (run on the geometry worker and
+        applied as one undoable step, D-073)."""
+        if self._kind != "part" or self._index is None or self.geometry_busy:
             return
         part = self._project.sim.geometry.parts[self._index]
         if part.cad is None:
             return
-        try:
-            if which == "linear":
-                value = self.cad_linear.value()
-                if not value > 0 or value == part.cad.linear_deflection:
-                    raise ValueError("" if value == part.cad.linear_deflection else
-                                     "The linear deflection must be a positive length")
-                fields = part_ops.retessellate(self._project, self._index, linear_deflection=value)
-            else:
-                value = round(self.cad_angular.value(), 1)
-                if value == part.cad.angular_deflection:
-                    raise ValueError("")
-                fields = part_ops.retessellate(self._project, self._index, angular_deflection=value)
-            self._project.update_part(self._index, **fields)
-        except (ValueError, TypeError, IndexError, OSError, CadImportError, SurfaceLoadError) as exc:
-            if str(exc):
-                self.message.emit(str(exc))
-        self.refresh()
+        if which == "linear":
+            value = self.cad_linear.value()
+            if value == part.cad.linear_deflection:
+                return
+            if not value > 0:
+                self.message.emit("The linear deflection must be a positive length")
+                self.refresh()
+                return
+            self.retessellate_requested.emit(self._index, value, None)
+        else:
+            value = round(self.cad_angular.value(), 1)
+            if value == part.cad.angular_deflection:
+                return
+            self.retessellate_requested.emit(self._index, None, value)
+
+    def set_geometry_busy(self, busy: bool) -> None:
+        """Disable the part geometry edits while a geometry job runs (D-073)."""
+        self.geometry_busy = busy
+        for widget in (self.cad_linear, self.cad_angular, self.region_name, self.region_patch,
+                       self.region_split, self.region_merge, self.region_own_patches, self.units_combo):
+            widget.setEnabled(not busy)
+        if not busy:
+            self._update_region_fields()
 
     def _commit_units(self, units: str) -> None:
         try:

@@ -37,6 +37,11 @@ class SurfaceReport:
     intersecting: tuple[int, ...] = field(default=(), repr=False)
 
     @property
+    def intersections_pending(self) -> bool:
+        """The self-intersection pass has not run yet but will (the surface is small enough)."""
+        return self.self_intersections is None and self.n_triangles <= MAX_INTERSECTION_TRIANGLES
+
+    @property
     def intersections_note(self) -> str:
         """Why the self-intersection count is missing ('' when it was checked)."""
         if self.self_intersections is not None:
@@ -78,11 +83,14 @@ class SurfaceReport:
         return head + ("; " + ", ".join(problems) if problems else "")
 
 
-_report_cache: dict[tuple, SurfaceReport] = {}
+_report_cache: dict[tuple, SurfaceReport] = {}  # full reports (with self-intersections)
+_basic_cache: dict[tuple, SurfaceReport] = {}  # without the self-intersection pass
 
 
 def surface_report(path, units: str) -> SurfaceReport:
-    """Report for a surface file, computed once per (resolved path, mtime, units).
+    """Full report for a surface file (self-intersections included), computed once per
+    (resolved path, mtime, units). Slow for large surfaces (about 8 s per million triangles): the
+    GUI runs it on a worker thread and uses ``basic_report`` meanwhile.
 
     The report is cached alongside the loader cache (``loader.clear_cache`` clears both).
     Raises what ``load_surface`` raises.
@@ -97,7 +105,31 @@ def surface_report(path, units: str) -> SurfaceReport:
     return report
 
 
+def cached_report(path, units: str) -> SurfaceReport | None:
+    """The full report if it was already computed, else None (never computes)."""
+    from pathlib import Path
+
+    try:
+        return _report_cache.get(loader.cache_key(Path(path), units))
+    except OSError:
+        return None
+
+
+def basic_report(path, units: str) -> SurfaceReport:
+    """The full report when cached, otherwise the report without the self-intersection pass
+    (``self_intersections`` None), cached. Fast: safe on the GUI thread."""
+    from pathlib import Path
+
+    key = loader.cache_key(Path(path), units)
+    report = _report_cache.get(key) or _basic_cache.get(key)
+    if report is None:
+        report = check_surface(loader.load_surface(Path(path), units), intersections=False)
+        _basic_cache[key] = report
+    return report
+
+
 loader._clear_hooks.append(_report_cache.clear)
+loader._clear_hooks.append(_basic_cache.clear)
 
 
 def _triangles(mesh: pv.PolyData) -> np.ndarray:

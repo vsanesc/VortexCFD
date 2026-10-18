@@ -10,7 +10,7 @@ from vtkmodules.vtkRenderingCore import vtkCellPicker, vtkPropPicker
 
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
-from vortexcfd.geometry.checks import SurfaceReport, surface_report
+from vortexcfd.geometry.checks import SurfaceReport, basic_report, cached_report
 from vortexcfd.geometry.domain import DomainBox, compute_domain, face_corners
 from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
 from vortexcfd.gui.theme import BOUNDARY_FACE_OPACITY, SECTION_EPS_FRACTION, DOMAIN_OPACITY, HIGHLIGHT_OPACITY, PICK_MOVE_TOLERANCE_PX, Theme
@@ -39,12 +39,13 @@ def part_status(project: Project, part: Part) -> str:
 
 
 def report_for_part(project: Project, part: Part) -> SurfaceReport | None:
-    """Surface report for the part's file (cached); None if there is no loadable file."""
+    """Surface report for the part's file (cached); None if there is no loadable file. Without the
+    self-intersection pass until the background check has cached the full report (D-073)."""
     path = part_file(project, part)
     if path is None or not path.is_file():
         return None
     try:
-        return surface_report(path, part.units)  # cached: never recomputed on selection
+        return basic_report(path, part.units)  # cached: never recomputed on selection
     except (OSError, SurfaceLoadError):
         return None
 
@@ -139,10 +140,8 @@ class PartScene:
         if index is None or not 0 <= index < len(self.records) or self.records[index].source is None:
             return ()
         path, units = self.records[index].source
-        try:
-            return surface_report(path, units).intersecting
-        except (OSError, SurfaceLoadError):
-            return ()
+        report = cached_report(path, units)  # computed by the background checker (D-073)
+        return report.intersecting if report is not None else ()
 
     def show_regions(self, index: int | None, triangles) -> None:
         """Draw the given triangles of a part (its selected regions) in the selection colour."""

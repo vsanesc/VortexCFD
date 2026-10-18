@@ -9,7 +9,7 @@ import pytest
 import pyvista as pv
 
 from tests.geometry_corpus import BROKEN, box_faces, sphere_with_holes, write_multi_solid
-from tests.test_import import _fresh_cache, make_window  # noqa: F401 (fixtures)
+from tests.test_import import _fresh_cache, make_window, wait_geometry  # noqa: F401 (fixtures)
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
 from vortexcfd.geometry import regions, repair
@@ -114,11 +114,14 @@ def test_repair_action_shows_the_report(make_window, tmp_path: Path) -> None:
     w.act_import.trigger()
     assert w.act_repair_part.isEnabled()
     w.act_repair_part.trigger()
+    wait_geometry(w._qtbot, w)
     ((part, method, rows, notes),) = w.dialogs.repair_reports
     assert (part, method, notes) == ("ball", "pymeshfix", [])
     table = {q: (b, a) for q, b, a in rows}
     assert table["Watertight"] == ("no", "yes") and table["Open edges"] == ("11", "0")
     assert table["Self-intersections"] == ("0", "0") and table["Triangles"] == ("1049", "1056")
+    assert table["Bounding box change"][1].endswith("of the diagonal (limit 2%)")
+    assert table["Points on the original surface"][1].startswith("100.0% within 1% of the diagonal")
     assert w.project.sim.geometry.parts[0].source_file == "geometry/ball_repaired.stl"
     assert w.project.undo_label == "Edit part 'ball' (source_file)"
     assert w.properties.check_values["watertight"].text() == "yes"
