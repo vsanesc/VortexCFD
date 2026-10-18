@@ -31,8 +31,10 @@ task (CLAUDE.md).
   converged low-Re sphere (dCd 5e-7, dCl 1.6e-4 relative; speedup 2.0); on the oscillating 20 m/s
   sphere they do not (docs/QUESTIONS.md item 66).
 
-Tasks 6.1 and 6.6 are complete on this branch. Next steps (docs/PLAN.md): a mesh independence
-study workflow with the GCI (6.4), an angle-of-attack sweep for polars (6.5).
+Tasks 6.1 and 6.6 are complete on this branch. Next steps (docs/PLAN.md): 6.4 mesh independence
+study with the GCI, then 6.5 angle-of-attack sweep (polars), which can use the parallel runs.
+Open: docs/QUESTIONS.md items 66 (serial / parallel acceptance, speedup), 67 (an offscreen worker
+crash) and 68 (fixture logs ignored by .gitignore).
 
 ## Phases
 

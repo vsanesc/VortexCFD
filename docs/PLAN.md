@@ -176,7 +176,7 @@ Reality check: "as powerful as STAR-CCM+" is not a deliverable that can be verif
 
 ## Phase 6 — Post-processing (in-GUI)
 
-### 6.1 Monitors and reports — *done (Task 6.1: stopping criteria, convergence banner, force breakdown, mass balance, probes, y+ histogram)*
+### 6.1 Monitors and reports — *done (Task 6.1: stopping criteria (runTimeControl for residuals, app-side range-based asymptotic criterion), convergence banner, force breakdown, mass balance, probes, y+ histogram)*
 - Residuals, force/moment coefficients (CL, CD, CM with reference area/length/axes defined in GUI), probes, surface integrals, mass flow; convergence criteria and auto-stop.
 - Acceptance: coefficients match OpenFOAM `forceCoeffs` output on reference cases.
 - Monitor report slots: the residuals panel shows N report slots; the user assigns any defined report (forces, coefficients, probes, y+) to a slot; convergence banner shown only when stopping criteria exist.
@@ -200,7 +200,7 @@ Reality check: "as powerful as STAR-CCM+" is not a deliverable that can be verif
 - Deliverables: a sweep definition (start, end, step or explicit list), one run per angle (sequential, then parallel with 6.6), Cl-alpha, Cd-Cl and Cm-alpha charts and a CSV export; runs that end at the iteration limit or oscillate are flagged in the polar.
 - Acceptance: the reference values and force directions follow alpha in every run (D-050 check per angle); a NACA 0012 polar against reference data once Phase 1.2's wing case exists.
 
-### 6.6 Parallel runs
+### 6.6 Parallel runs — *done (Task 6.6: decomposePar / mpirun / reconstructPar, clean stop through mpirun; serial and parallel compared on the converged low-Re sphere, docs/QUESTIONS.md item 66)*
 - Goal: decomposePar / mpirun / reconstructPar from the runner with a clean stop for parallel solvers (today only single-process runs, D-010, D-046).
 - Acceptance: the same results (to solver tolerance) and the same stopping criteria behaviour in serial and in parallel on the coarse sphere.
 
