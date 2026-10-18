@@ -17,6 +17,8 @@ build/
 
 # OpenFOAM runtime artifacts / temporary logs
 log.*
+# ...except the real logs kept as test fixtures (docs/QUESTIONS.md item 68)
+!tests/data/**/log.*
 cavity/
 run/
 *:Zone.Identifier

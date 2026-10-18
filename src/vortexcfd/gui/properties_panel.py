@@ -35,7 +35,7 @@ from vortexcfd.core.model import Probe
 from vortexcfd.core.reports import (PROBE_NAME_RE, criterion_quantities, default_floor, missing_reference,
                                     report_label)
 from vortexcfd.foam.forces import MASS_WARNING
-from vortexcfd.foam.parallel import physical_cores
+from vortexcfd.foam.parallel import CELLS_PER_CORE, EFFICIENT_CORES, physical_cores, recommended_cores
 from vortexcfd.foam.wall_fields import case_yplus_histogram
 from vortexcfd.gui.charts import YPlusHistogramChart
 from vortexcfd.gui.report_views import ForcesTable
@@ -54,6 +54,7 @@ from vortexcfd.foam.physics_case import (
 )
 from vortexcfd.gui.meshing import MeshingNotReady, parts_layout, plan_layers_for, thin_part_warnings
 from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_status, report_for_part
+from vortexcfd.gui.study_rows import StudyRowsMixin
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
 
 # Allowed units are read from the model so the two never drift apart.
@@ -301,7 +302,7 @@ MESH_SECTIONS = {
 }
 
 
-class PropertiesPanel(QWidget):
+class PropertiesPanel(StudyRowsMixin, QWidget):
     """Form for the selected node. Never mutates the model: all edits use the Project API.
 
     The panel does not subscribe to the project; its owner calls ``refresh()`` on changes.
@@ -309,6 +310,8 @@ class PropertiesPanel(QWidget):
 
     message = Signal(str)  # short text for the status bar
     pending_changed = Signal()  # an uncommitted name edit appeared or was resolved
+    study_run_requested = Signal(str)  # "mesh" or "polar": Run / Stop on a study node (D-066, D-067)
+    study_results_requested = Signal(str)
 
     def __init__(self, project: Project, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -486,6 +489,11 @@ class PropertiesPanel(QWidget):
         self._section("inflow_computed", "Computed")
         self.inflow_k = self._ro_row("inflow_k", "Turbulence k")
         self.inflow_omega = self._ro_row("inflow_omega", "Turbulence omega")
+        # Solvers node: the recommended core count for the current mesh (D-064).
+        self.solvers_recommended = self._ro_row("solvers_recommended", "Recommended cores")
+        self.solvers_recommended.setToolTip(
+            f"min(physical cores, cells / {CELLS_PER_CORE:,}, {EFFICIENT_CORES}), at least 1: the measured speedup "
+            f"saturates beyond {EFFICIENT_CORES} cores on this machine (docs/validation/parallel/README.md)")
         # Solvers node: the last run (case/vortexcfd_run.json), or "No solver run yet".
         self._run_record: RunRecord | None = None
         self._results_stale = False
@@ -613,6 +621,8 @@ class PropertiesPanel(QWidget):
         self.run_empty.setObjectName("muted")
         _wrap(self.run_empty)
         self._layout.addWidget(self.run_empty)
+        # Mesh Study and Polar Sweep nodes (under Reports & Monitors; gui/study_rows.py).
+        self._build_study_rows(_dspin, _spin, _combo)
         self._layout.addWidget(self.info_label)
         self._layout.addStretch(1)
         self.apply_metrics(metrics(), DARK)
@@ -753,6 +763,11 @@ class PropertiesPanel(QWidget):
         self.mesh_empty.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
         self.stop_empty.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
         self._stop_add_row.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
+        for _host, box in (self._ms_buttons, self._ps_buttons):
+            box.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
+            box.setSpacing(m.s2)
+        for button in (self.ms_run, self.ms_results, self.ps_run, self.ps_results, self.ms_quantities):
+            button.setMinimumHeight(m.field)
         self._probe_add_row.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
         self.probe_add.setMinimumHeight(m.field)
         self._forces_box.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
@@ -824,6 +839,9 @@ class PropertiesPanel(QWidget):
         self._refresh_reports(self._kind == "reports")
         self._refresh_probes(self._kind == "probes")
         self._refresh_reference(self._kind == "reference_values")
+        study_patches, study_probes = self._patches_and_probes() if self._kind == "mesh_study" else ([], [])
+        self._refresh_mesh_study(self._kind == "mesh_study", study_patches, study_probes)
+        self._refresh_polar(self._kind == "polar_sweep")
         self._refresh_mesh_settings(self._kind == "mesh")
         self._refresh_mesh(self._kind == "mesh")
         self.info_label.setVisible(
@@ -921,6 +939,15 @@ class PropertiesPanel(QWidget):
             finally:
                 for w in widgets:
                     w.blockSignals(False)
+        solvers = self._kind == "solvers"
+        self._rows["solvers_recommended"].setVisible(solvers)
+        if solvers:
+            cells = self._mesh_report.cells if self._mesh_report is not None else None
+            if cells:
+                n = recommended_cores(cells, PHYSICAL_CORES)
+                self.solvers_recommended.setText(f"{n} ({cells:,} cells, {CELLS_PER_CORE:,} per core)")
+            else:
+                self.solvers_recommended.setText("\u2014 (generate the mesh first)")
         inflow = self._kind == "inflow"
         self._sections["inflow_computed"].setVisible(inflow)
         self._rows["inflow_k"].setVisible(inflow)

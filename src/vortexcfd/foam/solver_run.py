@@ -30,7 +30,13 @@ from pathlib import Path
 from vortexcfd.core.model import StoppingCriteria
 from vortexcfd.foam import convergence
 from vortexcfd.foam.logparse import LogParser, TimeStep
-from vortexcfd.foam.parallel import DECOMPOSE_COMMAND, RECONSTRUCT_COMMAND, parse_decomposition, solver_command
+from vortexcfd.foam.parallel import (
+    DECOMPOSE_COMMAND,
+    DEFAULT_BINDING,
+    RECONSTRUCT_COMMAND,
+    parse_decomposition,
+    solver_command,
+)
 from vortexcfd.foam.postprocessing import ReportMonitor
 from vortexcfd.foam.residuals import ResidualHistory
 from vortexcfd.foam.runner import FoamRun, RunResult
@@ -132,6 +138,7 @@ class SolverRun:
         runner_factory: Callable[[], FoamRun] = FoamRun,
         stopping: StoppingCriteria | None = None,
         cores: int = 1,
+        binding: str = DEFAULT_BINDING,
     ) -> None:
         self.case_dir = Path(case_dir)
         self._on_line, self._on_step, self._on_done = on_line, on_step, on_done
@@ -144,6 +151,7 @@ class SolverRun:
         self._result: SolverRunResult | None = None
         self.parser = LogParser()
         self.cores = max(1, int(cores))
+        self.binding = binding  # mpirun placement (foam/parallel.BINDINGS, D-064)
         self._stopping = stopping if convergence.app_side(stopping) else None
         self._history = ResidualHistory()
         self._reports = ReportMonitor(self.case_dir) if self._stopping is not None else None
@@ -282,7 +290,7 @@ class SolverRun:
                 with self._lock:
                     stopped_early = self._stop
             if error is None and not (self.cores > 1 and stopped_early):
-                res = self._step(solver_command(SOLVER, self.cores), LOG_NAME, self._line, clean_stop=True)
+                res = self._step(solver_command(SOLVER, self.cores, self.binding), LOG_NAME, self._line, clean_stop=True)
                 if self.cores > 1 and res.exit_code == 0:
                     reconstructed = self._reconstruct()
         except (OSError, ValueError, RuntimeError) as exc:

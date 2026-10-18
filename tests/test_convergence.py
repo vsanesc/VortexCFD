@@ -90,7 +90,7 @@ def test_v5_fixture_migrates_residual_targets_to_criteria() -> None:
     raw = json.loads((DATA / "project_v5.json").read_text())
     assert raw["schema_version"] == 5 and "residual_p" in raw["solvers"]
     sim = load_simulation(DATA / "project_v5.json")
-    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 6
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 7
     stop = sim.solvers.stopping
     assert stop.combine == "all" and stop.min_iterations == 0
     assert [(c.field, c.threshold) for c in stop.criteria] == [("p", 2e-5), ("U", 3e-6), ("k", 1e-5), ("omega", 4e-6)]
@@ -327,6 +327,7 @@ def test_oscillation_on_a_real_series() -> None:
 
 
 @pytest.mark.slow
+@pytest.mark.long  # real run above 60 s (D-043)
 def test_asymptotic_cd_criterion_stops_simplefoam_on_the_session_mesh(sphere_mesh, tmp_path: Path) -> None:
     """An asymptotic criterion on Cd (window 20, tolerance 2e-2, i.e. a 2 % range) is met from the
     live files and the app stops simpleFoam with the clean stop before the 250-iteration limit: a

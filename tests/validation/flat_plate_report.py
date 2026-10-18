@@ -74,10 +74,10 @@ def grid_study(rows: list[dict]) -> dict:
     """Celik GCI of Cf(X_REF) over three grid rows (coarse first) and the error of the extrapolated
     value against the TMR incompressible reference."""
     fine, medium, coarse = (r["cf_0.97"] for r in reversed(rows))
-    gci = tmr.celik_gci(fine, medium, coarse)
+    gci = tmr.celik_gci(fine, medium, coarse, 2.0, 2.0)
     finest_ref, reference = tmr.incompressible_reference()
     error = (gci.extrapolated - reference) / reference
-    return {"grids": rows, "order": gci.order, "monotonic": gci.monotonic,
+    return {"grids": rows, "order": gci.order, "monotonic": gci.convergence == "monotonic",
             "extrapolated": gci.extrapolated, "gci_fine": gci.gci_fine,
             "approx_error": gci.approx_error, "extrapolated_error": gci.extrapolated_error,
             "reference": reference, "reference_finest_grids": finest_ref,

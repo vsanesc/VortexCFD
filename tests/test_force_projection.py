@@ -93,6 +93,7 @@ def test_forces_function_object_is_written_next_to_force_coeffs() -> None:
 
 
 @pytest.mark.slow
+@pytest.mark.long  # real run above 60 s (D-043)
 def test_projection_agrees_on_a_real_run(tmp_path: Path) -> None:
     """Mesh the flattened ellipsoid and run 40 iterations at alpha = 10 deg with the app's files."""
     import pyvista as pv

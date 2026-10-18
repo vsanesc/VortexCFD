@@ -1,5 +1,5 @@
-"""Small QPainter charts (no plotting library): the y+ histogram of the wall faces (D-061) and Cp
-along wall sections (D-062)."""
+"""Small QPainter charts (no plotting library): the y+ histogram of the wall faces (D-061), Cp
+along wall sections (D-062), and the mesh study and polar charts with point markers (D-066, D-067)."""
 
 import math
 
@@ -96,6 +96,9 @@ class LineChart(QWidget):
         self.x_caption, self.y_caption, self.invert_y = x_caption, y_caption, invert_y
         # (legend text, colour, pen style name, [(x, y)])
         self.series: list[tuple[str, str, str, list[tuple[float, float]]]] = []
+        # Point markers per series index: [(x, y, flagged)]; a flagged point is drawn hollow in the
+        # warning colour (a run that did not meet its stopping criteria).
+        self.markers: dict[int, list[tuple[float, float, bool]]] = {}
         self._theme: Theme = DARK
         self.setObjectName("canvas")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -105,8 +108,11 @@ class LineChart(QWidget):
         self._theme = theme
         self.update()
 
-    def set_series(self, series) -> None:
-        self.series = [s for s in series if s[3]]
+    def set_series(self, series, markers: dict[int, list[tuple[float, float, bool]]] | None = None) -> None:
+        kept = [i for i, s in enumerate(series) if s[3]]
+        self.series = [series[i] for i in kept]
+        markers = markers or {}
+        self.markers = {new: markers[old] for new, old in enumerate(kept) if old in markers}
         self.update()
 
     def ranges(self) -> tuple[tuple[float, float], tuple[float, float]]:
@@ -181,6 +187,18 @@ class LineChart(QWidget):
             painter.setPen(pen)
             painter.drawPolyline(QPolygonF([px(x, y) for x, y in pts]))
         painter.restore()
+        radius = max(3.0, fm.height() / 4)
+        for i, points in self.markers.items():
+            color = QColor(self.series[i][1])
+            for x, y, flagged in points:
+                if flagged:
+                    painter.setPen(QPen(QColor(t.warning), 2))
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                else:
+                    painter.setPen(QPen(color, 1))
+                    painter.setBrush(color)
+                painter.drawEllipse(px(x, y), radius, radius)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         col_w = (self.width() - 2 * pad) / 2
         for i, (name, color, style, _pts) in enumerate(self.series):
             x = pad + (i % 2) * col_w

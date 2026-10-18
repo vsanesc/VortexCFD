@@ -1,0 +1,63 @@
+{
+  "cells": 989835,
+  "background_cells_target": 900000,
+  "iterations": 100,
+  "rows": [
+    {
+      "binding": "default",
+      "cores": 1,
+      "wall_s": 443.9,
+      "speedup": 1.0,
+      "efficiency": 1.0,
+      "cells_per_core": 989835
+    },
+    {
+      "binding": "default",
+      "cores": 2,
+      "wall_s": 270.6,
+      "speedup": 1.64,
+      "efficiency": 0.82,
+      "cells_per_core": 494917
+    },
+    {
+      "binding": "default",
+      "cores": 4,
+      "wall_s": 175.3,
+      "speedup": 2.53,
+      "efficiency": 0.63,
+      "cells_per_core": 247458
+    },
+    {
+      "binding": "default",
+      "cores": 8,
+      "wall_s": 148.2,
+      "speedup": 3.0,
+      "efficiency": 0.37,
+      "cells_per_core": 123729
+    },
+    {
+      "binding": "core",
+      "cores": 2,
+      "wall_s": 230.0,
+      "speedup": 1.93,
+      "efficiency": 0.96,
+      "cells_per_core": 494917
+    },
+    {
+      "binding": "core",
+      "cores": 4,
+      "wall_s": 164.2,
+      "speedup": 2.7,
+      "efficiency": 0.68,
+      "cells_per_core": 247458
+    },
+    {
+      "binding": "core",
+      "cores": 8,
+      "wall_s": 153.8,
+      "speedup": 2.89,
+      "efficiency": 0.36,
+      "cells_per_core": 123729
+    }
+  ]
+}

@@ -14,11 +14,13 @@ from tests.fake_solver import FakeRunner, iteration
 from tests.test_solver_gui import make_window  # noqa: F401 (fixture)
 from vortexcfd.core.model import Inflow, Physics, Solvers, StoppingCriteria
 from vortexcfd.foam.parallel import (
+    CELLS_PER_CORE,
     METHOD,
     decompose_par_dict,
     parse_decomposition,
     physical_cores,
     processor_dirs,
+    recommended_cores,
     solver_command,
 )
 from vortexcfd.foam.solver_run import CRASHED, ITERATION_LIMIT, STOPPED, SolverRun
@@ -33,7 +35,23 @@ def test_decompose_par_dict_and_commands() -> None:
     with pytest.raises(ValueError):
         decompose_par_dict(1)
     assert solver_command("simpleFoam", 1) == ["simpleFoam"]
-    assert solver_command("simpleFoam", 4) == ["mpirun", "-np", "4", "simpleFoam", "-parallel"]
+    assert solver_command("simpleFoam", 4, "default") == ["mpirun", "-np", "4", "simpleFoam", "-parallel"]
+    assert solver_command("simpleFoam", 4, "core") == ["mpirun", "-np", "4", "--bind-to", "core", "--map-by", "core",
+                                                       "simpleFoam", "-parallel"]
+    assert solver_command("simpleFoam", 1, "core") == ["simpleFoam"]
+
+
+def test_recommended_cores() -> None:
+    """min(physical cores, cells / 50,000 rounded down, 4), at least 1 (D-064: the measured
+    efficient range ends at 4 ranks)."""
+    assert recommended_cores(192_220, 12) == 3
+    assert recommended_cores(1_000_000, 12) == 4
+    assert recommended_cores(1_000_000, 2) == 2
+    assert recommended_cores(1_000_000, 12, efficient=12) == 12
+    assert recommended_cores(10_000, 12) == 1
+    assert recommended_cores(0, 12) == 1
+    assert CELLS_PER_CORE == 50_000
+    assert solver_command("simpleFoam", 4) == ["mpirun", "-np", "4", "simpleFoam", "-parallel"]  # default binding
 
 
 @pytest.mark.skipif(not FOAM_SRC.is_dir(), reason="OpenFOAM v2606 sources not installed")
@@ -262,6 +280,7 @@ STEADY_SPEED = 0.003
 
 
 @pytest.mark.slow
+@pytest.mark.long  # real run above 60 s (D-043)
 def test_serial_and_four_cores_agree_on_the_sphere(sphere_mesh, mpi_slot, tmp_path: Path) -> None:
     """The same 300 iterations of the coarse sphere at alpha 4 deg and Re 200 (steady, converged)
     in serial and on 4 cores (scotch): Cd and Cl of the last iteration agree within 0.5 %; the
@@ -348,3 +367,17 @@ def test_console_shows_the_decomposition_and_run_states_are_unchanged(make_windo
     assert w.run_record.state == "stopped" and "Reconstructed the latest time" in w.console.text()
     assert w.top_bar.run_button.text() == "Run Solver"
     assert factory.used[1].command == ["mpirun", "-np", str(cores), "simpleFoam", "-parallel"]
+
+
+def test_solvers_node_shows_the_recommended_cores(make_window) -> None:
+    """The Solvers node shows min(physical cores, cells / 50,000) for the current mesh (D-064)."""
+    w = make_window()  # fake mesh record: 1234 cells
+    w.tree.setCurrentItem(w._items[("solvers", None)])
+    row = w.properties._rows["solvers_recommended"]
+    assert row.isVisibleTo(w.properties)
+    assert w.properties.solvers_recommended.text() == "1 (1,234 cells, 50,000 per core)"
+    w.tree.setCurrentItem(w._items[("inflow", None)])
+    assert row.isHidden()
+    unmeshed = make_window(mesh=False)
+    unmeshed.tree.setCurrentItem(unmeshed._items[("solvers", None)])
+    assert unmeshed.properties.solvers_recommended.text() == "— (generate the mesh first)"

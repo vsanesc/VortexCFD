@@ -1,40 +1,45 @@
 # Status
 
-Updated 2026-10-18 (Task 6.1 review fixes, Task 6.6). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
+Updated 2026-10-18 (task/6.4-studies: Tasks 6.4 and 6.5 done). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
 task (CLAUDE.md).
 
 ## Current branch
 
-**task/6.1-monitors** (not yet published; Task 6.2 was merged in PR #14). Done on it:
-- Part A (D-058, D-059; schema v6): stopping criteria under Solvers (residual and asymptotic criteria,
-  "all"/"any", minimum iterations; the iteration limit always applies); a Stopping Criteria node;
-  a convergence banner and a per-criterion table (value, threshold, satisfied) in the monitors
-  column; the oscillation warning.
-- Part B (D-060, D-061): Cd and Cl split into pressure and viscous parts per part and in total, Cm,
-  centre of pressure, mass balance (warning above 0.1 %), probes (reports and asymptotic criteria),
-  wallShearStress written at write times, Cf and Cf_x in the Results Scene with a separation
-  highlight, and the y+ histogram on the Reports & Monitors node.
-- Part C (D-062): Sections tool in the Results Scene: Cp against x/c on y or z wall sections (one position
-  or N stations), two branches per loop, CSV export.
-- Review fixes (2026-10-18, D-058 to D-062 Accepted; docs/QUESTIONS.md items 60-65 closed): the
-  asymptotic criterion is (max - min) / max(|mean|, floor) over the window, evaluated by the app,
-  which stops the solver with the clean stop (residual-only criteria keep runTimeControl); the
-  oscillation check uses the same normalisation; the end state is "Criteria met: <names>" (old
-  records migrated); x_cp in body axes with a 1e-3 threshold; probes interpolated with cellPoint;
-  sections ordered along the cut and split at min/max x. Real run: Cd (window 20, 2 %) met at
-  iteration 144 on the coarse sphere, run ended cleanly at 146.
+**task/6.4-studies** (not yet published; Tasks 6.1 and 6.6 were merged in PR #15). Done on it:
+- Part A (D-064, D-043 updated, D-063 Accepted): marker `long` for real runs above 60 s (skipped
+  unless `-m long`; scripts/ship.sh runs `-m "not validation and not long"`), ship suite 963 s ->
+  379 s single-process offscreen (not under 3 min: docs/QUESTIONS.md item 70); `.gitignore` keeps
+  `log.*` except `tests/data/**/log.*` (tests/data/sphere_run/log.simpleFoam is read by a test and
+  is now tracked); speedup study on a 990k-cell sphere (docs/validation/parallel/README.md): 3.0 at
+  8 cores, efficiency >= 0.5 only up to 4 ranks, `--bind-to core` not clearly better, Open MPI's
+  default kept; the Solvers node shows the recommended cores min(physical, cells / 50,000, 4).
 
-- Task 6.6 (D-063, Proposed): parallel solver runs: `Solvers.cores` (limited to the physical cores
-  at run time), decomposePar -force (scotch), mpirun -np N simpleFoam -parallel, reconstructPar
-  -latestTime (also after a clean stop); SIGUSR1 to mpirun stops all ranks cleanly (Open MPI
-  forwards it); timeout and escalation kill the whole session. Serial and 4 cores agree on the
-  converged low-Re sphere (dCd 5e-7, dCl 1.6e-4 relative; speedup 2.0); on the oscillating 20 m/s
-  sphere they do not (docs/QUESTIONS.md item 66).
+- Part B (freestream far field) STOPPED at the validation step, not applied (docs/QUESTIONS.md
+  item 71, docs/notes/freestream_far_field.md and .patch): at alpha 10 deg the freestream far field
+  raises Cl of the flattened ellipsoid from 0.041 to about 0.068 but the run oscillates; the flat
+  plate validation could not reach its verdict (medium Case B grid stalled, coarse Cf -0.60 %). The
+  app keeps the slip far field of D-022.
 
-Tasks 6.1 and 6.6 are complete on this branch. Next steps (docs/PLAN.md): 6.4 mesh independence
-study with the GCI, then 6.5 angle-of-attack sweep (polars), which can use the parallel runs.
-Open: docs/QUESTIONS.md items 66 (serial / parallel acceptance, speedup), 67 (an offscreen worker
-crash) and 68 (fixture logs ignored by .gitignore).
+- Part C, Task 6.4 (D-066, schema v7): foam/gci.py (Celik 2008, checked against the paper's worked
+  example; oscillatory, divergent and undefined cases get no GCI); a Mesh Study node under Reports &
+  Monitors (ratio, current settings as fine or medium, quantities, cores; estimated cells and time
+  per level; the same absolute prism-layer stack on every level); levels in case_study/level_<n>/,
+  each judged by the stopping criteria (unreliable GCI otherwise); results window (GCI table, levels,
+  value against h, CSV) and case_study/study.json. Real study on the coarse sphere at Re 200: all
+  levels met the criteria; Cd divergent and Cl oscillatory (not in the asymptotic range; actual h
+  ratios 1.31 and 1.33, docs/QUESTIONS.md item 72).
+
+- Part D, Task 6.5 (D-067): a Polar Sweep node (range or list of angles, cores, initialise from the
+  previous converged point); points in case_sweep/point_<n>/ on the current mesh, each judged by the
+  stopping criteria (flagged otherwise); results window (table, CL-alpha, drag polar, CM-alpha with
+  hollow flagged points, CSV) and case_sweep/sweep.json. Real sweep of the flattened ellipsoid at 0,
+  5, 10 deg: CL -0.0002, 0.0233, 0.0408, all criteria met.
+
+Tasks 6.4 and 6.5 are complete on this branch (Part B, the freestream far field, was stopped at
+the validation step and waits for review). Next candidates: unsteady runs (pimpleFoam), MRF
+rotating zones for propellers (PLAN 8.2), STEP import (PLAN 3.2), STL repair (PLAN 3.3). Open: docs/QUESTIONS.md items 67 (an
+offscreen worker crash), 69 (the core cap), 70 (ship suite time), 71 (freestream far field), 72
+(actual refinement ratio), 73 (an intermittent offscreen test).
 
 ## Phases
 
@@ -68,9 +73,9 @@ crash) and 68 (fixture logs ignored by .gitignore).
 | 6.1 | Monitors and reports | done: report slots with Cd, Cl, Cm pitch and wall y+ (D-048); reference values (D-047); stopping criteria (runTimeControl for residuals, app-side range-based asymptotic criterion), convergence banner and oscillation warning (D-058, D-059); force breakdown, body-axis x_cp, mass balance, cellPoint probes (D-060) |
 | 6.2 | Scenes and derived parts | Cp along wall sections with CSV export (D-062); Cf / Cf_x and separation highlight (D-061); scalar scenes done (D-053): field/colormap/range selection, scalar bar, section; scene saving, image export, iso-surfaces and streamlines not started |
 | 6.3 | Data export and reports | not started (section CSV export only, D-062) |
-| 6.4 | Mesh independence study (GCI) | not started |
-| 6.5 | Angle-of-attack sweep (polars) | not started |
-| 6.6 | Parallel runs (mpirun) | done (D-063, Proposed): decomposePar / mpirun / reconstructPar, clean stop through mpirun |
+| 6.4 | Mesh independence study (GCI) | done (D-066): Mesh Study node, three levels, Celik GCI, results window and CSV; flat plate Case B not reproduced through the workflow (item 72) |
+| 6.5 | Angle-of-attack sweep (polars) | done (D-067): Polar Sweep node, points on the current mesh initialised from the previous converged point, CL-alpha / drag polar / CM-alpha, CSV; NACA 0012 check waits for the wing case |
+| 6.6 | Parallel runs (mpirun) | done (D-063 Accepted): decomposePar / mpirun / reconstructPar, clean stop through mpirun; speedup study and recommended cores (D-064) |
 | 7.1-7.3 | Coupled solver analysis | not started |
 | 8.1-8.5 | Moving meshes | not started |
 | 9.1 | Project management | partly done (save/load, undo/redo); templates, recent projects, cloning not started |
@@ -84,7 +89,7 @@ crash) and 68 (fixture logs ignored by .gitignore).
 - numpy is imported directly (geometry/checks.py, gui/scene.py, gui/viewport.py) but is not declared in
   pyproject.toml (it arrives through pyvista).
 - Courant number: parsed from logs (foam/logparse.py) but no warning in the GUI.
-- Parallel speedup only 2.0 on 4 cores for the 192k-cell sphere (process binding not tried, item 66).
+- Parallel speedup saturates at about 3 on 8 cores (memory-bandwidth bound, docs/validation/parallel/README.md); the recommended-core cap of 4 is a constant for this machine (item 69).
 - Location of user projects and run outputs in the released app (run/ is development only).
 - STEP import spike: OCP novtk wheel next to PyVista's VTK (docs/reference/oss_survey.md).
 - STL repair: pymeshfix (wrapper licence to confirm) / pytetwild.

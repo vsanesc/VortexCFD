@@ -20,7 +20,7 @@ read -r -p "Run tests, push and merge into main? (y/N) " answer
 [ "$answer" = "y" ] || { echo "Cancelled."; exit 1; }
 
 echo "== Tests =="
-QT_QPA_PLATFORM=offscreen .venv/bin/pytest -q -m "not validation"
+QT_QPA_PLATFORM=offscreen .venv/bin/pytest -q -m "not validation and not long"
 
 echo "== Push and pull request =="
 git push -u origin "$branch"
