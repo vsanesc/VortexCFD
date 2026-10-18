@@ -1,39 +1,32 @@
 # Status
 
-Updated 2026-10-18 (task/3-geometry: Phase 3 geometry done). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
-task (CLAUDE.md).
+Updated 2026-10-18 (task/qol-start-domain: start screen, presets, domain shapes). Phases and sub-phases are
+those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
 
-**task/3-geometry** (not yet published). Done on it:
-- Part 0 (D-068): display guard (tests and scripts/screenshots.py run offscreen on the WSLg
-  display unless VORTEXCFD_ALLOW_REAL_DISPLAY=1) and the targeted testing rule in CLAUDE.md. The
-  Task 0.1 feature inventory is kept by the owner outside the repository.
-- Part A, Task 3.1 missing items (D-069, schema v8): multi-solid ASCII STL import (one part with a
-  region per solid, the default, or one part per solid); self-intersection check (own numpy code:
-  pymeshfix's selection returns garbage indices, item 75) with a Checks row and the triangles
-  highlighted in the viewer; 1,005,360 triangles in 7.3-7.9 s, skipped above 2M triangles.
-- Part B, Task 3.2 (D-070): OCP spike passed (cadquery-ocp-novtk 8.0.1.1.0 next to VTK 9.7.1, no
-  conflict); File > Import Geometry reads STEP/IGES/BREP with face names, colours and assemblies;
-  tessellation per part with editable linear / angular deflection (cached files, one undo step).
-- Part C, Task 3.3 (D-072): Edit > Repair part: pymeshfix with a fidelity check, fTetWild
-  envelope fallback, new file version, before / after report; the four broken test surfaces
-  (holes, flipped patch, duplicated faces, self-intersection) all end snappy-ready.
-- Part D, Task 3.5 (D-071): regions from CAD faces, STL solids or an angle split; rename, merge,
-  split, patch assignment (list and viewer picking); one snappyHexMesh region and wall patch per
-  patch, lost-part guard per patch; real two-patch cube mesh: front 724 and body 3,888 faces.
+**task/qol-start-domain** (not yet published; task/3-geometry was merged in PR #17). Done on it:
+- Part A (D-077, schema v9): the app starts with no project (empty window, only File and Help active)
+  and a Start dialog (New simulation, Open project..., the last 10 recent projects, missing ones greyed
+  and removable); the New simulation dialog (name, parent folder, preset, parallel cores from the
+  recommendation rule) creates <parent>/<name>/ with <name>.vcfd, geometry/ and case/ and saves at once;
+  untitled projects and their temporary workspace are gone (core/workspace.py is core/save_rules.py,
+  the save target rules kept); `Simulation.analysis_type` ("external" for older projects) and
+  `preset_name`; presets (analysis type, domain, boundary type per role, mesh; never physics): built-in
+  "External flow" and "Empty", user presets saved from the open project as JSON in the config folder,
+  validated on load, renamed and deleted in Manage Presets.
+- Part B (D-078): domain shapes box, bullet and C-type (closed surfaces with one region per role,
+  within 0.22 % of the analytic volume); rounded shapes meshed by cutting a background box with the
+  domain surface (createPatch removes the emptied background patch, a guard checks it); the "Empty"
+  analysis has a Generate domain operation and every project a Fluid Region node; shape and sizes are
+  undoable domain edits that make the mesh out of date; the viewer draws every shape as a wireframe and
+  highlights the selected role. Coarse sphere meshes at the same base size: box 17,798 cells, bullet
+  11,058, C-type 13,870, all checkMesh OK.
 
-- Follow-up (D-073, D-074): CAD reading / tessellation, re-tessellation, self-intersection checks
-  and repair run on background threads; per-part forces sum all of a part's patches (checked on a
-  real run); THIRD_PARTY_LICENSES.md; pymeshfix kept; repair report shows the fidelity metrics.
-
-- Fix (D-076): Import Geometry never asks to save (untitled projects import into a temporary
-  workspace moved next to the project on the first save); project files are .vcfd; a save never
-  overwrites a geometry file, a geometry source or a non-project file.
-
-Next candidates: unsteady runs (pimpleFoam), MRF rotating zones (PLAN 8.2), the meshing track
-(5.0 benchmark suite, 5.2 surface preparation). Open: docs/QUESTIONS.md items 67, 69, 70, 71, 72,
-73 and 75 (pymeshfix's broken self-intersection selection).
+Next candidates: internal flow (mass-flow and total-pressure inlets; after the meshing phase), unsteady
+runs (pimpleFoam), MRF rotating zones (PLAN 8.2), the meshing track (5.0 benchmark suite, 5.2 surface
+preparation). Open: docs/QUESTIONS.md items 67, 69, 70, 71, 72, 73, 75 and 78 to 82 (80 is a
+[NUMERICS-REVIEW] of the rounded domains).
 
 ## Phases
 
@@ -52,7 +45,7 @@ Next candidates: unsteady runs (pimpleFoam), MRF rotating zones (PLAN 8.2), the 
 | 3.1 | Surface mesh import and checks | done: multi-solid STL, self-intersections (D-069) |
 | 3.2 | CAD import (STEP/IGES/BREP) | done (D-070): OCP, face names and colours, assemblies, editable deflections |
 | 3.3 | Geometry repair | done (D-072): pymeshfix + fTetWild envelope, before / after report |
-| 3.4 | Domain and boundary definition | done |
+| 3.4 | Domain and boundary definition | done; box, bullet and C-type shapes, Generate domain operation (D-078) |
 | 3.5 | Surface-to-patch assignment | done (D-071): regions, angle split, patches in the meshing dictionary |
 | 4.1 | Physics continua | done for steady incompressible RANS (merged in PR #13) |
 | 4.2 | Boundary condition library | done for the external-aerodynamics set (D-022) |
@@ -72,7 +65,7 @@ Next candidates: unsteady runs (pimpleFoam), MRF rotating zones (PLAN 8.2), the 
 | 6.6 | Parallel runs (mpirun) | done (D-063 Accepted): decomposePar / mpirun / reconstructPar, clean stop through mpirun; speedup study and recommended cores (D-064) |
 | 7.1-7.3 | Coupled solver analysis | not started |
 | 8.1-8.5 | Moving meshes | not started |
-| 9.1 | Project management | partly done (save/load, undo/redo); templates, recent projects, cloning not started |
+| 9.1 | Project management | partly done: save/load, undo/redo, start screen, recent projects, project folders, presets (D-077); cloning not started |
 | 9.2 | Scripting API | not started |
 | 9.3 | Installer and docs | not started |
 
@@ -90,6 +83,8 @@ Next candidates: unsteady runs (pimpleFoam), MRF rotating zones (PLAN 8.2), the 
 - Parallel speedup saturates at about 3 on 8 cores (memory-bandwidth bound, docs/validation/parallel/README.md); the recommended-core cap of 4 is a constant for this machine (item 69).
 - Location of user projects and run outputs in the released app (run/ is development only).
 - Changing a CAD part's deflection re-tessellates from the CAD and drops an earlier repair (D-072).
+- Save As into another folder writes only the project file; the geometry stays behind (QUESTIONS 79).
+- Preset boundary types are stored but there is one boundary type per role today (QUESTIONS 78).
 - cfMesh build spike on v2606.
 - Total cell estimate: only background cells are estimated today.
 - Per-part surface size (one target surface size for all parts today).
