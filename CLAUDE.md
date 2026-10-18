@@ -11,5 +11,5 @@
 - Commit locally after each completed part, message "Task <id>: <summary>". Stage only files that belong to the task (never `git add .` blindly). Never push, merge, or delete branches.
 - Final reports must be short: `git diff --stat main`, the last line of `pytest -q`, and a list of open doubts. No full test listings or long file dumps unless asked.
 - scripts/ship.sh pushes, merges and deletes the branch. It is run only by Vic. Agents never run it.
-- During iterations run `pytest -q -m 'not slow'`; run the full suite (both modes) once before each commit. `pytest -n 8` (pytest-xdist) is safe with the Qt and OpenFOAM tests.
+- During iterations run `pytest -q -m 'not slow and not validation and not long'`; run the full suite (`-m 'not validation and not long'`, both modes) once before each commit. `pytest -n 8` (pytest-xdist) is safe with the Qt and OpenFOAM tests. Tests with real OpenFOAM runs above 60 s carry the `long` marker (run explicitly with `-m long`, nothing else running).
 - Every decision that changes behaviour, defaults, file formats or workflow gets a DECISIONS.md entry in the same commit. At the end of each task update docs/STATUS.md.

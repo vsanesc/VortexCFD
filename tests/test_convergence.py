@@ -327,6 +327,7 @@ def test_oscillation_on_a_real_series() -> None:
 
 
 @pytest.mark.slow
+@pytest.mark.long  # real run above 60 s (D-043)
 def test_asymptotic_cd_criterion_stops_simplefoam_on_the_session_mesh(sphere_mesh, tmp_path: Path) -> None:
     """An asymptotic criterion on Cd (window 20, tolerance 2e-2, i.e. a 2 % range) is met from the
     live files and the app stops simpleFoam with the clean stop before the 250-iteration limit: a

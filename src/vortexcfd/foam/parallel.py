@@ -42,11 +42,35 @@ def decompose_par_dict(cores: int) -> FoamFileSpec:
     return FoamFileSpec(content={"numberOfSubdomains": cores, "method": METHOD})
 
 
-def solver_command(solver: str, cores: int) -> list[str]:
-    """The solver command line: serial, or through mpirun on ``cores`` ranks."""
+# mpirun process placement (D-064): "default" leaves Open MPI 4.1's own policy (bind to core for
+# up to 2 ranks, to the package above), "core" maps and binds each rank to one physical core.
+BINDINGS = {
+    "default": [],
+    "core": ["--bind-to", "core", "--map-by", "core"],
+}
+DEFAULT_BINDING = "default"
+
+
+def solver_command(solver: str, cores: int, binding: str = DEFAULT_BINDING) -> list[str]:
+    """The solver command line: serial, or through mpirun on ``cores`` ranks with ``binding``
+    (a key of BINDINGS)."""
     if cores <= 1:
         return [solver]
-    return ["mpirun", "-np", str(cores), solver, "-parallel"]
+    return ["mpirun", "-np", str(cores), *BINDINGS[binding], solver, "-parallel"]
+
+
+# Recommended core count (D-064, docs/validation/parallel/README.md): at least CELLS_PER_CORE cells
+# per rank, and no more than EFFICIENT_CORES ranks: on the development machine (Ryzen 9 5900X, two
+# memory channels) the parallel efficiency is at least 0.5 up to 4 ranks and drops to 0.28-0.37 at 8
+# for every mesh measured (192k to 990k cells): the solver is memory-bandwidth bound.
+CELLS_PER_CORE = 50_000
+EFFICIENT_CORES = 4
+
+
+def recommended_cores(cells: int, physical: int, cells_per_core: int = CELLS_PER_CORE,
+                      efficient: int = EFFICIENT_CORES) -> int:
+    """min(physical cores, cells / cells_per_core rounded down, ``efficient``), at least 1 (D-064)."""
+    return max(1, min(physical, int(cells) // cells_per_core, efficient))
 
 
 DECOMPOSE_COMMAND = ["decomposePar", "-force"]

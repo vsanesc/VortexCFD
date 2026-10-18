@@ -35,7 +35,7 @@ from vortexcfd.core.model import Probe
 from vortexcfd.core.reports import (PROBE_NAME_RE, criterion_quantities, default_floor, missing_reference,
                                     report_label)
 from vortexcfd.foam.forces import MASS_WARNING
-from vortexcfd.foam.parallel import physical_cores
+from vortexcfd.foam.parallel import CELLS_PER_CORE, EFFICIENT_CORES, physical_cores, recommended_cores
 from vortexcfd.foam.wall_fields import case_yplus_histogram
 from vortexcfd.gui.charts import YPlusHistogramChart
 from vortexcfd.gui.report_views import ForcesTable
@@ -486,6 +486,11 @@ class PropertiesPanel(QWidget):
         self._section("inflow_computed", "Computed")
         self.inflow_k = self._ro_row("inflow_k", "Turbulence k")
         self.inflow_omega = self._ro_row("inflow_omega", "Turbulence omega")
+        # Solvers node: the recommended core count for the current mesh (D-064).
+        self.solvers_recommended = self._ro_row("solvers_recommended", "Recommended cores")
+        self.solvers_recommended.setToolTip(
+            f"min(physical cores, cells / {CELLS_PER_CORE:,}, {EFFICIENT_CORES}), at least 1: the measured speedup "
+            f"saturates beyond {EFFICIENT_CORES} cores on this machine (docs/validation/parallel/README.md)")
         # Solvers node: the last run (case/vortexcfd_run.json), or "No solver run yet".
         self._run_record: RunRecord | None = None
         self._results_stale = False
@@ -921,6 +926,15 @@ class PropertiesPanel(QWidget):
             finally:
                 for w in widgets:
                     w.blockSignals(False)
+        solvers = self._kind == "solvers"
+        self._rows["solvers_recommended"].setVisible(solvers)
+        if solvers:
+            cells = self._mesh_report.cells if self._mesh_report is not None else None
+            if cells:
+                n = recommended_cores(cells, PHYSICAL_CORES)
+                self.solvers_recommended.setText(f"{n} ({cells:,} cells, {CELLS_PER_CORE:,} per core)")
+            else:
+                self.solvers_recommended.setText("\u2014 (generate the mesh first)")
         inflow = self._kind == "inflow"
         self._sections["inflow_computed"].setVisible(inflow)
         self._rows["inflow_k"].setVisible(inflow)

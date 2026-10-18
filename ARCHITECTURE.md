@@ -54,7 +54,7 @@ src/vortexcfd/
   - `foam/mesh_case.remove_results`: deletes the solver results (time directories after 0, postProcessing/, the run record) of a marker-protected case after a successful mesh.
   - `foam/mesh_record.py`: `case/vortexcfd_mesh.json`, the last `MeshReport` plus the hash of the meshing inputs (used to flag an out-of-date mesh).
   - `foam/runner.py`: process execution via `run_foam` and streaming runner `FoamRun` returning `RunResult`. Clean stop (`clean_stop=True`, SIGUSR1) works for single-process solvers and for `mpirun ... -parallel` (Open MPI forwards SIGUSR1 to the ranks); timeout and escalation signal the process group and every process of the run's session (`signal_session`), and processes left in the session after the main one ends are killed (D-063).
-  - `foam/parallel.py`: physical cores, system/decomposeParDict (scotch), the mpirun command line and the decomposePar summary; `SolverRun` runs decomposePar, mpirun and reconstructPar -latestTime when `Solvers.cores` > 1 (D-063).
+  - `foam/parallel.py`: physical cores, system/decomposeParDict (scotch), the mpirun command line (placement `BINDINGS`, Open MPI's default kept) and the decomposePar summary, the recommended core count (`recommended_cores`, D-064); `SolverRun` runs decomposePar, mpirun and reconstructPar -latestTime when `Solvers.cores` > 1 (D-063).
   - `foam/logparse.py`: incremental solver log parsing via `LogParser` recording `TimeStep` events (and `Converged` when the SIMPLE residualControl is reached).
   - `foam/solver_run.py`: `SolverRun` runs simpleFoam through `FoamRun(clean_stop=True)` on a worker thread, parses the log, evaluates app-side stopping criteria after every iteration (and stops the solver cleanly when they are met) and classifies the end state (criteria met, iteration limit, stopped, crashed).
   - `foam/run_record.py`: `case/vortexcfd_run.json`, the last run's state, iterations, final residuals, results inputs hash and the stopping criteria (all of them, those that stopped the run and the iteration at which they were met); old "converged" records are migrated on read.
@@ -99,7 +99,7 @@ src/vortexcfd/
 - **Enforcement Rule**: `core` and `foam` must never import `gui`. This guarantees that simulation data manipulation, case generation, and solver execution remain fully decoupled from the graphical user interface, enabling headless automation and CLI operation.
 
 ## 5b. Validation
-`tests/validation/` holds numerics validation cases (marker `validation`, run with `pytest -m validation`); `tests/validation/flat_plate_case.py` builds a 2D flat plate with blockMesh and the app's own solver files, and results and verdicts are written to `docs/validation/<case>/`.
+`tests/validation/` holds numerics validation cases (marker `validation`, run with `pytest -m validation`); real runs above 60 s carry the marker `long` (`pytest -m long`, e.g. the parallel speedup study, docs/validation/parallel/); `tests/validation/flat_plate_case.py` builds a 2D flat plate with blockMesh and the app's own solver files, and results and verdicts are written to `docs/validation/<case>/`.
 
 ## 6. Simulation Outputs
 - All simulation output directories, intermediate files, and temporary execution logs are written under `run/` at the repository root.

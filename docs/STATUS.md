@@ -1,40 +1,22 @@
 # Status
 
-Updated 2026-10-18 (Task 6.1 review fixes, Task 6.6). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
+Updated 2026-10-18 (task/6.4-studies Part A). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
 task (CLAUDE.md).
 
 ## Current branch
 
-**task/6.1-monitors** (not yet published; Task 6.2 was merged in PR #14). Done on it:
-- Part A (D-058, D-059; schema v6): stopping criteria under Solvers (residual and asymptotic criteria,
-  "all"/"any", minimum iterations; the iteration limit always applies); a Stopping Criteria node;
-  a convergence banner and a per-criterion table (value, threshold, satisfied) in the monitors
-  column; the oscillation warning.
-- Part B (D-060, D-061): Cd and Cl split into pressure and viscous parts per part and in total, Cm,
-  centre of pressure, mass balance (warning above 0.1 %), probes (reports and asymptotic criteria),
-  wallShearStress written at write times, Cf and Cf_x in the Results Scene with a separation
-  highlight, and the y+ histogram on the Reports & Monitors node.
-- Part C (D-062): Sections tool in the Results Scene: Cp against x/c on y or z wall sections (one position
-  or N stations), two branches per loop, CSV export.
-- Review fixes (2026-10-18, D-058 to D-062 Accepted; docs/QUESTIONS.md items 60-65 closed): the
-  asymptotic criterion is (max - min) / max(|mean|, floor) over the window, evaluated by the app,
-  which stops the solver with the clean stop (residual-only criteria keep runTimeControl); the
-  oscillation check uses the same normalisation; the end state is "Criteria met: <names>" (old
-  records migrated); x_cp in body axes with a 1e-3 threshold; probes interpolated with cellPoint;
-  sections ordered along the cut and split at min/max x. Real run: Cd (window 20, 2 %) met at
-  iteration 144 on the coarse sphere, run ended cleanly at 146.
+**task/6.4-studies** (not yet published; Tasks 6.1 and 6.6 were merged in PR #15). Done on it:
+- Part A (D-064, D-043 updated, D-063 Accepted): marker `long` for real runs above 60 s (skipped
+  unless `-m long`; scripts/ship.sh runs `-m "not validation and not long"`), ship suite 963 s ->
+  379 s single-process offscreen (not under 3 min: docs/QUESTIONS.md item 70); `.gitignore` keeps
+  `log.*` except `tests/data/**/log.*` (tests/data/sphere_run/log.simpleFoam is read by a test and
+  is now tracked); speedup study on a 990k-cell sphere (docs/validation/parallel/README.md): 3.0 at
+  8 cores, efficiency >= 0.5 only up to 4 ranks, `--bind-to core` not clearly better, Open MPI's
+  default kept; the Solvers node shows the recommended cores min(physical, cells / 50,000, 4).
 
-- Task 6.6 (D-063, Proposed): parallel solver runs: `Solvers.cores` (limited to the physical cores
-  at run time), decomposePar -force (scotch), mpirun -np N simpleFoam -parallel, reconstructPar
-  -latestTime (also after a clean stop); SIGUSR1 to mpirun stops all ranks cleanly (Open MPI
-  forwards it); timeout and escalation kill the whole session. Serial and 4 cores agree on the
-  converged low-Re sphere (dCd 5e-7, dCl 1.6e-4 relative; speedup 2.0); on the oscillating 20 m/s
-  sphere they do not (docs/QUESTIONS.md item 66).
-
-Tasks 6.1 and 6.6 are complete on this branch. Next steps (docs/PLAN.md): 6.4 mesh independence
-study with the GCI, then 6.5 angle-of-attack sweep (polars), which can use the parallel runs.
-Open: docs/QUESTIONS.md items 66 (serial / parallel acceptance, speedup), 67 (an offscreen worker
-crash) and 68 (fixture logs ignored by .gitignore).
+Next on this branch: Part B (freestream far field), Part C (6.4 mesh study with the GCI), Part D
+(6.5 polar sweep), Part E (docs). Open: docs/QUESTIONS.md items 67 (an offscreen worker crash),
+69 (the core cap), 70 (ship suite time).
 
 ## Phases
 
@@ -70,7 +52,7 @@ crash) and 68 (fixture logs ignored by .gitignore).
 | 6.3 | Data export and reports | not started (section CSV export only, D-062) |
 | 6.4 | Mesh independence study (GCI) | not started |
 | 6.5 | Angle-of-attack sweep (polars) | not started |
-| 6.6 | Parallel runs (mpirun) | done (D-063, Proposed): decomposePar / mpirun / reconstructPar, clean stop through mpirun |
+| 6.6 | Parallel runs (mpirun) | done (D-063 Accepted): decomposePar / mpirun / reconstructPar, clean stop through mpirun; speedup study and recommended cores (D-064) |
 | 7.1-7.3 | Coupled solver analysis | not started |
 | 8.1-8.5 | Moving meshes | not started |
 | 9.1 | Project management | partly done (save/load, undo/redo); templates, recent projects, cloning not started |
@@ -84,7 +66,7 @@ crash) and 68 (fixture logs ignored by .gitignore).
 - numpy is imported directly (geometry/checks.py, gui/scene.py, gui/viewport.py) but is not declared in
   pyproject.toml (it arrives through pyvista).
 - Courant number: parsed from logs (foam/logparse.py) but no warning in the GUI.
-- Parallel speedup only 2.0 on 4 cores for the 192k-cell sphere (process binding not tried, item 66).
+- Parallel speedup saturates at about 3 on 8 cores (memory-bandwidth bound, docs/validation/parallel/README.md); the recommended-core cap of 4 is a constant for this machine (item 69).
 - Location of user projects and run outputs in the released app (run/ is development only).
 - STEP import spike: OCP novtk wheel next to PyVista's VTK (docs/reference/oss_survey.md).
 - STL repair: pymeshfix (wrapper licence to confirm) / pytetwild.

@@ -104,11 +104,13 @@ def sphere_mesh(tmp_path_factory):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Validation tests (minutes of OpenFOAM) run only when selected with ``-m validation``."""
+    """Validation tests (minutes of OpenFOAM) and long tests (real runs above 60 s, D-043) run only
+    when selected with ``-m validation`` / ``-m long``."""
     expression = config.getoption("markexpr") or ""
-    if "validation" in expression and "not validation" not in expression:
-        return
-    skip = pytest.mark.skip(reason="validation test: run with `pytest -m validation`")
-    for item in items:
-        if "validation" in item.keywords:
-            item.add_marker(skip)
+    for marker in ("validation", "long"):
+        if marker in expression and f"not {marker}" not in expression:
+            continue
+        skip = pytest.mark.skip(reason=f"{marker} test: run with `pytest -m {marker}`")
+        for item in items:
+            if marker in item.keywords:
+                item.add_marker(skip)
