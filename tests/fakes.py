@@ -21,6 +21,15 @@ class FakeDialogs:
         self.save_path: Path | None = save_path
         self.discard = discard
         self.confirm_calls = 0
+        self.start_choice = None  # ask_start's answer
+        self.start_asked = 0
+        self.new_simulation = None  # ask_new_simulation's answer (a NewSimulationSpec or None)
+        self.new_asked = 0
+        self.preset_name = None
+        self.preset_overwrite = True
+        self.preset_overwrite_asked: list = []
+        self.presets_managed = 0
+        self.about_shown = 0
 
     def ask_open_path(self):
         return self.open_path
@@ -58,3 +67,24 @@ class FakeDialogs:
 
     def ask_paraview_path(self, current, detected):
         return self.paraview_path
+
+    def ask_start(self, recent):
+        self.start_asked += 1
+        return self.start_choice
+
+    def ask_new_simulation(self, store):
+        self.new_asked += 1
+        return self.new_simulation
+
+    def ask_preset_name(self, suggested):
+        return self.preset_name
+
+    def confirm_overwrite_preset(self, name):
+        self.preset_overwrite_asked.append(name)
+        return self.preset_overwrite
+
+    def manage_presets(self, store):
+        self.presets_managed += 1
+
+    def show_about(self):
+        self.about_shown += 1

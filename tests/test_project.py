@@ -273,7 +273,7 @@ def test_unsubscribe() -> None:
 def test_resolve_part_path(tmp_path: Path) -> None:
     project = Project.new("Demo")
     part = make_part("wing", "geo/wing.stl")
-    with pytest.raises(ValueError, match="no folder yet"):
+    with pytest.raises(ValueError, match="has no folder"):
         project.resolve_part_path(part)
     project.save(tmp_path / "proj" / "p.json")
     assert project.resolve_part_path(part) == tmp_path / "proj" / "geo" / "wing.stl"

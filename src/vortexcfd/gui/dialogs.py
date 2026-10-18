@@ -108,6 +108,45 @@ class Dialogs:
         )
         return text if ok else None
 
+    # -- start screen, new simulation, presets (D-077) -------------------------------------------
+
+    def ask_start(self, recent):
+        """The Start dialog: ("new", None), ("open", None), ("recent", path) or None (closed)."""
+        from vortexcfd.gui.start_dialogs import StartDialog
+
+        dialog = StartDialog(recent, self.parent)
+        dialog.exec()
+        return dialog.choice
+
+    def ask_new_simulation(self, store):
+        """The New simulation dialog: a NewSimulationSpec, or None (cancelled)."""
+        from vortexcfd.gui.start_dialogs import NewSimulationDialog
+
+        dialog = NewSimulationDialog(store, self.parent)
+        dialog.exec()
+        return dialog.result_spec
+
+    def ask_preset_name(self, suggested: str) -> str | None:
+        text, ok = QInputDialog.getText(self.parent, "Save as preset",
+                                        "Preset name (analysis type, domain and mesh settings only):", text=suggested)
+        return text if ok else None
+
+    def confirm_overwrite_preset(self, name: str) -> bool:
+        answer = QMessageBox.question(
+            self.parent, "Save as preset", f"A preset named '{name}' already exists. Replace it?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    def manage_presets(self, store) -> None:
+        from vortexcfd.gui.start_dialogs import ManagePresetsDialog
+
+        ManagePresetsDialog(store, self.parent).exec()
+
+    def show_about(self) -> None:
+        QMessageBox.about(self.parent, "About VortexCFD",
+                          "VortexCFD: an integrated CFD workflow on top of OpenFOAM ESI v2606.")
+
     def confirm_discard(self) -> DiscardChoice:
         box = QMessageBox(self.parent)
         box.setIcon(QMessageBox.Icon.Warning)

@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 8
+CURRENT_SCHEMA_VERSION: int = 9
 
 
 class StrictModel(BaseModel):
@@ -341,18 +341,41 @@ class Reports(StrictModel):
         return self
 
 
+# Domain shapes (D-019, D-078): "box" (upstream / downstream / lateral / vertical), "bullet" (a
+# hemisphere of radius R at the front and a cylinder behind it, axis along +x) and "c_type" (a front
+# half-cylinder of radius R whose axis is spanwise, flat top and bottom, flat spanwise sides).
+DOMAIN_SHAPES = ("box", "bullet", "c_type")
+
+
 class Domain(StrictModel):
     """Far-field domain around the parts, in multiples of the reference length L.
 
-    L is the largest extent of the union of the parts' bounding boxes. The flow runs along +x.
+    L is the largest extent of the union of the bounding boxes of the parts the domain is sized
+    around (``parts``: their names; None = every part). The flow runs along +x. ``enabled`` False:
+    no domain has been generated yet (the "Empty" analysis starts so, D-078).
+
+    The fields a shape uses: box: upstream, downstream, lateral, vertical; bullet: radius,
+    downstream; c_type: radius, downstream, lateral (the spanwise half-width). ``downstream`` is
+    measured from the parts' rear (largest x) for every shape; the rounded shapes are centred on the
+    parts' centre (D-078).
     """
 
     enabled: bool = True
+    shape: Literal["box", "bullet", "c_type"] = "box"
     upstream: float = Field(default=5.0, gt=0)
     downstream: float = Field(default=10.0, gt=0)
     lateral: float = Field(default=5.0, gt=0)
     vertical: float = Field(default=5.0, gt=0)
+    radius: float = Field(default=5.0, gt=0)
     symmetry: Literal["none", "y_min"] = "none"
+    parts: list[str] | None = None
+
+    @field_validator("parts")
+    @classmethod
+    def _parts_listed_once(cls, value: list[str] | None) -> list[str] | None:
+        if value is not None and len(set(value)) != len(value):
+            raise ValueError("a part is listed twice in the domain")
+        return value
 
 
 class MeshStudySettings(StrictModel):
@@ -422,13 +445,26 @@ class Studies(StrictModel):
     polar: PolarSweepSettings = Field(default_factory=PolarSweepSettings)
 
 
+# Analysis types (schema v9, D-077): "external" (a far-field domain generated around the parts on the
+# first import) and "empty" (nothing created automatically: the domain is a "Generate domain"
+# operation). "internal" is reserved for internal flow and not selectable yet.
+ANALYSIS_TYPES = ("external", "empty")
+RESERVED_ANALYSIS_TYPES = ("internal",)
+
+
 class Simulation(StrictModel):
-    """Root simulation tree data model."""
+    """Root simulation tree data model.
+
+    ``analysis_type``: see ANALYSIS_TYPES. ``preset_name``: the preset the project was created from
+    (provenance only: nothing reads it back, D-077).
+    """
 
     schema_version: int = Field(
         default=CURRENT_SCHEMA_VERSION, ge=1, le=CURRENT_SCHEMA_VERSION
     )
     name: str
+    analysis_type: Literal["external", "empty"] = "external"
+    preset_name: str | None = None
     geometry: Geometry = Field(default_factory=Geometry)
     domain: Domain = Field(default_factory=Domain)
     mesh: Mesh = Field(default_factory=Mesh)

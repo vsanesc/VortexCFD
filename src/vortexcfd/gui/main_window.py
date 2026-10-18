@@ -44,12 +44,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from vortexcfd.core.model import Part, StoppingCriteria
+from vortexcfd.core.model import Part, Simulation, StoppingCriteria
+from vortexcfd.core.presets import PresetError, PresetStore, apply_preset, preset_from_simulation
 from vortexcfd.core.reports import available_reports
 from vortexcfd.foam import convergence
 from vortexcfd.foam.physics_case import flow_direction
-from vortexcfd.core.project import Project
-from vortexcfd.core.workspace import (
+from vortexcfd.core.project import Project, ProjectFolderError
+from vortexcfd.core.save_rules import (
     GEOMETRY_EXTENSIONS,
     LEGACY_PROJECT_EXTENSIONS,
     SaveTargetError,
@@ -68,6 +69,8 @@ from vortexcfd.geometry.regions import RegionError
 from vortexcfd.gui import part_ops
 from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.gui.properties_panel import PropertiesPanel
+from vortexcfd.gui.recent import RecentProjects
+from vortexcfd.gui.settings_store import presets_dir
 from vortexcfd.geometry.domain import BOUNDARY_NAMES
 from vortexcfd.foam.mesh_case import (
     CaseDirectoryNotOursError,
@@ -151,6 +154,7 @@ Selection = tuple[str, int | None]  # (node kind, part index)
 _LOGGED_LEVELS = {"warning": logging.WARNING, "error": logging.ERROR}
 MESSAGE_TIMEOUT_MS = 8000
 EMPTY = "\u2014"
+NO_PROJECT = "No project open"
 
 
 class _RowDelegate(QStyledItemDelegate):
@@ -293,13 +297,18 @@ class MainWindow(StudyControlMixin, QMainWindow):
 
     def __init__(
         self,
-        project: Project,
+        project: Project | None,
         dialogs: Dialogs | None = None,
         with_viewer: bool = True,
         parent: QWidget | None = None,
     ) -> None:
+        """``project`` None: the empty start state (no tree content, "No project open", only the File
+        and Help menus active, D-077); a placeholder document stands in until one is created or opened."""
         super().__init__(parent)
+        self.has_project = project is not None
+        project = project if project is not None else Project.new(NO_PROJECT)
         self._project = project
+        self.recent = RecentProjects()
         self._unsubscribe = None
         self._selection: Selection | None = None
         self._items: dict[Selection, QTreeWidgetItem] = {}
@@ -575,7 +584,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._apply_appearance()
         self.tree.currentItemChanged.connect(self._on_current_item_changed)
         self._init_studies()  # mesh study and polar sweep workers (gui/study_control.py)
-        self.set_project(project)
+        self.set_project(project, placeholder=not self.has_project)
         log.info("VortexCFD started")
 
     @staticmethod
@@ -600,11 +609,16 @@ class MainWindow(StudyControlMixin, QMainWindow):
     def project(self) -> Project:
         return self._project
 
-    def set_project(self, project: Project) -> None:
-        """Bind the window to ``project``: swap observer, clear selection, refresh."""
+    def set_project(self, project: Project, *, placeholder: bool = False) -> None:
+        """Bind the window to ``project``: swap observer, clear selection, refresh. A project with a
+        file goes to the front of the recent list."""
         if self._unsubscribe is not None:
             self._unsubscribe()
         self._project = project
+        if not placeholder:
+            self.has_project = True
+        if self.has_project and project.path is not None:
+            self.recent.add(project.path)
         self._selection = None
         if self.mesh_worker.is_running():  # a mesh of the old project is of no use any more
             self.mesh_worker.request_stop()
@@ -831,6 +845,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         sim = self._project.sim
         self._domain_box = domain_box_for(self._project)
         self._rebuild_tree(sim.name, list(sim.geometry.parts))
+        self.properties.setVisible(self.has_project)
         self.properties.show_node(*(self._selection or ("root", None)))
         self._sync_scene()
         self._update_selection_views()
@@ -854,6 +869,13 @@ class MainWindow(StudyControlMixin, QMainWindow):
     def _rebuild_tree(self, name: str, parts: list[Part]) -> None:
         wanted = self._selection
         t = self._theme
+        if not self.has_project:  # the empty start state: no tree content (D-077)
+            self.tree.blockSignals(True)
+            self.tree.clear()
+            self.tree.blockSignals(False)
+            self._items, self._root_item, self._selection = {}, None, None
+            self.node_badge.setText("0 Nodes")
+            return
         self.tree.blockSignals(True)
         try:
             self.tree.clear()
@@ -923,7 +945,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
 
     def node_count(self) -> int:
         """Real tree nodes shown (the hidden root row is not counted)."""
-        return len(self._items) - 1
+        return max(0, len(self._items) - 1)
 
     def _on_eye_clicked(self, item: QTreeWidgetItem) -> None:
         kind, index = item.data(0, ROLE_NODE)
@@ -1013,8 +1035,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         for actor in self._grid_actors:
             actor.SetVisibility(not has_content)
         if self._empty_message is not None:
-            self._empty_message.set_text({"mesh": "No mesh yet", "results": "Loading results"}.get(
-                self._scene_mode, EMPTY_MESSAGE))
+            text = {"mesh": "No mesh yet", "results": "Loading results"}.get(self._scene_mode, EMPTY_MESSAGE)
+            self._empty_message.set_text(text if self.has_project else NO_PROJECT)
             self._empty_message.set_visible(not has_content)
 
     def _selected_boundary(self) -> str | None:
@@ -1085,6 +1107,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
     def _update_mesh_button(self) -> None:
         running = self.mesh_worker.is_running()
         reason = None if running else readiness(self._project)
+        if not self.has_project:
+            reason = NO_PROJECT
         if not running and self.solver_worker.is_running():
             reason = "The solver is running: stop it first."
         if not running and self.study_running():
@@ -1225,6 +1249,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
 
     def solve_readiness(self) -> str | None:
         """Why Run Solver is disabled (None: it can run)."""
+        if not self.has_project:
+            return NO_PROJECT
         busy = self.study_running()
         if busy is not None:
             return busy
@@ -1893,6 +1919,11 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._update_actions()
 
     def _update_title(self, name: str) -> None:
+        if not self.has_project:
+            self.setWindowTitle("VortexCFD")
+            self.setWindowModified(False)
+            self.top_bar.set_project(NO_PROJECT, False)
+            return
         path = self._project.path
         file_name = path.name if path else "Untitled"
         self.setWindowTitle(f"{name}[*] - {file_name} - VortexCFD")
@@ -1910,8 +1941,11 @@ class MainWindow(StudyControlMixin, QMainWindow):
             return act
 
         S = QKeySequence.StandardKey
-        self.act_new = action("&New", self.new_project, S.New)
-        self.act_open = action("&Open...", self.open_project, S.Open)
+        self.act_new = action("&New Simulation...", self.new_project, S.New)
+        self.act_open = action("&Open...", lambda: self.open_project(), S.Open)
+        self.act_save_preset = action("Save as &Preset...", self.save_as_preset)
+        self.act_manage_presets = action("&Manage Presets...", self.manage_presets)
+        self.act_about = action("&About VortexCFD", lambda: self.dialogs.show_about())
         self.act_import = action("&Import Geometry...", self.import_surface, "Ctrl+I")
         self.act_save = action("&Save", self.save, S.Save)
         self.act_save_as = action("Save &As...", self.save_as, S.SaveAs)
@@ -1940,12 +1974,18 @@ class MainWindow(StudyControlMixin, QMainWindow):
             act.setChecked(True)
 
         file_menu = self.menuBar().addMenu("&File")
-        file_menu.addActions([self.act_new, self.act_open, self.act_import])
+        file_menu.addActions([self.act_new, self.act_open])
+        self.recent_menu = file_menu.addMenu("Open &Recent")
+        self.recent_menu.aboutToShow.connect(self._fill_recent_menu)
+        file_menu.addAction(self.act_import)
         file_menu.addSeparator()
         file_menu.addActions([self.act_save, self.act_save_as])
         file_menu.addSeparator()
+        file_menu.addActions([self.act_save_preset, self.act_manage_presets])
+        file_menu.addSeparator()
         file_menu.addAction(self.act_quit)
         edit_menu = self.menuBar().addMenu("&Edit")
+        self.edit_menu = edit_menu
         edit_menu.addActions([self.act_undo, self.act_redo])
         edit_menu.addSeparator()
         edit_menu.addActions([self.act_add_part, self.act_remove_part, self.act_repair_part])
@@ -1953,6 +1993,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.act_preferences = action("&Preferences...", self.edit_preferences)
         edit_menu.addAction(self.act_preferences)
         view_menu = self.menuBar().addMenu("&View")
+        self.view_menu = view_menu
         view_menu.addActions([self.act_zoom_in, self.act_zoom_out, self.act_zoom_reset])
         view_menu.addSeparator()
         view_menu.addAction(self.act_toggle_sidebars)
@@ -1977,9 +2018,16 @@ class MainWindow(StudyControlMixin, QMainWindow):
             act.setChecked(self._telemetry_fields[key])
             self.act_tel_fields[key] = act
             tel_menu.addAction(act)
+        help_menu = self.menuBar().addMenu("&Help")
+        help_menu.addAction(self.act_about)
 
     def _update_actions(self) -> None:
         p = self._project
+        loaded = self.has_project
+        for menu in (self.edit_menu, self.view_menu):  # only File and Help without a project (D-077)
+            menu.menuAction().setEnabled(loaded)
+        for act in (self.act_save, self.act_save_as, self.act_save_preset):
+            act.setEnabled(loaded)
         # A pending field edit is committed by Undo first, so it counts as undoable.
         self.act_undo.setEnabled(p.can_undo or self.properties.has_pending)
         self.act_undo.setText(f"Undo {p.undo_label}" if p.undo_label else "Undo")
@@ -1987,7 +2035,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.act_redo.setText(f"Redo {p.redo_label}" if p.redo_label else "Redo")
         self.act_remove_part.setEnabled(self._selected_part_index() is not None)
         self.act_repair_part.setEnabled(self._selected_part_file() is not None and not self.geometry_busy)
-        self.act_import.setEnabled(not self.geometry_busy)
+        self.act_import.setEnabled(loaded and not self.geometry_busy)
 
     def _selected_part_index(self) -> int | None:
         if self._selection and self._selection[0] == "part":
@@ -2208,9 +2256,10 @@ class MainWindow(StudyControlMixin, QMainWindow):
 
     def import_surface(self) -> None:
         """File > Import Geometry: copy a surface or CAD file into <project folder>/geometry/ and add
-        Parts. Never asks to save first: an untitled project imports into its temporary workspace,
-        moved next to the project file on the first save (D-076)."""
+        Parts. Never asks to save first: every project has its folder from its creation (D-076, D-077)."""
         self._flush_edits()
+        if self._import_folder() is None:
+            return
         source = self.dialogs.ask_import_path()
         if source is None:
             return
@@ -2220,7 +2269,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         units = self.dialogs.ask_units()
         if units is None:
             return
-        project_dir = self._project.ensure_folder()
+        project_dir = self._project.folder
         folder = project_dir / "geometry"
         dest = None
         try:
@@ -2278,6 +2327,14 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._request_checks(parts)
         self.show_message(f"Imported {source.name} as {names}", "success", log_it=False)
 
+    def _import_folder(self) -> Path | None:
+        """The project folder imports go to; None (with a message) without one."""
+        folder = self._project.folder if self.has_project else None
+        if folder is None:
+            self.show_message("Create or open a project first: imported files go to its geometry folder.",
+                              "error")
+        return folder
+
     def _import_cad(self, source: Path) -> None:
         """STEP / IGES (millimetres) or BREP (units asked): one Part, or one Part per body, with a
         region per named face group (Task 3.2, D-070). Reading and tessellation run on the geometry
@@ -2287,7 +2344,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             units = self.dialogs.ask_units()
             if units is None:
                 return
-        project_dir = self._project.ensure_folder()
+        project_dir = self._project.folder
         folder = project_dir / "geometry"
         try:
             folder.mkdir(exist_ok=True)
@@ -2363,22 +2420,57 @@ class MainWindow(StudyControlMixin, QMainWindow):
     def _confirm_discard(self) -> bool:
         """True if it is OK to drop the current project (saved, discarded or not dirty)."""
         self._flush_edits()
-        if not self._project.dirty:
+        if not self.has_project or not self._project.dirty:
             return True
         choice = self.dialogs.confirm_discard()
         if choice == "save":
             return self.save()
         return choice == "discard"
 
-    def new_project(self) -> None:
-        if self._confirm_discard():
-            self._project.discard_workspace()  # an untitled project's imports go with it (D-076)
-            self.set_project(Project.new("Untitled"))
+    def _preset_store(self) -> PresetStore:
+        return PresetStore(presets_dir())
 
-    def open_project(self) -> None:
+    def show_start(self) -> None:
+        """The Start dialog (D-077): New simulation, Open project... or a recent project. Closing it
+        leaves the window as it is."""
+        choice = self.dialogs.ask_start(self.recent)
+        if choice is None:
+            return
+        what, path = choice
+        if what == "new":
+            self.new_project()
+        elif what == "open":
+            self.open_project()
+        elif what == "recent" and path is not None:
+            self.open_project(path)
+
+    def new_project(self) -> None:
+        """File > New Simulation: name, parent folder, preset and cores; the project folder is created
+        and saved at once (D-077)."""
         if not self._confirm_discard():
             return
-        path = self.dialogs.ask_open_path()
+        spec = self.dialogs.ask_new_simulation(self._preset_store())
+        if spec is None:
+            return
+        sim = apply_preset(Simulation(name=spec.name), spec.preset)
+        sim = sim.model_copy(update={"solvers": sim.solvers.model_copy(update={"cores": spec.cores})})
+        try:
+            project = Project.create(spec.parent, spec.name, sim)
+        except (ProjectFolderError, ValueError, OSError) as exc:
+            self.show_message(f"Could not create the project: {exc}", "error")
+            self.dialogs.show_error("New simulation", f"Could not create the project: {exc}")
+            return
+        self.set_project(project)
+        log.info("Created %s (preset '%s', %s)", project.path, spec.preset.name,
+                 f"{spec.cores} cores" if spec.cores > 1 else "serial")
+        self.show_message(f"Created {project.path}", "success", log_it=False)
+
+    def open_project(self, path: Path | None = None) -> None:
+        """File > Open (``path`` None asks for the file) or a recent project."""
+        if not self._confirm_discard():
+            return
+        if path is None:
+            path = self.dialogs.ask_open_path()
         if path is None:
             return
         try:
@@ -2387,17 +2479,52 @@ class MainWindow(StudyControlMixin, QMainWindow):
             log.exception("Could not open project %s", path)
             self.show_message(f"Could not open {path}: {exc}", "error", log_it=False)
             return
-        self._project.discard_workspace()
         self.set_project(project)
         log.info("Opened %s", path)
         self.show_message(f"Opened {path}")
+
+    def _fill_recent_menu(self) -> None:
+        self.recent_menu.clear()
+        entries = self.recent.entries()
+        for path, exists in entries:
+            act = self.recent_menu.addAction(str(path) if exists else f"{path} (not found)")
+            act.setEnabled(exists)
+            act.triggered.connect(lambda _=False, p=path: self.open_project(p))
+        if not entries:
+            self.recent_menu.addAction("No recent projects").setEnabled(False)
+        self.recent_menu.addSeparator()
+        self.recent_menu.addAction("Start screen...").triggered.connect(lambda: self.show_start())
+
+    def save_as_preset(self) -> None:
+        """File > Save as Preset: the open project's analysis type, domain and mesh settings (never
+        physics, inflow or solver settings) as a user preset (D-077)."""
+        if not self.has_project:
+            return
+        self._flush_edits()
+        name = self.dialogs.ask_preset_name(self._project.sim.preset_name or self._project.sim.name)
+        if not name:
+            return
+        store = self._preset_store()
+        try:
+            preset = preset_from_simulation(self._project.sim, name)
+            overwrite = store.find(preset.name) is not None
+            if overwrite and not self.dialogs.confirm_overwrite_preset(preset.name):
+                return
+            path = store.save(preset, overwrite=overwrite)
+        except (PresetError, ValueError, OSError) as exc:
+            self.show_message(f"Preset not saved: {exc}", "error")
+            return
+        log.info("Saved preset '%s' to %s", preset.name, path)
+        self.show_message(f"Saved preset '{preset.name}'", "success", log_it=False)
+
+    def manage_presets(self) -> None:
+        self.dialogs.manage_presets(self._preset_store())
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if not self._confirm_discard():
             event.ignore()
             return
-        self.geometry_worker.wait(30)  # a job may still write into the workspace
-        self._project.discard_workspace()  # closing an untitled project without saving (D-076)
+        self.geometry_worker.wait(30)  # a job may still write into the project folder
         if self.mesh_worker.is_running():
             self.mesh_worker.request_stop()
         if self.solver_worker.is_running():
@@ -2411,11 +2538,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
         super().closeEvent(event)
 
 
-def main() -> int:
-    """Application entry point: ``vortexcfd [path]``."""
-    logging.basicConfig(level=logging.INFO)
-    app = QApplication.instance() or QApplication(sys.argv)
-    args = app.arguments()[1:]
+def start_window(args: list[str], dialogs: Dialogs | None = None) -> MainWindow:
+    """The main window for ``vortexcfd [path]``: the project at ``path`` opened directly, or the empty
+    start state with the Start dialog opened once the event loop runs (D-077)."""
     error = None
     project = None
     if args:
@@ -2424,10 +2549,20 @@ def main() -> int:
         except Exception as exc:
             log.exception("Could not open project %s", args[0])
             error = f"Could not open {args[0]}: {exc}"
-    window = MainWindow(project if project is not None else Project.new("Untitled"))
+    window = MainWindow(project, dialogs)  # None: the empty start state
     if error:
         window.show_message(error, "error")
     window.show()
+    if project is None:
+        QTimer.singleShot(0, window.show_start)
+    return window
+
+
+def main() -> int:
+    """Application entry point: ``vortexcfd [path]``."""
+    logging.basicConfig(level=logging.INFO)
+    app = QApplication.instance() or QApplication(sys.argv)
+    window = start_window(app.arguments()[1:])  # noqa: F841 (kept alive by this frame)
     return app.exec()
 
 

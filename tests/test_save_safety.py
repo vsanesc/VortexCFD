@@ -1,4 +1,5 @@
-"""Import without saving first, the .vcfd project files and the save target rules (D-076).
+"""The .vcfd project files and the save target rules (D-076); every project has a folder from its
+creation, so there is no untitled workspace any more (D-077).
 
 Every dialog is a fake (tests/fakes.py)."""
 
@@ -13,7 +14,7 @@ import pyvista as pv
 from tests import cad_corpus
 from tests.geometry_corpus import box_faces, write_multi_solid
 from tests.test_import import _fresh_cache, make_window, wait_geometry  # noqa: F401 (fixtures)
-from vortexcfd.core import workspace as ws
+from vortexcfd.core import save_rules as ws
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
 from vortexcfd.geometry import regions
@@ -39,21 +40,20 @@ def _import(w, path: Path) -> None:
     wait_geometry(w._qtbot, w)
 
 
-# -- import into an untitled project, first save, reopen --------------------------------------
+# -- import into a project, save, reopen ---------------------------------------------------------
 
 
 def test_import_save_reopen(make_window, tmp_path: Path) -> None:
     files = _sources(tmp_path)
-    w = make_window(saved=False, save_path=tmp_path / "work" / "wing")
+    w = make_window()  # saved as proj/proj.json by the fixture
     for path in files.values():
         _import(w, path)
-    assert w.dialogs.save_asked == [] and w.project.path is None
-    workspace = w.project.workspace
-    assert workspace.parent == ws.cache_root() and (workspace / "geometry" / "body.step").is_file()
+    assert w.dialogs.save_asked == []
+    assert (tmp_path / "proj" / "geometry" / "body.step").is_file()
     assert [p.name for p in w.project.sim.geometry.parts] == ["ball", "box", "body"]
     assert w.save()
-    target = tmp_path / "work" / "wing.vcfd"  # the extension was appended
-    assert w.project.path == target and target.is_file() and not workspace.exists()
+    target = tmp_path / "proj" / "proj.vcfd"  # the legacy .json is saved as .vcfd next to it
+    assert w.project.path == target and target.is_file()
     reopened = Project.open(target)
     for part in reopened.sim.geometry.parts:
         mesh = load_surface(reopened.resolve_part_path(part), part.units)
@@ -65,59 +65,13 @@ def test_import_save_reopen(make_window, tmp_path: Path) -> None:
     assert reopened.sim.geometry.parts == w.project.sim.geometry.parts
 
 
-def test_first_save_renames_clashing_files_in_the_whole_history(make_window, tmp_path: Path) -> None:
-    files = _sources(tmp_path)
-    folder = tmp_path / "busy"
-    (folder / "geometry").mkdir(parents=True)
-    (folder / "geometry" / "ball.stl").write_text("somebody else's file")
-    w = make_window(saved=False, save_path=folder / "p.vcfd")
-    _import(w, files["ball"])
-    w.act_add_part.trigger()  # an edit after the import, to undo after the save
-    assert w.save()
-    part = w.project.sim.geometry.parts[0]
-    assert part.source_file == "geometry/ball_2.stl"
-    assert (folder / "geometry" / "ball.stl").read_text() == "somebody else's file"
-    w.project.undo()  # the history before the save points to the renamed file too
-    assert w.project.sim.geometry.parts[0].source_file == "geometry/ball_2.stl"
-    assert load_surface(w.project.resolve_part_path(w.project.sim.geometry.parts[0]), "m").n_cells > 0
+def test_no_untitled_workspace_is_left(tmp_path: Path) -> None:
+    """D-077 supersedes the temporary workspace of D-076: nothing of it is left in the API."""
+    from vortexcfd.core import project as project_module
 
-
-def test_discard_deletes_the_workspace(make_window, tmp_path: Path) -> None:
-    w = make_window(saved=False)
-    _import(w, _sources(tmp_path)["ball"])
-    workspace = w.project.workspace
-    assert workspace.is_dir()
-    w.dialogs.discard = "discard"
-    w.new_project()
-    assert not workspace.exists() and w.project.workspace is None
-
-
-def test_close_without_saving_deletes_the_workspace(make_window, tmp_path: Path) -> None:
-    w = make_window(saved=False)
-    _import(w, _sources(tmp_path)["ball"])
-    workspace = w.project.workspace
-    w.dialogs.discard = "discard"
-    assert w.close()
-    assert not workspace.exists()
-
-
-def test_close_with_save_moves_the_workspace(make_window, tmp_path: Path) -> None:
-    w = make_window(saved=False, save_path=tmp_path / "kept.vcfd")
-    _import(w, _sources(tmp_path)["ball"])
-    workspace = w.project.workspace
-    w.dialogs.discard = "save"
-    assert w.close()
-    assert not workspace.exists() and (tmp_path / "geometry" / "ball.stl").is_file()
-    assert Project.open(tmp_path / "kept.vcfd").sim.geometry.parts[0].source_file == "geometry/ball.stl"
-
-
-def test_cancelled_close_keeps_the_workspace(make_window, tmp_path: Path) -> None:
-    w = make_window(saved=False)
-    _import(w, _sources(tmp_path)["ball"])
-    w.dialogs.discard = "cancel"
-    assert not w.close()
-    assert w.project.workspace.is_dir()
-    w.dialogs.discard = "discard"
+    assert not hasattr(Project, "ensure_folder") and not hasattr(Project, "discard_workspace")
+    assert not hasattr(ws, "new_workspace") and not hasattr(project_module, "ws")
+    assert Project.new("P").folder is None
 
 
 # -- the save dialog's result -------------------------------------------------------------------
@@ -129,13 +83,13 @@ def test_a_geometry_file_picked_in_the_save_dialog_is_refused(make_window, tmp_p
     victim = tmp_path / name
     cad_corpus.named_box_step(victim) if victim.suffix.lower() in (".step", ".stp") else victim.write_bytes(b"geometry \x00\x01")
     before = _digest(victim)
-    w = make_window(saved=False, save_path=victim)
+    w = make_window(save_path=victim)
     _import(w, _sources(tmp_path)["ball"])
-    w.act_save_as.trigger()
-    assert not w.save()
+    path = w.project.path
+    assert not w.save_as()
     assert _digest(victim) == before  # byte-identical
     assert not victim.with_name(victim.name + ".vcfd").exists()  # no extension appended either
-    assert w.project.path is None and w.project.workspace.is_dir()
+    assert w.project.path == path
     assert w.dialogs.errors and "is a geometry file" in w.dialogs.errors[-1][1]
     assert w.dialogs.overwrite_asked == []
     assert "Not saved" in w.statusBar().currentMessage()
