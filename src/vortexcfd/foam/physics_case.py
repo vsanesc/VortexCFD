@@ -34,8 +34,10 @@ from vortexcfd.foam.parallel import DECOMPOSE_DICT, decompose_par_dict
 Bounds = tuple[float, float, float, float, float, float]  # xmin, xmax, ymin, ymax, zmin, zmax
 
 # Far-field patches (as the motorBike tutorial's upperWall / frontAndBack): slip for the flow
-# fields; nut stays "calculated" there, like the tutorial.
+# fields; nut stays "calculated" there, like the tutorial. The rounded domain shapes name theirs
+# differently and get the same conditions (D-078).
 FAR_FIELD = ("sides", "top", "bottom")
+FAR_FIELD_BY_SHAPE = {"box": FAR_FIELD, "bullet": ("farfield",), "c_type": ("farfield", "sides")}
 
 
 @dataclass(frozen=True)
@@ -52,6 +54,7 @@ class SolverCaseInput:
     # (part key, its patches) for every part with several patches (mesh_case.part_force_groups):
     # the per-part force objects sum all of the part's patches.
     part_groups: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    far_field: tuple[str, ...] = FAR_FIELD  # the domain's far-field patches (FAR_FIELD_BY_SHAPE)
 
 
 def flow_direction(alpha_deg: float) -> tuple[float, float, float]:
@@ -331,7 +334,7 @@ def turbulence_properties(physics: Physics) -> FoamFileSpec:
 
 
 def _patch_names(inp: SolverCaseInput) -> list[str]:
-    names = ["inlet", "outlet", *FAR_FIELD]
+    names = ["inlet", "outlet", *inp.far_field]
     if inp.symmetric:
         names.append("symmetry")
     return names
@@ -340,7 +343,7 @@ def _patch_names(inp: SolverCaseInput) -> list[str]:
 def _field(inp: SolverCaseInput, cls: str, dimensions: list[int], internal, inlet: dict, outlet: dict,
            far: dict, wall: dict, value_for_walls=None) -> FoamFileSpec:
     boundary: dict[str, dict] = {"inlet": inlet, "outlet": outlet}
-    for name in FAR_FIELD:
+    for name in inp.far_field:
         boundary[name] = dict(far)
     if inp.symmetric:
         boundary["symmetry"] = {"type": "symmetryPlane"}

@@ -71,14 +71,13 @@ from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.gui.properties_panel import PropertiesPanel
 from vortexcfd.gui.recent import RecentProjects
 from vortexcfd.gui.settings_store import presets_dir
-from vortexcfd.geometry.domain import BOUNDARY_NAMES
+from vortexcfd.geometry.domain import SHAPE_LABELS, shape_roles
 from vortexcfd.foam.mesh_case import (
     CaseDirectoryNotOursError,
     force_report_keys,
     part_patch_names,
     remove_results,
 )
-from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.gui.geometry_worker import GeometryWorker, IntersectionChecker, snapshot
 from vortexcfd.gui.mesh_worker import MeshWorker
@@ -372,12 +371,14 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._delegate = _RowDelegate(self.tree)
         self.tree.setItemDelegate(self._delegate)
         self.tree.eye_clicked.connect(self._on_eye_clicked)
+        self.tree.itemActivated.connect(self._on_item_activated)
         self.properties = PropertiesPanel(project)
         self.properties.message.connect(lambda text: self.show_message(text, "warning"))
         self.properties.regions_selected.connect(self._on_regions_selected)
         self.properties.retessellate_requested.connect(self._retessellate)
         self.properties.request_intersections = self.intersections.request
         self.properties.pending_changed.connect(self._update_actions)
+        self.properties.generate_domain_requested.connect(self.generate_domain)
         self._build_actions()
 
         self.tree_header = SectionHeader("Simulation Tree")
@@ -909,17 +910,21 @@ class MainWindow(StudyControlMixin, QMainWindow):
             physics_item = add(continua, "physics", None, "Physics", "dot", "accent")
             add(physics_item, "inflow", None, "Inflow", "dot", "accent")
             regions = add(root, "regions", None, "Regions", "folder", "text")
-            fluid = add(regions, "fluid_domain", None, "Fluid Domain", "folder", "text")
             domain = self._project.sim.domain
+            generated = domain.enabled or self._project.sim.analysis_type != "empty"
+            fluid = add(regions, "fluid_domain", None,
+                        "Fluid Domain" if generated else "Fluid Domain (not generated)",
+                        "folder", "text")
             if domain.enabled:
-                for bname in BOUNDARY_NAMES:
-                    if bname == "symmetry" and domain.symmetry != "y_min":
-                        continue
+                for bname in shape_roles(domain.shape, domain.symmetry == "y_min"):
                     add(fluid, f"boundary_{bname}", None, bname, "dot", "accent")
+            elif not generated:  # the "Empty" analysis: the domain is an operation (D-078)
+                add(fluid, "generate_domain", None, "Generate domain\u2026", "dot", "accent_secondary")
             labels = [label for part, patches in zip(parts, part_patch_names(parts))
                       for label in (patches if part.regions else (part.name,))]
             for i, label in enumerate(labels):  # one wall per patch (D-071); a plain part shows its name
                 add(fluid, "wall", i, f"{label} (wall)", "dot", "accent")
+            add(regions, "fluid_region", None, "Fluid Region (domain minus parts)", "dot", "accent")
             solvers_item = add(root, "solvers", None, "Solvers", "folder", "text")
             add(solvers_item, "stopping", None, "Stopping Criteria", "dot", "accent")
             reports = add(root, "reports", None, "Reports & Monitors", "folder", "text")
@@ -1152,7 +1157,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._mesh_hash = None
         self.properties.set_mesh_report(None)
         self.top_bar.set_run_state("Meshing")
-        est = estimate_mesh(job.inputs.domain_bounds, job.inputs.reference_length, job.inputs.mesh)
+        est = job.inputs.estimate()
         log.info("Meshing %s: background %d cells (base size %.4g m), surface levels %d-%d "
                  "(surface cells %.4g m)", job.case_dir, est.total_cells, est.base_size,
                  est.level_min, est.level_max, est.surface_size)
@@ -1188,7 +1193,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
         """A shown mesh is out of date when the meshing inputs no longer match its hash."""
         report = self.mesh_report
         lost = report.lost_parts if report is not None else ()
-        self.top_bar.set_mesh_error(f"Mesh invalid: Part {lost[0]} lost" if lost else None)
+        domain = report.domain_errors if report is not None else ()
+        self.top_bar.set_mesh_error(f"Mesh invalid: Part {lost[0]} lost" if lost
+                                    else f"Mesh invalid: {domain[0]}" if domain else None)
         stale = (
             self.mesh_report is not None and self._mesh_hash is not None
             and not self.mesh_worker.is_running() and inputs_hash(self._project) != self._mesh_hash
@@ -1234,7 +1241,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self._clear_results_after_meshing()
             for text in report.lost_messages():
                 log.error(text)
-            if report.lost_parts:
+            if report.lost_messages():
                 self.show_message(f"Mesh invalid: {report.lost_messages()[0]}", "error", log_it=False)
             else:
                 level = "success" if report.mesh_ok else "warning"
@@ -1254,6 +1261,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         busy = self.study_running()
         if busy is not None:
             return busy
+        if self.mesh_report is not None and self.mesh_report.domain_errors:
+            return f"{self.mesh_report.domain_errors[0]}: generate the mesh again."
         return solving.readiness(
             self._project, has_mesh=self.mesh_report is not None, mesh_stale=self.mesh_stale,
             meshing=self.mesh_worker.is_running(),
@@ -1958,6 +1967,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.act_remove_part.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.tree.addAction(self.act_remove_part)
         self.act_repair_part = action("Re&pair part", self.repair_selected_part)
+        self.act_generate_domain = action("&Generate Domain...", lambda: self.generate_domain())
 
         self.act_zoom_in = action("Zoom &In", lambda: self.set_point_size(self._point_size + 1))
         self.act_zoom_in.setShortcuts([QKeySequence("Ctrl+="), QKeySequence("Ctrl++")])
@@ -1989,6 +1999,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         edit_menu.addActions([self.act_undo, self.act_redo])
         edit_menu.addSeparator()
         edit_menu.addActions([self.act_add_part, self.act_remove_part, self.act_repair_part])
+        edit_menu.addAction(self.act_generate_domain)
         edit_menu.addSeparator()
         self.act_preferences = action("&Preferences...", self.edit_preferences)
         edit_menu.addAction(self.act_preferences)
@@ -2036,6 +2047,32 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.act_remove_part.setEnabled(self._selected_part_index() is not None)
         self.act_repair_part.setEnabled(self._selected_part_file() is not None and not self.geometry_busy)
         self.act_import.setEnabled(loaded and not self.geometry_busy)
+
+    def _on_item_activated(self, item: QTreeWidgetItem, _column: int = 0) -> None:
+        kind, _index = item.data(0, ROLE_NODE)
+        if kind == "generate_domain":
+            self.generate_domain()
+
+    def generate_domain(self) -> None:
+        """Edit > Generate Domain (D-078): the parts it is sized around (the selected part, else all),
+        its shape and sizes, applied as one undoable step."""
+        if not self.has_project:
+            return
+        self._flush_edits()
+        sim = self._project.sim
+        names = [p.name for p in sim.geometry.parts]
+        if not names:
+            self.show_message("Import a part first: the domain is sized around the parts.", "warning")
+            return
+        selected = self._selected_part()
+        checked = [selected.name] if selected is not None else (sim.domain.parts or names)
+        fields = self.dialogs.ask_generate_domain(names, checked, sim.domain)
+        if not fields:
+            return
+        self._run_edit(lambda: self._project.update_domain(
+            label=f"Generate domain ({SHAPE_LABELS[fields['shape']]})", **fields))
+        log.info("Generated a %s domain around %s", SHAPE_LABELS[fields["shape"]],
+                 ", ".join(fields["parts"]) if fields.get("parts") else "every part")
 
     def _selected_part_index(self) -> int | None:
         if self._selection and self._selection[0] == "part":

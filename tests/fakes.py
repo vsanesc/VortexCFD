@@ -30,6 +30,8 @@ class FakeDialogs:
         self.preset_overwrite_asked: list = []
         self.presets_managed = 0
         self.about_shown = 0
+        self.domain_fields = None  # ask_generate_domain's answer (a dict of Domain fields or None)
+        self.domain_asked: list = []
 
     def ask_open_path(self):
         return self.open_path
@@ -88,3 +90,7 @@ class FakeDialogs:
 
     def show_about(self):
         self.about_shown += 1
+
+    def ask_generate_domain(self, part_names, checked, domain):
+        self.domain_asked.append((list(part_names), list(checked)))
+        return self.domain_fields

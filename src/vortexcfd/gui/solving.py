@@ -19,7 +19,7 @@ from vortexcfd.foam.dictfile import write_foam_file
 from vortexcfd.foam.mesh_case import MARKER_NAME, part_force_groups, remove_results
 from vortexcfd.foam.mesh_report import lost_part_message
 from vortexcfd.foam.parallel import physical_cores
-from vortexcfd.foam.physics_case import SolverCaseInput, build_solver_files, reference_values
+from vortexcfd.foam.physics_case import FAR_FIELD_BY_SHAPE, SolverCaseInput, build_solver_files, reference_values
 from vortexcfd.gui.meshing import MeshingNotReady, case_dir_for, inputs_hash, parts_layout
 
 
@@ -84,7 +84,7 @@ def solver_input(project: Project) -> SolverCaseInput:
     sim = project.sim
     return SolverCaseInput(sim.physics, sim.inflow, sim.solvers, names, bounds,
                            sim.domain.symmetry == "y_min", sim.reports,
-                           part_force_groups(sim.geometry.parts))
+                           part_force_groups(sim.geometry.parts), FAR_FIELD_BY_SHAPE[sim.domain.shape])
 
 
 def clear_results(case_dir: Path) -> list[str]:

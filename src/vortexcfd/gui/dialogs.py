@@ -143,6 +143,14 @@ class Dialogs:
 
         ManagePresetsDialog(store, self.parent).exec()
 
+    def ask_generate_domain(self, part_names, checked, domain):
+        """The Generate domain dialog (D-078): the Domain fields to apply, or None (cancelled)."""
+        from vortexcfd.gui.domain_dialog import GenerateDomainDialog
+
+        dialog = GenerateDomainDialog(part_names, checked, domain, self.parent)
+        dialog.exec()
+        return dialog.result_fields
+
     def show_about(self) -> None:
         QMessageBox.about(self.parent, "About VortexCFD",
                           "VortexCFD: an integrated CFD workflow on top of OpenFOAM ESI v2606.")

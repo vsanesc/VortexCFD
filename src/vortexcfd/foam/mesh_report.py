@@ -63,14 +63,17 @@ class MeshReport:
     # Part patches with no faces in constant/polyMesh/boundary (D-052): checkMesh can still say
     # "Mesh OK" when a whole part was never meshed.
     lost_parts: tuple[str, ...] = ()
+    # The domain guard (D-078): a background-box patch left with faces or a domain patch without any.
+    domain_errors: tuple[str, ...] = ()
 
     @property
     def valid(self) -> bool:
-        """checkMesh passed AND every part is in the mesh ("Mesh OK" alone is not enough)."""
-        return self.mesh_ok and not self.lost_parts
+        """checkMesh passed AND every part and domain patch is in the mesh ("Mesh OK" alone is not enough)."""
+        return self.mesh_ok and not self.lost_parts and not self.domain_errors
 
     def lost_messages(self) -> list[str]:
-        return [lost_part_message(name) for name in self.lost_parts]
+        """Why the mesh is invalid although checkMesh may pass: lost parts, then the domain guard."""
+        return [lost_part_message(name) for name in self.lost_parts] + list(self.domain_errors)
 
     def summary(self) -> str:
         parts = []
