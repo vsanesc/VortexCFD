@@ -1957,7 +1957,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.act_about = action("&About VortexCFD", lambda: self.dialogs.show_about())
         self.act_import = action("&Import Geometry...", self.import_surface, "Ctrl+I")
         self.act_save = action("&Save", self.save, S.Save)
-        self.act_save_as = action("Save &As...", self.save_as, S.SaveAs)
+        self.act_save_as = action("Save &As (Duplicate Project)...", self.save_as, S.SaveAs)
         self.act_quit = action("&Quit", self.close, S.Quit)
         self.act_undo = action("Undo", self._undo, S.Undo)
         self.act_redo = action("Redo", self._redo, S.Redo)
@@ -2251,10 +2251,37 @@ class MainWindow(StudyControlMixin, QMainWindow):
         return self._save_to(None)
 
     def save_as(self) -> bool:
-        """Save As: the dialog's file gets the .vcfd extension when it lacks it; a geometry file, a
-        geometry source of the project or an existing non-project file is refused (the dialog's
-        result is not used); an existing project is overwritten only after confirmation (D-076)."""
+        """File > Save As (duplicate project, D-079): a new project folder <parent>/<name>/ with the
+        current state and a copy of every referenced geometry file; case/ is not copied, so the
+        duplicate opens without mesh and results. The original project and folder are not changed.
+        An in-memory project without a folder (scripts, tests) gets the save-file flow instead."""
         self._flush_edits()
+        if self._project.path is None:
+            return self._save_file_as()
+        target = self.dialogs.ask_duplicate(self._project.sim.name, self._project.folder.parent)
+        if target is None:
+            return False
+        name, parent = target
+        if self.geometry_worker.is_running():
+            self.geometry_worker.wait(30)  # a job may still write into the geometry folder
+        try:
+            duplicate, missing = self._project.duplicate(parent, name)
+        except (ProjectFolderError, ValueError, OSError) as exc:  # SaveTargetError included
+            return self._refuse_save(exc)
+        original = self._project.path
+        for rel in missing:
+            log.warning("Save As: %s is missing in %s and was not copied", rel, original.parent)
+        self.set_project(duplicate)
+        log.info("Saved %s as the new project %s (geometry copied; mesh and results not copied)", original,
+                 duplicate.path)
+        self.show_message(f"Saved as {duplicate.path}", "warning" if missing else "success", log_it=False)
+        return True
+
+    def _save_file_as(self) -> bool:
+        """The save-file flow of an in-memory project: the dialog's file gets the .vcfd extension when
+        it lacks it; a geometry file, a geometry source of the project or an existing non-project file
+        is refused (the dialog's result is not used); an existing project is overwritten only after
+        confirmation (D-076)."""
         current = self._project.path
         suggested = with_project_extension(current) if current is not None else None
         chosen = self.dialogs.ask_save_path(suggested)

@@ -22,11 +22,12 @@ those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
   undoable domain edits that make the mesh out of date; the viewer draws every shape as a wireframe and
   highlights the selected role. Coarse sphere meshes at the same base size: box 17,798 cells, bullet
   11,058, C-type 13,870, all checkMesh OK.
+- Fix (D-079): Save As duplicates the project: a new folder with every referenced geometry file
+  copied, no case/, the original untouched. D-078 accepted after review.
 
 Next candidates: internal flow (mass-flow and total-pressure inlets; after the meshing phase), unsteady
 runs (pimpleFoam), MRF rotating zones (PLAN 8.2), the meshing track (5.0 benchmark suite, 5.2 surface
-preparation). Open: docs/QUESTIONS.md items 67, 69, 70, 71, 72, 73, 75 and 78 to 82 (80 is a
-[NUMERICS-REVIEW] of the rounded domains).
+preparation). Open: docs/QUESTIONS.md items 67, 69, 70, 71, 72, 73, 75 and 82.
 
 ## Phases
 
@@ -83,8 +84,7 @@ preparation). Open: docs/QUESTIONS.md items 67, 69, 70, 71, 72, 73, 75 and 78 to
 - Parallel speedup saturates at about 3 on 8 cores (memory-bandwidth bound, docs/validation/parallel/README.md); the recommended-core cap of 4 is a constant for this machine (item 69).
 - Location of user projects and run outputs in the released app (run/ is development only).
 - Changing a CAD part's deflection re-tessellates from the CAD and drops an earlier repair (D-072).
-- Save As into another folder writes only the project file; the geometry stays behind (QUESTIONS 79).
-- Preset boundary types are stored but there is one boundary type per role today (QUESTIONS 78).
+- Preset boundary types are stored but there is one boundary type per role today (QUESTIONS 78, for the internal-flow task).
 - cfMesh build spike on v2606.
 - Total cell estimate: only background cells are estimated today.
 - Per-part surface size (one target surface size for all parts today).

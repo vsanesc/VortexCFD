@@ -126,6 +126,14 @@ class Dialogs:
         dialog.exec()
         return dialog.result_spec
 
+    def ask_duplicate(self, current_name: str, current_parent: Path):
+        """Save As (duplicate project, D-079): (name, parent folder) or None (cancelled)."""
+        from vortexcfd.gui.start_dialogs import DuplicateProjectDialog
+
+        dialog = DuplicateProjectDialog(current_name, current_parent, self.parent)
+        dialog.exec()
+        return dialog.result_target
+
     def ask_preset_name(self, suggested: str) -> str | None:
         text, ok = QInputDialog.getText(self.parent, "Save as preset",
                                         "Preset name (analysis type, domain and mesh settings only):", text=suggested)

@@ -32,6 +32,8 @@ class FakeDialogs:
         self.about_shown = 0
         self.domain_fields = None  # ask_generate_domain's answer (a dict of Domain fields or None)
         self.domain_asked: list = []
+        self.duplicate_target = None  # ask_duplicate's answer: (name, parent folder) or None
+        self.duplicate_asked: list = []
 
     def ask_open_path(self):
         return self.open_path
@@ -94,3 +96,7 @@ class FakeDialogs:
     def ask_generate_domain(self, part_names, checked, domain):
         self.domain_asked.append((list(part_names), list(checked)))
         return self.domain_fields
+
+    def ask_duplicate(self, current_name, current_parent):
+        self.duplicate_asked.append((current_name, current_parent))
+        return self.duplicate_target

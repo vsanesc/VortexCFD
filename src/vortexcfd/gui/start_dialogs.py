@@ -255,6 +255,71 @@ class NewSimulationDialog(QDialog):
         self.accept()
 
 
+class DuplicateProjectDialog(QDialog):
+    """Save As (duplicate project, D-079): the new project's name and parent folder, validated as in
+    New simulation. ``result`` after it closes: (name, parent) or None."""
+
+    def __init__(self, current_name: str, current_parent: Path, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Save As (duplicate project)")
+        self.setModal(True)
+        self.result_target: tuple[str, Path] | None = None
+        form = QFormLayout()
+        self.name_edit = QLineEdit(f"{current_name}_copy")
+        form.addRow("New project name", self.name_edit)
+        folder_row = QHBoxLayout()
+        self.parent_edit = QLineEdit(str(current_parent))
+        self.browse_button = QPushButton("Browse\u2026")
+        self.browse_button.clicked.connect(self._browse)
+        folder_row.addWidget(self.parent_edit, 1)
+        folder_row.addWidget(self.browse_button)
+        form.addRow("Parent folder", folder_row)
+        note = QLabel("The geometry is copied; the mesh and results are not (the duplicate starts without them). "
+                      "The original project is not changed.")
+        note.setWordWrap(True)
+        self.folder_label = QLabel()
+        self.folder_label.setWordWrap(True)
+        self.error_label = QLabel()
+        self.error_label.setObjectName("checkValue")
+        self.error_label.setWordWrap(True)
+        self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
+        self.create_button = self.buttons.addButton("Duplicate", QDialogButtonBox.ButtonRole.AcceptRole)
+        self.buttons.accepted.connect(self._create)
+        self.buttons.rejected.connect(self.reject)
+        layout = QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(note)
+        layout.addWidget(self.folder_label)
+        layout.addWidget(self.error_label)
+        layout.addWidget(self.buttons)
+        self.name_edit.textChanged.connect(lambda _: self.validate())
+        self.parent_edit.textChanged.connect(lambda _: self.validate())
+        self.validate()
+        self.resize(560, 0)
+
+    def _browse(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Parent folder", self.parent_edit.text())
+        if folder:
+            self.parent_edit.setText(folder)
+
+    def validate(self) -> str | None:
+        reason = None
+        try:
+            folder = check_new_project_folder(Path(self.parent_edit.text().strip()), self.name_edit.text())
+            self.folder_label.setText(f"Creates {folder}/")
+        except (ValueError, TypeError) as exc:
+            reason = str(exc)
+            self.folder_label.setText("")
+        self.error_label.setText(reason or "")
+        self.create_button.setEnabled(reason is None)
+        return reason
+
+    def _create(self) -> None:
+        if self.validate() is None:
+            self.result_target = (self.name_edit.text().strip(), Path(self.parent_edit.text().strip()))
+            self.accept()
+
+
 class ManagePresetsDialog(QDialog):
     """Rename and delete user presets; broken preset files are listed (and can be deleted).
     ``ask_name(current) -> str | None`` and ``confirm(text) -> bool`` are injectable."""

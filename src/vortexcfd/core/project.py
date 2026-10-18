@@ -1,6 +1,7 @@
 """Qt-free project document: current simulation, undo/redo history, dirty state, observers."""
 
 import re
+import shutil
 from collections import deque
 from collections.abc import Callable
 from pathlib import Path
@@ -117,6 +118,58 @@ class Project:
         project = cls(sim, max_depth=max_depth)
         project.save(folder / f"{name}{save_rules.PROJECT_EXTENSION}")
         return project
+
+    def referenced_files(self) -> list[str]:
+        """The project-relative paths of every file the parts read (surface or CAD tessellation,
+        region ids, CAD source), each once, in part order."""
+        out: list[str] = []
+        for part in self._sim.geometry.parts:
+            for rel in (part.source_file, part.region_ids, part.cad.file if part.cad else None):
+                if rel and rel not in out:
+                    out.append(rel)
+        return out
+
+    def duplicate(self, parent: Path, name: str, *, max_depth: int = 100) -> tuple["Project", list[str]]:
+        """Save As (D-079): a new project <parent>/<name>/<name>.vcfd with the current state (renamed
+        ``name``) and a copy of every file the parts reference; case/ is created empty (no mesh, no
+        results). This project and its folder are not changed. Returns the new project and the
+        referenced files that were missing (not copied).
+
+        Raises ValueError for an invalid name, ProjectFolderError when <parent>/<name> exists and is
+        not an empty folder or a referenced path leaves the project folder.
+        """
+        if self.folder is None:
+            raise ProjectFolderError("The project has no folder to duplicate (never saved).")
+        target = check_new_project_folder(Path(parent), name)
+        name = validate_project_name(name)
+        source = self.folder.resolve()
+        if target.resolve() == source or source in target.resolve().parents:
+            raise ProjectFolderError("The duplicate cannot be inside the project's own folder.")
+        files = self.referenced_files()
+        for rel in files:
+            resolved = (source / rel).resolve()
+            if Path(rel).is_absolute() or source not in resolved.parents:
+                raise ProjectFolderError(f"{rel} is outside the project folder: it cannot be duplicated.")
+        sim = self._sim.model_copy(update={"name": name}, deep=True)
+        existed = target.exists()
+        duplicate = Project.create(parent, name, sim, max_depth=max_depth)
+        missing = []
+        try:
+            for rel in files:
+                src = source / rel
+                if not src.is_file():
+                    missing.append(rel)
+                    continue
+                dest = target / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dest)
+        except OSError:  # leave nothing half-copied behind (the folder was new or empty)
+            for child in list(target.iterdir()):
+                shutil.rmtree(child) if child.is_dir() else child.unlink()
+            if not existed:
+                target.rmdir()
+            raise
+        return duplicate, missing
 
     @classmethod
     def open(cls, path: Path, *, max_depth: int = 100) -> "Project":
