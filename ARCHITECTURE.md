@@ -34,6 +34,7 @@ src/vortexcfd/
   - Encapsulates the simulation data model.
   - `core/model.py`: defines the simulation tree data models validated via Pydantic.
   - `core/project_io.py`: handles saving, loading, validation, and migration of JSON project files.
+  - `core/reports.py`: the report ids (force coefficients of all walls or per part, their pressure/viscous parts, x_cp, mass imbalance, y+, probes), their labels, the lists offered to report slots and asymptotic criteria and the default scale floor of the relative range (D-058, D-060).
   - `core/project.py`: Qt-free `Project` document wrapping a `Simulation` with validated edits, snapshot undo/redo, dirty tracking and change observers.
   - `Project` is not thread-safe: only the GUI thread may call its methods.
   - Must **NOT** import Qt (`PySide6`), `pyvista`, `pyvistaqt`, or anything GUI-related.
@@ -52,12 +53,15 @@ src/vortexcfd/
   - `foam/mesh_case.py` also resolves per-part surface levels (`part_level_range`) and writes seed lines for small or thin parts automatically (`needs_seeding`, `write_seed_edge_meshes`, D-052); `foam/mesh_run.lost_parts` is the post-mesh lost-part guard (part patches with 0 faces in constant/polyMesh/boundary); `gui/meshing.thin_part_warnings` is the pre-mesh note about seeded parts; `geometry/checks.py` also reports inward normals (signed volume, D-056).
   - `foam/mesh_case.remove_results`: deletes the solver results (time directories after 0, postProcessing/, the run record) of a marker-protected case after a successful mesh.
   - `foam/mesh_record.py`: `case/vortexcfd_mesh.json`, the last `MeshReport` plus the hash of the meshing inputs (used to flag an out-of-date mesh).
-  - `foam/runner.py`: process execution via `run_foam` and streaming runner `FoamRun` returning `RunResult`. Clean stop works for single-process solvers launched through `FoamRun` with `clean_stop=True`.
+  - `foam/runner.py`: process execution via `run_foam` and streaming runner `FoamRun` returning `RunResult`. Clean stop (`clean_stop=True`, SIGUSR1) works for single-process solvers and for `mpirun ... -parallel` (Open MPI forwards SIGUSR1 to the ranks); timeout and escalation signal the process group and every process of the run's session (`signal_session`), and processes left in the session after the main one ends are killed (D-063).
+  - `foam/parallel.py`: physical cores, system/decomposeParDict (scotch), the mpirun command line and the decomposePar summary; `SolverRun` runs decomposePar, mpirun and reconstructPar -latestTime when `Solvers.cores` > 1 (D-063).
   - `foam/logparse.py`: incremental solver log parsing via `LogParser` recording `TimeStep` events (and `Converged` when the SIMPLE residualControl is reached).
-  - `foam/solver_run.py`: `SolverRun` runs simpleFoam through `FoamRun(clean_stop=True)` on a worker thread, parses the log and classifies the end state (converged, iteration limit, stopped, crashed).
-  - `foam/run_record.py`: `case/vortexcfd_run.json`, the last run's state, iterations, final residuals and results inputs hash.
+  - `foam/solver_run.py`: `SolverRun` runs simpleFoam through `FoamRun(clean_stop=True)` on a worker thread, parses the log, evaluates app-side stopping criteria after every iteration (and stops the solver cleanly when they are met) and classifies the end state (criteria met, iteration limit, stopped, crashed).
+  - `foam/run_record.py`: `case/vortexcfd_run.json`, the last run's state, iterations, final residuals, results inputs hash and the stopping criteria (all of them, those that stopped the run and the iteration at which they were met); old "converged" records are migrated on read.
+  - `foam/convergence.py`: stopping criteria: residual-only sets as the runTimeControl function object (`run_time_control`, `is_native`), otherwise evaluated by the app (`app_side`, `evaluate`, `criteria_met`, the range-based `asymptotic_range`); the oscillation check (`oscillation`) uses the same normalisation (D-058, D-059). `LogParser` reports runTimeControl's stop as the `CriteriaMet` event.
   - `foam/residuals.py`: `ResidualHistory` (initial residual per field and iteration) and `decimate` (at most about 2000 points per series).
-  - `foam/postprocessing.py`: tails the forceCoeffs (`coefficient.dat`), forces (`force.dat`) and yPlus (`yPlus.dat`) output files (`ReportMonitor`, `TailReader`), tolerating a partial last line; y+ across walls is face-count weighted from `constant/polyMesh/boundary`; `project_coefficients` projects a force onto the drag and lift directions.
+  - `foam/forces.py`: force breakdown (pressure / viscous coefficients from force.dat with the coefficient.dat header), Cm and centre of pressure, mass imbalance (D-060). `foam/wall_fields.py`: Cf and Cf_x from wallShearStress, the y+ histogram and wall face values of a field file (D-061).
+  - `foam/postprocessing.py`: tails the forceCoeffs (`coefficient.dat`), forces (`force.dat`) and yPlus (`yPlus.dat`) output files (`ReportMonitor`, `TailReader`), tolerating a partial last line; `ReportMonitor` also finds the per-part forces, massFlow_<patch> and probe_<name> objects by name and serves every report id of core/reports.py; y+ across walls is face-count weighted from `constant/polyMesh/boundary`; `project_coefficients` projects a force onto the drag and lift directions.
   - `foam/physics_case.py` also resolves the forceCoeffs reference values (`reference_values`: overrides from `Reports` or the parts' bounding box).
   - `SolverCrash` (logparse): event for an OpenFOAM `[stack trace]` block. A diverging solver dies with SIGFPE and prints no nan residuals, so the process exit code is the reliable failure signal.
   - `FoamRun.is_running()` is False and `FoamRun.wait()` raises `RuntimeError` before `start()` has been called.
@@ -73,20 +77,22 @@ src/vortexcfd/
   - `gui/theme.py`: design tokens (`Theme`), Fusion palette/stylesheet and font zoom; `gui/icons.py` draws tree icons in code.
   - `gui/widgets.py`: shared pieces (section header, badge, search field, glyph pixmaps, `FlowLayout` for rows that wrap).
   - `gui/topbar.py`: top bar (brand, project file and state, mesh and results staleness badges, camera buttons, wireframe, Generate Mesh / Run Solver).
-  - `gui/monitors.py`: right column: live log-scale residual chart drawn with QPainter (legend, autoscroll, decimated series, palette in `theme.RESIDUAL_STYLES`) and the report slots (assignment menu, last value, sparkline), polled from the postProcessing files on a GUI-thread timer.
+  - `gui/monitors.py`: right column: the convergence banner, per-criterion table and oscillation warnings (`ConvergencePanel`), live log-scale residual chart drawn with QPainter (legend, autoscroll, decimated series, palette in `theme.RESIDUAL_STYLES`) and the report slots (assignment menu, last value, sparkline), polled from the postProcessing files on a GUI-thread timer.
   - `gui/viewport.py`: VTK-drawn viewport pieces (ground grid, empty-scene message, telemetry card) and telemetry settings.
   - `gui/settings_store.py`: the shared `QSettings` accessor.
   - `gui/scene.py`: one VTK actor per Part kept in sync with the Project (picking, visibility, selection colour), part file status, cached surface reports, and the translucent domain box (`DomainView`).
   - `gui/meshing.py`: Qt-free orchestration joining core, geometry and foam (it cannot live in `foam/`, which must not depend on `geometry/`): `readiness(project)` says why a project cannot be meshed and `prepare_job(project)` writes <project>/case (dictionaries and part STLs in metres).
   - `foam/mesh_estimate.py`: `estimate_mesh` gives background cells, refinement levels and surface cell size from the sizing targets (limit 2,000,000 background cells).
   - `gui/results_scene.py`: Results Scene: `read_results` (PyVista OpenFOAM reader, run by `ResultsLoader` on a worker thread, signals only), `ResultsView` (fields on the walls and the section plane, range modes, scalar bar in the `text` token).
+  - `gui/sections.py`: Qt-free cuts of the wall patches by y or z planes, ordered along the cut's connectivity and split at min/max x into two branches labelled by the in-plane normal, x/c and Cp, CSV export; `gui/section_tool.py`: the Results Scene's Sections window (D-062).
+  - `gui/charts.py`: QPainter charts (y+ histogram, line chart); `gui/report_views.py`: the Forces table of the Reports & Monitors node.
   - `gui/colormaps.py`: the Results Scene colormaps (matplotlib lookup tables, D-054), the one place to add one.
   - `gui/paraview.py`: Open in ParaView (executable from Preferences or detected under /mnt/c/Program Files, `wslpath -w`, detached launch).
   - `gui/solving.py`: Qt-free solver orchestration: `readiness` (why Run Solver is disabled), `prepare_solver_case` (clears the previous outputs, writes the solver files) and `results_hash`.
   - `gui/solver_worker.py`: Qt wrapper around `SolverRun` (signals only, like `MeshWorker`).
   - `gui/mesh_worker.py`: Qt wrapper around `MeshRun`; the worker and reader threads only emit signals, slots run in the GUI thread. `gui/scene.py` also holds `MeshView` (part patches of the generated mesh with edges).
   - `gui/console.py`: output console fed by a logging handler on the `vortexcfd` logger.
-  - `gui/properties_panel.py`: properties rows (label left, mono value box right) for the selected node, including the Reference Values node; `gui/dialogs.py`: injectable file/confirm dialogs.
+  - `gui/properties_panel.py`: properties rows (label left, mono value box right) for the selected node, including the Reference Values node and the Stopping Criteria node (rows rebuilt per criterion); `gui/dialogs.py`: injectable file/confirm dialogs.
   - The viewer runs with `QtInteractor(auto_update=False)`: pyvistaqt's 5 Hz render timer made offscreen test runs abort intermittently (VTK render without GL), so the window renders explicitly after every change; interaction still renders through VTK events.
   - Spin boxes hide their buttons through the stylesheet (`::up-button/::down-button { width: 0 }`) and their inner QLineEdit is unstyled: `setButtonSymbols(NoButtons)` combined with a stylesheet collapses the edit field to 1 px.
   - May import `core` and `foam`.
@@ -116,4 +122,3 @@ Simulation results are always stored as standard OpenFOAM cases (no app-specific
 1. Long-term solver backend abstraction: whether to keep the backend open for alternative solvers (e.g., SU2) or remain strictly OpenFOAM-only.
 2. Where user projects and simulation outputs live in the released app (run/ in the repo root is a development-only location).
 3. Launcher script implementation details for setting `GALLIUM_DRIVER=d3d12` and `MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA`.
-4. Parallel (mpirun) solver execution and clean stop are not covered yet.

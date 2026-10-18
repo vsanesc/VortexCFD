@@ -176,7 +176,7 @@ Reality check: "as powerful as STAR-CCM+" is not a deliverable that can be verif
 
 ## Phase 6 — Post-processing (in-GUI)
 
-### 6.1 Monitors and reports — *partly done (report slots, reference values; no convergence banner)*
+### 6.1 Monitors and reports — *done (Task 6.1: stopping criteria (runTimeControl for residuals, app-side range-based asymptotic criterion), convergence banner, force breakdown, mass balance, probes, y+ histogram)*
 - Residuals, force/moment coefficients (CL, CD, CM with reference area/length/axes defined in GUI), probes, surface integrals, mass flow; convergence criteria and auto-stop.
 - Acceptance: coefficients match OpenFOAM `forceCoeffs` output on reference cases.
 - Monitor report slots: the residuals panel shows N report slots; the user assigns any defined report (forces, coefficients, probes, y+) to a slot; convergence banner shown only when stopping criteria exist.
@@ -189,6 +189,20 @@ Reality check: "as powerful as STAR-CCM+" is not a deliverable that can be verif
 ### 6.3 Data export and reports
 - CSV, VTK/EnSight, image sets, simple HTML/PDF run report (setup summary + results).
 - Acceptance: report generated automatically at end of run.
+
+### 6.4 Mesh independence study
+- Goal: a workflow that runs the same physics on a family of systematically refined meshes (at least three, constant refinement ratio, e.g. r = sqrt(2) in cell size) and judges grid convergence of chosen reports (Cd, Cl, Cm, a probe).
+- Deliverables: a "Mesh study" node defining the family from the current mesh settings; one case directory per grid; a table of each report per grid with the observed order p, the Richardson-extrapolated value and the Grid Convergence Index (Celik et al. 2008, as in the flat plate validation, D-036); warnings for oscillatory or divergent convergence (non-monotone ratios).
+- Acceptance: on the coarse sphere family the GCI table is reproduced by hand from the per-grid values; the flat plate Case B study (docs/validation/flat_plate) is reproduced through the workflow.
+
+### 6.5 Angle-of-attack sweep (polars)
+- Goal: run the same mesh and physics for a list of angles of attack and collect Cl, Cd, Cm and L/D per angle (polars), each run judged by its stopping criteria and convergence banner (6.1).
+- Deliverables: a sweep definition (start, end, step or explicit list), one run per angle (sequential, then parallel with 6.6), Cl-alpha, Cd-Cl and Cm-alpha charts and a CSV export; runs that end at the iteration limit or oscillate are flagged in the polar.
+- Acceptance: the reference values and force directions follow alpha in every run (D-050 check per angle); a NACA 0012 polar against reference data once Phase 1.2's wing case exists.
+
+### 6.6 Parallel runs — *done (Task 6.6: decomposePar / mpirun / reconstructPar, clean stop through mpirun; serial and parallel compared on the converged low-Re sphere, docs/QUESTIONS.md item 66)*
+- Goal: decomposePar / mpirun / reconstructPar from the runner with a clean stop for parallel solvers (today only single-process runs, D-010, D-046).
+- Acceptance: the same results (to solver tolerance) and the same stopping criteria behaviour in serial and in parallel on the coarse sphere.
 
 ---
 

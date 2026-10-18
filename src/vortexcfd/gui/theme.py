@@ -362,6 +362,8 @@ QLabel#kpiTitle {{ color: {t.muted_text}; background: transparent; }}
 QLabel#checkValue {{ color: {t.text}; background: transparent; }}
 QLabel#checkValue[warn="true"] {{ color: {t.warning}; }}
 QLabel#checkValue[error="true"] {{ color: {t.error}; }}
+QLabel#checkValue[ok="true"] {{ color: {t.success}; }}
+QWidget#convergenceBox {{ background: {t.base}; border-top: {ln}px solid {t.border}; }}
 QLabel#statusWarn {{ color: {t.warning}; }}
 QLabel#kpiValue {{ color: {t.text}; background: transparent; }}
 QWidget#propRow {{ background: transparent; border-bottom: {ln}px solid {t.border}; }}

@@ -42,7 +42,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from vortexcfd.core.model import Part
+from vortexcfd.core.model import Part, StoppingCriteria
+from vortexcfd.core.reports import available_reports
+from vortexcfd.foam import convergence
+from vortexcfd.foam.physics_case import flow_direction
 from vortexcfd.core.project import Project
 from vortexcfd.gui import console as console_log
 from vortexcfd.gui.console import ConsolePanel
@@ -53,18 +56,20 @@ from vortexcfd.geometry.checks import surface_report
 from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.gui.properties_panel import PropertiesPanel
 from vortexcfd.geometry.domain import BOUNDARY_NAMES
-from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError, remove_results
+from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError, remove_results, safe_part_names
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.gui.mesh_worker import MeshWorker
 from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam.run_record import RunRecord, read_run_record, write_run_record
+from vortexcfd.foam.solver_run import CRITERIA_MET
 from vortexcfd.gui import solving
 from vortexcfd.gui.solver_worker import SolverWorker
 from vortexcfd.foam.results import latest_result_time
 from vortexcfd.gui import paraview
 from vortexcfd.gui.colormaps import COLORMAPS, DEFAULT_COLORMAP
 from vortexcfd.gui.results_scene import DISPLAY_MODES, RANGE_MODES, ResultsLoader, ResultsView
+from vortexcfd.gui.section_tool import SectionTool
 from vortexcfd.foam.mesh_record import MeshRecord, read_mesh_record, write_mesh_record
 from vortexcfd.gui.meshing import (
     MeshingNotReady,
@@ -307,6 +312,7 @@ class MainWindow(QMainWindow):
         self.run_record: RunRecord | None = None
         self.results_stale = False
         self._solve_hash: str | None = None  # results hash at the start of the running solver
+        self._solve_stopping: StoppingCriteria | None = None  # the running solver's stopping criteria
         self.solver_worker = SolverWorker(self)
         self.solver_timeout_s: float | None = None  # wall-clock limit of a solver run (tests set one)
         self.solver_worker.line.connect(self._on_solver_line)
@@ -487,6 +493,8 @@ class MainWindow(QMainWindow):
         # -- right: monitors, bottom: console ----------------------------------------
         self.monitors = MonitorsPanel()
         self.monitors.slot_assigned.connect(self._assign_report)
+        self.monitors.updated.connect(
+            lambda: self.properties.set_report_monitor(self.monitors.reports, self.monitors.case_dir))
         self.console = ConsolePanel()
         self._console_handler = console_log.attach(self.console)
         handler = self._console_handler
@@ -794,7 +802,11 @@ class MainWindow(QMainWindow):
         self._update_mesh_button()
         self._update_results_stale()
         self._update_run_button()
+        self.monitors.kpis.set_options(available_reports(
+            safe_part_names([p.name for p in sim.geometry.parts]), [p.name for p in sim.reports.probes]))
         self.monitors.set_assignments(list(sim.reports.slots))
+        if not self.solver_worker.is_running():  # a running solver keeps the criteria it started with
+            self.monitors.set_stopping(sim.solvers.stopping)
         self._update_results_tab()
 
     def _node_icon(self, glyph: str, token: str) -> QIcon:
@@ -846,9 +858,11 @@ class MainWindow(QMainWindow):
                     add(fluid, f"boundary_{bname}", None, bname, "dot", "accent")
             for i, part in enumerate(parts):  # one wall patch per part
                 add(fluid, "wall", i, f"{part.name} (wall)", "dot", "accent")
-            add(root, "solvers", None, "Solvers", "folder", "text")
+            solvers_item = add(root, "solvers", None, "Solvers", "folder", "text")
+            add(solvers_item, "stopping", None, "Stopping Criteria", "dot", "accent")
             reports = add(root, "reports", None, "Reports & Monitors", "folder", "text")
             add(reports, "reference_values", None, "Reference Values", "dot", "accent")
+            add(reports, "probes", None, "Probes", "dot", "accent")
             self.tree.expandAll()
             self._root_item = root
             self.tree.setRootIndex(self.tree.indexFromItem(root))  # hide the root row
@@ -1161,12 +1175,17 @@ class MainWindow(QMainWindow):
             self.show_message(f"Could not write the solver case: {exc}", "error")
             return
         self._solve_hash = solving.results_hash(self._project)
+        self._solve_stopping = self._project.sim.solvers.stopping.model_copy(deep=True)
         self.run_record = None
         self.properties.set_run_record(None)
-        self.monitors.start_run(case_dir)
+        self.monitors.start_run(case_dir, self._solve_stopping)
         self.top_bar.set_run_state("Solving")
         log.info("Running simpleFoam in %s", case_dir)
-        self.solver_worker.start(case_dir, timeout_s=self.solver_timeout_s)
+        cores = self._project.sim.solvers.cores
+        if cores > 1:
+            log.info("Running simpleFoam on %d cores (decomposePar, mpirun, reconstructPar)", cores)
+        self.solver_worker.start(case_dir, timeout_s=self.solver_timeout_s, stopping=self._solve_stopping,
+                                 cores=cores)
         self._update_results_stale()
         self._update_run_button()
         self._update_mesh_button()
@@ -1187,7 +1206,10 @@ class MainWindow(QMainWindow):
             text = (case_dir / "log.simpleFoam").read_text(encoding="utf-8", errors="replace")
         except OSError:
             text = ""
-        self.monitors.load_run(case_dir, parse_log_text(text))
+        record = self.run_record
+        self.monitors.set_stopping(project.sim.solvers.stopping)
+        self.monitors.load_run(case_dir, parse_log_text(text),
+                               (record.state, record.stopped_by, record.met_iteration or record.iterations))
 
     def _assign_report(self, slot: int, report_id) -> None:
         """A report slot's menu: store the assignment in the project (undoable)."""
@@ -1217,19 +1239,31 @@ class MainWindow(QMainWindow):
 
     def _on_solver_done(self, result) -> None:
         self.top_bar.set_run_state(None)
+        stopping = self._solve_stopping or StoppingCriteria(criteria=[])
+        criteria, stopped_by = convergence.criteria_outcome(stopping, result.criteria_met)
+        labels = convergence.met_labels(stopping, result.criteria_met)
+        met_at = result.met_iteration or result.iterations
+        self.monitors.set_outcome(result.state, stopped_by, met_at)
         self.monitors.end_run()
         if result.crash:
             self.console.append_error(result.crash)
         record = RunRecord(result.state, result.iterations, result.final_residuals,
-                           self._solve_hash or "", result.exit_code)
+                           self._solve_hash or "", result.exit_code, criteria, stopped_by, labels,
+                           result.met_iteration)
         self.run_record = record
         try:
             write_run_record(case_dir_for(self._project), record)
         except (OSError, TypeError) as exc:
             log.warning("Could not save the run record: %s", exc)
         residuals = ", ".join(f"{k} {v:.3g}" for k, v in result.final_residuals.items()) or "none"
-        text = f"Solver: {result.label} after {result.iterations} iterations"
-        if result.state == "converged":
+        text = f"Solver: {record.label} after {result.iterations} iterations"
+        if stopped_by:
+            at = (f" at iteration {result.met_iteration}"
+                  if result.met_iteration is not None and result.met_iteration != result.iterations else "")
+            text += f" ({'; '.join(stopped_by)}{at})"
+        elif result.state == "iteration_limit" and criteria:
+            text += " without meeting the stopping criteria"
+        if result.state == CRITERIA_MET:
             log.info("%s (final residuals: %s)", text, residuals)
             self.show_message(text, "success", log_it=False)
         elif result.state == "crashed":
@@ -1341,6 +1375,16 @@ class MainWindow(QMainWindow):
         self.display_combo.setToolTip("Show the field on the walls, on the section plane, or both")
         for combo in (self.field_combo, self.colormap_combo, self.range_combo, self.display_combo):
             combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.separation_toggle = DotButton("Separation")
+        self.separation_toggle.setCheckable(True)
+        self.separation_toggle.setToolTip("Highlight the wall faces where Cf_x < 0 (near-wall flow running "
+                                          "upstream: separated or recirculating) in the error colour")
+        self.separation_toggle.toggled.connect(lambda _on: self._apply_results_controls())
+        self.sections_button = QPushButton("Sections")
+        self.sections_button.setObjectName("tbBtn")
+        self.sections_button.setToolTip("Cp against x/c on cuts of the walls by planes normal to y (spanwise) or z")
+        self.sections_button.clicked.connect(self.open_sections)
+        self.section_tool: SectionTool | None = None
         self.results_stale_label = QLabel("Results out of date: run the solver again")
         self.results_stale_label.setObjectName("statusWarn")
         self.results_stale_label.setVisible(False)
@@ -1348,7 +1392,7 @@ class MainWindow(QMainWindow):
         self.paraview_button.setObjectName("tbBtn")
         self.paraview_button.clicked.connect(self.open_in_paraview)
         for widget in (self.field_combo, self.colormap_combo, self.range_combo, self.range_min,
-                       self.range_max, self.display_combo):
+                       self.range_max, self.display_combo, self.separation_toggle, self.sections_button):
             row.addWidget(widget)
         row.addWidget(self.results_stale_label)
         row.addWidget(self.paraview_button)
@@ -1360,7 +1404,7 @@ class MainWindow(QMainWindow):
 
     def _results_widgets(self) -> list[QWidget]:
         return [self.field_combo, self.colormap_combo, self.range_combo, self.range_min, self.range_max,
-                self.display_combo, self.paraview_button]
+                self.display_combo, self.separation_toggle, self.sections_button, self.paraview_button]
 
     def results_time(self) -> str | None:
         """The latest time directory with results in the project's case, or None."""
@@ -1443,6 +1487,8 @@ class MainWindow(QMainWindow):
             fixed_range=(self.range_min.value(), self.range_max.value()) if fixed else None,
             display=self.display_combo.currentText(),
             u_ref=self._project.sim.inflow.speed,
+            flow_direction=flow_direction(self._project.sim.inflow.alpha_deg),
+            highlight_separation=self.separation_toggle.isChecked(),
             font_size=self._point_size,
         )
         if data is not None:
@@ -1459,6 +1505,15 @@ class MainWindow(QMainWindow):
                     spin.blockSignals(True)
                     spin.setValue(value)
                     spin.blockSignals(False)
+        self.separation_toggle.setEnabled(view.can_show_separation)
+        self.sections_button.setEnabled(view.has_results)
+        if self.section_tool is not None and data is not None:
+            self._feed_section_tool()
+        frac = view.separated_fraction() if view.can_show_separation else None
+        self.separation_toggle.setToolTip(
+            "Highlight the wall faces where Cf_x < 0 (near-wall flow running upstream: separated or "
+            "recirculating) in the error colour" + (f". Now: {100 * frac:.1f} % of the wall faces" if frac is not None
+                                                     else ". Needs the wallShearStress field"))
         self._sync_section_controls()
         self._update_telemetry()
         if self.viewer is not None:
@@ -1500,6 +1555,39 @@ class MainWindow(QMainWindow):
             self.show_message(f"Could not start ParaView: {exc}", "error")
             return
         log.info("Opened %s in ParaView (%s)", case_dir / "case.foam", exe)
+
+    def _feed_section_tool(self) -> None:
+        view = self.results_view
+        self.section_tool.set_results(view.data.patches, self._project.sim.inflow.speed, view.parts_bounds())
+
+    def open_sections(self) -> None:
+        """The Sections tool (D-062): Cp against x/c on wall sections of the shown results."""
+        view = self.results_view
+        if view is None or not view.has_results:
+            self.show_message("No results to cut: run the solver first.", "warning")
+            return
+        if self.section_tool is None:
+            self.section_tool = SectionTool(self)
+            self.section_tool.export_requested.connect(self.export_sections)
+        self.section_tool.configure(self._theme)
+        self._feed_section_tool()
+        self.section_tool.show()
+        self.section_tool.raise_()
+
+    def export_sections(self) -> None:
+        tool = self.section_tool
+        if tool is None or not tool.sections:
+            return
+        case_dir = case_dir_for(self._project)
+        path = self.dialogs.ask_csv_path(case_dir.parent / "sections.csv" if case_dir is not None else None)
+        if path is None:
+            return
+        try:
+            rows = tool.write_csv(path)
+        except OSError as exc:
+            self.show_message(f"Could not write {path}: {exc}", "error")
+            return
+        self.show_message(f"Exported {rows} section points to {path}", "success")
 
     def edit_preferences(self) -> None:
         """Edit > Preferences: the ParaView executable (empty = detect)."""

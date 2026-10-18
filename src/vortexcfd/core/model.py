@@ -1,9 +1,11 @@
 """Simulation tree data models."""
 
-from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing import Annotated, Literal, Union
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CURRENT_SCHEMA_VERSION: int = 5
+from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
+
+CURRENT_SCHEMA_VERSION: int = 6
 
 
 class StrictModel(BaseModel):
@@ -98,23 +100,112 @@ class Inflow(StrictModel):
     viscosity_ratio: float = Field(default=10.0, gt=0)  # nut / nu
 
 
+# Fields a residual criterion can watch (the solved equations; U is the largest component residual).
+RESIDUAL_FIELDS = ("p", "U", "k", "omega")
+# Quantities an asymptotic criterion can watch: core/reports.criterion_quantities (D-060).
+
+
+class ResidualCriterion(StrictModel):
+    """Stop when the initial residual of ``field`` (its first solve in the iteration; for U the
+    largest of Ux, Uy, Uz) falls below ``threshold``: OpenFOAM's runTimeControl condition
+    ``equationInitialResidual`` with mode minimum (D-058)."""
+
+    kind: Literal["residual"] = "residual"
+    field: Literal["p", "U", "k", "omega"]
+    threshold: float = Field(gt=0)
+
+
+class AsymptoticCriterion(StrictModel):
+    """Stop when a monitored quantity has settled: over the last ``window`` iterations,
+    (max - min) / max(|mean|, floor) <= ``tolerance`` (relative). ``floor`` keeps the test
+    meaningful for a quantity whose mean is near zero: None takes the quantity's default
+    (core/reports.default_floor: 0.01 for force and moment coefficients); a probe has no default
+    and needs it set, in the probe's units (m2/s2 for kinematic p, m/s for U). OpenFOAM has no such
+    condition: the app evaluates it from the live data and stops the solver cleanly (D-058).
+    ``quantity`` is a force coefficient of all walls or of one part, or a probe's p or U
+    (core/reports.py, D-060)."""
+
+    kind: Literal["asymptotic"] = "asymptotic"
+    quantity: str
+    window: int = Field(default=50, ge=2)
+    tolerance: float = Field(default=1e-3, gt=0)  # relative
+    floor: float | None = Field(default=None, gt=0)
+
+    @field_validator("quantity")
+    @classmethod
+    def _known_quantity(cls, value: str) -> str:
+        if not is_criterion_quantity(value):
+            raise ValueError(f"not a quantity an asymptotic criterion can watch: {value!r}")
+        return value
+
+    @model_validator(mode="after")
+    def _floor_known(self) -> "AsymptoticCriterion":
+        if self.effective_floor is None:
+            raise ValueError(f"{self.quantity} has no default scale floor: set floor")
+        return self
+
+    @property
+    def effective_floor(self) -> float | None:
+        return self.floor if self.floor is not None else default_floor(self.quantity)
+
+
+Criterion = Annotated[Union[ResidualCriterion, AsymptoticCriterion], Field(discriminator="kind")]
+
+
+def default_criteria() -> list:
+    """The residual targets the app used before stopping criteria existed (D-027), combined with "all"."""
+    return [ResidualCriterion(field="p", threshold=1e-4), ResidualCriterion(field="U", threshold=1e-5),
+            ResidualCriterion(field="k", threshold=1e-5), ResidualCriterion(field="omega", threshold=1e-5)]
+
+
+class StoppingCriteria(StrictModel):
+    """When the solver stops before the iteration limit (Solvers.iterations, always present).
+
+    ``combine`` "all": the run stops when every criterion is met in the same iteration; "any": when
+    one is. No criterion may stop the run before ``min_iterations``. The oscillation check (a
+    warning, never a stop) flags a monitored quantity whose relative amplitude over the last
+    ``oscillation_window`` iterations exceeds ``oscillation_threshold`` while its mean is not
+    drifting (foam/convergence.py, D-059).
+    """
+
+    criteria: list[Criterion] = Field(default_factory=default_criteria)
+    combine: Literal["all", "any"] = "all"
+    min_iterations: int = Field(default=0, ge=0)
+    oscillation_threshold: float = Field(default=0.01, gt=0)  # fraction of |mean|
+    oscillation_window: int = Field(default=100, ge=4)
+
+
 class Solvers(StrictModel):
-    """Solver run settings."""
+    """Solver run settings. ``iterations`` is the iteration limit (the always-present stopping
+    criterion); the other criteria are in ``stopping``. ``cores``: MPI ranks of the solver (1 =
+    serial); the machine's physical cores are its upper limit, checked when the solver is run
+    (foam/parallel.physical_cores, D-063)."""
 
     iterations: int = Field(default=1000, gt=0)
+    cores: int = Field(default=1, ge=1)
     write_interval: int = Field(default=200, gt=0)
     relaxation: Literal["robust"] = "robust"  # the motorBike tutorial values
-    # SIMPLE residualControl: the run stops when the initial residuals fall below these targets.
-    residual_p: float = Field(default=1e-4, gt=0)
-    residual_u: float = Field(default=1e-5, gt=0)
-    residual_k: float = Field(default=1e-5, gt=0)
-    residual_omega: float = Field(default=1e-5, gt=0)
+    stopping: StoppingCriteria = Field(default_factory=StoppingCriteria)
 
 
 # Number of report slots in the monitors panel (the one place to change it).
 REPORT_SLOTS = 3
-# Reports a slot can show: forceCoeffs coefficients and the yPlus function object's wall values.
-REPORT_IDS = ("Cd", "Cl", "CmPitch", "yplus_min", "yplus_avg", "yplus_max")
+
+
+class Probe(StrictModel):
+    """A point probe of p and U (the probes function object, D-060). The name is part of the
+    report ids (``probe:<name>:p``) and of the function object name."""
+
+    name: str
+    location: tuple[float, float, float]
+
+    @field_validator("name")
+    @classmethod
+    def _valid_name(cls, value: str) -> str:
+        if not PROBE_NAME_RE.match(value):
+            raise ValueError("a probe name starts with a letter and has only letters, digits and _ "
+                             "(at most 32 characters)")
+        return value
 
 
 class Reports(StrictModel):
@@ -125,16 +216,33 @@ class Reports(StrictModel):
     The reference length (m) and centre of rotation (m) are optional overrides: None means "auto"
     from the parts' bounding box (see foam/physics_case.reference_values). The reference density is
     Physics.rho_ref and the reference speed is the inflow speed. ``slots`` holds one report id
-    (REPORT_IDS) or None ("Not assigned") per monitor slot.
+    (core/reports.py) or None ("Not assigned") per monitor slot; ``probes`` are the point probes.
     """
 
     reference_area_basis: Literal["planform", "frontal", "custom"] = "planform"
     reference_area: float | None = Field(default=None, gt=0)
     reference_length: float | None = Field(default=None, gt=0)
     center_of_rotation: tuple[float, float, float] | None = None
-    slots: list[Literal["Cd", "Cl", "CmPitch", "yplus_min", "yplus_avg", "yplus_max"] | None] = Field(
+    slots: list[str | None] = Field(
         default_factory=lambda: [None] * REPORT_SLOTS, min_length=REPORT_SLOTS, max_length=REPORT_SLOTS,
     )
+    probes: list[Probe] = Field(default_factory=list)
+
+    @field_validator("slots")
+    @classmethod
+    def _known_reports(cls, slots: list[str | None]) -> list[str | None]:
+        for report_id in slots:
+            if report_id is not None and not is_report_id(report_id):
+                raise ValueError(f"unknown report {report_id!r}")
+        return slots
+
+    @field_validator("probes")
+    @classmethod
+    def _unique_probes(cls, probes: list[Probe]) -> list[Probe]:
+        names = [p.name for p in probes]
+        if len(set(names)) != len(names):
+            raise ValueError("probe names must be unique")
+        return probes
 
     @model_validator(mode="before")
     @classmethod

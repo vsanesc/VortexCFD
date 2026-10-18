@@ -94,14 +94,28 @@ def test_solvers_editor(window: MainWindow) -> None:
     f["iterations"].editingFinished.emit()
     assert window.project.sim.solvers.iterations == 250
     assert window.project.undo_label == "Edit solver (iterations)"
-    for key, value in (("residual_p", 1e-4), ("residual_u", 1e-5), ("residual_k", 1e-5), ("residual_omega", 1e-5)):
-        assert f[key].value() == pytest.approx(value) and f[key].text() == f"{value:.6g}"
-    f["residual_p"].setText("1e-6")
-    f["residual_p"].editingFinished.emit()
-    assert window.project.sim.solvers.residual_p == pytest.approx(1e-6)
-    f["residual_k"].setText("0")  # invalid: reverts with a message
-    f["residual_k"].editingFinished.emit()
-    assert window.project.sim.solvers.residual_k == pytest.approx(1e-5) and "residual_k" in window.statusBar().currentMessage()
+    assert set(f) == {"iterations", "write_interval", "cores", "relaxation"}  # residual targets: Stopping Criteria node
+
+
+def test_cores_field_is_limited_to_the_physical_cores(window: MainWindow) -> None:
+    """D-063: the Cores row says how many physical cores the machine has and cannot exceed them;
+    a project asking for more (edited elsewhere) cannot run."""
+    from vortexcfd.foam.parallel import physical_cores
+    from vortexcfd.gui import solving
+
+    _select(window, "solvers")
+    box = window.properties.group_fields["solvers"]["cores"]
+    n = physical_cores()
+    assert box.value() == 1 and box.maximum() == n and box.minimum() == 1
+    from PySide6.QtWidgets import QLabel
+
+    assert f"Cores ({n} physical)" in [label.text() for label in window.properties.findChildren(QLabel)]
+    box.setValue(min(4, n))
+    box.editingFinished.emit()
+    assert window.project.sim.solvers.cores == min(4, n)
+    assert window.project.undo_label == "Edit solver (cores)"
+    window.project.update_solver(cores=n + 1)
+    assert solving.physics_problem(window.project) == f"{n + 1} cores requested; this machine has {n} physical cores."
 
 
 def test_mesh_node_has_layer_sizing_rows(window: MainWindow) -> None:

@@ -3,7 +3,8 @@
 It plays a list of log lines from its own thread (like FoamRun's reader thread) and ends with a
 chosen exit code. With ``hold=True`` it keeps running after the lines until a stop is requested
 (it then plays ``stop_lines`` and exits 0, as a clean SIGUSR1 stop does) or ``release(lines)`` is
-called (it then plays ``lines`` and exits with ``exit_code``, as a run that ends by itself).
+called (it then plays ``lines`` and exits with ``exit_code``, as a run that ends by itself);
+``push(lines)`` plays more lines while it holds.
 """
 
 import threading
@@ -52,6 +53,8 @@ class FakeRunner:
         self._stop = threading.Event()
         self._release = threading.Event()
         self._release_lines: list[str] = []
+        self._pushed: list[list[str]] = []
+        self._push_lock = threading.Lock()
         self._done = threading.Event()
         self._thread: threading.Thread | None = None
         FakeRunner.instances.append(self)
@@ -74,6 +77,10 @@ class FakeRunner:
             self._emit(self.lines, log)
             if self.hold:
                 while not (self._stop.is_set() or self._release.is_set()):
+                    with self._push_lock:
+                        pushed, self._pushed = self._pushed, []
+                    for lines in pushed:
+                        self._emit(lines, log)
                     self._stop.wait(0.01)
                 if self._stop.is_set():
                     self._emit(self.stop_lines, log)
@@ -81,6 +88,10 @@ class FakeRunner:
                 else:
                     self._emit(self._release_lines, log)
         self._done.set()
+
+    def push(self, lines: list[str]) -> None:
+        with self._push_lock:
+            self._pushed.append(list(lines))
 
     def release(self, lines: list[str] | None = None) -> None:
         self._release_lines = list(lines or [])

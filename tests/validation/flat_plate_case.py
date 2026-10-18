@@ -10,7 +10,7 @@ import math
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from vortexcfd.core.model import Inflow, Physics, Solvers
+from vortexcfd.core.model import Inflow, Physics, ResidualCriterion, Solvers, StoppingCriteria
 from vortexcfd.foam.case_writer import FoamFileSpec, write_case
 from vortexcfd.foam.physics_case import SolverCaseInput, build_solver_files, inlet_turbulence
 from vortexcfd.foam.yplus import first_layer_thickness
@@ -150,7 +150,8 @@ def block_mesh_dict(setup: PlateSetup = CASE_A) -> FoamFileSpec:
 
 def build_plate_case(case_dir: Path, setup: PlateSetup = CASE_A, k_wall: dict | None = None) -> PlateCase:
     """Write the case: blockMeshDict from this module, every solver file from the app's builder
-    (sides become `empty` for the 2D case; the stopping criterion is the app's residualControl).
+    (sides become `empty` for the 2D case; the stop is the app's residual stopping criteria on p, U, k
+    and omega combined with "all", D-058).
 
     ``k_wall`` replaces the plate's k boundary condition (wall-BC sensitivity diagnostics only; the
     app's default, kqRWallFunction, is used when it is None)."""
@@ -159,8 +160,8 @@ def build_plate_case(case_dir: Path, setup: PlateSetup = CASE_A, k_wall: dict | 
         inflow=Inflow(speed=setup.speed, turbulence_intensity=setup.intensity,
                       viscosity_ratio=setup.viscosity_ratio),
         solvers=Solvers(iterations=setup.max_iterations, write_interval=setup.max_iterations,
-                        residual_p=RESIDUAL_TARGET, residual_u=RESIDUAL_TARGET,
-                        residual_k=RESIDUAL_TARGET, residual_omega=RESIDUAL_TARGET),
+                        stopping=StoppingCriteria(criteria=[
+                            ResidualCriterion(field=f, threshold=RESIDUAL_TARGET) for f in ("p", "U", "k", "omega")])),
         patches=("plate",), parts_bounds=(0.0, setup.plate_length, 0.0, THICKNESS_Y, 0.0, 0.0),
         symmetric=False,
     )
@@ -184,7 +185,7 @@ class PlateResult:
     x: "object"  # face-centre x of the plate patch
     cf: "object"  # local skin friction coefficient from wallShearStress
     yplus: "object"  # y+ of the first cell centre
-    iterations: int  # iterations until the residualControl was met (or the limit)
+    iterations: int  # iterations until the residual criteria were met (or the limit)
     converged: bool
     wall_time_s: float
 
@@ -231,8 +232,10 @@ def read_plate_result(case: PlateCase, wall_time_s: float | None = None) -> Plat
 
     from vortexcfd.foam.dictfile import read_foam_file
 
+    from vortexcfd.foam.logparse import parse_log_text
+
     log = (case.case_dir / "log.simpleFoam").read_text()
-    match = re.search(r"SIMPLE solution converged in (\d+) iterations", log)
+    met = parse_log_text(log).criteria_met  # runTimeControl stopped the run (D-058)
     last = re.findall(r"^Time = (\d+)", log, re.MULTILINE)
     if wall_time_s is None:
         wall_time_s = float(re.findall(r"ClockTime = ([\d.]+) s", log)[-1])
@@ -244,7 +247,7 @@ def read_plate_result(case: PlateCase, wall_time_s: float | None = None) -> Plat
     tau = plate("wallShearStress")
     cf = np.linalg.norm(tau, axis=1) / (0.5 * case.setup.speed**2)  # kinematic shear / (0.5 U^2)
     return PlateResult(plate("C")[:, 0], cf, plate("yPlus"),
-                       int(match.group(1)) if match else int(last[-1]), bool(match), wall_time_s)
+                       int(met.after) if met and met.after else int(last[-1]), met is not None, wall_time_s)
 
 
 def case_matches(case_dir: Path, setup: PlateSetup, k_wall: dict | None = None) -> bool:

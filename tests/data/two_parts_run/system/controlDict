@@ -1,0 +1,283 @@
+FoamFile
+{
+    version 2.0;
+    format ascii;
+    class dictionary;
+    location "system";
+    object controlDict;
+}
+
+application simpleFoam;
+
+startFrom startTime;
+
+startTime 0;
+
+stopAt endTime;
+
+endTime 30;
+
+deltaT 1;
+
+writeControl timeStep;
+
+writeInterval 30;
+
+purgeWrite 0;
+
+writeFormat ascii;
+
+writePrecision 6;
+
+writeCompression no;
+
+timeFormat general;
+
+timePrecision 6;
+
+runTimeModifiable yes;
+
+functions
+{
+    forceCoeffs1
+    {
+    
+        type forceCoeffs;
+    
+        libs (forces);
+    
+        writeControl timeStep;
+    
+        writeInterval 1;
+    
+        log yes;
+    
+        patches (Ball Pod);
+    
+        rho rhoInf;
+    
+        rhoInf 1.225;
+    
+        liftDir (-0.0697564737441253 0.0 0.9975640502598242);
+    
+        dragDir (0.9975640502598242 0.0 0.0697564737441253);
+    
+        CofR (0.6252914071083069 0.0 0.0);
+    
+        pitchAxis (0.0 1.0 0.0);
+    
+        magUInf 20.0;
+    
+        lRef 2.2482515573501587;
+    
+        Aref 2.243010305469568;
+    }
+    forces1
+    {
+    
+        type forces;
+    
+        libs (forces);
+    
+        writeControl timeStep;
+    
+        writeInterval 1;
+    
+        log no;
+    
+        patches (Ball Pod);
+    
+        rho rhoInf;
+    
+        rhoInf 1.225;
+    
+        CofR (0.6252914071083069 0.0 0.0);
+    }
+    forceCoeffs_Ball
+    {
+    
+        type forceCoeffs;
+    
+        libs (forces);
+    
+        writeControl timeStep;
+    
+        writeInterval 1;
+    
+        log no;
+    
+        patches (Ball);
+    
+        rho rhoInf;
+    
+        rhoInf 1.225;
+    
+        liftDir (-0.0697564737441253 0.0 0.9975640502598242);
+    
+        dragDir (0.9975640502598242 0.0 0.0697564737441253);
+    
+        CofR (0.6252914071083069 0.0 0.0);
+    
+        pitchAxis (0.0 1.0 0.0);
+    
+        magUInf 20.0;
+    
+        lRef 2.2482515573501587;
+    
+        Aref 2.243010305469568;
+    }
+    forces_Ball
+    {
+    
+        type forces;
+    
+        libs (forces);
+    
+        writeControl timeStep;
+    
+        writeInterval 1;
+    
+        log no;
+    
+        patches (Ball);
+    
+        rho rhoInf;
+    
+        rhoInf 1.225;
+    
+        CofR (0.6252914071083069 0.0 0.0);
+    }
+    forceCoeffs_Pod
+    {
+    
+        type forceCoeffs;
+    
+        libs (forces);
+    
+        writeControl timeStep;
+    
+        writeInterval 1;
+    
+        log no;
+    
+        patches (Pod);
+    
+        rho rhoInf;
+    
+        rhoInf 1.225;
+    
+        liftDir (-0.0697564737441253 0.0 0.9975640502598242);
+    
+        dragDir (0.9975640502598242 0.0 0.0697564737441253);
+    
+        CofR (0.6252914071083069 0.0 0.0);
+    
+        pitchAxis (0.0 1.0 0.0);
+    
+        magUInf 20.0;
+    
+        lRef 2.2482515573501587;
+    
+        Aref 2.243010305469568;
+    }
+    forces_Pod
+    {
+    
+        type forces;
+    
+        libs (forces);
+    
+        writeControl timeStep;
+    
+        writeInterval 1;
+    
+        log no;
+    
+        patches (Pod);
+    
+        rho rhoInf;
+    
+        rhoInf 1.225;
+    
+        CofR (0.6252914071083069 0.0 0.0);
+    }
+    massFlow_inlet
+    {
+    
+        type surfaceFieldValue;
+    
+        libs (fieldFunctionObjects);
+    
+        regionType patch;
+    
+        name inlet;
+    
+        operation sum;
+    
+        fields (phi);
+    
+        writeFields no;
+    
+        writeControl timeStep;
+    
+        writeInterval 1;
+    
+        log no;
+    }
+    massFlow_outlet
+    {
+    
+        type surfaceFieldValue;
+    
+        libs (fieldFunctionObjects);
+    
+        regionType patch;
+    
+        name outlet;
+    
+        operation sum;
+    
+        fields (phi);
+    
+        writeFields no;
+    
+        writeControl timeStep;
+    
+        writeInterval 1;
+    
+        log no;
+    }
+    yPlus1
+    {
+    
+        type yPlus;
+    
+        libs (fieldFunctionObjects);
+    
+        writeFields yes;
+    
+        executeControl writeTime;
+    
+        writeControl writeTime;
+    }
+    wallShearStress1
+    {
+    
+        type wallShearStress;
+    
+        libs (fieldFunctionObjects);
+    
+        patches (Ball Pod);
+    
+        writeFields yes;
+    
+        executeControl writeTime;
+    
+        writeControl writeTime;
+    }
+}
+
+OptimisationSwitches
+{
+    stopAtWriteNowSignal 10;
+}

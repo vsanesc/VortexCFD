@@ -26,6 +26,10 @@ _EXEC_TIME_RE = re.compile(rf"^ExecutionTime\s*=\s*({_NUM})", re.IGNORECASE)
 # simpleControl::loop (v2606) when every residualControl target is met:
 # "SIMPLE solution converged in <time> iterations".
 _CONVERGED_RE = re.compile(rf"^(\w+) solution converged in ({_NUM}) iterations")
+# runTimeControl (v2606) when its conditions are met: one "<type>: <name> condition satisfied"
+# line per satisfied condition, then "Stopping calculation" (satisfiedAction end).
+_CONDITION_RE = re.compile(r"^(\w+): (\S+) condition satisfied$")
+_STOPPING = "Stopping calculation"
 _FATAL_START_RE = re.compile(r"^-->\s*FOAM\s*FATAL")
 _FATAL_END_RE = re.compile(r"^FOAM (?:exiting|aborting)")
 _TRACE_START = "[stack trace]"
@@ -64,6 +68,14 @@ class Converged:
 
 
 @dataclass
+class CriteriaMet:
+    """Event: runTimeControl met its conditions and is ending the run (D-058)."""
+
+    conditions: tuple[str, ...]  # the satisfied condition names, in the order printed
+    after: float | None = None  # the last completed iteration
+
+
+@dataclass
 class NormalEnd:
     """Event representing normal solver termination."""
 
@@ -86,7 +98,7 @@ class LogParser(Sequence[TimeStep]):
     """Incremental parser for OpenFOAM solver log streams.
 
     Accepts output one complete line at a time via ``feed(line)``, emitting newly
-    completed events (TimeStep, Converged, NormalEnd, FatalError, SolverCrash). Lines that match no
+    completed events (TimeStep, Converged, CriteriaMet, NormalEnd, FatalError, SolverCrash). Lines that match no
     pattern are ignored silently. Exceptions raised while converting a line that did
     match a pattern are counted in ``parse_error_count`` (last messages in
     ``parse_errors``) and never propagate.
@@ -99,6 +111,8 @@ class LogParser(Sequence[TimeStep]):
         self.fatal_error: str | None = None
         self.crash: str | None = None
         self.converged: Converged | None = None
+        self.criteria_met: CriteriaMet | None = None
+        self._satisfied: list[str] = []
         self.parse_error_count: int = 0
         self.parse_errors: deque[str] = deque(maxlen=MAX_PARSE_ERRORS_KEPT)
 
@@ -192,6 +206,21 @@ class LogParser(Sequence[TimeStep]):
             self._emit(event, completed)
             return completed
 
+        m_cond = _CONDITION_RE.match(stripped)
+        if m_cond:
+            self._satisfied.append(m_cond.group(2))
+            return completed
+
+        if stripped == _STOPPING and self._satisfied:
+            self._flush_step(completed)
+            after = self.time_steps[-1].time if self.time_steps else None
+            event = CriteriaMet(tuple(self._satisfied), after)
+            self._satisfied = []
+            if self.criteria_met is None:
+                self.criteria_met = event
+                self._emit(event, completed)
+            return completed
+
         m_time = _TIME_RE.match(stripped)
         if m_time:
             try:
@@ -200,6 +229,7 @@ class LogParser(Sequence[TimeStep]):
                 self._record_error(line, exc)
                 return completed
             self._flush_step(completed)
+            self._satisfied = []  # condition lines not followed by a stop (e.g. a trigger action)
             self._current_step = TimeStep(time=new_time)
             return completed
 

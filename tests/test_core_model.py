@@ -221,17 +221,26 @@ def test_save_simulation_atomic_cleanup(tmp_path: Path) -> None:
     assert directory_files == [project_path]
 
 
+# The v5 residual targets as v6 stopping criteria (their old defaults).
+DEFAULT_STOPPING = {"criteria": [{"kind": "residual", "field": "p", "threshold": 1e-4},
+                                 {"kind": "residual", "field": "U", "threshold": 1e-5},
+                                 {"kind": "residual", "field": "k", "threshold": 1e-5},
+                                 {"kind": "residual", "field": "omega", "threshold": 1e-5}],
+                    "combine": "all"}
+
+
 def test_migrate_v1_to_v2_and_current_unchanged() -> None:
     """v1 gains the default domain and version 2; current data is returned unchanged."""
     assert migrate({"schema_version": 1, "custom": "data"}) == {
-        "schema_version": 5, "custom": "data", "domain": {}, "mesh": {},
-        "physics": {}, "inflow": {}, "solvers": {}, "reports": {},
+        "schema_version": 6, "custom": "data", "domain": {}, "mesh": {},
+        "physics": {}, "inflow": {}, "solvers": {"stopping": DEFAULT_STOPPING}, "reports": {},
     }
     assert migrate({"schema_version": 2, "x": 1}) == {
-        "schema_version": 5, "x": 1, "physics": {}, "inflow": {}, "solvers": {}, "reports": {},
+        "schema_version": 6, "x": 1, "physics": {}, "inflow": {}, "solvers": {"stopping": DEFAULT_STOPPING},
+        "reports": {},
     }
-    assert migrate({"schema_version": 3, "reports": {}}) == {"schema_version": 5, "reports": {}}
-    current = {"schema_version": 5, "custom": "data"}
+    assert migrate({"schema_version": 3, "reports": {}}) == {"schema_version": 6, "reports": {}}
+    current = {"schema_version": 6, "custom": "data"}
     assert migrate(current) == current
 
 
@@ -257,7 +266,7 @@ def test_domain_defaults() -> None:
         True, 5.0, 10.0, 5.0, 5.0, "none",
     )
     assert Simulation(name="x").domain == d
-    assert CURRENT_SCHEMA_VERSION == 5
+    assert CURRENT_SCHEMA_VERSION == 6
 
 
 @pytest.mark.parametrize("field", ["upstream", "downstream", "lateral", "vertical"])
@@ -447,21 +456,19 @@ def test_v3_round_trip_with_physics(tmp_path: Path) -> None:
     assert load_simulation(path) == sim
 
 
-def test_solver_residual_targets_defaults_and_validation() -> None:
+def test_default_stopping_criteria_are_the_old_residual_targets() -> None:
     sv = Solvers()
-    assert (sv.residual_p, sv.residual_u, sv.residual_k, sv.residual_omega) == (1e-4, 1e-5, 1e-5, 1e-5)
-    for key in ("residual_p", "residual_u", "residual_k", "residual_omega"):
-        with pytest.raises(ValidationError):
-            Solvers(**{key: 0})
-    p = Project.new("r")
-    p.update_solver(residual_p=1e-6)
-    assert p.sim.solvers.residual_p == 1e-6 and p.undo_label == "Edit solver (residual_p)"
+    stop = sv.stopping
+    assert stop.combine == "all" and stop.min_iterations == 0
+    assert [(c.kind, c.field, c.threshold) for c in stop.criteria] == [
+        ("residual", "p", 1e-4), ("residual", "U", 1e-5), ("residual", "k", 1e-5), ("residual", "omega", 1e-5)]
+    assert (stop.oscillation_threshold, stop.oscillation_window) == (0.01, 100)
     assert load_simulation(V2_FIXTURE).solvers == Solvers()  # a v2 file gets the defaults
 
 
 # -- reference values and report slots (schema v4) --------------------------------------------------
 
-from vortexcfd.core.model import REPORT_SLOTS, Reports
+from vortexcfd.core.model import REPORT_SLOTS, Reports, ResidualCriterion
 
 V3_FIXTURE = Path(__file__).parent / "data" / "project_v3.json"
 
@@ -479,7 +486,8 @@ def test_v3_fixture_migrates_to_v4_with_unset_reports_and_keeps_its_data() -> No
     assert sim.reports.center_of_rotation is None and sim.reports.slots == [None] * REPORT_SLOTS
     assert (sim.physics.nu, sim.physics.rho_ref) == (1.6e-05, 1.2)
     assert (sim.inflow.speed, sim.inflow.alpha_deg) == (35.0, 4.0)
-    assert (sim.solvers.iterations, sim.solvers.residual_p) == (800, 1e-05)
+    assert sim.solvers.iterations == 800
+    assert sim.solvers.stopping.criteria[0] == ResidualCriterion(field="p", threshold=1e-05)
     assert sim.mesh.layer_sizing == "absolute_yplus" and sim.mesh.target_yplus == 30.0
     assert sim.domain.symmetry == "y_min" and [p.units for p in sim.geometry.parts] == ["mm"]
 
@@ -524,12 +532,12 @@ def test_v4_fixture_migrates_to_v5_with_unset_part_levels_and_keeps_its_data() -
     raw = json.loads(V4_FIXTURE.read_text())
     assert raw["schema_version"] == 4 and "surface_level_min" not in raw["geometry"]["parts"][0]
     sim = load_simulation(V4_FIXTURE)
-    assert sim.schema_version == 5
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION
     assert [(p.name, p.units, p.surface_level_min, p.surface_level_max) for p in sim.geometry.parts] == [
         ("Ball", "m", None, None), ("Pod", "mm", None, None)]
     assert sim.mesh.surface_level_max == 5 and sim.solvers.iterations == 500
     assert sim.reports.reference_area_basis == "frontal" and sim.reports.slots == ["Cd", None, "yplus_avg"]
-    assert migrate({"schema_version": 4, "x": 1}) == {"schema_version": 5, "x": 1}
+    assert migrate({"schema_version": 4, "x": 1}) == {"schema_version": 6, "x": 1}  # no solvers: nothing to convert
 
 
 def test_part_levels_validation_and_update() -> None:

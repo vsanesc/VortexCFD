@@ -34,6 +34,12 @@ class Dialogs:
         )
         return Path(name) if name else None
 
+    def ask_csv_path(self, suggested: Path | None) -> Path | None:
+        name, _ = QFileDialog.getSaveFileName(
+            self.parent, "Export sections", str(suggested) if suggested else "", "CSV files (*.csv)"
+        )
+        return Path(name) if name else None
+
     def ask_import_path(self) -> Path | None:
         name, _ = QFileDialog.getOpenFileName(
             self.parent, "Import surface", "", SURFACE_FILTER

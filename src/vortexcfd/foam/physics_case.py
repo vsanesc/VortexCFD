@@ -27,6 +27,9 @@ from dataclasses import dataclass, field
 
 from vortexcfd.core.model import Inflow, Physics, Reports, Solvers
 from vortexcfd.foam.case_writer import FoamFileSpec
+from vortexcfd.foam.convergence import FUNCTION_NAME as RUN_TIME_CONTROL
+from vortexcfd.foam.convergence import force_coeffs_name, probe_function_name, run_time_control
+from vortexcfd.foam.parallel import DECOMPOSE_DICT, decompose_par_dict
 
 Bounds = tuple[float, float, float, float, float, float]  # xmin, xmax, ymin, ymax, zmin, zmax
 
@@ -115,7 +118,7 @@ def reference_values(parts_bounds: Bounds, reports: Reports) -> ReferenceValues:
     )
 
 
-def _force_coeffs(inp: SolverCaseInput) -> dict:
+def _force_coeffs(inp: SolverCaseInput, patches: tuple[str, ...] | None = None) -> dict:
     """The motorBike tutorial's forceCoeffs entry for the part walls (incompressible: rhoInf).
 
     v2606 (forces::setCoordinateSystem): with CofR, liftDir is e3 and dragDir e1 of the coefficient
@@ -129,8 +132,8 @@ def _force_coeffs(inp: SolverCaseInput) -> dict:
         "libs": ["forces"],
         "writeControl": "timeStep",
         "writeInterval": 1,
-        "log": True,
-        "patches": list(inp.patches),
+        "log": patches is None,  # only the total in the solver log
+        "patches": list(inp.patches if patches is None else patches),
         "rho": "rhoInf",
         "rhoInf": inp.physics.rho_ref,
         "liftDir": [-math.sin(a), 0.0, math.cos(a)],
@@ -143,7 +146,7 @@ def _force_coeffs(inp: SolverCaseInput) -> dict:
     }
 
 
-def _forces(inp: SolverCaseInput) -> dict:
+def _forces(inp: SolverCaseInput, patches: tuple[str, ...] | None = None) -> dict:
     """Total, pressure and viscous force and moment on the part walls in the GLOBAL axes (CofR with
     no direction entries: e1 = x, e3 = z), next to forceCoeffs so its projection can be checked
     (D-050). Output: postProcessing/forces1/<start time>/force.dat and moment.dat (N and N m with
@@ -155,14 +158,100 @@ def _forces(inp: SolverCaseInput) -> dict:
         "writeControl": "timeStep",
         "writeInterval": 1,
         "log": False,
-        "patches": list(inp.patches),
+        "patches": list(inp.patches if patches is None else patches),
         "rho": "rhoInf",
         "rhoInf": inp.physics.rho_ref,
         "CofR": list(ref.cofr),
     }
 
 
+# Open boundaries whose flux is summed for the mass balance; the far-field patches are slip and
+# the symmetry plane is symmetryPlane, so their flux is zero by construction (D-060).
+MASS_FLOW_PATCHES = ("inlet", "outlet")
+
+
+def mass_flow_name(patch: str) -> str:
+    return f"massFlow_{patch}"
+
+
+def _mass_flow(patch: str) -> dict:
+    """sum(phi) over a patch every iteration (surfaceFieldValue, v2606 keywords): m3/s, positive out
+    of the domain. Output: postProcessing/massFlow_<patch>/<start time>/surfaceFieldValue.dat."""
+    return {
+        "type": "surfaceFieldValue",
+        "libs": ["fieldFunctionObjects"],
+        "regionType": "patch",
+        "name": patch,
+        "operation": "sum",
+        "fields": ["phi"],
+        "writeFields": False,
+        "writeControl": "timeStep",
+        "writeInterval": 1,
+        "log": False,
+    }
+
+
+def _wall_shear_stress(inp: SolverCaseInput) -> dict:
+    """The kinematic wall shear stress field on the part walls at write times (wallShearStress,
+    v2606): tau = n_in . devReff, the wall's stress on the fluid (foam/wall_fields.py)."""
+    return {
+        "type": "wallShearStress",
+        "libs": ["fieldFunctionObjects"],
+        "patches": list(inp.patches),
+        "writeFields": True,
+        "executeControl": "writeTime",
+        "writeControl": "writeTime",
+    }
+
+
+# Probe values interpolated to the point (cell value corrected with the point values,
+# interpolationCellPoint, TypeName "cellPoint"), not the containing cell's value (D-060).
+PROBE_INTERPOLATION = "cellPoint"
+
+
+def _probe(location) -> dict:
+    """One probes object per probe (p and U at one point, interpolated with cellPoint), sampled
+    every iteration; its results average(p) / average(U) are that probe's values.
+    Output: postProcessing/probe_<name>/<start time>/p and U."""
+    return {
+        "type": "probes",
+        "libs": ["sampling"],
+        "fields": ["p", "U"],
+        "probeLocations": [list(location)],
+        "interpolationScheme": PROBE_INTERPOLATION,
+        "sampleOnExecute": True,
+        "writeControl": "timeStep",
+        "writeInterval": 1,
+    }
+
+
 def control_dict(inp: SolverCaseInput) -> FoamFileSpec:
+    """controlDict: endTime is the iteration limit; residual-only stopping criteria are a
+    runTimeControl function object placed last; with an asymptotic criterion none is written and
+    the app evaluates the criteria and stops the solver (D-058)."""
+    functions = {
+        "forceCoeffs1": _force_coeffs(inp),
+        "forces1": _forces(inp),
+    }
+    if len(inp.patches) > 1:  # per part (D-060); with one part these equal the totals
+        for patch in inp.patches:
+            functions[force_coeffs_name(patch)] = _force_coeffs(inp, (patch,))
+            functions[f"forces_{patch}"] = _forces(inp, (patch,))
+    for patch in MASS_FLOW_PATCHES:
+        functions[mass_flow_name(patch)] = _mass_flow(patch)
+    functions["yPlus1"] = {
+        "type": "yPlus",
+        "libs": ["fieldFunctionObjects"],
+        "writeFields": True,
+        "executeControl": "writeTime",
+        "writeControl": "writeTime",
+    }
+    functions["wallShearStress1"] = _wall_shear_stress(inp)
+    for probe in inp.reports.probes:
+        functions[probe_function_name(probe.name)] = _probe(probe.location)
+    stop = run_time_control(inp.solvers.stopping)
+    if stop is not None:
+        functions[RUN_TIME_CONTROL] = stop
     return FoamFileSpec(content={
         "application": "simpleFoam",
         "startFrom": "startTime",
@@ -179,17 +268,7 @@ def control_dict(inp: SolverCaseInput) -> FoamFileSpec:
         "timeFormat": "general",
         "timePrecision": 6,
         "runTimeModifiable": True,
-        "functions": {
-            "forceCoeffs1": _force_coeffs(inp),
-            "forces1": _forces(inp),
-            "yPlus1": {
-                "type": "yPlus",
-                "libs": ["fieldFunctionObjects"],
-                "writeFields": True,
-                "executeControl": "writeTime",
-                "writeControl": "writeTime",
-            },
-        },
+        "functions": functions,
     })
 
 
@@ -215,8 +294,11 @@ def fv_schemes() -> FoamFileSpec:
 
 
 def fv_solution(solvers: Solvers) -> FoamFileSpec:
-    """motorBike fvSolution (v2606), preset "robust": SIMPLEC (consistent), U 0.9, k/omega 0.7,
-    plus residualControl (the airFoil2D tutorial's mechanism) from the solver settings."""
+    """motorBike fvSolution (v2606), preset "robust": SIMPLEC (consistent), U 0.9, k/omega 0.7.
+
+    No residualControl: the stop is the runTimeControl function object of the stopping criteria
+    (controlDict) or the app's own evaluation, which honour the minimum iterations and the "any"
+    combination; residualControl would end the run on its own targets regardless (D-058)."""
     p = {"solver": "GAMG", "smoother": "GaussSeidel", "tolerance": 1e-7, "relTol": 0.01}
     smooth = {"solver": "smoothSolver", "smoother": "GaussSeidel", "tolerance": 1e-8, "relTol": 0.1,
               "nSweeps": 1}
@@ -225,10 +307,6 @@ def fv_solution(solvers: Solvers) -> FoamFileSpec:
         "SIMPLE": {
             "nNonOrthogonalCorrectors": 0,
             "consistent": True,
-            "residualControl": {
-                "p": solvers.residual_p, "U": solvers.residual_u,
-                "k": solvers.residual_k, "omega": solvers.residual_omega,
-            },
         },
         "potentialFlow": {"nNonOrthogonalCorrectors": 10},
         "relaxationFactors": {"equations": {"U": 0.9, "k": 0.7, "omega": 0.7}},
@@ -324,4 +402,6 @@ def build_solver_files(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
         "constant/turbulenceProperties": turbulence_properties(inp.physics),
     }
     files.update(initial_fields(inp))
+    if inp.solvers.cores > 1:  # parallel run (D-063)
+        files[DECOMPOSE_DICT] = decompose_par_dict(inp.solvers.cores)
     return files

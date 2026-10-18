@@ -24,6 +24,37 @@ from vortexcfd.foam.dictfile import read_foam_file
 OPENFOAM_BASHRC = Path("/usr/lib/openfoam/openfoam2606/etc/bashrc")
 
 
+def session_pids(sid: int) -> list[int]:
+    """Live processes of session ``sid`` (from /proc/<pid>/stat; zombies left out).
+
+    FoamRun starts every command in a new session, and mpirun puts each rank in a process group
+    of its own but in that session, so the session holds the whole process tree."""
+    out = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            stat = (entry / "stat").read_text()
+        except OSError:
+            continue
+        fields = stat[stat.rfind(")") + 2:].split()
+        if len(fields) > 3 and fields[0] != "Z" and int(fields[3]) == sid:
+            out.append(int(entry.name))
+    return out
+
+
+def signal_session(sid: int, sig: int) -> int:
+    """Send ``sig`` to every live process of session ``sid``; returns how many were signalled."""
+    count = 0
+    for pid in session_pids(sid):
+        try:
+            os.kill(pid, sig)
+            count += 1
+        except (ProcessLookupError, PermissionError):
+            pass
+    return count
+
+
 def run_foam(command: list[str], case_dir: Path, log_file: Path) -> int:
     """Run an OpenFOAM command with the OpenFOAM environment loaded.
 
@@ -80,6 +111,8 @@ class RunResult:
             - "killed": process was ended by SIGKILL (exit code -9 / 137).
         timed_out: True if the process exceeded timeout_s while still running.
         callback_errors: Number of exceptions caught and suppressed during on_line calls.
+        orphans_killed: Processes of the run's session still alive after the main process ended
+            (e.g. MPI ranks), killed by the final sweep.
     """
 
     exit_code: int | None
@@ -90,6 +123,7 @@ class RunResult:
     stop_mode: str = "none"
     timed_out: bool = False
     callback_errors: int = 0
+    orphans_killed: int = 0
 
 
 class FoamRun:
@@ -128,6 +162,7 @@ class FoamRun:
         self._escalated_to_kill: bool = False
         self._timed_out: bool = False
         self._callback_errors: int = 0
+        self._orphans_killed: int = 0
 
         self._start_time: float = 0.0
         self._end_time: float | None = None
@@ -270,6 +305,8 @@ class FoamRun:
         finally:
             self._process.stdout.close()
             self._process.wait()
+            # The session's other processes (MPI ranks) must not outlive the run.
+            self._orphans_killed = signal_session(self._process.pid, signal.SIGKILL)
             self._end_time = time.monotonic()
             self._log_file_handle.close()  # type: ignore[union-attr]
             self._done_event.set()
@@ -290,20 +327,25 @@ class FoamRun:
         """Send SIGTERM to the process group, then SIGKILL after grace period."""
         if self._process is None or self._done_event.is_set():
             return
-        try:
-            pgid = os.getpgid(self._process.pid)
-            os.killpg(pgid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
+        if not self._signal_tree(signal.SIGTERM):
             return
 
         if self._done_event.wait(timeout=grace_s):
             return
 
+        self._signal_tree(signal.SIGKILL)
+
+    def _signal_tree(self, sig: int) -> bool:
+        """Send ``sig`` to the process group and to every process of the run's session (MPI
+        ranks have process groups of their own). False when nothing was left to signal."""
+        assert self._process is not None
+        sent = False
         try:
-            pgid = os.getpgid(self._process.pid)
-            os.killpg(pgid, signal.SIGKILL)
+            os.killpg(os.getpgid(self._process.pid), sig)
+            sent = True
         except (ProcessLookupError, PermissionError):
             pass
+        return signal_session(self._process.pid, sig) > 0 or sent
 
     def is_running(self) -> bool:
         """Return True if the process has been started and is still running."""
@@ -335,7 +377,8 @@ class FoamRun:
         under 100 ms. All waiting and escalation happen in a background watchdog thread.
 
         If clean_stop=True:
-            Sends SIGUSR1 to the solver process (child PID; shell replaced by exec),
+            Sends SIGUSR1 to the solver process (child PID; shell replaced by exec; for
+            ``mpirun ... -parallel`` that is mpirun, and Open MPI forwards SIGUSR1 to the ranks),
             gated on the process having printed its first line starting with "Time = ".
             If the stop is requested before the gate opens, it waits up to 30 s for
             the gate. If the gate does not open in 30 s, it escalates to terminate.
@@ -411,10 +454,7 @@ class FoamRun:
 
         with self._lock:
             self._escalated_to_term = True
-        try:
-            pgid = os.getpgid(self._process.pid)
-            os.killpg(pgid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
+        if not self._signal_tree(signal.SIGTERM):
             return
 
         if self._done_event.wait(timeout=grace_s):
@@ -422,10 +462,7 @@ class FoamRun:
 
         with self._lock:
             self._escalated_to_kill = True
-        try:
-            pgid = os.getpgid(self._process.pid)
-            os.killpg(pgid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
+        if not self._signal_tree(signal.SIGKILL):
             return
 
         self._done_event.wait(timeout=5.0)
@@ -469,6 +506,7 @@ class FoamRun:
             ret_code = self._process.returncode
             escalated_to_term = self._escalated_to_term
             escalated_to_kill = self._escalated_to_kill
+            orphans_killed = self._orphans_killed
 
         stop_mode = "none"
         if stop_requested:
@@ -492,6 +530,7 @@ class FoamRun:
             stop_mode=stop_mode,
             timed_out=timed_out,
             callback_errors=callback_errors,
+            orphans_killed=orphans_killed,
         )
 
     @property
