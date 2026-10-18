@@ -1,11 +1,12 @@
 """Simulation tree data models."""
 
+import math
 from typing import Annotated, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 6
+CURRENT_SCHEMA_VERSION: int = 7
 
 
 class StrictModel(BaseModel):
@@ -275,6 +276,34 @@ class Domain(StrictModel):
     symmetry: Literal["none", "y_min"] = "none"
 
 
+class MeshStudySettings(StrictModel):
+    """Mesh independence study (D-066): three meshes with a constant refinement ratio ``ratio`` in
+    linear cell size; the current mesh settings are the ``current_as`` level ("fine": the study
+    adds two coarser levels; "medium": one coarser and one finer); ``quantities`` are report ids
+    (core/reports.py) judged with the Celik GCI; ``cores``: MPI ranks of each level's run."""
+
+    ratio: float = Field(default=math.sqrt(2.0), ge=1.3, le=4.0)
+    current_as: Literal["fine", "medium"] = "fine"
+    quantities: list[str] = Field(default_factory=lambda: ["Cd"])
+    cores: int = Field(default=1, ge=1)
+
+    @field_validator("quantities")
+    @classmethod
+    def _known_quantities(cls, values: list[str]) -> list[str]:
+        for q in values:
+            if not is_report_id(q):
+                raise ValueError(f"unknown report {q!r}")
+        if len(set(values)) != len(values):
+            raise ValueError("a quantity is listed twice")
+        return values
+
+
+class Studies(StrictModel):
+    """Multi-run studies (schema v7)."""
+
+    mesh: MeshStudySettings = Field(default_factory=MeshStudySettings)
+
+
 class Simulation(StrictModel):
     """Root simulation tree data model."""
 
@@ -289,3 +318,4 @@ class Simulation(StrictModel):
     inflow: Inflow = Field(default_factory=Inflow)
     solvers: Solvers = Field(default_factory=Solvers)
     reports: Reports = Field(default_factory=Reports)
+    studies: Studies = Field(default_factory=Studies)

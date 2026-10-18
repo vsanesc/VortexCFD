@@ -65,6 +65,7 @@ from vortexcfd.foam.run_record import RunRecord, read_run_record, write_run_reco
 from vortexcfd.foam.solver_run import CRITERIA_MET
 from vortexcfd.gui import solving
 from vortexcfd.gui.solver_worker import SolverWorker
+from vortexcfd.gui.study_control import StudyControlMixin
 from vortexcfd.foam.results import latest_result_time
 from vortexcfd.gui import paraview
 from vortexcfd.gui.colormaps import COLORMAPS, DEFAULT_COLORMAP
@@ -264,7 +265,7 @@ class _Splitter(QSplitter):
         return _Handle(self.orientation(), self)
 
 
-class MainWindow(QMainWindow):
+class MainWindow(StudyControlMixin, QMainWindow):
     """Top bar, left column (tree + properties), scene, monitors and console.
 
     All changes go through the Project edit API. Only the GUI thread may call Project methods
@@ -541,6 +542,7 @@ class MainWindow(QMainWindow):
         self.top_bar.set_active_view(self.current_view)
         self._apply_appearance()
         self.tree.currentItemChanged.connect(self._on_current_item_changed)
+        self._init_studies()  # mesh study worker (gui/study_control.py)
         self.set_project(project)
         log.info("VortexCFD started")
 
@@ -576,6 +578,9 @@ class MainWindow(QMainWindow):
             self.mesh_worker.request_stop()
         if self.solver_worker.is_running():
             self.solver_worker.request_stop()
+        for worker in (self.study_worker,):
+            if worker.is_running():
+                worker.request_stop()
         self.mesh_report = None
         self.properties.set_mesh_report(None)
         if self.mesh_view is not None:
@@ -584,6 +589,7 @@ class MainWindow(QMainWindow):
         self.properties.set_project(project)
         self._load_mesh_record(project)
         self._load_run_record(project)
+        self._load_study_records()
         self._unsubscribe = project.subscribe(self._on_project_changed)
         self._refresh()
 
@@ -863,6 +869,7 @@ class MainWindow(QMainWindow):
             reports = add(root, "reports", None, "Reports & Monitors", "folder", "text")
             add(reports, "reference_values", None, "Reference Values", "dot", "accent")
             add(reports, "probes", None, "Probes", "dot", "accent")
+            add(reports, "mesh_study", None, "Mesh Study", "dot", "accent")
             self.tree.expandAll()
             self._root_item = root
             self.tree.setRootIndex(self.tree.indexFromItem(root))  # hide the root row
@@ -1016,6 +1023,8 @@ class MainWindow(QMainWindow):
         reason = None if running else readiness(self._project)
         if not running and self.solver_worker.is_running():
             reason = "The solver is running: stop it first."
+        if not running and self.study_running():
+            reason = self.study_running()
         warning = None
         if not running and reason is None:
             warnings = [w for w in (layer_warning(self._project), *thin_part_warnings(self._project)) if w]
@@ -1026,6 +1035,9 @@ class MainWindow(QMainWindow):
         """Generate Mesh / Stop: write the meshing case and run it in the background."""
         if self.solver_worker.is_running():
             self.show_message("The solver is running: stop it first.", "error")
+            return
+        if self.study_running() and not self.mesh_worker.is_running():
+            self.show_message(self.study_running(), "error")
             return
         if self.mesh_worker.is_running():
             self.show_message("Stopping meshing...", "warning", log_it=False)
@@ -1144,6 +1156,9 @@ class MainWindow(QMainWindow):
 
     def solve_readiness(self) -> str | None:
         """Why Run Solver is disabled (None: it can run)."""
+        busy = self.study_running()
+        if busy is not None:
+            return busy
         return solving.readiness(
             self._project, has_mesh=self.mesh_report is not None, mesh_stale=self.mesh_stale,
             meshing=self.mesh_worker.is_running(),
@@ -1153,6 +1168,7 @@ class MainWindow(QMainWindow):
     def _update_run_button(self) -> None:
         running = self.solver_worker.is_running()
         self.top_bar.set_solver_state(None if running else self.solve_readiness(), running)
+        self._update_study_state()
 
     def run_solver(self) -> None:
         """Run Solver / Stop: write the solver files into the meshed case and run simpleFoam."""
@@ -1249,7 +1265,7 @@ class MainWindow(QMainWindow):
             self.console.append_error(result.crash)
         record = RunRecord(result.state, result.iterations, result.final_residuals,
                            self._solve_hash or "", result.exit_code, criteria, stopped_by, labels,
-                           result.met_iteration)
+                           result.met_iteration, round(result.duration_s, 1), result.cores)
         self.run_record = record
         try:
             write_run_record(case_dir_for(self._project), record)
@@ -1803,6 +1819,7 @@ class MainWindow(QMainWindow):
             return
         self._selection = current.data(0, ROLE_NODE)
         self.properties.show_node(*self._selection)
+        self._update_study_state()
         self._update_selection_views()
         self._update_actions()
 
@@ -2067,6 +2084,9 @@ class MainWindow(QMainWindow):
             self.mesh_worker.request_stop()
         if self.solver_worker.is_running():
             self.solver_worker.request_stop()
+        for worker in (self.study_worker,):
+            if worker.is_running():
+                worker.request_stop()
         if self.viewer is not None:
             self.viewer.close()  # release VTK interactor resources
         console_log.detach(self._console_handler)

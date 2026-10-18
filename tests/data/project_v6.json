@@ -1,0 +1,11 @@
+{
+  "schema_version": 6,
+  "name": "v6 project",
+  "geometry": {"parts": [{"name": "Ball", "source_file": "geometry/ball.stl", "units": "m"}]},
+  "mesh": {"background_cells_target": 50000},
+  "inflow": {"speed": 15.0, "alpha_deg": 2.0},
+  "solvers": {"iterations": 400, "cores": 2,
+              "stopping": {"criteria": [{"kind": "asymptotic", "quantity": "Cd", "window": 30, "tolerance": 0.002}],
+                           "combine": "all"}},
+  "reports": {"slots": ["Cd", "Cl", null]}
+}

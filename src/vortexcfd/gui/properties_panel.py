@@ -54,6 +54,7 @@ from vortexcfd.foam.physics_case import (
 )
 from vortexcfd.gui.meshing import MeshingNotReady, parts_layout, plan_layers_for, thin_part_warnings
 from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_status, report_for_part
+from vortexcfd.gui.study_rows import StudyRowsMixin
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
 
 # Allowed units are read from the model so the two never drift apart.
@@ -301,7 +302,7 @@ MESH_SECTIONS = {
 }
 
 
-class PropertiesPanel(QWidget):
+class PropertiesPanel(StudyRowsMixin, QWidget):
     """Form for the selected node. Never mutates the model: all edits use the Project API.
 
     The panel does not subscribe to the project; its owner calls ``refresh()`` on changes.
@@ -309,6 +310,8 @@ class PropertiesPanel(QWidget):
 
     message = Signal(str)  # short text for the status bar
     pending_changed = Signal()  # an uncommitted name edit appeared or was resolved
+    study_run_requested = Signal(str)  # "mesh": Run / Stop on the Mesh Study node (D-066)
+    study_results_requested = Signal(str)
 
     def __init__(self, project: Project, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -618,6 +621,8 @@ class PropertiesPanel(QWidget):
         self.run_empty.setObjectName("muted")
         _wrap(self.run_empty)
         self._layout.addWidget(self.run_empty)
+        # Mesh Study node (under Reports & Monitors; gui/study_rows.py).
+        self._build_study_rows(_dspin, _spin, _combo)
         self._layout.addWidget(self.info_label)
         self._layout.addStretch(1)
         self.apply_metrics(metrics(), DARK)
@@ -758,6 +763,11 @@ class PropertiesPanel(QWidget):
         self.mesh_empty.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
         self.stop_empty.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
         self._stop_add_row.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
+        for _host, box in (self._ms_buttons,):
+            box.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
+            box.setSpacing(m.s2)
+        for button in (self.ms_run, self.ms_results, self.ms_quantities):
+            button.setMinimumHeight(m.field)
         self._probe_add_row.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
         self.probe_add.setMinimumHeight(m.field)
         self._forces_box.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
@@ -829,6 +839,8 @@ class PropertiesPanel(QWidget):
         self._refresh_reports(self._kind == "reports")
         self._refresh_probes(self._kind == "probes")
         self._refresh_reference(self._kind == "reference_values")
+        study_patches, study_probes = self._patches_and_probes() if self._kind == "mesh_study" else ([], [])
+        self._refresh_mesh_study(self._kind == "mesh_study", study_patches, study_probes)
         self._refresh_mesh_settings(self._kind == "mesh")
         self._refresh_mesh(self._kind == "mesh")
         self.info_label.setVisible(

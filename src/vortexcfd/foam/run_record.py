@@ -26,6 +26,10 @@ class RunRecord:
     # which they were met (the solver writes the iteration it was in when the app stopped it).
     met_labels: tuple[str, ...] = ()
     met_iteration: int | None = None
+    # Solver wall time (s, without decomposePar / reconstructPar) and MPI ranks: the mesh study's
+    # time estimate (D-066). Absent in older records (None / 1).
+    duration_s: float | None = None
+    cores: int = 1
 
     @property
     def label(self) -> str:
@@ -43,6 +47,8 @@ def _data(record: RunRecord) -> dict:
         "stopped_by": list(record.stopped_by),
         "met_labels": list(record.met_labels),
         "met_iteration": record.met_iteration,
+        "duration_s": record.duration_s,
+        "cores": record.cores,
     }
 
 
@@ -68,7 +74,9 @@ def read_run_record(case_dir: Path) -> RunRecord | None:
                            tuple(str(c) for c in data.get("criteria", [])),
                            tuple(str(c) for c in data.get("stopped_by", [])),
                            tuple(str(c) for c in data.get("met_labels", [])),
-                           None if met_it is None else int(met_it))
+                           None if met_it is None else int(met_it),
+                           None if data.get("duration_s") is None else float(data["duration_s"]),
+                           int(data.get("cores", 1)))
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
     if migrated:

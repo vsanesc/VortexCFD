@@ -170,6 +170,15 @@ class Project:
         """Edit reference value overrides or report slots as one undoable step."""
         self._update_section("reports", "reports", fields)
 
+    def update_study(self, study: str, **fields: Any) -> None:
+        """Edit the mesh study ("mesh") settings as one undoable step."""
+
+        def mutate(data: dict[str, Any]) -> None:
+            data["studies"][study].update(fields)
+
+        changed = ", ".join(fields) or "no fields"
+        self._edit(f"Edit {study} study ({changed})", mutate)
+
     def _update_section(self, key: str, label: str, fields: dict[str, Any]) -> None:
         def mutate(data: dict[str, Any]) -> None:
             data[key].update(fields)

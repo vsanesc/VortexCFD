@@ -15,8 +15,8 @@ from tests.validation.tmr import (
 
 def test_celik_procedure_reproduces_the_published_cfl3d_numbers() -> None:
     # flatplate_sst.html: CFL3D, three finest grids: p 1.21, e_a 0.292 %, e_ext 0.221 %, GCI 0.277 %.
-    g = celik_gci(0.269085355e-2, 0.268299226e-2, 0.266477116e-2)
-    assert g.monotonic
+    g = celik_gci(0.269085355e-2, 0.268299226e-2, 0.266477116e-2, 2.0, 2.0)
+    assert g.applicable
     assert g.order == pytest.approx(1.21, abs=0.005)
     assert g.approx_error == pytest.approx(0.00292, abs=5e-6)
     assert g.extrapolated_error == pytest.approx(0.00221, abs=5e-6)
@@ -28,7 +28,7 @@ def test_celik_order_with_unequal_ratios_and_oscillation() -> None:
     phi = lambda h: 1.0 + 0.3 * h**2  # noqa: E731
     g = celik_gci(phi(1.0), phi(2.0), phi(3.0), r21=2.0, r32=1.5)
     assert g.order == pytest.approx(2.0, rel=1e-9) and g.extrapolated == pytest.approx(1.0, rel=1e-12)
-    assert not celik_gci(1.0, 1.1, 1.05).monotonic
+    assert celik_gci(1.0, 1.1, 1.05, 2.0, 2.0).convergence == "oscillatory"
 
 
 def test_reference_files_and_values() -> None:

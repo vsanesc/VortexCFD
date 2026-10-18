@@ -1,6 +1,6 @@
 # Status
 
-Updated 2026-10-18 (task/6.4-studies Parts A and B). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
+Updated 2026-10-18 (task/6.4-studies Parts A to C). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
 task (CLAUDE.md).
 
 ## Current branch
@@ -20,9 +20,18 @@ task (CLAUDE.md).
   plate validation could not reach its verdict (medium Case B grid stalled, coarse Cf -0.60 %). The
   app keeps the slip far field of D-022.
 
-Next on this branch: Part C (6.4 mesh study with the GCI), Part D (6.5 polar sweep), Part E (docs).
-Open: docs/QUESTIONS.md items 67 (an offscreen worker crash), 69 (the core cap), 70 (ship suite
-time), 71 (freestream far field).
+- Part C, Task 6.4 (D-066, schema v7): foam/gci.py (Celik 2008, checked against the paper's worked
+  example; oscillatory, divergent and undefined cases get no GCI); a Mesh Study node under Reports &
+  Monitors (ratio, current settings as fine or medium, quantities, cores; estimated cells and time
+  per level; the same absolute prism-layer stack on every level); levels in case_study/level_<n>/,
+  each judged by the stopping criteria (unreliable GCI otherwise); results window (GCI table, levels,
+  value against h, CSV) and case_study/study.json. Real study on the coarse sphere at Re 200: all
+  levels met the criteria; Cd divergent and Cl oscillatory (not in the asymptotic range; actual h
+  ratios 1.31 and 1.33, docs/QUESTIONS.md item 72).
+
+Next on this branch: Part D (6.5 polar sweep), Part E (docs). Open: docs/QUESTIONS.md items 67 (an
+offscreen worker crash), 69 (the core cap), 70 (ship suite time), 71 (freestream far field), 72
+(actual refinement ratio).
 
 ## Phases
 
@@ -56,7 +65,7 @@ time), 71 (freestream far field).
 | 6.1 | Monitors and reports | done: report slots with Cd, Cl, Cm pitch and wall y+ (D-048); reference values (D-047); stopping criteria (runTimeControl for residuals, app-side range-based asymptotic criterion), convergence banner and oscillation warning (D-058, D-059); force breakdown, body-axis x_cp, mass balance, cellPoint probes (D-060) |
 | 6.2 | Scenes and derived parts | Cp along wall sections with CSV export (D-062); Cf / Cf_x and separation highlight (D-061); scalar scenes done (D-053): field/colormap/range selection, scalar bar, section; scene saving, image export, iso-surfaces and streamlines not started |
 | 6.3 | Data export and reports | not started (section CSV export only, D-062) |
-| 6.4 | Mesh independence study (GCI) | not started |
+| 6.4 | Mesh independence study (GCI) | done (D-066): Mesh Study node, three levels, Celik GCI, results window and CSV; flat plate Case B not reproduced through the workflow (item 72) |
 | 6.5 | Angle-of-attack sweep (polars) | not started |
 | 6.6 | Parallel runs (mpirun) | done (D-063 Accepted): decomposePar / mpirun / reconstructPar, clean stop through mpirun; speedup study and recommended cores (D-064) |
 | 7.1-7.3 | Coupled solver analysis | not started |

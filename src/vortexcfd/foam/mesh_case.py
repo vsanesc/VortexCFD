@@ -83,6 +83,10 @@ class MeshCaseInput:
     # surface_level_max) overrides (None = the mesh's levels). Empty: no per-part data.
     part_bounds: tuple[Bounds, ...] = ()
     part_levels: tuple[tuple[int | None, int | None], ...] = ()
+    # (first layer thickness in metres, number of layers): an absolute layer stack that replaces
+    # both sizings (mesh study levels share one stack, D-066); the quality controls still follow
+    # mesh.layer_sizing. None: the sizing above.
+    fixed_layers: tuple[float, int] | None = None
 
 
 def safe_part_names(names: Sequence[str]) -> list[str]:
@@ -287,6 +291,9 @@ def _layer_sizing(inp: MeshCaseInput) -> dict:
     expansion ratio this fixes the other sizes) and minThickness as a fraction of it.
     """
     m = inp.mesh
+    if inp.fixed_layers is not None:
+        h = inp.fixed_layers[0]
+        return {"relativeSizes": False, "firstLayerThickness": h, "minThickness": m.min_thickness * h}
     if m.layer_sizing == "relative":
         return {"relativeSizes": True, "finalLayerThickness": m.final_layer_thickness,
                 "minThickness": m.min_thickness}
@@ -338,6 +345,8 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
     n_layers = m.layers
     if m.layer_sizing == "absolute_yplus" and inp.layer_count is not None:
         n_layers = inp.layer_count
+    if inp.fixed_layers is not None:
+        n_layers = inp.fixed_layers[1]
     layers = {f'"{n}.*"': {"nSurfaceLayers": n_layers} for n in inp.parts} if n_layers > 0 else {}
     content = {
         "castellatedMesh": True,

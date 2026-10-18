@@ -232,15 +232,15 @@ DEFAULT_STOPPING = {"criteria": [{"kind": "residual", "field": "p", "threshold":
 def test_migrate_v1_to_v2_and_current_unchanged() -> None:
     """v1 gains the default domain and version 2; current data is returned unchanged."""
     assert migrate({"schema_version": 1, "custom": "data"}) == {
-        "schema_version": 6, "custom": "data", "domain": {}, "mesh": {},
+        "schema_version": 7, "custom": "data", "domain": {}, "mesh": {},
         "physics": {}, "inflow": {}, "solvers": {"stopping": DEFAULT_STOPPING}, "reports": {},
     }
     assert migrate({"schema_version": 2, "x": 1}) == {
-        "schema_version": 6, "x": 1, "physics": {}, "inflow": {}, "solvers": {"stopping": DEFAULT_STOPPING},
+        "schema_version": 7, "x": 1, "physics": {}, "inflow": {}, "solvers": {"stopping": DEFAULT_STOPPING},
         "reports": {},
     }
-    assert migrate({"schema_version": 3, "reports": {}}) == {"schema_version": 6, "reports": {}}
-    current = {"schema_version": 6, "custom": "data"}
+    assert migrate({"schema_version": 3, "reports": {}}) == {"schema_version": 7, "reports": {}}
+    current = {"schema_version": 7, "custom": "data"}
     assert migrate(current) == current
 
 
@@ -266,7 +266,7 @@ def test_domain_defaults() -> None:
         True, 5.0, 10.0, 5.0, 5.0, "none",
     )
     assert Simulation(name="x").domain == d
-    assert CURRENT_SCHEMA_VERSION == 6
+    assert CURRENT_SCHEMA_VERSION == 7
 
 
 @pytest.mark.parametrize("field", ["upstream", "downstream", "lateral", "vertical"])
@@ -537,7 +537,7 @@ def test_v4_fixture_migrates_to_v5_with_unset_part_levels_and_keeps_its_data() -
         ("Ball", "m", None, None), ("Pod", "mm", None, None)]
     assert sim.mesh.surface_level_max == 5 and sim.solvers.iterations == 500
     assert sim.reports.reference_area_basis == "frontal" and sim.reports.slots == ["Cd", None, "yplus_avg"]
-    assert migrate({"schema_version": 4, "x": 1}) == {"schema_version": 6, "x": 1}  # no solvers: nothing to convert
+    assert migrate({"schema_version": 4, "x": 1}) == {"schema_version": 7, "x": 1}  # no solvers: nothing to convert
 
 
 def test_part_levels_validation_and_update() -> None:
@@ -553,3 +553,34 @@ def test_part_levels_validation_and_update() -> None:
     assert p.sim.geometry.parts[0].surface_level_max == 7 and p.sim.geometry.parts[0].surface_level_min is None
     p.undo()
     assert p.sim.geometry.parts[0].surface_level_max is None
+
+
+def test_v6_fixture_migrates_to_v7_with_default_studies() -> None:
+    """Hand-written v6 project (tests/data/project_v6.json): v7 adds ``studies`` with the defaults
+    (D-066); everything else is kept."""
+    import json
+    import math
+    from pathlib import Path
+
+    from vortexcfd.core.project_io import load_simulation
+
+    path = Path(__file__).parent / "data" / "project_v6.json"
+    assert json.loads(path.read_text())["schema_version"] == 6
+    sim = load_simulation(path)
+    assert sim.schema_version == 7
+    assert sim.studies.mesh.ratio == pytest.approx(math.sqrt(2)) and sim.studies.mesh.current_as == "fine"
+    assert sim.studies.mesh.quantities == ["Cd"] and sim.studies.mesh.cores == 1
+    assert sim.mesh.background_cells_target == 50000 and sim.solvers.cores == 2
+    assert sim.solvers.stopping.criteria[0].window == 30 and sim.reports.slots == ["Cd", "Cl", None]
+
+
+def test_mesh_study_settings_validation() -> None:
+    from vortexcfd.core.model import MeshStudySettings
+
+    with pytest.raises(ValueError):
+        MeshStudySettings(ratio=1.2)
+    with pytest.raises(ValueError):
+        MeshStudySettings(quantities=["nope"])
+    with pytest.raises(ValueError):
+        MeshStudySettings(quantities=["Cd", "Cd"])
+    assert MeshStudySettings(quantities=["Cd@Ball", "probe:wake:p"]).quantities == ["Cd@Ball", "probe:wake:p"]
