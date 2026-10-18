@@ -82,6 +82,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-064 | 2026-10-18 | mpirun binding and the recommended core count from a speedup study | Proposed |
 | D-066 | 2026-10-18 | Mesh independence study with the Celik GCI (schema v7) | Proposed |
 | D-067 | 2026-10-18 | Angle-of-attack sweep (polar) | Proposed |
+| D-068 | 2026-10-18 | Display guard and targeted testing for agents | Proposed |
 
 ---
 
@@ -599,3 +600,11 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Alternatives considered: one case directory restarted at each angle (the stopping-criteria windows and the postProcessing series would mix the points); mapFields between points (same mesh: copying the internal fields is exact); initialising from the previous point even when it did not converge (an oscillating or diverged state would be carried over); copying the mesh into every point (the symbolic link saves a mesh copy per point; decomposePar and reconstructPar read through it).
 - Consequences: real sweep (tests/test_polar_sweep.py, marker `long`, 262 s): flattened ellipsoid (semi-axes 0.5 x 0.5 x 0.15 m, default mesh, 192,458 cells) at 20 m/s, 4 cores, Cd and Cl asymptotic (window 50, 1 %), limit 600: alpha 0: CL -0.0002199, CD 0.027736, CM 3.07e-5, 173 iterations; alpha 5: CL 0.023284, CD 0.030199, CM 0.0055368, L/D 0.771, 194 iterations (from point 1 at 173); alpha 10: CL 0.040787, CD 0.035768, CM 0.012481, L/D 1.14, 179 iterations (from point 2 at 194); all criteria met, CL increasing with alpha; case/ unchanged. The 10 deg value agrees with the separate slip run of Part B (0.0411). Each point keeps its time directories (about the size of the fields per written time).
 
+## D-068 Display guard and targeted testing for agents
+- Status: Proposed (owner decision 2026-10-18, recorded in Task 3 Part 0).
+- Context: agent test runs opened windows on the owner's WSLg desktop, and running the full suite before every commit cost several minutes per commit.
+- Decision:
+  - `vortexcfd.core.display_guard.apply_display_guard()` (no Qt import) sets `QT_QPA_PLATFORM=offscreen` and `PYVISTA_OFF_SCREEN=true` when `WAYLAND_DISPLAY` is set, or `DISPLAY` is set on WSL (the /mnt/wslg mount or `WSL_DISTRO_NAME`), unless `VORTEXCFD_ALLOW_REAL_DISPLAY=1`. tests/conftest.py calls it before importing Qt, and so does every script that opens windows (scripts/screenshots.py). The application itself is not guarded.
+  - Testing rule (CLAUDE.md): agents run only the test files of the modules they changed while working, and once at the end of a task `pytest -q -m "not slow and not validation and not long"` offscreen with `nice -n 15`; the full suite, slow, long and validation tests run in scripts/ship.sh when the owner publishes. Agents never use the WSLg display.
+- Alternatives considered: setting `QT_QPA_PLATFORM` in pytest.ini (does not cover scripts, and the owner could not opt in to the real display); keeping the full suite before each commit (too slow per commit).
+- Consequences: tests that need a real OpenGL viewer render offscreen unless the owner sets `VORTEXCFD_ALLOW_REAL_DISPLAY=1`; regressions in slow tests surface only when ship.sh runs.

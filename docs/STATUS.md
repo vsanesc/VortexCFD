@@ -45,7 +45,7 @@ offscreen worker crash), 69 (the core cap), 70 (ship suite time), 71 (freestream
 
 | Phase | Title | State |
 |---|---|---|
-| 0.1 | STAR-CCM+ reference inventory | not started |
+| 0.1 | STAR-CCM+ reference inventory | done (feature map kept by the owner outside the repository) |
 | 0.2 | Open-source landscape survey | done for geometry and meshing (docs/reference/oss_survey.md); other modules not surveyed |
 | 0.3 | Repo, environment, architecture | done (no CI service: scripts/ship.sh runs the suite before publishing) |
 | 1.1 | Simulation data model | done |
@@ -96,7 +96,6 @@ offscreen worker crash), 69 (the core cap), 70 (ship suite time), 71 (freestream
 - cfMesh build spike on v2606.
 - Total cell estimate: only background cells are estimated today.
 - Per-part surface size (one target surface size for all parts today).
-- Task 0.1 (STAR-CCM+ feature inventory) not done.
 - Solver restart from the latest time: every run starts from 0 (D-046).
 - The mesh scene is read on the GUI thread after meshing (MeshView.load): a multi-million-cell mesh
   freezes the window for a moment (docs/QUESTIONS.md item 5).

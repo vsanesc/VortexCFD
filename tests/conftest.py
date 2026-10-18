@@ -1,7 +1,13 @@
 """Shared fixtures: every test gets isolated QSettings so the user's real ones are never touched."""
 
-import pytest
-from PySide6.QtCore import QSettings
+from vortexcfd.core.display_guard import apply_display_guard
+
+# Before Qt is imported: tests never open a window on the WSLg desktop (VORTEXCFD_ALLOW_REAL_DISPLAY=1
+# lets the owner run them on the real display).
+apply_display_guard()
+
+import pytest  # noqa: E402
+from PySide6.QtCore import QSettings  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

@@ -1,8 +1,8 @@
 """Render window screenshots into /tmp/vortexcfd_shots/.
 
-Run on the real display (WSLg) so the OpenGL viewer renders:
-    .venv/bin/python scripts/screenshots.py
-Offscreen (QT_QPA_PLATFORM=offscreen) works only for the tree/panels; the viewer stays empty.
+Offscreen by default (the display guard): the tree and panels render, the viewer stays empty.
+Only the owner runs it on the real display (WSLg), where the OpenGL viewer renders:
+    VORTEXCFD_ALLOW_REAL_DISPLAY=1 .venv/bin/python scripts/screenshots.py
 """
 
 import logging
@@ -11,8 +11,12 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QApplication
+from vortexcfd.core.display_guard import apply_display_guard
+
+apply_display_guard()  # before Qt is imported
+
+from PySide6.QtCore import QSettings  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 OUT = Path("/tmp/vortexcfd_shots")
 

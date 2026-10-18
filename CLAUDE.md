@@ -11,5 +11,7 @@
 - Commit locally after each completed part, message "Task <id>: <summary>". Stage only files that belong to the task (never `git add .` blindly). Never push, merge, or delete branches.
 - Final reports must be short: `git diff --stat main`, the last line of `pytest -q`, and a list of open doubts. No full test listings or long file dumps unless asked.
 - scripts/ship.sh pushes, merges and deletes the branch. It is run only by Vic. Agents never run it.
-- During iterations run `pytest -q -m 'not slow and not validation and not long'`; run the full suite (`-m 'not validation and not long'`, both modes) once before each commit. `pytest -n 8` (pytest-xdist) is safe with the Qt and OpenFOAM tests. Tests with real OpenFOAM runs above 60 s carry the `long` marker (run explicitly with `-m long`, nothing else running).
+- Testing: while working, run ONLY the tests of the modules you changed (explicit test file paths). Once at the end of a task, run `.venv/bin/pytest -q -m "not slow and not validation and not long"` offscreen with `nice -n 15`. Never run the full suite or the slow, long or validation tests; scripts/ship.sh does that when the owner publishes. `pytest -n 8` (pytest-xdist) is safe with the Qt and OpenFOAM tests. Tests with real OpenFOAM runs above 60 s carry the `long` marker.
+- Never use the WSLg display; only the owner runs anything on the real display. tests/conftest.py and every script that opens windows call `vortexcfd.core.display_guard.apply_display_guard()` before importing Qt (offscreen unless VORTEXCFD_ALLOW_REAL_DISPLAY=1).
+- Run heavy commands with `nice -n 15`.
 - Every decision that changes behaviour, defaults, file formats or workflow gets a DECISIONS.md entry in the same commit. At the end of each task update docs/STATUS.md.
