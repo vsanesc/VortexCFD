@@ -16,6 +16,7 @@ dependencies = [
     "pydantic>=2.0",
     "foamlib>=1.8.1",
     "matplotlib",  # colormaps of the Results Scene (already installed with PyVista; D-054)
+    "cadquery-ocp-novtk",  # OpenCASCADE bindings without a bundled VTK: STEP/IGES/BREP import (D-070)
 ]
 
 [project.scripts]

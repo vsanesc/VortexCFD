@@ -109,6 +109,26 @@ def safe_part_names(names: Sequence[str]) -> list[str]:
     return result
 
 
+def part_patch_names(parts: Sequence) -> list[tuple[str, ...]]:
+    """Per part (core.model.Part), its safe wall patch names in Part.patch_names() order.
+
+    Every name of every part goes through ``safe_part_names`` together, so a patch name used by
+    two parts becomes two patches (the second gets a suffix); a part without regions has the one
+    patch it always had."""
+    raw = [part.patch_names() for part in parts]
+    safe = safe_part_names([name for names in raw for name in names])
+    out, k = [], 0
+    for names in raw:
+        out.append(tuple(safe[k:k + len(names)]))
+        k += len(names)
+    return out
+
+
+def wall_patch_names(parts: Sequence) -> tuple[str, ...]:
+    """Every part wall patch of the mesh, in part and region order."""
+    return tuple(name for names in part_patch_names(parts) for name in names)
+
+
 # snappyHexMesh finds a surface only where a segment between two neighbouring cell centres crosses
 # it. Those segments form a lattice of lines spaced one background cell apart, so a convex part is
 # certain to be pierced only if its projection along its thinnest axis holds a disc of this many

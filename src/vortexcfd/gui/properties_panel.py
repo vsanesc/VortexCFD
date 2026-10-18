@@ -43,7 +43,10 @@ from vortexcfd.foam.convergence import earliest_iteration
 from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.foam.run_record import RunRecord
-from vortexcfd.foam.mesh_case import safe_part_names
+from vortexcfd.foam.mesh_case import part_patch_names, safe_part_names
+from vortexcfd.geometry.cad import CadImportError
+from vortexcfd.geometry.loader import SurfaceLoadError
+from vortexcfd.gui import part_ops
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.physics_case import (
     AREA_BASIS_LABELS,
@@ -376,6 +379,19 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             self.part_level_fields[key] = spin
             self._layout.addWidget(self._make_row(f"part_{key}", text, spin))
             spin.editingFinished.connect(lambda k=key: self._commit_part_level(k))
+        # CAD source (Task 3.2, D-070): the file and the tessellation deflections; editing a
+        # deflection re-tessellates the part as one undoable step.
+        self.cad_file_label = QLineEdit()
+        self.cad_file_label.setReadOnly(True)
+        self._layout.addWidget(self._make_row("cad_file", "CAD file", self.cad_file_label))
+        self.cad_linear = _sci()
+        self.cad_linear.setToolTip("Largest distance between a triangle and the CAD surface (m)")
+        self._layout.addWidget(self._make_row("cad_linear", "Linear deflection (m)", self.cad_linear))
+        self.cad_angular = _dspin(0.1, 90.0, 1, " deg")
+        self.cad_angular.setToolTip("Largest angle between the normals of neighbouring triangles")
+        self._layout.addWidget(self._make_row("cad_angular", "Angular deflection", self.cad_angular))
+        self.cad_linear.editingFinished.connect(lambda: self._commit_cad("linear"))
+        self.cad_angular.editingFinished.connect(lambda: self._commit_cad("angular"))
         # File status and the read-only "Checks" group (surface report) for a Part.
         self.status_value = QLabel()
         self.status_value.setObjectName("checkValue")
@@ -753,7 +769,7 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         for label in (*self.check_values.values(), *self.mesh_values.values(), self.status_value):
             label.setFont(mono)
         for widget in (self.name_edit, self.source_label, self.units_combo, self.patch_label,
-                       *self.mesh_fields.values()):
+                       self.cad_file_label, self.cad_linear, self.cad_angular, *self.mesh_fields.values()):
             widget.setFont(mono)
         self.mesh_title.setFont(section_title_font(QApplication.font()))
         self.mesh_title.setContentsMargins(m.s3, m.s3, m.s3, m.s2)
@@ -828,8 +844,9 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
                 spin.setValue(spin.minimum() if value is None else value)
                 spin.blockSignals(False)
         if part is not None:
-            patches = safe_part_names([p.name for p in sim.geometry.parts])
-            self.patch_label.setText(patches[self._index])
+            patches = part_patch_names(sim.geometry.parts)
+            self.patch_label.setText(", ".join(patches[self._index]))
+        self._refresh_cad(part)
         self._refresh_file_info(part)
         self._rows["name"].setVisible(show_name)
         is_domain = self._kind == "fluid_domain"
@@ -1661,6 +1678,45 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             self._project.update_part(self._index, **{key: value})
         except (ValueError, TypeError, IndexError) as exc:  # includes pydantic errors
             self.message.emit(str(exc))
+        self.refresh()
+
+    def _refresh_cad(self, part: Part | None) -> None:
+        cad = part.cad if part is not None else None
+        for key in ("cad_file", "cad_linear", "cad_angular"):
+            self._rows[key].setVisible(cad is not None)
+        if cad is None:
+            return
+        for widget in (self.cad_linear, self.cad_angular):
+            widget.blockSignals(True)
+        self.cad_file_label.setText(cad.file)
+        self.cad_linear.setValue(cad.linear_deflection)
+        self.cad_angular.setValue(cad.angular_deflection)
+        for widget in (self.cad_linear, self.cad_angular):
+            widget.blockSignals(False)
+
+    def _commit_cad(self, which: str) -> None:
+        """Re-tessellate the CAD part with the edited deflection (one undoable step)."""
+        if self._kind != "part" or self._index is None:
+            return
+        part = self._project.sim.geometry.parts[self._index]
+        if part.cad is None:
+            return
+        try:
+            if which == "linear":
+                value = self.cad_linear.value()
+                if not value > 0 or value == part.cad.linear_deflection:
+                    raise ValueError("" if value == part.cad.linear_deflection else
+                                     "The linear deflection must be a positive length")
+                fields = part_ops.retessellate(self._project, self._index, linear_deflection=value)
+            else:
+                value = round(self.cad_angular.value(), 1)
+                if value == part.cad.angular_deflection:
+                    raise ValueError("")
+                fields = part_ops.retessellate(self._project, self._index, angular_deflection=value)
+            self._project.update_part(self._index, **fields)
+        except (ValueError, TypeError, IndexError, OSError, CadImportError, SurfaceLoadError) as exc:
+            if str(exc):
+                self.message.emit(str(exc))
         self.refresh()
 
     def _commit_units(self, units: str) -> None:

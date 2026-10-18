@@ -98,13 +98,13 @@ def test_second_import_gets_unique_names(make_window, sphere_stl: Path, tmp_path
 
 
 def test_import_of_unsupported_file_leaves_nothing_behind(make_window, tmp_path: Path) -> None:
-    bad = tmp_path / "src" / "model.step"
+    bad = tmp_path / "src" / "model.x_t"
     bad.parent.mkdir()
-    bad.write_text("ISO-10303-21;")
+    bad.write_text("**PARASOLID")
     w = make_window(import_path=bad)
     w.act_import.trigger()
     assert w.project.sim.geometry.parts == []
-    assert not (tmp_path / "proj" / "geometry" / "model.step").exists()
+    assert not (tmp_path / "proj" / "geometry" / "model.x_t").exists()
     assert "Unsupported file type" in w.statusBar().currentMessage()
     assert w.statusBar().property("level") == "error"
 
@@ -258,7 +258,7 @@ def test_telemetry_has_a_triangles_field(make_window) -> None:
 def test_import_action_is_in_the_file_menu(make_window) -> None:
     w = make_window()
     file_menu = w.menuBar().actions()[0].menu()
-    assert w.act_import in file_menu.actions() and w.act_import.text() == "&Import Surface..."
+    assert w.act_import in file_menu.actions() and w.act_import.text() == "&Import Geometry..."
 
 
 def test_works_without_viewer(make_window, sphere_stl: Path) -> None:

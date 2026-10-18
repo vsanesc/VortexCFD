@@ -1,5 +1,5 @@
-"""Part geometry operations joining core and geometry (Qt-free): multi-solid STL import, region
-edits (Tasks 3.1, 3.5).
+"""Part geometry operations joining core and geometry (Qt-free): multi-solid STL and CAD import,
+region edits (Tasks 3.1, 3.2, 3.5).
 
 Every operation that changes a surface or its region ids writes NEW files under
 <project>/geometry/ and returns the Part fields to set; the caller applies them with one
@@ -13,8 +13,9 @@ from pathlib import Path
 import numpy as np
 import pyvista as pv
 
-from vortexcfd.core.model import Part, SurfaceRegion
+from vortexcfd.core.model import CadSource, Part, SurfaceRegion
 from vortexcfd.core.project import Project
+from vortexcfd.geometry import cad as cad_module
 from vortexcfd.geometry import regions
 from vortexcfd.geometry.loader import SOLID_ARRAY, UNIT_TO_METRE, load_surface
 
@@ -207,3 +208,80 @@ def region_of_triangle(project: Project, index: int, triangle: int) -> str | Non
         if int(ids[triangle]) in r.members:
             return r.name
     return None
+
+
+# -- CAD import (Task 3.2) ---------------------------------------------------------------------
+
+
+def tessellation_files(project_dir: Path, part_name: str, cad: CadSource, units: str) -> tuple[str, str]:
+    """(surface, region ids) of the CAD source's tessellation, relative to the project folder.
+
+    The STL (model units) and the per-triangle CAD face ids are written once per (file content,
+    deflections, bodies) and reused afterwards: the files are the tessellation cache."""
+    project_dir = Path(project_dir)
+    cad_path = project_dir / cad.file
+    scale = UNIT_TO_METRE[units]
+    linear = cad.linear_deflection / scale  # model units
+    key = cad_module.tessellation_key(cad_path, linear, cad.angular_deflection, cad.bodies)
+    folder = project_dir / GEOMETRY_DIR
+    stl = folder / f"{file_stem(part_name)}_tess_{key}.stl"
+    ids = folder / f"{file_stem(part_name)}_tess_{key}_faces.npy"
+    if not (stl.is_file() and ids.is_file()):
+        model = cad_module.read_cad(cad_path)
+        mesh = cad_module.tessellate(model, linear, cad.angular_deflection, cad.bodies)
+        face_ids = np.asarray(mesh.cell_data[cad_module.FACE_ARRAY], dtype=np.int32)
+        mesh.cell_data.clear()
+        folder.mkdir(parents=True, exist_ok=True)
+        mesh.save(str(stl))
+        np.save(ids, face_ids, allow_pickle=False)
+        if load_surface(stl, units).n_cells != len(face_ids):  # the reader dropped a triangle
+            stl.unlink()
+            ids.unlink()
+            raise cad_module.CadImportError(f"{cad_path.name}: the tessellation does not read back intact")
+    return relative(project_dir, stl), relative(project_dir, ids)
+
+
+def cad_parts(project_dir: Path, cad_file: Path, units: str | None, mode: str, taken: set[str]) -> list[Part]:
+    """Parts for a CAD file copied into <project>/geometry/: one Part holding every body (``mode``
+    "regions") or one Part per body ("parts"). Regions follow the face names (faces sharing a name
+    form one region; unnamed faces take their body's name) with the file's colours. ``units`` is
+    the file's model units for BREP (STEP and IGES are millimetres); default deflections: 1/1000
+    of the model's bounding-box diagonal and 20 degrees (D-070)."""
+    project_dir = Path(project_dir)
+    model = cad_module.read_cad(cad_file)
+    units = model.units or units or "m"
+    linear_m = model.default_linear_deflection() * UNIT_TO_METRE[units]
+    if linear_m <= 0:
+        raise cad_module.CadImportError(f"{cad_file.name} has no extent")
+    rel = relative(project_dir, cad_file)
+    selections = [None] if mode != "parts" or len(model.bodies) == 1 else [[b] for b in range(len(model.bodies))]
+    parts, taken = [], set(taken)
+    for bodies in selections:
+        base = cad_file.stem if bodies is None else model.bodies[bodies[0]].name
+        name = unique_name(base, taken)
+        taken.add(name)
+        cad = CadSource(file=rel, linear_deflection=float(f"{linear_m:.3g}"),
+                        angular_deflection=cad_module.ANGULAR_DEFLECTION_DEG, bodies=bodies)
+        surface, ids = tessellation_files(project_dir, name, cad, units)
+        groups = model.face_groups(bodies)
+        region_list = [SurfaceRegion(name=g, members=sorted(members), color=color) for g, members, color in groups]
+        parts.append(Part(name=name, source_file=surface, units=units, cad=cad, region_ids=ids,
+                          regions=region_list if len(region_list) > 1 else []))
+    return parts
+
+
+def retessellate(project: Project, index: int, linear_deflection: float | None = None,
+                 angular_deflection: float | None = None) -> dict:
+    """Part fields for new deflections (metres, degrees): the cached or new tessellation files.
+    Regions keep their CAD faces, so they survive the new triangles."""
+    part = project.sim.geometry.parts[index]
+    if part.cad is None:
+        raise cad_module.CadImportError(f"Part '{part.name}' was not imported from CAD")
+    update = {}
+    if linear_deflection is not None:
+        update["linear_deflection"] = linear_deflection
+    if angular_deflection is not None:
+        update["angular_deflection"] = angular_deflection
+    cad = CadSource.model_validate({**part.cad.model_dump(), **update})
+    surface, ids = tessellation_files(project.path.parent, part.name, cad, part.units)
+    return {"cad": cad.model_dump(), "source_file": surface, "region_ids": ids}

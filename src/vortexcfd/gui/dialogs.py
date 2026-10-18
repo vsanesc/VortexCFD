@@ -7,7 +7,8 @@ from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox, QWidget
 
 from vortexcfd.gui.properties_panel import ALLOWED_UNITS
 
-SURFACE_FILTER = "Surface files (*.stl *.obj *.ply);;All files (*)"
+SURFACE_FILTER = ("Geometry (*.stl *.obj *.ply *.step *.stp *.iges *.igs *.brep *.brp);;"
+                  "Surface files (*.stl *.obj *.ply);;CAD files (*.step *.stp *.iges *.igs *.brep *.brp);;All files (*)")
 PROJECT_FILTER = "VortexCFD projects (*.json);;All files (*)"
 
 DiscardChoice = Literal["save", "discard", "cancel"]
@@ -42,7 +43,7 @@ class Dialogs:
 
     def ask_import_path(self) -> Path | None:
         name, _ = QFileDialog.getOpenFileName(
-            self.parent, "Import surface", "", SURFACE_FILTER
+            self.parent, "Import geometry", "", SURFACE_FILTER
         )
         return Path(name) if name else None
 

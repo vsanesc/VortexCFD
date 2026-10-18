@@ -53,6 +53,7 @@ from vortexcfd.gui.dialogs import Dialogs
 from vortexcfd.gui.icons import logo_icon, make_glyph
 from vortexcfd.gui.monitors import MonitorsPanel
 from vortexcfd.geometry.checks import surface_report
+from vortexcfd.geometry.cad import BREP_EXTENSIONS, CAD_EXTENSIONS, CadImportError, read_cad
 from vortexcfd.geometry.loader import stl_solid_names
 from vortexcfd.gui import part_ops
 from vortexcfd.geometry.loader import SurfaceLoadError
@@ -1846,7 +1847,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         S = QKeySequence.StandardKey
         self.act_new = action("&New", self.new_project, S.New)
         self.act_open = action("&Open...", self.open_project, S.Open)
-        self.act_import = action("&Import Surface...", self.import_surface, "Ctrl+I")
+        self.act_import = action("&Import Geometry...", self.import_surface, "Ctrl+I")
         self.act_save = action("&Save", self.save, S.Save)
         self.act_save_as = action("Save &As...", self.save_as, S.SaveAs)
         self.act_quit = action("&Quit", self.close, S.Quit)
@@ -1990,12 +1991,15 @@ class MainWindow(StudyControlMixin, QMainWindow):
         return True
 
     def import_surface(self) -> None:
-        """File > Import Surface: copy a surface file into <project>/geometry/ and add a Part."""
+        """File > Import Geometry: copy a surface or CAD file into <project>/geometry/ and add Parts."""
         self._flush_edits()
         if self._project.path is None and not self.save_as():  # the copy needs a project folder
             return
         source = self.dialogs.ask_import_path()
         if source is None:
+            return
+        if source.suffix.lower() in CAD_EXTENSIONS:
+            self._import_cad(source)
             return
         units = self.dialogs.ask_units()
         if units is None:
@@ -2058,6 +2062,58 @@ class MainWindow(StudyControlMixin, QMainWindow):
         if report.self_intersections:
             log.warning("Part '%s': %d self-intersecting triangles (highlighted when the part is selected)",
                         name, report.self_intersections)
+        self.show_message(f"Imported {source.name} as {names}", "success", log_it=False)
+
+    def _import_cad(self, source: Path) -> None:
+        """STEP / IGES (millimetres) or BREP (units asked): one Part, or one Part per body, with a
+        region per named face group (Task 3.2, D-070)."""
+        units = None
+        if source.suffix.lower() in BREP_EXTENSIONS:
+            units = self.dialogs.ask_units()
+            if units is None:
+                return
+        project_dir = self._project.path.parent
+        folder = project_dir / "geometry"
+        dest = None
+        taken = {p.name for p in self._project.sim.geometry.parts}
+        try:
+            folder.mkdir(exist_ok=True)
+            dest = self._unique_path(folder, source.name)
+            shutil.copy2(source, dest)
+            model = read_cad(dest)
+            mode = "regions"
+            if len(model.bodies) > 1:
+                mode = self.dialogs.ask_solids_mode(source.name, [b.name for b in model.bodies])
+                if mode is None:
+                    dest.unlink(missing_ok=True)
+                    return
+            parts = part_ops.cad_parts(project_dir, dest, units, mode, taken)
+        except (OSError, CadImportError, SurfaceLoadError, ValueError) as exc:
+            if dest is not None:
+                dest.unlink(missing_ok=True)
+            self.show_message(f"Could not import {source.name}: {exc}", "error")
+            return
+        previous = self._selection
+        self._selection = ("part", len(taken))
+        try:
+            if len(parts) == 1:
+                self._project.add_part(parts[0])
+            else:
+                self._project.add_parts(parts, f"Import {source.name} ({len(parts)} parts)")
+        except (ValueError, TypeError) as exc:
+            self._selection = previous
+            self.show_message(f"Could not import {source.name}: {exc}", "error")
+            return
+        for part in parts:
+            report = surface_report(project_dir / part.source_file, part.units)
+            log.info("Imported %s as part '%s' (units: %s; %d bodies, %d faces; tessellation %g m, %g deg): %s",
+                     source.name, part.name, part.units, len(part.cad.bodies or model.bodies),
+                     sum(len(r.members) for r in part.regions) or len(model.faces),
+                     part.cad.linear_deflection, part.cad.angular_deflection, report.summary())
+            if part.regions:
+                log.info("Part '%s' has %d regions: %s", part.name, len(part.regions),
+                         ", ".join(r.name for r in part.regions))
+        names = ", ".join(f"'{p.name}'" for p in parts)
         self.show_message(f"Imported {source.name} as {names}", "success", log_it=False)
 
     @staticmethod

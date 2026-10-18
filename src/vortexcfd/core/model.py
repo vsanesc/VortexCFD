@@ -51,12 +51,14 @@ class CadSource(StrictModel):
     (the Part's ``source_file``) is regenerated whenever the deflections change:
     ``linear_deflection`` is the largest distance between a triangle and the CAD surface, in
     metres; ``angular_deflection`` the largest angle between neighbouring triangle normals, in
-    degrees.
+    degrees. ``bodies`` lists the file's bodies (solids, or shells of a surface model) in this
+    part when the file was split into one part per body.
     """
 
     file: str
     linear_deflection: float = Field(gt=0)
     angular_deflection: float = Field(default=20.0, gt=0, le=90)
+    bodies: list[int] | None = None  # the file's bodies in this part (None: all of them)
 
 
 class Part(StrictModel):
