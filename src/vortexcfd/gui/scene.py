@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pyvista as pv
-from vtkmodules.vtkRenderingCore import vtkPropPicker
+from vtkmodules.vtkRenderingCore import vtkCellPicker, vtkPropPicker
 
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
@@ -67,6 +67,8 @@ class PartScene:
         self.enabled = True  # False hides every part actor (e.g. in the mesh scene)
         self._press: tuple[int, int] | None = None
         self.defect_actor = None  # self-intersecting triangles of the selected part
+        self.region_actor = None  # the selected regions of the selected part (D-071)
+        self.on_cell_pick: Callable[[int, int], None] | None = None  # (part index, triangle)
 
     @property
     def actors(self) -> list:
@@ -142,6 +144,22 @@ class PartScene:
         except (OSError, SurfaceLoadError):
             return ()
 
+    def show_regions(self, index: int | None, triangles) -> None:
+        """Draw the given triangles of a part (its selected regions) in the selection colour."""
+        if self.region_actor is not None:
+            self.plotter.remove_actor(self.region_actor, render=False)
+            self.region_actor = None
+        if index is None or not 0 <= index < len(self.records) or len(triangles) == 0:
+            return
+        rec = self.records[index]
+        if rec.source is None or rec.actor is None or not rec.actor.GetVisibility():
+            return
+        mesh = load_surface(*rec.source).extract_cells(list(triangles))
+        self.region_actor = self.plotter.add_mesh(
+            mesh, color=self.theme.accent, show_edges=False, pickable=False, reset_camera=False,
+            render=False, name="part_regions",
+        )
+
     def _show_defects(self, index: int | None) -> None:
         """Draw the selected part's self-intersecting triangles in the error colour (Task 3.1)."""
         if self.defect_actor is not None:
@@ -209,7 +227,14 @@ class PartScene:
             return  # a camera drag, not a click
         picker = vtkPropPicker()
         if picker.Pick(x, y, 0, self.plotter.renderer):
-            self.pick_actor(picker.GetActor())
+            actor = picker.GetActor()
+            self.pick_actor(actor)
+            index = self.index_of(actor)
+            if index is not None and self.on_cell_pick is not None:
+                cells = vtkCellPicker()
+                cells.SetTolerance(0.0005)
+                if cells.Pick(x, y, 0, self.plotter.renderer) and cells.GetActor() is actor:
+                    self.on_cell_pick(index, int(cells.GetCellId()))
 
 
 # -- far-field domain -----------------------------------------------------------------------

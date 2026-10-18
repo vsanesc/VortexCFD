@@ -165,3 +165,25 @@ def transfer_ids(old_mesh: pv.PolyData, old_ids: np.ndarray, new_mesh: pv.PolyDa
     centres = new_mesh.cell_centers().points
     closest = old_mesh.find_closest_cell(centres)
     return np.asarray(old_ids)[np.asarray(closest, dtype=np.int64)]
+
+
+def write_patch_stl(path: Path, mesh: pv.PolyData, labels: np.ndarray, names: list[str]) -> None:
+    """Write an ASCII STL with one `solid <name>` block per patch (labels index ``names``); a patch
+    without triangles is left out."""
+    tris = triangles(mesh)
+    pts = np.asarray(mesh.points, dtype=float)
+    a, b, c = pts[tris[:, 0]], pts[tris[:, 1]], pts[tris[:, 2]]
+    normals = np.cross(b - a, c - a)
+    length = np.linalg.norm(normals, axis=1)
+    normals = normals / np.where(length > 0, length, 1.0)[:, None]
+    with open(path, "w", encoding="ascii") as fh:
+        for index, name in enumerate(names):
+            sel = np.flatnonzero(labels == index)
+            if not len(sel):
+                continue
+            fh.write(f"solid {name}\n")
+            rows = np.hstack([normals[sel], a[sel], b[sel], c[sel]])
+            fh.writelines(
+                "facet normal %.9g %.9g %.9g\n outer loop\n  vertex %.9g %.9g %.9g\n  vertex %.9g %.9g %.9g\n"
+                "  vertex %.9g %.9g %.9g\n endloop\nendfacet\n" % tuple(r) for r in rows)
+            fh.write(f"endsolid {name}\n")

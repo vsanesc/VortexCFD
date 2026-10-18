@@ -198,7 +198,7 @@ class StudyControlMixin:
         log.info("Mesh study: 3 levels, ratio %.4g, current settings = %s level, in %s",
                  record.ratio, record.current_as, study_dir)
         self.study_worker.start(lambda on_line, on_progress, on_done: StudyRun(
-            study_dir, record, writer, stopping=stopping, parts=inputs.parts, on_line=on_line,
+            study_dir, record, writer, stopping=stopping, parts=inputs.patches, on_line=on_line,
             on_level=on_progress, on_done=on_done, solver_timeout_s=self.study_timeout_s,
             mesh_run_factory=self.study_mesh_run_factory, solver_run_factory=self.study_solver_run_factory))
 

@@ -82,6 +82,10 @@ offscreen worker crash), 69 (the core cap), 70 (ship suite time), 71 (freestream
 | 9.2 | Scripting API | not started |
 | 9.3 | Installer and docs | not started |
 
+## Known issues
+
+- Results at angle of attack != 0 are biased by the angled-inlet method with slip far field (QUESTIONS 71, open).
+
 ## Known debts
 
 - GPU environment variables (GALLIUM_DRIVER=d3d12, MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA) are set in

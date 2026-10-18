@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
+
 from PySide6.QtCore import QEvent, QPointF, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
@@ -55,11 +57,12 @@ from vortexcfd.gui.monitors import MonitorsPanel
 from vortexcfd.geometry.checks import surface_report
 from vortexcfd.geometry.cad import BREP_EXTENSIONS, CAD_EXTENSIONS, CadImportError, read_cad
 from vortexcfd.geometry.loader import stl_solid_names
+from vortexcfd.geometry.regions import RegionError
 from vortexcfd.gui import part_ops
 from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.gui.properties_panel import PropertiesPanel
 from vortexcfd.geometry.domain import BOUNDARY_NAMES
-from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError, remove_results, safe_part_names
+from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError, part_patch_names, remove_results, wall_patch_names
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.gui.mesh_worker import MeshWorker
@@ -340,6 +343,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.tree.eye_clicked.connect(self._on_eye_clicked)
         self.properties = PropertiesPanel(project)
         self.properties.message.connect(lambda text: self.show_message(text, "warning"))
+        self.properties.regions_selected.connect(self._on_regions_selected)
         self.properties.pending_changed.connect(self._update_actions)
         self._build_actions()
 
@@ -472,6 +476,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self.viewer.view_isometric()
             self.viewer.reset_camera()
             self.scene = PartScene(self.viewer, self._theme, self._on_viewer_pick)
+            self.scene.on_cell_pick = self._on_triangle_pick
             self.domain_view = DomainView(self.viewer, self._theme)
             self.mesh_view = MeshView(self.viewer, self._theme)
             self.results_view = ResultsView(self.viewer, self._theme)
@@ -812,7 +817,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._update_results_stale()
         self._update_run_button()
         self.monitors.kpis.set_options(available_reports(
-            safe_part_names([p.name for p in sim.geometry.parts]), [p.name for p in sim.reports.probes]))
+            wall_patch_names(sim.geometry.parts), [p.name for p in sim.reports.probes]))
         self.monitors.set_assignments(list(sim.reports.slots))
         if not self.solver_worker.is_running():  # a running solver keeps the criteria it started with
             self.monitors.set_stopping(sim.solvers.stopping)
@@ -865,8 +870,10 @@ class MainWindow(StudyControlMixin, QMainWindow):
                     if bname == "symmetry" and domain.symmetry != "y_min":
                         continue
                     add(fluid, f"boundary_{bname}", None, bname, "dot", "accent")
-            for i, part in enumerate(parts):  # one wall patch per part
-                add(fluid, "wall", i, f"{part.name} (wall)", "dot", "accent")
+            labels = [label for part, patches in zip(parts, part_patch_names(parts))
+                      for label in (patches if part.regions else (part.name,))]
+            for i, label in enumerate(labels):  # one wall per patch (D-071); a plain part shows its name
+                add(fluid, "wall", i, f"{label} (wall)", "dot", "accent")
             solvers_item = add(root, "solvers", None, "Solvers", "folder", "text")
             add(solvers_item, "stopping", None, "Stopping Criteria", "dot", "accent")
             reports = add(root, "reports", None, "Reports & Monitors", "folder", "text")
@@ -922,6 +929,33 @@ class MainWindow(StudyControlMixin, QMainWindow):
         if item is not None:
             self.tree.setCurrentItem(item)
 
+    def _on_triangle_pick(self, index: int, triangle: int) -> None:
+        """A triangle of a part was clicked: select its region in the part's Regions list (D-071)."""
+        if self._selected_part_index() != index:
+            return
+        try:
+            name = part_ops.region_of_triangle(self._project, index, triangle)
+        except (OSError, SurfaceLoadError, RegionError, ValueError):
+            return
+        if name is not None:
+            self.properties.select_regions([name])
+
+    def _on_regions_selected(self, index: int, names: list) -> None:
+        """Highlight the selected regions' triangles in the viewer."""
+        if self.scene is None:
+            return
+        triangles = []
+        if names and index == self._selected_part_index():
+            try:
+                part = self._project.sim.geometry.parts[index]
+                ids = part_ops.part_base_ids(self._project, part)
+                members = [m for r in part_ops.effective_regions(part, ids) if r.name in names for m in r.members]
+                triangles = np.flatnonzero(np.isin(ids, members)).tolist()
+            except (OSError, SurfaceLoadError, RegionError, ValueError, IndexError):
+                triangles = []
+        self.scene.show_regions(index if triangles else None, triangles)
+        self.viewer.render()
+
     def _selected_part(self) -> Part | None:
         index = self._selected_part_index()
         parts = self._project.sim.geometry.parts
@@ -976,6 +1010,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._sync_domain()
         if self.scene is not None:
             self.scene.set_selected(self._selected_part_index())
+            if self._selected_part_index() is None:
+                self.scene.show_regions(None, [])
             self.viewer.render()
         name = self._selected_name()
         self.props_name.setText(name)
@@ -1057,7 +1093,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         except OSError as exc:
             self.show_message(f"Could not prepare the meshing case: {exc}", "error")
             return
-        self._mesh_patches = job.inputs.parts
+        self._mesh_patches = job.inputs.patches
         self._run_hash = inputs_hash(self._project)
         self.mesh_report = None
         self._mesh_hash = None
@@ -1069,7 +1105,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
                  est.level_min, est.level_max, est.surface_size)
         for text in thin_part_warnings(self._project):
             log.warning(text)
-        self.mesh_worker.start(job.case_dir, job.inputs.parts)
+        self.mesh_worker.start(job.case_dir, job.inputs.patches)
         self._update_mesh_stale()
         self._update_mesh_button()
         self._update_run_button()
