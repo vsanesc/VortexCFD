@@ -79,21 +79,15 @@ def test_import_copies_file_and_is_one_undo_step(make_window, sphere_stl: Path, 
     assert (project_dir / "geometry" / "wing.stl").is_file()  # the copy stays on disk
 
 
-def test_import_on_unsaved_project_runs_save_as_first(make_window, sphere_stl: Path, tmp_path: Path) -> None:
-    target = tmp_path / "new" / "p.json"
-    target.parent.mkdir()
-    w = make_window(import_path=sphere_stl, saved=False, save_path=target)
+def test_import_on_unsaved_project_never_asks_to_save(make_window, sphere_stl: Path, tmp_path: Path) -> None:
+    """D-076: the untitled project imports into its temporary workspace; no save dialog."""
+    w = make_window(import_path=sphere_stl, saved=False, save_path=tmp_path / "never.vcfd")
     w.act_import.trigger()
-    assert target.is_file() and (target.parent / "geometry" / "wing.stl").is_file()
-    assert w.project.path == target
-    assert w.project.sim.geometry.parts[0].source_file == "geometry/wing.stl"
-
-
-def test_import_aborts_when_save_as_is_cancelled(make_window, sphere_stl: Path, tmp_path: Path) -> None:
-    w = make_window(import_path=sphere_stl, saved=False, save_path=None)
-    w.act_import.trigger()
-    assert w.project.sim.geometry.parts == [] and w.project.path is None
-    assert not (tmp_path / "geometry").exists()
+    assert w.dialogs.save_asked == [] and w.project.path is None
+    (part,) = w.project.sim.geometry.parts
+    assert part.source_file == "geometry/wing.stl"
+    assert (w.project.workspace / "geometry" / "wing.stl").is_file()
+    assert not (tmp_path / "never.vcfd").exists()
 
 
 def test_second_import_gets_unique_names(make_window, sphere_stl: Path, tmp_path: Path) -> None:

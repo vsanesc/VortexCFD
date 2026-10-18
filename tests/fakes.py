@@ -10,6 +10,10 @@ class FakeDialogs:
         self.solids_mode = solids_mode
         self.solids_asked: list = []
         self.repair_reports: list = []
+        self.overwrite = True  # confirm_overwrite's answer
+        self.overwrite_asked: list = []
+        self.errors: list = []
+        self.save_asked: list = []
         self.paraview_path = paraview_path
         self.import_path = import_path
         self.units = units
@@ -22,7 +26,15 @@ class FakeDialogs:
         return self.open_path
 
     def ask_save_path(self, suggested):
+        self.save_asked.append(suggested)
         return self.save_path
+
+    def confirm_overwrite(self, path):
+        self.overwrite_asked.append(path)
+        return self.overwrite
+
+    def show_error(self, title, text):
+        self.errors.append((title, text))
 
     def ask_csv_path(self, suggested):
         return self.csv_path

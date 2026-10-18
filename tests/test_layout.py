@@ -246,7 +246,7 @@ def test_console_receives_log_records_and_clears(make_window, tmp_path) -> None:
     assert "something odd" in w.console.text() and "WARNING" in w.console.text()
     w.project.save(tmp_path / "x.json")
     w.save()  # the window logs one INFO line per save
-    assert "Saved" in w.console.text() and "x.json" in w.console.text()
+    assert "Saved" in w.console.text() and "x.vcfd" in w.console.text()
     w.console.clear_button.click()
     assert w.console.text() == ""
 

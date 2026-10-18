@@ -36,6 +36,7 @@ src/vortexcfd/
   - `core/project_io.py`: handles saving, loading, validation, and migration of JSON project files.
   - `core/reports.py`: the report ids (force coefficients of all walls or per part, their pressure/viscous parts, x_cp, mass imbalance, y+, probes), their labels, the lists offered to report slots and asymptotic criteria and the default scale floor of the relative range (D-058, D-060).
   - `core/project.py`: Qt-free `Project` document wrapping a `Simulation` with validated edits, snapshot undo/redo, dirty tracking and change observers.
+  - `core/workspace.py`: the temporary workspace of an untitled project (imports before the first save) and `check_save_target` (never a geometry file or a non-project file; enforced by `Project.save`), the .vcfd extension (D-076).
   - `core/display_guard.py`: `apply_display_guard()`, called before Qt is imported by tests/conftest.py and by scripts that open windows: offscreen on the WSLg display unless `VORTEXCFD_ALLOW_REAL_DISPLAY=1` (D-068).
   - `Project` is not thread-safe: only the GUI thread may call its methods.
   - Must **NOT** import Qt (`PySide6`), `pyvista`, `pyvistaqt`, or anything GUI-related.

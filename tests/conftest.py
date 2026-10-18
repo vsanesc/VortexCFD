@@ -11,6 +11,14 @@ from PySide6.QtCore import QSettings  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
+def isolated_cache(tmp_path_factory, monkeypatch):
+    """Untitled-project workspaces (D-076) go to a temporary cache, never the user's ~/.cache."""
+    path = tmp_path_factory.mktemp("cache")
+    monkeypatch.setenv("XDG_CACHE_HOME", str(path))
+    return path
+
+
+@pytest.fixture(autouse=True)
 def isolated_settings(tmp_path_factory):
     path = str(tmp_path_factory.mktemp("qsettings"))
     # QSettings(org, app) uses the native format; redirect both formats and both scopes.

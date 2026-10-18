@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 
 def snapshot(project: Project) -> Project:
     """An independent copy of the project's state for a worker thread (same path, no history)."""
-    return Project(project.sim, project.path)
+    return Project(project.sim, project.path, workspace=project.workspace)
 
 
 class GeometryWorker(QObject):

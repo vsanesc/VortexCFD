@@ -94,7 +94,7 @@ def write_part_surfaces(case_dir: Path, project: Project, inputs: MeshCaseInput,
             continue
         part = project.sim.geometry.parts[i]
         try:
-            ids = regions.base_ids(part, mesh, project.path.parent)
+            ids = regions.base_ids(part, mesh, project.folder)
         except regions.RegionError as exc:
             raise MeshingNotReady(f"Part '{part.name}': {exc}") from exc
         labels = regions.patch_labels(part, ids, part.patch_names())

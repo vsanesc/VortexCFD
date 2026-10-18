@@ -27,6 +27,10 @@ task (CLAUDE.md).
   and repair run on background threads; per-part forces sum all of a part's patches (checked on a
   real run); THIRD_PARTY_LICENSES.md; pymeshfix kept; repair report shows the fidelity metrics.
 
+- Fix (D-076): Import Geometry never asks to save (untitled projects import into a temporary
+  workspace moved next to the project on the first save); project files are .vcfd; a save never
+  overwrites a geometry file, a geometry source or a non-project file.
+
 Next candidates: unsteady runs (pimpleFoam), MRF rotating zones (PLAN 8.2), the meshing track
 (5.0 benchmark suite, 5.2 surface preparation). Open: docs/QUESTIONS.md items 67, 69, 70, 71, 72,
 73 and 75 (pymeshfix's broken self-intersection selection).

@@ -5,6 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from vortexcfd.core import workspace as ws
 from vortexcfd.core.model import Part, Simulation
 from vortexcfd.core.project_io import load_simulation, save_simulation
 
@@ -28,6 +29,7 @@ class Project:
         *,
         saved: bool = False,
         max_depth: int = 100,
+        workspace: Path | None = None,
     ) -> None:
         """Wrap a simulation as a document.
 
@@ -36,6 +38,8 @@ class Project:
             path: File the state was loaded from, if any.
             saved: True if ``sim`` equals the content of ``path`` on disk (clean state).
             max_depth: Maximum number of undo steps kept; the oldest is dropped beyond it.
+            workspace: The temporary folder of an untitled project (its geometry/ until the
+                first save, D-076); created on demand by ``ensure_folder``.
         """
         if max_depth < 1:
             raise ValueError("max_depth must be at least 1")
@@ -43,6 +47,7 @@ class Project:
         self._path = Path(path) if path is not None else None
         self._saved: Simulation | None = sim.model_copy(deep=True) if saved else None
         self._max_depth = max_depth
+        self._workspace = Path(workspace) if workspace is not None and path is None else None
         self._undo: list[tuple[Simulation, str]] = []  # (state before the edit, edit label)
         self._redo: list[tuple[Simulation, str]] = []  # (state before the undo, edit label)
         self._observers: list[Observer] = []
@@ -81,24 +86,92 @@ class Project:
 
     # -- persistence ---------------------------------------------------------
 
+    @property
+    def folder(self) -> Path | None:
+        """The folder part files are relative to: the project file's folder, or the temporary
+        workspace of an untitled project (None until something was imported into it)."""
+        return self._path.parent if self._path is not None else self._workspace
+
+    @property
+    def workspace(self) -> Path | None:
+        return self._workspace
+
+    def ensure_folder(self) -> Path:
+        """The project folder, creating the untitled project's workspace when needed (D-076)."""
+        if self._path is None and self._workspace is None:
+            self._workspace = ws.new_workspace()
+        return self.folder
+
+    def discard_workspace(self) -> None:
+        """Delete the untitled project's workspace (closing without saving)."""
+        ws.remove_workspace(self._workspace)
+        self._workspace = None
+
+    def geometry_sources(self) -> list[Path]:
+        """Every file the parts read (surface, region ids, CAD source), resolved."""
+        folder = self.folder
+        if folder is None:
+            return []
+        out = []
+        for part in self._sim.geometry.parts:
+            for rel in (part.source_file, part.region_ids, part.cad.file if part.cad else None):
+                if rel:
+                    out.append(folder / rel)
+        return out
+
     def save(self, path: Path | None = None) -> None:
-        """Save atomically to ``path`` (or to ``self.path``) and clear the dirty state."""
+        """Save atomically to ``path`` (or to ``self.path``) and clear the dirty state.
+
+        The target is checked first (``workspace.check_save_target``): never a geometry file of
+        any kind or of this project, never an existing file that is not a VortexCFD project
+        (SaveTargetError). The first save of an untitled project moves its workspace's geometry/
+        next to the project file (files renamed on a name clash, the parts' paths updated in the
+        whole undo history) and deletes the workspace.
+        """
         target = Path(path) if path is not None else self._path
         if target is None:
             raise ValueError("Project has no path yet: pass a path to save()")
-        save_simulation(self._sim, target)
+        ws.check_save_target(target, self.geometry_sources())
+        plan: dict[str, str] = {}
+        if self._path is None and self._workspace is not None:
+            plan = ws.plan_geometry_move(self._workspace, target.parent)
+        renamed = {old: new for old, new in plan.items() if old != new}
+        sim = self._remapped(self._sim, renamed) if renamed else self._sim
+        save_simulation(sim, target)  # nothing has moved yet if this fails
+        if plan:
+            ws.apply_geometry_move(self._workspace, target.parent, plan)
+        if renamed:
+            self._sim = sim
+            self._undo = [(self._remapped(state, renamed), label) for state, label in self._undo]
+            self._redo = [(self._remapped(state, renamed), label) for state, label in self._redo]
+        if self._path is None:
+            ws.remove_workspace(self._workspace)
+            self._workspace = None
         self._path = target
         self._saved = self._sim.model_copy(deep=True)
         self._notify()
 
+    @staticmethod
+    def _remapped(sim: Simulation, renamed: dict[str, str]) -> Simulation:
+        """``sim`` with the parts' file paths renamed (source, region ids, CAD source)."""
+        data = sim.model_dump()
+        for part in data["geometry"]["parts"]:
+            for key in ("source_file", "region_ids"):
+                if part.get(key) in renamed:
+                    part[key] = renamed[part[key]]
+            if part.get("cad") and part["cad"]["file"] in renamed:
+                part["cad"]["file"] = renamed[part["cad"]["file"]]
+        return Simulation.model_validate(data)
+
     def resolve_part_path(self, part: Part) -> Path:
-        """Return the part's source file, relative paths taken from the project file's folder."""
-        if self._path is None:
+        """Return the part's source file, relative paths taken from the project folder (the
+        workspace of an untitled project)."""
+        if self.folder is None:
             raise ValueError(
-                "Cannot resolve part file paths: the project has not been saved yet "
-                "(it has no folder). Save the project first."
+                "Cannot resolve part file paths: the project has no folder yet (nothing imported, "
+                "not saved)."
             )
-        return self._path.parent / part.source_file
+        return self.folder / part.source_file
 
     # -- edits ---------------------------------------------------------------
 

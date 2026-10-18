@@ -90,6 +90,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-073 | 2026-10-18 | Geometry work on background threads; per-part forces over all patches | Proposed |
 | D-074 | 2026-10-18 | Keep pymeshfix (AGPL-3), third-party licence list, fidelity metrics in the repair report | Accepted |
 | D-075 | 2026-10-18 | No third-party product names in the repository; design mockup kept local | Accepted |
+| D-076 | 2026-10-18 | Import without saving first; .vcfd project files; save targets never overwrite non-project files | Proposed |
 
 ---
 
@@ -687,3 +688,13 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Decision: the tracked files use neutral wording ("integrated CFD workflow", "commercial reference workflow", "a range-based asymptotic criterion"); the branding rule is "never use third-party product names or logos in the app" (D-040 reworded). The design mockup is no longer tracked (`git rm --cached`; the file stays in the owner's working copy and is listed in .git/info/exclude); the docs refer to it as "the owner's local design mockup". The feature inventory (Task 0.1) stays local only, also excluded.
 - Alternatives considered: keeping the names in the internal planning docs only (D-040 before this change).
 - Consequences: the earlier commits still hold the old wording and the mockup in the history; this change covers the current tree only.
+
+## D-076 Import without saving first; .vcfd project files; save targets never overwrite non-project files
+- Status: Proposed (bug fix reported by the owner, 2026-10-18).
+- Context: on an unsaved project, Import Geometry opened "Save project as" first without saying so; the owner took it for the import picker, picked a STEP file, and the dialog offered to replace the STEP file with the project file.
+- Decision:
+  - Import never asks to save. An untitled project gets a temporary workspace, <XDG cache>/vortexcfd/workspaces/untitled-<12 hex>/ (~/.cache by default), created on the first import (`Project.ensure_folder`); imported files go to its geometry/. Part paths stay relative ("geometry/..."); `Project.folder` is the project file's folder once saved, the workspace before. The first save moves every file of the workspace's geometry/ to <project folder>/geometry/ (a name already taken there gets _2, _3, ...; the parts' source, region-id and CAD paths are renamed in the current state and the whole undo / redo history), then deletes the workspace; the project file is written before anything moves. Closing, New or Open after the discard confirmation deletes the workspace. Meshing still needs a saved project (the case lives next to the project file).
+  - Project files are "<name>.vcfd" (JSON as before). The save dialog filters "VortexCFD project (*.vcfd)" and does not confirm overwrites itself; the chosen name gets .vcfd when it lacks it (a legacy .json suffix is replaced, any other suffix kept and .vcfd appended). Open accepts *.vcfd and *.json; Save on a project opened from a .json file writes <name>.vcfd next to it (the .json is left untouched) and the project continues from the .vcfd.
+  - Save target rules (core/workspace.check_save_target, enforced in `Project.save` itself, so no caller can bypass them): never a file with a geometry extension (.stl .obj .ply .step .stp .iges .igs .brep .brp, any case), never one of the project's geometry sources (surface, region ids, CAD file), never a folder, never an existing file that is not a VortexCFD project (a JSON object with schema_version). A refused target shows an error (status bar and a message box) and the dialog's result is not used; a geometry name is refused before any extension is appended. Overwriting an existing VortexCFD project other than the current file asks for confirmation.
+- Alternatives considered: telling the user before the save dialog (still a save-first flow); the dialog's own overwrite confirmation (it accepted the STEP file); storing untitled imports in /tmp (may be cleared while the app runs).
+- Consequences: an untitled project with imports leaves its workspace behind only if the app is killed (the cache folder can be cleared at any time). Tests point XDG_CACHE_HOME at a temporary folder (tests/conftest.py).

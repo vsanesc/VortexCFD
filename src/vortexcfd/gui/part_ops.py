@@ -96,7 +96,7 @@ def part_mesh(project: Project, part: Part) -> pv.PolyData:
 
 
 def part_base_ids(project: Project, part: Part) -> np.ndarray:
-    return regions.base_ids(part, part_mesh(project, part), project.path.parent)
+    return regions.base_ids(part, part_mesh(project, part), project.folder)
 
 
 def effective_regions(part: Part, ids: np.ndarray) -> list[SurfaceRegion]:
@@ -160,7 +160,7 @@ def split_region(project: Project, index: int, name: str | None, feature_angle: 
     pieces are named <region>_1, <region>_2, ... and keep the region's patch and colour."""
     part = project.sim.geometry.parts[index]
     mesh = part_mesh(project, part)
-    ids = regions.base_ids(part, mesh, project.path.parent)
+    ids = regions.base_ids(part, mesh, project.folder)
     current = effective_regions(part, ids)
     target = current[0] if name is None and len(current) == 1 else next((r for r in current if r.name == name), None)
     if target is None:
@@ -188,8 +188,8 @@ def split_region(project: Project, index: int, name: str | None, feature_angle: 
         start = int(ids.max()) + 1
         new_ids[selected] = start + labels[selected]
         members = [[start + k] for k in range(count)]
-        path = regions.write_ids(project.path.parent / GEOMETRY_DIR, file_stem(part.name), new_ids)
-        fields["region_ids"] = relative(project.path.parent, path)
+        path = regions.write_ids(project.folder / GEOMETRY_DIR, file_stem(part.name), new_ids)
+        fields["region_ids"] = relative(project.folder, path)
     pieces = [SurfaceRegion(name=n, members=m, patch=target.patch, color=target.color)
               for n, m in zip(pieces_names, members)]
     out = []
@@ -285,7 +285,7 @@ def retessellate(project: Project, index: int, linear_deflection: float | None =
     if angular_deflection is not None:
         update["angular_deflection"] = angular_deflection
     cad = CadSource.model_validate({**part.cad.model_dump(), **update})
-    surface, ids = tessellation_files(project.path.parent, part.name, cad, part.units)
+    surface, ids = tessellation_files(project.folder, part.name, cad, part.units)
     return {"cad": cad.model_dump(), "source_file": surface, "region_ids": ids}
 
 
@@ -323,7 +323,7 @@ def repair_part(project: Project, index: int) -> tuple[dict, repair_module.Repai
     units; the original stays) and return (Part fields, result). Region ids are carried to the new
     triangles (nearest old triangle). Fields are empty when nothing needed repair."""
     part = project.sim.geometry.parts[index]
-    project_dir = project.path.parent
+    project_dir = project.folder
     source = project.resolve_part_path(part)
     mesh = load_surface(source, part.units)
     result = repair_module.repair_surface(mesh)

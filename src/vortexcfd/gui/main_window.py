@@ -49,6 +49,13 @@ from vortexcfd.core.reports import available_reports
 from vortexcfd.foam import convergence
 from vortexcfd.foam.physics_case import flow_direction
 from vortexcfd.core.project import Project
+from vortexcfd.core.workspace import (
+    GEOMETRY_EXTENSIONS,
+    LEGACY_PROJECT_EXTENSIONS,
+    SaveTargetError,
+    check_save_target,
+    with_project_extension,
+)
 from vortexcfd.gui import console as console_log
 from vortexcfd.gui.console import ConsolePanel
 from vortexcfd.gui.dialogs import Dialogs
@@ -2022,7 +2029,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
 
     def _selected_part_file(self) -> Path | None:
         index = self._selected_part_index()
-        if index is None or self._project.path is None:
+        if index is None or self._project.folder is None:
             return None
         parts = self._project.sim.geometry.parts
         if not 0 <= index < len(parts) or not parts[index].source_file:
@@ -2137,7 +2144,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
     def _request_checks(self, parts) -> None:
         """Queue the self-intersection check of newly imported parts (announced when done)."""
         for part in parts:
-            path = (self._project.path.parent / part.source_file).resolve()
+            path = (self._project.folder / part.source_file).resolve()
             self._announce_checks[(str(path), part.units)] = part.name
             self.intersections.request(path, part.units)
 
@@ -2149,23 +2156,50 @@ class MainWindow(StudyControlMixin, QMainWindow):
     # -- file operations -----------------------------------------------------
 
     def save(self) -> bool:
-        """Save to the project's path (Save As if it has none). False if not saved."""
+        """Save to the project's path (Save As if it has none). False if not saved. A project opened
+        from a legacy .json file is saved as <name>.vcfd next to it (D-076)."""
         self._flush_edits()
         if self._project.path is None:
             return self.save_as()
+        if self._project.path.suffix.lower() in LEGACY_PROJECT_EXTENSIONS:
+            return self._save_checked(with_project_extension(self._project.path))
         return self._save_to(None)
 
     def save_as(self) -> bool:
+        """Save As: the dialog's file gets the .vcfd extension when it lacks it; a geometry file, a
+        geometry source of the project or an existing non-project file is refused (the dialog's
+        result is not used); an existing project is overwritten only after confirmation (D-076)."""
         self._flush_edits()
-        path = self.dialogs.ask_save_path(self._project.path)
-        if path is None:
+        current = self._project.path
+        suggested = with_project_extension(current) if current is not None else None
+        chosen = self.dialogs.ask_save_path(suggested)
+        if chosen is None:
             return False
-        return self._save_to(path)
+        if Path(chosen).suffix.lower() in GEOMETRY_EXTENSIONS:  # never append to a geometry name
+            return self._refuse_save(SaveTargetError(
+                f"{Path(chosen).name} is a geometry file: a project is never saved over it."))
+        return self._save_checked(with_project_extension(Path(chosen)))
+
+    def _save_checked(self, target: Path) -> bool:
+        try:
+            check_save_target(target, self._project.geometry_sources())
+        except SaveTargetError as exc:
+            return self._refuse_save(exc)
+        current = self._project.path
+        if target.exists() and (current is None or target.resolve() != current.resolve()):
+            if not self.dialogs.confirm_overwrite(target):
+                return False
+        return self._save_to(target)
+
+    def _refuse_save(self, exc: Exception) -> bool:
+        self.show_message(f"Not saved: {exc}", "error")
+        self.dialogs.show_error("Save project", f"Not saved: {exc}")
+        return False
 
     def _save_to(self, path: Path | None) -> bool:
         try:
             self._project.save(path)
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError) as exc:  # SaveTargetError included: the hard rule in Project.save
             self.show_message(f"Save failed: {exc}", "error")
             return False
         log.info("Saved %s", self._project.path)
@@ -2173,10 +2207,10 @@ class MainWindow(StudyControlMixin, QMainWindow):
         return True
 
     def import_surface(self) -> None:
-        """File > Import Geometry: copy a surface or CAD file into <project>/geometry/ and add Parts."""
+        """File > Import Geometry: copy a surface or CAD file into <project folder>/geometry/ and add
+        Parts. Never asks to save first: an untitled project imports into its temporary workspace,
+        moved next to the project file on the first save (D-076)."""
         self._flush_edits()
-        if self._project.path is None and not self.save_as():  # the copy needs a project folder
-            return
         source = self.dialogs.ask_import_path()
         if source is None:
             return
@@ -2186,7 +2220,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         units = self.dialogs.ask_units()
         if units is None:
             return
-        project_dir = self._project.path.parent
+        project_dir = self._project.ensure_folder()
         folder = project_dir / "geometry"
         dest = None
         try:
@@ -2253,7 +2287,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             units = self.dialogs.ask_units()
             if units is None:
                 return
-        project_dir = self._project.path.parent
+        project_dir = self._project.ensure_folder()
         folder = project_dir / "geometry"
         try:
             folder.mkdir(exist_ok=True)
@@ -2283,7 +2317,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._start_geometry_job(f"Reading {source.name}", lambda: read_cad(dest), tessellate, failed)
 
     def _add_cad_parts(self, source: Path, model, parts: list[Part]) -> None:
-        project_dir = self._project.path.parent
+        project_dir = self._project.folder
         taken = {p.name for p in self._project.sim.geometry.parts}
         previous = self._selection
         self._selection = ("part", len(taken))
@@ -2338,6 +2372,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
 
     def new_project(self) -> None:
         if self._confirm_discard():
+            self._project.discard_workspace()  # an untitled project's imports go with it (D-076)
             self.set_project(Project.new("Untitled"))
 
     def open_project(self) -> None:
@@ -2352,6 +2387,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             log.exception("Could not open project %s", path)
             self.show_message(f"Could not open {path}: {exc}", "error", log_it=False)
             return
+        self._project.discard_workspace()
         self.set_project(project)
         log.info("Opened %s", path)
         self.show_message(f"Opened {path}")
@@ -2360,6 +2396,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         if not self._confirm_discard():
             event.ignore()
             return
+        self.geometry_worker.wait(30)  # a job may still write into the workspace
+        self._project.discard_workspace()  # closing an untitled project without saving (D-076)
         if self.mesh_worker.is_running():
             self.mesh_worker.request_stop()
         if self.solver_worker.is_running():
