@@ -190,17 +190,17 @@ Reality check: "as powerful as STAR-CCM+" is not a deliverable that can be verif
 - CSV, VTK/EnSight, image sets, simple HTML/PDF run report (setup summary + results).
 - Acceptance: report generated automatically at end of run.
 
-### 6.4 Mesh independence study
+### 6.4 Mesh independence study — *done (Task 6.4: Mesh Study node, three levels with the same absolute layer stack, Celik GCI with oscillatory / divergent cases, results window and CSV, D-066; flat plate Case B not reproduced through the workflow, docs/QUESTIONS.md item 72)*
 - Goal: a workflow that runs the same physics on a family of systematically refined meshes (at least three, constant refinement ratio, e.g. r = sqrt(2) in cell size) and judges grid convergence of chosen reports (Cd, Cl, Cm, a probe).
 - Deliverables: a "Mesh study" node defining the family from the current mesh settings; one case directory per grid; a table of each report per grid with the observed order p, the Richardson-extrapolated value and the Grid Convergence Index (Celik et al. 2008, as in the flat plate validation, D-036); warnings for oscillatory or divergent convergence (non-monotone ratios).
 - Acceptance: on the coarse sphere family the GCI table is reproduced by hand from the per-grid values; the flat plate Case B study (docs/validation/flat_plate) is reproduced through the workflow.
 
-### 6.5 Angle-of-attack sweep (polars)
+### 6.5 Angle-of-attack sweep (polars) — *done (Task 6.5: Polar Sweep node, points on the current mesh initialised from the previous converged point, CL-alpha / drag polar / CM-alpha with flagged points, CSV, D-067; NACA 0012 check waits for the wing case)*
 - Goal: run the same mesh and physics for a list of angles of attack and collect Cl, Cd, Cm and L/D per angle (polars), each run judged by its stopping criteria and convergence banner (6.1).
 - Deliverables: a sweep definition (start, end, step or explicit list), one run per angle (sequential, then parallel with 6.6), Cl-alpha, Cd-Cl and Cm-alpha charts and a CSV export; runs that end at the iteration limit or oscillate are flagged in the polar.
 - Acceptance: the reference values and force directions follow alpha in every run (D-050 check per angle); a NACA 0012 polar against reference data once Phase 1.2's wing case exists.
 
-### 6.6 Parallel runs — *done (Task 6.6: decomposePar / mpirun / reconstructPar, clean stop through mpirun; serial and parallel compared on the converged low-Re sphere, docs/QUESTIONS.md item 66)*
+### 6.6 Parallel runs — *done (Task 6.6: decomposePar / mpirun / reconstructPar, clean stop through mpirun; serial and parallel compared on the converged low-Re sphere, D-063; speedup study and recommended cores, D-064)*
 - Goal: decomposePar / mpirun / reconstructPar from the runner with a clean stop for parallel solvers (today only single-process runs, D-010, D-046).
 - Acceptance: the same results (to solver tolerance) and the same stopping criteria behaviour in serial and in parallel on the coarse sphere.
 

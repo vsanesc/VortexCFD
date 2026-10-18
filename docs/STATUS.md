@@ -1,6 +1,6 @@
 # Status
 
-Updated 2026-10-18 (task/6.4-studies Parts A to D). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
+Updated 2026-10-18 (task/6.4-studies: Tasks 6.4 and 6.5 done). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
 task (CLAUDE.md).
 
 ## Current branch
@@ -35,9 +35,11 @@ task (CLAUDE.md).
   hollow flagged points, CSV) and case_sweep/sweep.json. Real sweep of the flattened ellipsoid at 0,
   5, 10 deg: CL -0.0002, 0.0233, 0.0408, all criteria met.
 
-Next on this branch: Part E (docs). Open: docs/QUESTIONS.md items 67 (an
+Tasks 6.4 and 6.5 are complete on this branch (Part B, the freestream far field, was stopped at
+the validation step and waits for review). Next candidates: unsteady runs (pimpleFoam), MRF
+rotating zones for propellers (PLAN 8.2), STEP import (PLAN 3.2), STL repair (PLAN 3.3). Open: docs/QUESTIONS.md items 67 (an
 offscreen worker crash), 69 (the core cap), 70 (ship suite time), 71 (freestream far field), 72
-(actual refinement ratio).
+(actual refinement ratio), 73 (an intermittent offscreen test).
 
 ## Phases
 
