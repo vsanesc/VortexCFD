@@ -108,7 +108,7 @@ THEMES: dict[str, Theme] = {DARK.name: DARK}
 
 @dataclass(frozen=True)
 class LayoutFractions:
-    """Region proportions measured on docs/design/mockup-v1.png (1833 x 1210)."""
+    """Region proportions measured on the owner's local design mockup (1833 x 1210, D-041)."""
 
     top_bar: float = 0.040  # top bar height / window height (48 px)
     left: float = 0.181  # left column width / window width (331 px)

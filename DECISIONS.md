@@ -89,6 +89,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-072 | 2026-10-18 | Geometry repair: pymeshfix with a fidelity check, fTetWild envelope fallback | Proposed (fidelity heuristic accepted, D-074) |
 | D-073 | 2026-10-18 | Geometry work on background threads; per-part forces over all patches | Proposed |
 | D-074 | 2026-10-18 | Keep pymeshfix (AGPL-3), third-party licence list, fidelity metrics in the repair report | Accepted |
+| D-075 | 2026-10-18 | No third-party product names in the repository; design mockup kept local | Accepted |
 
 ---
 
@@ -199,7 +200,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 
 ## D-016 Layout follows the mockup; no fake data
 - Status: Superseded by D-039 (no fake data) and D-041 (layout)
-- Context: the owner supplied the target design, docs/design/mockup-v1.png (named design_preview.png until 2026-10-17).
+- Context: the owner supplied the target design, the owner's local design mockup (not tracked since 2026-10-18, D-075).
 - Decision: top bar, tree and properties left, scene tabs and viewer, monitors right, console bottom; no fake data; controls for missing features omitted or disabled with a phase tooltip.
 - Alternatives considered: the sidebar layout of D-015.
 - Consequences: the rules continue unchanged in D-039 and D-041.
@@ -373,14 +374,14 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 ## D-040 Branding
 - Status: Accepted
 - Context: decided in the review chat.
-- Decision: the app is VortexCFD; the Simcenter, STAR-CCM+ and Siemens names and logos are never used in the product.
+- Decision: the app is VortexCFD; third-party product names and logos are never used in the app. (Reworded on 2026-10-18 at the owner's request: no third-party product names in the repository, D-075.)
 - Alternatives considered: not recorded.
-- Consequences: the GUI shows none of these names. Since 2026-10-17 the pyproject.toml description and the package docstring read "Integrated CFD workflow GUI for OpenFOAM"; "STAR-CCM+-style" stays only in the internal planning docs ARCHITECTURE.md and docs/PLAN.md (docs/QUESTIONS.md item 44).
+- Consequences: the GUI shows no third-party product names. Since 2026-10-17 the pyproject.toml description and the package docstring read "Integrated CFD workflow GUI for OpenFOAM"; since 2026-10-18 the planning docs use the same neutral wording (D-075).
 
 ## D-041 Visual language: owner palette and mockup layout
 - Status: Accepted (supersedes D-014 and the layout part of D-016)
 - Context: decided in the review chat; the owner defines the visual identity.
-- Decision: palette "Tungsten & Amber" fixed by the owner, values asserted in tests/test_theme.py; layout follows the owner's mockup docs/design/mockup-v1.png (renamed from design_preview.png on 2026-10-17, docs/QUESTIONS.md item 45). Owner values change only on his request.
+- Decision: palette "Tungsten & Amber" fixed by the owner, values asserted in tests/test_theme.py; layout follows the owner's local design mockup (not tracked since 2026-10-18, D-075; docs/QUESTIONS.md item 45). Owner values change only at the owner's request.
 - Alternatives considered: not recorded.
 - Consequences: agents do not tune colours or proportions on their own (current proportions: D-034).
 
@@ -679,3 +680,10 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Decision: pymeshfix stays: AGPL-3 is combinable with GPL-3 and its network clause does not apply to a desktop application. THIRD_PARTY_LICENSES.md lists every runtime dependency (direct and transitive) with its version and licence from the installed metadata, plus the external programs (OpenFOAM, ParaView). The fidelity heuristic is accepted as documented in D-072; the repair report adds two rows for the accepted surface: "Bounding box change" (percent of the diagonal, limit 2 %) and "Points on the original surface" (percent within 1 % of the diagonal, limit 90 %), and the console logs them.
 - Alternatives considered: replacing pymeshfix before a release (no equivalent hole filler among the approved dependencies).
 - Consequences: THIRD_PARTY_LICENSES.md must be updated whenever a dependency is added or upgraded.
+
+## D-075 No third-party product names in the repository; design mockup kept local
+- Status: Accepted (owner decision, 2026-10-18).
+- Context: nothing related to the commercial product the workflow was first compared with may be published.
+- Decision: the tracked files use neutral wording ("integrated CFD workflow", "commercial reference workflow", "a range-based asymptotic criterion"); the branding rule is "never use third-party product names or logos in the app" (D-040 reworded). The design mockup is no longer tracked (`git rm --cached`; the file stays in the owner's working copy and is listed in .git/info/exclude); the docs refer to it as "the owner's local design mockup". The feature inventory (Task 0.1) stays local only, also excluded.
+- Alternatives considered: keeping the names in the internal planning docs only (D-040 before this change).
+- Consequences: the earlier commits still hold the old wording and the mockup in the history; this change covers the current tree only.

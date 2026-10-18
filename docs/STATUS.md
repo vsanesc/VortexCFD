@@ -35,7 +35,7 @@ Next candidates: unsteady runs (pimpleFoam), MRF rotating zones (PLAN 8.2), the 
 
 | Phase | Title | State |
 |---|---|---|
-| 0.1 | STAR-CCM+ reference inventory | done (feature map kept by the owner outside the repository) |
+| 0.1 | Commercial reference workflow inventory | done (feature map kept by the owner outside the repository) |
 | 0.2 | Open-source landscape survey | done for geometry and meshing (docs/reference/oss_survey.md); other modules not surveyed |
 | 0.3 | Repo, environment, architecture | done (no CI service: scripts/ship.sh runs the suite before publishing) |
 | 1.1 | Simulation data model | done |

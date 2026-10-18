@@ -1,7 +1,7 @@
 # ARCHITECTURE.md
 
 ## 1. Overview and Target
-`vortexcfd` is a Python-based desktop application providing a STAR-CCM+-style workflow (single simulation tree, integrated geometry → mesh → physics → solve → post-processing) orchestrating OpenFOAM as its numerical backend.
+`vortexcfd` is a Python-based desktop application providing an integrated CFD workflow (single simulation tree, integrated geometry → mesh → physics → solve → post-processing) orchestrating OpenFOAM as its numerical backend.
 
 ## 2. Runtime Environment
 - The entire application runs inside **WSL2** running **Ubuntu 24.04**.
