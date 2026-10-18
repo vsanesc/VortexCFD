@@ -94,7 +94,28 @@ def test_solvers_editor(window: MainWindow) -> None:
     f["iterations"].editingFinished.emit()
     assert window.project.sim.solvers.iterations == 250
     assert window.project.undo_label == "Edit solver (iterations)"
-    assert set(f) == {"iterations", "write_interval", "relaxation"}  # residual targets: Stopping Criteria node
+    assert set(f) == {"iterations", "write_interval", "cores", "relaxation"}  # residual targets: Stopping Criteria node
+
+
+def test_cores_field_is_limited_to_the_physical_cores(window: MainWindow) -> None:
+    """D-063: the Cores row says how many physical cores the machine has and cannot exceed them;
+    a project asking for more (edited elsewhere) cannot run."""
+    from vortexcfd.foam.parallel import physical_cores
+    from vortexcfd.gui import solving
+
+    _select(window, "solvers")
+    box = window.properties.group_fields["solvers"]["cores"]
+    n = physical_cores()
+    assert box.value() == 1 and box.maximum() == n and box.minimum() == 1
+    from PySide6.QtWidgets import QLabel
+
+    assert f"Cores ({n} physical)" in [label.text() for label in window.properties.findChildren(QLabel)]
+    box.setValue(min(4, n))
+    box.editingFinished.emit()
+    assert window.project.sim.solvers.cores == min(4, n)
+    assert window.project.undo_label == "Edit solver (cores)"
+    window.project.update_solver(cores=n + 1)
+    assert solving.physics_problem(window.project) == f"{n + 1} cores requested; this machine has {n} physical cores."
 
 
 def test_mesh_node_has_layer_sizing_rows(window: MainWindow) -> None:

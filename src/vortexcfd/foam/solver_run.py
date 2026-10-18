@@ -14,6 +14,12 @@ End states (D-046), decided from the exit code and the LogParser events:
   printed "SIMPLE solution converged". Run records written before D-058 was revised say
   "converged"; they are read as ``criteria_met``;
 - ``iteration_limit``: the solver ended normally at endTime without converging.
+
+Parallel runs (``cores`` > 1, D-063): ``decomposePar -force`` first (log.decomposePar; its output
+and a one-line summary go to ``on_line``), then ``mpirun -np N simpleFoam -parallel`` (the clean
+stop's SIGUSR1 goes to mpirun, which forwards it to the ranks), then ``reconstructPar
+-latestTime`` (log.reconstructPar) whenever the solver ended with exit code 0 (iteration limit,
+criteria met or a clean stop), so the case holds a reconstructed latest time.
 """
 
 import threading
@@ -24,6 +30,7 @@ from pathlib import Path
 from vortexcfd.core.model import StoppingCriteria
 from vortexcfd.foam import convergence
 from vortexcfd.foam.logparse import LogParser, TimeStep
+from vortexcfd.foam.parallel import DECOMPOSE_COMMAND, RECONSTRUCT_COMMAND, parse_decomposition, solver_command
 from vortexcfd.foam.postprocessing import ReportMonitor
 from vortexcfd.foam.residuals import ResidualHistory
 from vortexcfd.foam.runner import FoamRun, RunResult
@@ -56,6 +63,9 @@ class SolverRunResult:
     duration_s: float = 0.0
     criteria_met: tuple[str, ...] = ()  # condition names (convergence.condition_name) that stopped the run
     met_iteration: int | None = None  # the iteration at which they were met
+    cores: int = 1
+    decomposition: str | None = None  # decomposePar's summary (parallel runs)
+    reconstructed: bool | None = None  # reconstructPar succeeded (None: serial or not attempted)
 
     @property
     def label(self) -> str:
@@ -121,6 +131,7 @@ class SolverRun:
         timeout_s: float | None = None,
         runner_factory: Callable[[], FoamRun] = FoamRun,
         stopping: StoppingCriteria | None = None,
+        cores: int = 1,
     ) -> None:
         self.case_dir = Path(case_dir)
         self._on_line, self._on_step, self._on_done = on_line, on_step, on_done
@@ -132,6 +143,7 @@ class SolverRun:
         self._thread: threading.Thread | None = None
         self._result: SolverRunResult | None = None
         self.parser = LogParser()
+        self.cores = max(1, int(cores))
         self._stopping = stopping if convergence.app_side(stopping) else None
         self._history = ResidualHistory()
         self._reports = ReportMonitor(self.case_dir) if self._stopping is not None else None
@@ -213,21 +225,66 @@ class SolverRun:
         """The app-side criteria met so far (names), () before."""
         return self._met
 
+    def _step(self, command: list[str], log_name: str, on_line, clean_stop: bool = False,
+              stoppable: bool = True) -> RunResult:
+        """Run one command to the end through a new runner (stopped by request_stop when
+        ``stoppable``; reconstructPar, which runs after a stop, is not)."""
+        runner = self._factory()
+        runner.start(command, self.case_dir, self.case_dir / log_name, on_line=on_line,
+                     timeout_s=self._timeout, clean_stop=clean_stop)
+        with self._lock:
+            self._runner = runner if stoppable else None
+            stop = self._stop
+        if stoppable and (stop or (clean_stop and self._met)):  # requested while starting
+            runner.request_stop()
+        runner.wait()
+        with self._lock:
+            self._runner = None
+        return runner.result()
+
+    def _forward_line(self, text: str) -> None:
+        if self._on_line is not None:
+            self._on_line(text)
+
+    def _decompose(self) -> tuple[str | None, str | None]:
+        """(summary, error) of decomposePar."""
+        res = self._step(DECOMPOSE_COMMAND, "log.decomposePar", self._forward_line)
+        if res.timed_out or res.stop_requested:  # stopped before the solver started
+            with self._lock:
+                self._stop = True
+            return None, None
+        if res.exit_code != 0:
+            return None, f"decomposePar failed (exit code {res.exit_code}): see log.decomposePar"
+        try:
+            found = parse_decomposition((self.case_dir / "log.decomposePar").read_text(errors="replace"))
+        except OSError:
+            found = None
+        summary = found.summary() if found is not None else f"Decomposed into {self.cores} subdomains"
+        self._forward_line(summary + "\n")
+        return summary, None
+
+    def _reconstruct(self) -> bool:
+        res = self._step(RECONSTRUCT_COMMAND, "log.reconstructPar", self._forward_line, stoppable=False)
+        ok = res.exit_code == 0
+        self._forward_line(("Reconstructed the latest time" if ok else
+                            f"reconstructPar failed (exit code {res.exit_code}): see log.reconstructPar") + "\n")
+        return ok
+
     def _run(self) -> None:
         log_file = self.case_dir / LOG_NAME
-        runner = self._factory()
         res: RunResult | None = None
         error: str | None = None
+        decomposition: str | None = None
+        reconstructed: bool | None = None
         try:
-            runner.start([SOLVER], self.case_dir, log_file, on_line=self._line,
-                         timeout_s=self._timeout, clean_stop=True)
-            with self._lock:
-                self._runner = runner
-                stop = self._stop
-            if stop or self._met:  # requested while starting
-                runner.request_stop()
-            runner.wait()
-            res = runner.result()
+            if self.cores > 1:
+                decomposition, error = self._decompose()
+                with self._lock:
+                    stopped_early = self._stop
+            if error is None and not (self.cores > 1 and stopped_early):
+                res = self._step(solver_command(SOLVER, self.cores), LOG_NAME, self._line, clean_stop=True)
+                if self.cores > 1 and res.exit_code == 0:
+                    reconstructed = self._reconstruct()
         except (OSError, ValueError, RuntimeError) as exc:
             error = f"Could not run {SOLVER}: {exc}"
         self._forward(self.parser.close())
@@ -240,8 +297,9 @@ class SolverRun:
             after = self.parser.criteria_met.after
             met_iteration = int(after) if after is not None else _iterations(self.parser)
         if res is None:
-            result = SolverRunResult(CRASHED, None, _iterations(self.parser),
-                                     final_residuals(self.parser), error, log_file)
+            state = STOPPED if stop and error is None else CRASHED
+            result = SolverRunResult(state, None, _iterations(self.parser), final_residuals(self.parser),
+                                     error, log_file, cores=self.cores, decomposition=decomposition)
         else:
             criteria_stop = bool(self._met) and not stop and not res.timed_out
             stopped = stop or res.stop_requested or res.timed_out
@@ -251,7 +309,7 @@ class SolverRun:
             result = SolverRunResult(
                 state, res.exit_code, _iterations(self.parser), final_residuals(self.parser),
                 self.parser.crash or self.parser.fatal_error, res.log_file, res.duration_s,
-                met, met_iteration,
+                met, met_iteration, self.cores, decomposition, reconstructed,
             )
         self._result = result
         if self._on_done is not None:

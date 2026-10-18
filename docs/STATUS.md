@@ -1,6 +1,6 @@
 # Status
 
-Updated 2026-10-18 (Task 6.1 review fixes). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
+Updated 2026-10-18 (Task 6.1 review fixes, Task 6.6). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
 task (CLAUDE.md).
 
 ## Current branch
@@ -24,8 +24,15 @@ task (CLAUDE.md).
   sections ordered along the cut and split at min/max x. Real run: Cd (window 20, 2 %) met at
   iteration 144 on the coarse sphere, run ended cleanly at 146.
 
-Task 6.1 is complete on this branch. Next steps (docs/PLAN.md): parallel runs with mpirun (6.6), a
-mesh independence study workflow with the GCI (6.4), an angle-of-attack sweep for polars (6.5).
+- Task 6.6 (D-063, Proposed): parallel solver runs: `Solvers.cores` (limited to the physical cores
+  at run time), decomposePar -force (scotch), mpirun -np N simpleFoam -parallel, reconstructPar
+  -latestTime (also after a clean stop); SIGUSR1 to mpirun stops all ranks cleanly (Open MPI
+  forwards it); timeout and escalation kill the whole session. Serial and 4 cores agree on the
+  converged low-Re sphere (dCd 5e-7, dCl 1.6e-4 relative; speedup 2.0); on the oscillating 20 m/s
+  sphere they do not (docs/QUESTIONS.md item 66).
+
+Tasks 6.1 and 6.6 are complete on this branch. Next steps (docs/PLAN.md): a mesh independence
+study workflow with the GCI (6.4), an angle-of-attack sweep for polars (6.5).
 
 ## Phases
 
@@ -36,7 +43,7 @@ mesh independence study workflow with the GCI (6.4), an angle-of-attack sweep fo
 | 0.3 | Repo, environment, architecture | done (no CI service: scripts/ship.sh runs the suite before publishing) |
 | 1.1 | Simulation data model | done |
 | 1.2 | Case writer | done for the cavity reference case; the cylinder and wing reference cases were not written |
-| 1.3 | Runner and log parsing | done for single-process runs (parallel not supported); solver run states (D-046) |
+| 1.3 | Runner and log parsing | done for serial and parallel (mpirun) runs; solver run states (D-046, D-063) |
 | 1.4 | Headless integration test | done (cavity) |
 | 2.1 | Main window | done |
 | 2.2 | 3D viewer | done for parts, picking, visibility, the mesh scene and the results scene (scalar fields on walls and section) |
@@ -61,7 +68,7 @@ mesh independence study workflow with the GCI (6.4), an angle-of-attack sweep fo
 | 6.3 | Data export and reports | not started (section CSV export only, D-062) |
 | 6.4 | Mesh independence study (GCI) | not started |
 | 6.5 | Angle-of-attack sweep (polars) | not started |
-| 6.6 | Parallel runs (mpirun) | not started |
+| 6.6 | Parallel runs (mpirun) | done (D-063, Proposed): decomposePar / mpirun / reconstructPar, clean stop through mpirun |
 | 7.1-7.3 | Coupled solver analysis | not started |
 | 8.1-8.5 | Moving meshes | not started |
 | 9.1 | Project management | partly done (save/load, undo/redo); templates, recent projects, cloning not started |
@@ -75,7 +82,7 @@ mesh independence study workflow with the GCI (6.4), an angle-of-attack sweep fo
 - numpy is imported directly (geometry/checks.py, gui/scene.py, gui/viewport.py) but is not declared in
   pyproject.toml (it arrives through pyvista).
 - Courant number: parsed from logs (foam/logparse.py) but no warning in the GUI.
-- Parallel (mpirun) runs are not supported (runner, clean stop): Phase 6.6.
+- Parallel speedup only 2.0 on 4 cores for the 192k-cell sphere (process binding not tried, item 66).
 - Location of user projects and run outputs in the released app (run/ is development only).
 - STEP import spike: OCP novtk wheel next to PyVista's VTK (docs/reference/oss_survey.md).
 - STL repair: pymeshfix (wrapper licence to confirm) / pytetwild.

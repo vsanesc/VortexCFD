@@ -177,9 +177,12 @@ class StoppingCriteria(StrictModel):
 
 class Solvers(StrictModel):
     """Solver run settings. ``iterations`` is the iteration limit (the always-present stopping
-    criterion); the other criteria are in ``stopping``."""
+    criterion); the other criteria are in ``stopping``. ``cores``: MPI ranks of the solver (1 =
+    serial); the machine's physical cores are its upper limit, checked when the solver is run
+    (foam/parallel.physical_cores, D-063)."""
 
     iterations: int = Field(default=1000, gt=0)
+    cores: int = Field(default=1, ge=1)
     write_interval: int = Field(default=200, gt=0)
     relaxation: Literal["robust"] = "robust"  # the motorBike tutorial values
     stopping: StoppingCriteria = Field(default_factory=StoppingCriteria)

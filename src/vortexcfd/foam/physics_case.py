@@ -29,6 +29,7 @@ from vortexcfd.core.model import Inflow, Physics, Reports, Solvers
 from vortexcfd.foam.case_writer import FoamFileSpec
 from vortexcfd.foam.convergence import FUNCTION_NAME as RUN_TIME_CONTROL
 from vortexcfd.foam.convergence import force_coeffs_name, probe_function_name, run_time_control
+from vortexcfd.foam.parallel import DECOMPOSE_DICT, decompose_par_dict
 
 Bounds = tuple[float, float, float, float, float, float]  # xmin, xmax, ymin, ymax, zmin, zmax
 
@@ -401,4 +402,6 @@ def build_solver_files(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
         "constant/turbulenceProperties": turbulence_properties(inp.physics),
     }
     files.update(initial_fields(inp))
+    if inp.solvers.cores > 1:  # parallel run (D-063)
+        files[DECOMPOSE_DICT] = decompose_par_dict(inp.solvers.cores)
     return files

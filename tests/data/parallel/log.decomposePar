@@ -1,0 +1,151 @@
+/*---------------------------------------------------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2606                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+Build  : _481094f-20260618 OPENFOAM=2606 version=2606
+Arch   : "LSB;label=32;scalar=64"
+Exec   : decomposePar -force
+Date   : Oct 18 2026
+Time   : 10:26:54
+Host   : "host"
+PID    : 0
+I/O    : uncollated
+Case   : /path/to/case
+nProcs : 1
+trapFpe: Floating point exception trapping enabled (FOAM_SIGFPE).
+memory pool : not available
+fileModificationChecking : Monitoring run-time modified files using timeStampMaster (fileModificationSkew 5, maxFileModificationPolls 20)
+
+--> FOAM Warning : allowSystemOperations : Allowing user-supplied system call operations.
+                   This can be a security risk if running untrusted cases
+                   through e.g. 'coded' on-the-fly-compilation functionality.
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+Create time
+
+Overriding OptimisationSwitches according to controlDict
+    stopAtWriteNowSignal 10;
+
+sigStopAtWriteNow : Enabling writing and stopping upon signal 10
+
+
+Decomposing mesh
+
+Create mesh
+
+Calculating distribution of cells
+Decomposition method scotch [4] (region region0)
+
+Finished decomposition in 0.57 s
+
+Calculating original mesh data
+
+Distributing cells to processors
+
+Distributing faces to processors
+
+Distributing points to processors
+
+Constructing processor meshes
+Reading hexRef8 data : cellLevel
+Reading hexRef8 data : pointLevel
+Reading hexRef8 data : level0Edge
+sigStopAtWriteNow : Enabling writing and stopping upon signal 10
+Overriding OptimisationSwitches according to controlDict
+    stopAtWriteNowSignal 10;
+
+sigStopAtWriteNow : Enabling writing and stopping upon signal 10
+
+Processor 0
+    Number of cells = 47575
+    Number of points = 61180
+    Number of faces shared with processor 1 = 2773
+    Number of faces shared with processor 2 = 416
+    Number of faces shared with processor 3 = 442
+    Number of processor patches = 3
+    Number of processor faces = 3631
+    Number of boundary faces = 5227
+sigStopAtWriteNow : Enabling writing and stopping upon signal 10
+Overriding OptimisationSwitches according to controlDict
+    stopAtWriteNowSignal 10;
+
+sigStopAtWriteNow : Enabling writing and stopping upon signal 10
+
+Processor 1
+    Number of cells = 47582
+    Number of points = 61268
+    Number of faces shared with processor 0 = 2773
+    Number of faces shared with processor 2 = 386
+    Number of faces shared with processor 3 = 230
+    Number of processor patches = 3
+    Number of processor faces = 3389
+    Number of boundary faces = 4816
+sigStopAtWriteNow : Enabling writing and stopping upon signal 10
+Overriding OptimisationSwitches according to controlDict
+    stopAtWriteNowSignal 10;
+
+sigStopAtWriteNow : Enabling writing and stopping upon signal 10
+
+Processor 2
+    Number of cells = 48530
+    Number of points = 53515
+    Number of faces shared with processor 0 = 416
+    Number of faces shared with processor 1 = 386
+    Number of faces shared with processor 3 = 2149
+    Number of processor patches = 3
+    Number of processor faces = 2951
+    Number of boundary faces = 6608
+sigStopAtWriteNow : Enabling writing and stopping upon signal 10
+Overriding OptimisationSwitches according to controlDict
+    stopAtWriteNowSignal 10;
+
+sigStopAtWriteNow : Enabling writing and stopping upon signal 10
+
+Processor 3
+    Number of cells = 48533
+    Number of points = 53071
+    Number of faces shared with processor 0 = 442
+    Number of faces shared with processor 1 = 230
+    Number of faces shared with processor 2 = 2149
+    Number of processor patches = 3
+    Number of processor faces = 2821
+    Number of boundary faces = 6011
+
+Number of processor faces = 6396
+Max number of cells = 48533 (0.994694% above average 48055)
+Max number of processor patches = 3 (0% above average 3)
+Max number of faces between processors = 3631 (13.5397% above average 3198)
+
+
+Time = 0
+
+Processor 0: field transfer
+sigStopAtWriteNow : Enabling writing and stopping upon signal 10
+Overriding OptimisationSwitches according to controlDict
+    stopAtWriteNowSignal 10;
+
+sigStopAtWriteNow : Enabling writing and stopping upon signal 10
+Processor 1: field transfer
+sigStopAtWriteNow : Enabling writing and stopping upon signal 10
+Overriding OptimisationSwitches according to controlDict
+    stopAtWriteNowSignal 10;
+
+sigStopAtWriteNow : Enabling writing and stopping upon signal 10
+Processor 2: field transfer
+sigStopAtWriteNow : Enabling writing and stopping upon signal 10
+Overriding OptimisationSwitches according to controlDict
+    stopAtWriteNowSignal 10;
+
+sigStopAtWriteNow : Enabling writing and stopping upon signal 10
+Processor 3: field transfer
+sigStopAtWriteNow : Enabling writing and stopping upon signal 10
+Overriding OptimisationSwitches according to controlDict
+    stopAtWriteNowSignal 10;
+
+sigStopAtWriteNow : Enabling writing and stopping upon signal 10
+
+End
+

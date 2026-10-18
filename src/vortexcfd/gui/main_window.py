@@ -1181,7 +1181,11 @@ class MainWindow(QMainWindow):
         self.monitors.start_run(case_dir, self._solve_stopping)
         self.top_bar.set_run_state("Solving")
         log.info("Running simpleFoam in %s", case_dir)
-        self.solver_worker.start(case_dir, timeout_s=self.solver_timeout_s, stopping=self._solve_stopping)
+        cores = self._project.sim.solvers.cores
+        if cores > 1:
+            log.info("Running simpleFoam on %d cores (decomposePar, mpirun, reconstructPar)", cores)
+        self.solver_worker.start(case_dir, timeout_s=self.solver_timeout_s, stopping=self._solve_stopping,
+                                 cores=cores)
         self._update_results_stale()
         self._update_run_button()
         self._update_mesh_button()

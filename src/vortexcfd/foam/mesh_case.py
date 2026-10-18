@@ -487,9 +487,13 @@ def _is_result_time(name: str) -> bool:
         return False
 
 
+_PROCESSOR_RE = re.compile(r"^processor\d+$")
+
+
 def remove_results(case_dir: Path) -> list[str]:
     """Delete the solver results of a marker-protected case: time directories after 0,
-    postProcessing/ and the run record. Returns the removed names (sorted). Nothing else is touched
+    postProcessing/, the processor* directories of a parallel run (they also hold a decomposed
+    copy of the mesh, D-063) and the run record. Returns the removed names (sorted). Nothing else is touched
     (0/, constant/, system/, logs and the meshing dictionaries stay).
 
     Raises:
@@ -503,7 +507,9 @@ def remove_results(case_dir: Path) -> list[str]:
         )
     removed = []
     for child in sorted(case_dir.iterdir(), key=lambda c: c.name):
-        if child.is_dir() and not child.is_symlink() and (_is_result_time(child.name) or child.name == "postProcessing"):
+        if child.is_dir() and not child.is_symlink() and (
+            _is_result_time(child.name) or child.name == "postProcessing" or _PROCESSOR_RE.match(child.name)
+        ):
             shutil.rmtree(child)
             removed.append(child.name)
     record = case_dir / RUN_RECORD_FILE

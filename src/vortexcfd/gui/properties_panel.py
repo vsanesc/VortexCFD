@@ -35,6 +35,7 @@ from vortexcfd.core.model import Probe
 from vortexcfd.core.reports import (PROBE_NAME_RE, criterion_quantities, default_floor, missing_reference,
                                     report_label)
 from vortexcfd.foam.forces import MASS_WARNING
+from vortexcfd.foam.parallel import physical_cores
 from vortexcfd.foam.wall_fields import case_yplus_histogram
 from vortexcfd.gui.charts import YPlusHistogramChart
 from vortexcfd.gui.report_views import ForcesTable
@@ -60,6 +61,10 @@ ALLOWED_UNITS: tuple[str, ...] = get_args(Part.model_fields["units"].annotation)
 
 
 DOMAIN_SYMMETRY = get_args(Domain.model_fields["symmetry"].annotation)
+
+# The solver's cores are limited to the machine's physical cores (read at start-up, D-063).
+PHYSICAL_CORES = physical_cores()
+
 
 def _spin(low: int, high: int, suffix: str = "", special: str | None = None) -> QSpinBox:
     box = QSpinBox()
@@ -200,6 +205,7 @@ GROUPS: dict[str, dict] = {
         "fields": (
             ("iterations", "Iterations", lambda: _spin(1, 10_000_000)),
             ("write_interval", "Write interval", lambda: _spin(1, 10_000_000)),
+            ("cores", f"Cores ({PHYSICAL_CORES} physical)", lambda: _spin(1, PHYSICAL_CORES)),
             ("relaxation", "Relaxation preset", lambda: _combo(("robust",))),
         ),
     },

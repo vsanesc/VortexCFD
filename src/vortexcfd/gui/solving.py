@@ -18,6 +18,7 @@ from vortexcfd.foam.case_writer import enable_clean_stop
 from vortexcfd.foam.dictfile import write_foam_file
 from vortexcfd.foam.mesh_case import MARKER_NAME, remove_results
 from vortexcfd.foam.mesh_report import lost_part_message
+from vortexcfd.foam.parallel import physical_cores
 from vortexcfd.foam.physics_case import SolverCaseInput, build_solver_files, reference_values
 from vortexcfd.gui.meshing import MeshingNotReady, case_dir_for, inputs_hash, parts_layout
 
@@ -38,6 +39,9 @@ def physics_problem(project: Project) -> str | None:
         err = exc.errors()[0]
         where = ".".join(str(p) for p in err["loc"])
         return f"Invalid physics: {where}: {err['msg']}"
+    cores, available = project.sim.solvers.cores, physical_cores()
+    if cores > available:
+        return f"{cores} cores requested; this machine has {available} physical cores."
     try:
         _box, _names, bounds = parts_layout(project)
     except MeshingNotReady as exc:
@@ -84,12 +88,14 @@ def solver_input(project: Project) -> SolverCaseInput:
 
 def clear_results(case_dir: Path) -> list[str]:
     """Remove the previous run's outputs before a run: the results (mesh_case.remove_results: time
-    directories after 0, postProcessing/, the run record), plus 0/ (rewritten) and the solver log.
-    constant/polyMesh is never touched."""
+    directories after 0, postProcessing/, processor* directories, the run record), plus 0/
+    (rewritten), the decomposeParDict of an earlier parallel run and the solver, decomposePar and
+    reconstructPar logs. constant/polyMesh is never touched."""
     removed = remove_results(case_dir)
     if (case_dir / "0").is_dir():
         shutil.rmtree(case_dir / "0")
-    (case_dir / "log.simpleFoam").unlink(missing_ok=True)
+    for name in ("log.simpleFoam", "log.decomposePar", "log.reconstructPar", "system/decomposeParDict"):
+        (case_dir / name).unlink(missing_ok=True)
     return removed
 
 
@@ -116,13 +122,14 @@ def prepare_solver_case(project: Project) -> Path:
 
 def results_hash(project: Project) -> str:
     """Hash of everything the results depend on: the mesh inputs plus the physics, inflow, solver
-    and report settings. Saved results whose hash differs are out of date."""
+    and report settings. Saved results whose hash differs are out of date. The number of cores is
+    left out: a parallel run solves the same case (the results agree to solver tolerance, D-063)."""
     sim = project.sim
     payload = {
         "mesh": inputs_hash(project),
         "physics": sim.physics.model_dump(),
         "inflow": sim.inflow.model_dump(),
-        "solvers": sim.solvers.model_dump(),
+        "solvers": sim.solvers.model_dump(exclude={"cores"}),
         "reports": sim.reports.model_dump(exclude={"slots"}),  # slot choice does not change results
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
