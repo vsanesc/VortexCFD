@@ -1,6 +1,6 @@
 # Status
 
-Updated 2026-10-18 (task/6.4-studies Parts A to C). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
+Updated 2026-10-18 (task/6.4-studies Parts A to D). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
 task (CLAUDE.md).
 
 ## Current branch
@@ -29,7 +29,13 @@ task (CLAUDE.md).
   levels met the criteria; Cd divergent and Cl oscillatory (not in the asymptotic range; actual h
   ratios 1.31 and 1.33, docs/QUESTIONS.md item 72).
 
-Next on this branch: Part D (6.5 polar sweep), Part E (docs). Open: docs/QUESTIONS.md items 67 (an
+- Part D, Task 6.5 (D-067): a Polar Sweep node (range or list of angles, cores, initialise from the
+  previous converged point); points in case_sweep/point_<n>/ on the current mesh, each judged by the
+  stopping criteria (flagged otherwise); results window (table, CL-alpha, drag polar, CM-alpha with
+  hollow flagged points, CSV) and case_sweep/sweep.json. Real sweep of the flattened ellipsoid at 0,
+  5, 10 deg: CL -0.0002, 0.0233, 0.0408, all criteria met.
+
+Next on this branch: Part E (docs). Open: docs/QUESTIONS.md items 67 (an
 offscreen worker crash), 69 (the core cap), 70 (ship suite time), 71 (freestream far field), 72
 (actual refinement ratio).
 
@@ -66,7 +72,7 @@ offscreen worker crash), 69 (the core cap), 70 (ship suite time), 71 (freestream
 | 6.2 | Scenes and derived parts | Cp along wall sections with CSV export (D-062); Cf / Cf_x and separation highlight (D-061); scalar scenes done (D-053): field/colormap/range selection, scalar bar, section; scene saving, image export, iso-surfaces and streamlines not started |
 | 6.3 | Data export and reports | not started (section CSV export only, D-062) |
 | 6.4 | Mesh independence study (GCI) | done (D-066): Mesh Study node, three levels, Celik GCI, results window and CSV; flat plate Case B not reproduced through the workflow (item 72) |
-| 6.5 | Angle-of-attack sweep (polars) | not started |
+| 6.5 | Angle-of-attack sweep (polars) | done (D-067): Polar Sweep node, points on the current mesh initialised from the previous converged point, CL-alpha / drag polar / CM-alpha, CSV; NACA 0012 check waits for the wing case |
 | 6.6 | Parallel runs (mpirun) | done (D-063 Accepted): decomposePar / mpirun / reconstructPar, clean stop through mpirun; speedup study and recommended cores (D-064) |
 | 7.1-7.3 | Coupled solver analysis | not started |
 | 8.1-8.5 | Moving meshes | not started |

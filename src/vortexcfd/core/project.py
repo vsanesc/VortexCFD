@@ -171,7 +171,7 @@ class Project:
         self._update_section("reports", "reports", fields)
 
     def update_study(self, study: str, **fields: Any) -> None:
-        """Edit the mesh study ("mesh") settings as one undoable step."""
+        """Edit the mesh study ("mesh") or polar sweep ("polar") settings as one undoable step."""
 
         def mutate(data: dict[str, Any]) -> None:
             data["studies"][study].update(fields)

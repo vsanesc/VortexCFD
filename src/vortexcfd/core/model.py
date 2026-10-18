@@ -298,10 +298,49 @@ class MeshStudySettings(StrictModel):
         return values
 
 
+class PolarSweepSettings(StrictModel):
+    """Angle-of-attack sweep (D-067): ``mode`` "range" runs start, start + step, ... up to end
+    (inclusive within 1e-9), "list" runs ``values`` in their order; every point uses the current
+    mesh; ``init_from_previous`` starts each point from the previous point's latest solution."""
+
+    mode: Literal["range", "list"] = "range"
+    start: float = Field(default=0.0, ge=-90.0, le=90.0)
+    end: float = Field(default=10.0, ge=-90.0, le=90.0)
+    step: float = Field(default=2.0, gt=0.0)
+    values: list[float] = Field(default_factory=list)
+    cores: int = Field(default=1, ge=1)
+    init_from_previous: bool = True
+
+    @field_validator("values")
+    @classmethod
+    def _angles(cls, values: list[float]) -> list[float]:
+        for v in values:
+            if not -90.0 <= v <= 90.0:
+                raise ValueError("an angle of attack must be within -90 and 90 degrees")
+        return values
+
+    def alphas(self) -> list[float]:
+        """The angles of attack of the sweep, in run order."""
+        if self.mode == "list":
+            return list(self.values)
+        out, n = [], 0
+        direction = 1.0 if self.end >= self.start else -1.0
+        while True:
+            a = self.start + direction * n * self.step
+            if direction * (a - self.end) > 1e-9:
+                break
+            out.append(round(a, 9))
+            n += 1
+            if n > 1000:
+                break
+        return out
+
+
 class Studies(StrictModel):
     """Multi-run studies (schema v7)."""
 
     mesh: MeshStudySettings = Field(default_factory=MeshStudySettings)
+    polar: PolarSweepSettings = Field(default_factory=PolarSweepSettings)
 
 
 class Simulation(StrictModel):

@@ -1,5 +1,5 @@
 """Small QPainter charts (no plotting library): the y+ histogram of the wall faces (D-061), Cp
-along wall sections (D-062), and the mesh study chart with point markers (D-066)."""
+along wall sections (D-062), and the mesh study and polar charts with point markers (D-066, D-067)."""
 
 import math
 

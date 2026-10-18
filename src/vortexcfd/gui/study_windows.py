@@ -1,10 +1,11 @@
-"""Results window of the mesh study (D-066): tables, a QPainter chart and Export CSV. Non-modal; the
-owner sets the record and handles the export file dialog."""
+"""Results windows of the mesh study (D-066) and the polar sweep (D-067): tables, QPainter charts and
+Export CSV. Non-modal; the owner sets the record and handles the export file dialog."""
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from vortexcfd.core.reports import report_label
 from vortexcfd.foam.mesh_study import StudyRecord, quantity_rows
+from vortexcfd.foam.polar_sweep import SweepRecord
 from vortexcfd.gui.charts import LineChart
 from vortexcfd.gui.theme import DARK, Theme, residual_style
 
@@ -150,3 +152,78 @@ class MeshStudyWindow(QDialog):
         series = [(report_label(q), color, "SolidLine", [(x, y) for x, y, _ in pts])]
         self.chart.y_caption = report_label(q)
         self.chart.set_series(series, {0: pts})
+
+
+SWEEP_HEADERS = ["alpha [deg]", "CL", "CD", "CM", "L/D", "Iterations", "Status"]
+
+
+class PolarSweepWindow(QDialog):
+    """The polar table and the CL-alpha, CL-CD (drag polar) and CM-alpha charts; points that did not
+    meet their stopping criteria are drawn hollow in the warning colour."""
+
+    export_requested = Signal()
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Polar sweep")
+        self.setModal(False)
+        self.record: SweepRecord | None = None
+        self._theme = DARK
+        self.table = _table(SWEEP_HEADERS)
+        self.cl_alpha = LineChart("alpha [deg]", "CL")
+        self.drag_polar = LineChart("CD", "CL")
+        self.cm_alpha = LineChart("alpha [deg]", "CM")
+        for chart in (self.cl_alpha, self.drag_polar, self.cm_alpha):
+            chart.EMPTY_MESSAGE = "No sweep results yet"
+            chart.setMinimumSize(260, 220)
+        self.status = QLabel()
+        self.status.setObjectName("muted")
+        self.export = QPushButton("Export CSV")
+        top = QHBoxLayout()
+        top.addWidget(self.status, 1)
+        top.addWidget(self.export)
+        grid = QGridLayout()
+        grid.addWidget(self.cl_alpha, 0, 0)
+        grid.addWidget(self.drag_polar, 0, 1)
+        grid.addWidget(self.cm_alpha, 1, 0)
+        grid.addWidget(self.table, 1, 1)
+        layout = QVBoxLayout(self)
+        layout.addLayout(top)
+        layout.addLayout(grid, 1)
+        self.export.clicked.connect(self.export_requested)
+        self.resize(1000, 760)
+        self.set_record(None)
+
+    def configure(self, theme: Theme) -> None:
+        self._theme = theme
+        for chart in (self.cl_alpha, self.drag_polar, self.cm_alpha):
+            chart.configure(theme)
+        self.set_record(self.record)
+
+    def set_record(self, record: SweepRecord | None) -> None:
+        self.record = record
+        run = [p for p in record.points if p.state is not None] if record is not None else []
+        self.export.setEnabled(bool(run))
+        if record is None:
+            _fill(self.table, [])
+            self.status.setText("No polar sweep yet")
+        else:
+            rows, warn = [], set()
+            for i, p in enumerate(record.points):
+                rows.append([f"{p.alpha:g}", _num(p.cl), _num(p.cd), _num(p.cm), _num(p.lift_to_drag, "{:.4g}"),
+                             _num(p.iterations, "{}"), p.state_label or "not run"])
+                if p.flagged:
+                    warn.add(i)
+            _fill(self.table, rows, warn, self._theme.warning)
+            flagged = sum(p.flagged for p in record.points)
+            self.status.setText(f"Sweep {record.status}: {len(run)} of {len(record.points)} points run"
+                                + (f", {flagged} did not meet their stopping criteria (hollow)" if flagged else ""))
+        color = residual_style(self._theme, "Ux")[0]
+        with_values = [p for p in run if p.cl is not None and p.cd is not None]
+
+        def show(chart: LineChart, name: str, pts: list[tuple[float, float, bool]]) -> None:
+            chart.set_series([(name, color, "SolidLine", [(x, y) for x, y, _ in pts])], {0: pts})
+
+        show(self.cl_alpha, "CL", [(p.alpha, p.cl, p.flagged) for p in with_values])
+        show(self.drag_polar, "CL against CD", [(p.cd, p.cl, p.flagged) for p in with_values])
+        show(self.cm_alpha, "CM", [(p.alpha, p.cm, p.flagged) for p in with_values if p.cm is not None])

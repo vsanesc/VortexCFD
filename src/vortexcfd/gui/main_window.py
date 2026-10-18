@@ -542,7 +542,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.top_bar.set_active_view(self.current_view)
         self._apply_appearance()
         self.tree.currentItemChanged.connect(self._on_current_item_changed)
-        self._init_studies()  # mesh study worker (gui/study_control.py)
+        self._init_studies()  # mesh study and polar sweep workers (gui/study_control.py)
         self.set_project(project)
         log.info("VortexCFD started")
 
@@ -578,7 +578,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self.mesh_worker.request_stop()
         if self.solver_worker.is_running():
             self.solver_worker.request_stop()
-        for worker in (self.study_worker,):
+        for worker in (self.study_worker, self.sweep_worker):
             if worker.is_running():
                 worker.request_stop()
         self.mesh_report = None
@@ -870,6 +870,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             add(reports, "reference_values", None, "Reference Values", "dot", "accent")
             add(reports, "probes", None, "Probes", "dot", "accent")
             add(reports, "mesh_study", None, "Mesh Study", "dot", "accent")
+            add(reports, "polar_sweep", None, "Polar Sweep", "dot", "accent")
             self.tree.expandAll()
             self._root_item = root
             self.tree.setRootIndex(self.tree.indexFromItem(root))  # hide the root row
@@ -2084,7 +2085,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self.mesh_worker.request_stop()
         if self.solver_worker.is_running():
             self.solver_worker.request_stop()
-        for worker in (self.study_worker,):
+        for worker in (self.study_worker, self.sweep_worker):
             if worker.is_running():
                 worker.request_stop()
         if self.viewer is not None:
