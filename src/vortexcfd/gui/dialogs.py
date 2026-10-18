@@ -52,6 +52,22 @@ class Dialogs:
         )
         return units if ok else None
 
+    def ask_solids_mode(self, file_name: str, solids: list[str]) -> str | None:
+        """A file with several solids: "regions" (one Part, a region per solid; the default),
+        "parts" (one Part per solid) or None (cancel the import)."""
+        box = QMessageBox(self.parent)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Import surface")
+        shown = ", ".join(solids[:8]) + (", ..." if len(solids) > 8 else "")
+        box.setText(f"{file_name} has {len(solids)} solids: {shown}.")
+        regions = box.addButton("One part, a region per solid", QMessageBox.ButtonRole.AcceptRole)
+        parts = box.addButton("One part per solid", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(regions)
+        box.exec()
+        clicked = box.clickedButton()
+        return "regions" if clicked is regions else "parts" if clicked is parts else None
+
     def ask_paraview_path(self, current: str, detected: Path | None) -> str | None:
         """Preferences: the ParaView executable (empty text = detect automatically)."""
         hint = f"Detected: {detected}" if detected else "Not detected under /mnt/c/Program Files/ParaView*"

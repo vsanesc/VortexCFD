@@ -5,8 +5,10 @@ from pathlib import Path
 
 class FakeDialogs:
     def __init__(self, open_path=None, save_path=None, discard="discard", import_path=None,
-                 units="m", paraview_path=None, csv_path=None) -> None:
+                 units="m", paraview_path=None, csv_path=None, solids_mode="regions") -> None:
         self.csv_path = csv_path
+        self.solids_mode = solids_mode
+        self.solids_asked: list = []
         self.paraview_path = paraview_path
         self.import_path = import_path
         self.units = units
@@ -29,6 +31,10 @@ class FakeDialogs:
 
     def ask_units(self):
         return self.units
+
+    def ask_solids_mode(self, file_name, solids):
+        self.solids_asked.append((file_name, list(solids)))
+        return self.solids_mode
 
     def confirm_discard(self):
         self.confirm_calls += 1

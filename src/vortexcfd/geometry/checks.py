@@ -1,11 +1,13 @@
 """Quality checks for triangulated surfaces."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pyvista as pv
 
 from vortexcfd.geometry import loader
+from vortexcfd.geometry.intersections import MAX_TRIANGLES as MAX_INTERSECTION_TRIANGLES
+from vortexcfd.geometry.intersections import intersecting_triangles
 
 # A triangle is degenerate when its area is below this fraction of the squared bbox diagonal.
 DEGENERATE_AREA_TOLERANCE = 1e-10
@@ -28,6 +30,24 @@ class SurfaceReport:
     # Signed volume (m3) enclosed by the triangles, from their orientation: negative for a closed
     # surface whose normals point inward. Meaningful only when watertight.
     signed_volume: float = 0.0
+    # Triangles crossing another triangle (geometry/intersections.py); None when the check was
+    # skipped (more than MAX_INTERSECTION_TRIANGLES triangles, or not requested).
+    self_intersections: int | None = None
+    # Indices of those triangles, for the viewer highlight.
+    intersecting: tuple[int, ...] = field(default=(), repr=False)
+
+    @property
+    def intersections_note(self) -> str:
+        """Why the self-intersection count is missing ('' when it was checked)."""
+        if self.self_intersections is not None:
+            return ""
+        return (f"not checked: more than {MAX_INTERSECTION_TRIANGLES:,} triangles"
+                if self.n_triangles > MAX_INTERSECTION_TRIANGLES else "not checked")
+
+    @property
+    def snappy_ready(self) -> bool:
+        """Watertight, no self-intersections (checked) and no duplicate faces."""
+        return self.watertight and self.self_intersections == 0 and self.duplicate_faces == 0
 
     @property
     def normals_inward(self) -> bool:
@@ -47,6 +67,10 @@ class SurfaceReport:
             problems.append(f"{self.duplicate_faces} duplicate faces")
         if self.inconsistent_orientation:
             problems.append(f"{self.inconsistent_orientation} inconsistently oriented triangles")
+        if self.self_intersections:
+            problems.append(f"{self.self_intersections} self-intersecting triangles")
+        elif self.self_intersections is None and self.n_triangles > MAX_INTERSECTION_TRIANGLES:
+            problems.append(f"self-intersections {self.intersections_note}")
         if self.normals_inward:
             problems.append("normals point inward")
         head = f"{self.n_triangles} triangles, {self.n_points} points, watertight: {'yes' if self.watertight else 'no'}"
@@ -108,12 +132,13 @@ def _orientation_conflicts(mesh: pv.PolyData) -> int:
     return min(flipped, n - flipped)
 
 
-def check_surface(mesh: pv.PolyData) -> SurfaceReport:
+def check_surface(mesh: pv.PolyData, intersections: bool = True) -> SurfaceReport:
     """Check a triangulated surface.
 
     Reports open and non-manifold edges, degenerate triangles, duplicate faces and
-    inconsistent orientation, and the signed volume (negative: normals point inward).
-    Self-intersections are NOT checked (Phase 3.3).
+    inconsistent orientation, the signed volume (negative: normals point inward) and, with
+    ``intersections`` and at most MAX_INTERSECTION_TRIANGLES triangles, the self-intersecting
+    triangles (about 7 s for 1M triangles, D-069).
     """
     tris = _triangles(mesh)
     n_tri = len(tris)
@@ -139,6 +164,9 @@ def check_surface(mesh: pv.PolyData) -> SurfaceReport:
     duplicates = n_tri - len(_group_counts(sorted_tris, n_points))
 
     tri_mesh = mesh if mesh.is_all_triangles else mesh.triangulate()
+    crossing = None
+    if intersections and n_tri <= MAX_INTERSECTION_TRIANGLES:
+        crossing = intersecting_triangles(pts, tris)
     return SurfaceReport(
         n_triangles=n_tri,
         n_points=int(mesh.n_points),
@@ -151,4 +179,6 @@ def check_surface(mesh: pv.PolyData) -> SurfaceReport:
         inconsistent_orientation=_orientation_conflicts(tri_mesh),
         watertight=open_edges == 0 and non_manifold == 0,
         signed_volume=float(np.einsum("ij,ij->i", a, np.cross(b, c)).sum() / 6.0),
+        self_intersections=None if crossing is None else len(crossing),
+        intersecting=() if crossing is None else tuple(int(i) for i in crossing),
     )

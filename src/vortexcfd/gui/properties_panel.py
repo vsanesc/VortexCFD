@@ -252,6 +252,7 @@ CHECK_ROWS = (
     ("degenerate", "Degenerate triangles"),
     ("duplicates", "Duplicate faces"),
     ("orientation", "Flipped normals"),
+    ("intersections", "Self-intersections"),
     ("normals", "Normals"),
     ("watertight", "Watertight"),
 )
@@ -1597,6 +1598,9 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             "degenerate": (str(report.degenerate_triangles), False),
             "duplicates": (str(report.duplicate_faces), False),
             "orientation": (str(report.inconsistent_orientation), False),
+            "intersections": ((str(report.self_intersections), report.self_intersections > 0)
+                              if report.self_intersections is not None
+                              else (report.intersections_note, True)),
             "watertight": ("yes" if report.watertight else "no", not report.watertight),
             "normals": (("point inward", True) if report.normals_inward
                         else ("outward", False) if report.watertight else ("\u2014 (open surface)", False)),

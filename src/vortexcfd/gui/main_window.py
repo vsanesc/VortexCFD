@@ -53,6 +53,8 @@ from vortexcfd.gui.dialogs import Dialogs
 from vortexcfd.gui.icons import logo_icon, make_glyph
 from vortexcfd.gui.monitors import MonitorsPanel
 from vortexcfd.geometry.checks import surface_report
+from vortexcfd.geometry.loader import stl_solid_names
+from vortexcfd.gui import part_ops
 from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.gui.properties_panel import PropertiesPanel
 from vortexcfd.geometry.domain import BOUNDARY_NAMES
@@ -2014,21 +2016,49 @@ class MainWindow(StudyControlMixin, QMainWindow):
         taken = {p.name for p in self._project.sim.geometry.parts}
         name = self._unique_name(source.stem, taken)
         relative = Path(os.path.relpath(dest, project_dir)).as_posix()
+        solids = stl_solid_names(dest) if dest.suffix.lower() == ".stl" else []
+        parts = [Part(name=name, source_file=relative, units=units)]
+        if len(solids) > 1:  # Task 3.1: regions (default) or one part per solid
+            mode = self.dialogs.ask_solids_mode(source.name, solids)
+            if mode is None:
+                dest.unlink(missing_ok=True)
+                return
+            try:
+                if mode == "parts":
+                    parts = part_ops.parts_per_solid(project_dir, dest, units, solids, taken)
+                else:
+                    parts = [part_ops.part_with_solid_regions(project_dir, name, dest, units, solids)]
+            except (OSError, SurfaceLoadError, ValueError) as exc:
+                dest.unlink(missing_ok=True)
+                self.show_message(f"Could not import {source.name}: {exc}", "error")
+                return
+            if mode == "parts":
+                dest.unlink(missing_ok=True)
         previous = self._selection
         self._selection = ("part", len(taken))  # the observer refresh selects the new part
         try:
-            self._project.add_part(Part(name=name, source_file=relative, units=units))
+            if len(parts) == 1:
+                self._project.add_part(parts[0])
+            else:
+                self._project.add_parts(parts, f"Import {source.name} ({len(parts)} parts)")
         except (ValueError, TypeError) as exc:
             self._selection = previous
             dest.unlink(missing_ok=True)
             self.show_message(f"Could not import {source.name}: {exc}", "error")
             return
-        log.info("Imported %s as part '%s' (units: %s)", source.name, name, units)
+        names = ", ".join(f"'{p.name}'" for p in parts)
+        log.info("Imported %s as part%s %s (units: %s)", source.name, "s" if len(parts) > 1 else "", names, units)
+        if len(parts) == 1 and parts[0].regions:
+            log.info("Part '%s' has %d regions: %s", name, len(parts[0].regions),
+                     ", ".join(r.name for r in parts[0].regions))
         log.info("Checks for '%s': %s", name, report.summary())
         if report.normals_inward:
             log.warning("Part '%s': normals point inward (closed surface with negative signed volume); "
                         "the file was not changed", name)
-        self.show_message(f"Imported {source.name} as '{name}'", "success", log_it=False)
+        if report.self_intersections:
+            log.warning("Part '%s': %d self-intersecting triangles (highlighted when the part is selected)",
+                        name, report.self_intersections)
+        self.show_message(f"Imported {source.name} as {names}", "success", log_it=False)
 
     @staticmethod
     def _unique_path(folder: Path, file_name: str) -> Path:

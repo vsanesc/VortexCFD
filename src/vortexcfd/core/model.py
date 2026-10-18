@@ -1,18 +1,62 @@
 """Simulation tree data models."""
 
 import math
+import re
 from typing import Annotated, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 7
+CURRENT_SCHEMA_VERSION: int = 8
 
 
 class StrictModel(BaseModel):
     """Base model that forbids unknown fields."""
 
     model_config = ConfigDict(extra="forbid")
+
+
+# A patch name the user assigns to a region (later made OpenFOAM-safe by foam/mesh_case.py).
+PATCH_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
+
+
+class SurfaceRegion(StrictModel):
+    """A named group of a Part's triangles (schema v8, D-071).
+
+    Every triangle of a part carries a base id (an STL solid, a CAD face or an angle-split
+    patch: Part.region_ids); a region is the set of base ids in ``members``. ``patch`` is the
+    mesh patch the region becomes; None puts it on the part's own patch (named after the part),
+    so a part whose regions are all unassigned meshes exactly as before regions existed.
+    ``color`` ("#rrggbb") comes from the CAD file when it has one.
+    """
+
+    name: str = Field(min_length=1)
+    members: list[int] = Field(default_factory=list)
+    patch: str | None = None
+    color: str | None = None
+
+    @field_validator("patch")
+    @classmethod
+    def _patch_name(cls, value: str | None) -> str | None:
+        if value is not None and not PATCH_NAME_RE.match(value):
+            raise ValueError("a patch name starts with a letter and has only letters, digits and _ "
+                             "(at most 64 characters)")
+        return value
+
+
+class CadSource(StrictModel):
+    """The CAD file a Part was tessellated from (schema v8, D-070).
+
+    ``file`` is relative to the project folder (a copy in <project>/geometry/). The tessellation
+    (the Part's ``source_file``) is regenerated whenever the deflections change:
+    ``linear_deflection`` is the largest distance between a triangle and the CAD surface, in
+    metres; ``angular_deflection`` the largest angle between neighbouring triangle normals, in
+    degrees.
+    """
+
+    file: str
+    linear_deflection: float = Field(gt=0)
+    angular_deflection: float = Field(default=20.0, gt=0, le=90)
 
 
 class Part(StrictModel):
@@ -22,6 +66,11 @@ class Part(StrictModel):
     this part only (None = the mesh's levels; setting only the max gives min = max - 1, as for the
     mesh). A part that is small relative to the background mesh is seeded with feature lines
     automatically so snappyHexMesh finds it (D-052).
+
+    ``regions`` group the triangles by base id (``region_ids``: a .npy file of one int per
+    triangle of the loaded surface, relative to the project folder; None = every triangle has id
+    0); no regions = the whole part is one region. ``cad`` is set for a part imported from
+    STEP/IGES/BREP: ``source_file`` is then its tessellation (D-070, D-071).
     """
 
     name: str
@@ -29,6 +78,9 @@ class Part(StrictModel):
     units: Literal["m", "cm", "mm", "in", "ft"] = "m"
     surface_level_min: int | None = Field(default=None, ge=0)
     surface_level_max: int | None = Field(default=None, ge=0)
+    regions: list[SurfaceRegion] = Field(default_factory=list)
+    region_ids: str | None = None
+    cad: CadSource | None = None
 
     @model_validator(mode="after")
     def _levels_ordered(self) -> "Part":
@@ -36,6 +88,31 @@ class Part(StrictModel):
         if lo is not None and hi is not None and hi < lo:
             raise ValueError("surface_level_max must be >= surface_level_min")
         return self
+
+    @model_validator(mode="after")
+    def _regions_consistent(self) -> "Part":
+        names = [r.name for r in self.regions]
+        if len(set(names)) != len(names):
+            raise ValueError("region names must be unique within a part")
+        members = [m for r in self.regions for m in r.members]
+        if len(set(members)) != len(members):
+            raise ValueError("a base id belongs to more than one region")
+        return self
+
+    def region_patch(self, region: SurfaceRegion) -> str:
+        """The (unsanitised) patch name of a region: its assignment, else the part's name."""
+        return region.patch if region.patch is not None else self.name
+
+    def patch_names(self) -> list[str]:
+        """The part's distinct patch names (unsanitised), in region order; [name] without regions.
+        Base ids outside every region fall on the part's own patch, which is listed first when any
+        region uses it."""
+        out = [self.name] if not self.regions else []
+        for region in self.regions:
+            patch = self.region_patch(region)
+            if patch not in out:
+                out.append(patch)
+        return out
 
 
 class Geometry(StrictModel):

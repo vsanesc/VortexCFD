@@ -116,6 +116,21 @@ class Project:
 
         self._edit(f"Add part '{part_data['name']}'", mutate)
 
+    def add_parts(self, parts: list[Part], label: str | None = None) -> None:
+        """Add several parts as one undoable step (e.g. one part per solid of an STL file)."""
+        names = [self._clean_name(p.name, "Part") for p in parts]
+        taken = {p.name for p in self._sim.geometry.parts}
+        for name in names:
+            if name in taken:
+                raise ValueError(f"A part named '{name}' already exists")
+            taken.add(name)
+        dumps = [{**p.model_dump(), "name": n} for p, n in zip(parts, names)]
+
+        def mutate(data: dict[str, Any]) -> None:
+            data["geometry"]["parts"].extend(dumps)
+
+        self._edit(label or f"Add parts {', '.join(repr(n) for n in names)}", mutate)
+
     def remove_part(self, index: int) -> None:
         old_name = self._part_at(index).name
 

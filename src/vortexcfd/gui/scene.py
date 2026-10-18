@@ -50,8 +50,9 @@ def report_for_part(project: Project, part: Part) -> SurfaceReport | None:
 
 
 class _Record:
-    def __init__(self, key, actor, status: str, name: str) -> None:
+    def __init__(self, key, actor, status: str, name: str, source=None) -> None:
         self.key, self.actor, self.status, self.name = key, actor, status, name
+        self.source = source  # (resolved path, units) of a loaded part, for its surface report
 
 
 class PartScene:
@@ -65,6 +66,7 @@ class PartScene:
         self._counter = 0
         self.enabled = True  # False hides every part actor (e.g. in the mesh scene)
         self._press: tuple[int, int] | None = None
+        self.defect_actor = None  # self-intersecting triangles of the selected part
 
     @property
     def actors(self) -> list:
@@ -100,7 +102,8 @@ class PartScene:
                     except (OSError, SurfaceLoadError) as exc:
                         log.warning("Cannot load part '%s': %s", part.name, exc)
                         status, key = ERROR, None
-            new_records.append(_Record(key, actor, status, part.name))
+            source = (Path(key[0]), part.units) if key is not None else None
+            new_records.append(_Record(key, actor, status, part.name, source))
         for leftovers in pool.values():  # actors no part uses any more
             for rec in leftovers:
                 self.plotter.remove_actor(rec.actor, render=False)
@@ -127,6 +130,32 @@ class PartScene:
         for i, rec in enumerate(self.records):
             if rec.actor is not None:
                 rec.actor.prop.color = self.theme.part_selected if i == index else self.theme.part_surface
+        self._show_defects(index)
+
+    def defect_triangles(self, index: int | None) -> tuple[int, ...]:
+        """Self-intersecting triangles of a loaded part (its cached surface report)."""
+        if index is None or not 0 <= index < len(self.records) or self.records[index].source is None:
+            return ()
+        path, units = self.records[index].source
+        try:
+            return surface_report(path, units).intersecting
+        except (OSError, SurfaceLoadError):
+            return ()
+
+    def _show_defects(self, index: int | None) -> None:
+        """Draw the selected part's self-intersecting triangles in the error colour (Task 3.1)."""
+        if self.defect_actor is not None:
+            self.plotter.remove_actor(self.defect_actor, render=False)
+            self.defect_actor = None
+        ids = self.defect_triangles(index)
+        rec = self.records[index] if ids else None
+        if rec is None or rec.actor is None or not rec.actor.GetVisibility():
+            return
+        mesh = load_surface(*rec.source).extract_cells(list(ids))
+        self.defect_actor = self.plotter.add_mesh(
+            mesh, color=self.theme.error, show_edges=True, edge_color=self.theme.error, pickable=False,
+            reset_camera=False, render=False, name="part_defects",
+        )
 
     def visible_bounds(self) -> tuple[float, ...] | None:
         """Union of the bounds of the visible part actors (None if there are none)."""

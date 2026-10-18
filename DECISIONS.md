@@ -83,6 +83,8 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-066 | 2026-10-18 | Mesh independence study with the Celik GCI (schema v7) | Proposed |
 | D-067 | 2026-10-18 | Angle-of-attack sweep (polar) | Proposed |
 | D-068 | 2026-10-18 | Display guard and targeted testing for agents | Proposed |
+| D-069 | 2026-10-18 | Multi-solid STL import and self-intersection check | Proposed |
+| D-071 | 2026-10-18 | Surface regions and patch assignment (schema v8) | Proposed |
 
 ---
 
@@ -608,3 +610,23 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   - Testing rule (CLAUDE.md): agents run only the test files of the modules they changed while working, and once at the end of a task `pytest -q -m "not slow and not validation and not long"` offscreen with `nice -n 15`; the full suite, slow, long and validation tests run in scripts/ship.sh when the owner publishes. Agents never use the WSLg display.
 - Alternatives considered: setting `QT_QPA_PLATFORM` in pytest.ini (does not cover scripts, and the owner could not opt in to the real display); keeping the full suite before each commit (too slow per commit).
 - Consequences: tests that need a real OpenGL viewer render offscreen unless the owner sets `VORTEXCFD_ALLOW_REAL_DISPLAY=1`; regressions in slow tests surface only when ship.sh runs.
+
+## D-069 Multi-solid STL import and self-intersection check
+- Status: Proposed (Task 3.1 missing items).
+- Context: PLAN 3.1 lists multi-solid STL splitting and self-intersection detection; both were missing (D-056 era checks covered edges, duplicates, orientation only).
+- Decision:
+  - Loader: an STL is read with pv.read; when it is ASCII with more than one `solid` block (geometry/loader.stl_solid_names: names in file order, "solid_<n>" for an unnamed block, repeated names suffixed _2, ...), it is read again with vtkSTLReader's scalar tags and every triangle keeps its block index in the cell array `solid` (0 for binary and single-solid files).
+  - Import: a file with several solids asks (Dialogs.ask_solids_mode) for one Part with a region per solid (the default; region names = solid names, region ids written to geometry/<part>_regions_<hash>.npy, D-071) or one Part per solid (each solid written to geometry/<file>_<solid>.stl in the file's units, the combined copy deleted, all parts added as one undo step); Cancel imports nothing.
+  - Self-intersections (geometry/intersections.py, numpy only): two triangles sharing no vertex intersect when an edge of one crosses the other (Moller-Trumbore, end points excluded); candidates come from a uniform grid of cell size = the mean triangle box diagonal, each pair kept once (in the cell of the lower corner of the two boxes' overlap). Coplanar overlaps are not found (duplicate faces are reported separately). SurfaceReport gains `self_intersections` (None = not checked) and `intersecting` (triangle indices); `snappy_ready` = watertight, 0 self-intersections, 0 duplicate faces. The Checks group shows a "Self-intersections" row and the viewer draws the selected part's intersecting triangles in the error colour.
+  - Measured: 1,005,360-triangle sphere in 7.3-7.9 s (two runs; 178,800 triangles: 1.1 s). The check is skipped above 2,000,000 triangles (`intersections.MAX_TRIANGLES`), with the note "not checked: more than 2,000,000 triangles" in the row and the summary.
+- Alternatives considered: pymeshfix's PyTMesh.select_intersecting_triangles (the count matches, 172 on the two-sphere test, but in pymeshfix 0.18.1 the returned triangles hold uninitialised indices, e.g. 35702382 on a 724-point mesh, different on every run, so they cannot be highlighted); deduplicating candidate pairs with np.unique (26 s for 1M triangles); vtkOBBTree line intersections per edge (a Python loop over 1.5M edges).
+- Consequences: importing or first selecting a 1M-triangle part takes about 8 s more (the report is cached); surfaces above 2M triangles are not checked for self-intersections.
+
+## D-071 Surface regions and patch assignment (schema v8)
+- Status: Proposed (Task 3.1 introduces the model; Task 3.5 completes it, see below).
+- Context: PLAN 3.5: group triangles into named patches from CAD faces, STL solids or an angle-based split; the assignment must persist and reach the meshing dictionary.
+- Decision:
+  - Model (schema v8): `Part.regions` (list of `SurfaceRegion`: `name`, unique in the part; `members`, base ids; `patch`, a name matching `[A-Za-z][A-Za-z0-9_]{0,63}` or None; `color` "#rrggbb" or None), `Part.region_ids` (a .npy file of one int per triangle of the loaded surface, relative to the project folder; None = every triangle has base id 0) and `Part.cad` (D-070). A base id belongs to at most one region; triangles outside every region, and regions with `patch` None, are on the part's own patch, named after the part. A part without regions is one region: v7 projects migrate with nothing to fill and mesh exactly as before.
+  - Region id files are named <part>_regions_<12 hex of the content's SHA-256>.npy under <project>/geometry/; an edit writes a new file and changes `region_ids` in the same undoable step, so undo points the part back to the previous file (old files are not deleted). A file whose length differs from the surface's triangle count is an error ("the surface file changed").
+- Alternatives considered: triangle lists in the project JSON (a 1M-triangle part would make the project file huge); region membership recomputed from the source (an edit such as a split or a pick would not be representable).
+- Consequences: a project folder accumulates small region id files (4 bytes per triangle) as regions are edited.
