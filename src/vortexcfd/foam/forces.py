@@ -12,10 +12,12 @@ Files (v2606, checked on real runs, fixtures in tests/data/breakdown_run/):
 
 Coefficients of a force F (pressure, viscous or total): C_d = F . dragDir / (q A_ref), C_l =
 F . liftDir / (q A_ref), q = 0.5 rho U^2; the pitching moment coefficient C_m = M_y / (q A_ref
-l_ref) (pitch axis +y, D-047). Centre of pressure along x: the point on the line through CofR
-parallel to x where the resultant gives the same pitching moment, x_cp = x_CofR - M_y / F_z (global
-axes; F_z is the force normal to x in the symmetry plane). It is undefined (None) when
-|F_z| / (q A_ref) < CP_MIN_NORMAL (near-zero normal force: the ratio is meaningless).
+l_ref) (pitch axis +y, D-047). Centre of pressure along x in the body axes: the point on the
+line through CofR parallel to the body x axis where the resultant gives the same pitching moment,
+x_cp = x_CofR - M_y / F_z(body). The app turns the free stream by the angle of attack and never
+the body, so the body axes are the global axes of the geometry (x along the chord, z normal to it)
+and F_z(body) is the global z force, whatever the incidence. It is undefined (None) when
+|F_z(body)| < CP_MIN_NORMAL q A_ref (near-zero normal force: the ratio is meaningless).
 """
 
 import math
@@ -23,7 +25,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-CP_MIN_NORMAL = 0.01  # |C_z| below this: no centre of pressure
+CP_MIN_NORMAL = 1e-3  # |F_z(body)| / (q A_ref) below this: no centre of pressure
 MASS_WARNING = 0.1  # percent of the inlet flux
 
 Vector = tuple[float, float, float]

@@ -62,6 +62,7 @@ from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.gui.mesh_worker import MeshWorker
 from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam.run_record import RunRecord, read_run_record, write_run_record
+from vortexcfd.foam.solver_run import CRITERIA_MET
 from vortexcfd.gui import solving
 from vortexcfd.gui.solver_worker import SolverWorker
 from vortexcfd.foam.results import latest_result_time
@@ -1180,7 +1181,7 @@ class MainWindow(QMainWindow):
         self.monitors.start_run(case_dir, self._solve_stopping)
         self.top_bar.set_run_state("Solving")
         log.info("Running simpleFoam in %s", case_dir)
-        self.solver_worker.start(case_dir, timeout_s=self.solver_timeout_s)
+        self.solver_worker.start(case_dir, timeout_s=self.solver_timeout_s, stopping=self._solve_stopping)
         self._update_results_stale()
         self._update_run_button()
         self._update_mesh_button()
@@ -1203,7 +1204,8 @@ class MainWindow(QMainWindow):
             text = ""
         record = self.run_record
         self.monitors.set_stopping(project.sim.solvers.stopping)
-        self.monitors.load_run(case_dir, parse_log_text(text), (record.state, record.stopped_by, record.iterations))
+        self.monitors.load_run(case_dir, parse_log_text(text),
+                               (record.state, record.stopped_by, record.met_iteration or record.iterations))
 
     def _assign_report(self, slot: int, report_id) -> None:
         """A report slot's menu: store the assignment in the project (undoable)."""
@@ -1235,24 +1237,29 @@ class MainWindow(QMainWindow):
         self.top_bar.set_run_state(None)
         stopping = self._solve_stopping or StoppingCriteria(criteria=[])
         criteria, stopped_by = convergence.criteria_outcome(stopping, result.criteria_met)
-        self.monitors.set_outcome(result.state, stopped_by, result.iterations)
+        labels = convergence.met_labels(stopping, result.criteria_met)
+        met_at = result.met_iteration or result.iterations
+        self.monitors.set_outcome(result.state, stopped_by, met_at)
         self.monitors.end_run()
         if result.crash:
             self.console.append_error(result.crash)
         record = RunRecord(result.state, result.iterations, result.final_residuals,
-                           self._solve_hash or "", result.exit_code, criteria, stopped_by)
+                           self._solve_hash or "", result.exit_code, criteria, stopped_by, labels,
+                           result.met_iteration)
         self.run_record = record
         try:
             write_run_record(case_dir_for(self._project), record)
         except (OSError, TypeError) as exc:
             log.warning("Could not save the run record: %s", exc)
         residuals = ", ".join(f"{k} {v:.3g}" for k, v in result.final_residuals.items()) or "none"
-        text = f"Solver: {result.label} after {result.iterations} iterations"
+        text = f"Solver: {record.label} after {result.iterations} iterations"
         if stopped_by:
-            text += f" ({'; '.join(stopped_by)})"
+            at = (f" at iteration {result.met_iteration}"
+                  if result.met_iteration is not None and result.met_iteration != result.iterations else "")
+            text += f" ({'; '.join(stopped_by)}{at})"
         elif result.state == "iteration_limit" and criteria:
             text += " without meeting the stopping criteria"
-        if result.state == "converged":
+        if result.state == CRITERIA_MET:
             log.info("%s (final residuals: %s)", text, residuals)
             self.show_message(text, "success", log_it=False)
         elif result.state == "crashed":

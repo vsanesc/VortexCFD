@@ -1,23 +1,29 @@
-"""Stopping criteria as OpenFOAM runTimeControl conditions, their live evaluation, and the
+"""Stopping criteria: OpenFOAM runTimeControl conditions or the app's own evaluation, and the
 oscillation check (no Qt). [NUMERICS-REVIEW] (D-058, D-059)
 
-The stop itself is always OpenFOAM's: the runTimeControl function object
-(src/functionObjects/utilities/runTimeControl in v2606) ends the run with ``writeAndEnd`` when its
-conditions are met, so the solver writes the last iteration and exits normally. This module only
-mirrors the same formulas in Python to show each criterion's current value while the run goes on.
+Two ways to stop (D-058):
 
-v2606 conditions used (keywords read from the sources):
+- only residual criteria: OpenFOAM's own runTimeControl function object
+  (src/functionObjects/utilities/runTimeControl in v2606) ends the run with ``writeAndEnd`` when
+  its ``equationInitialResidual`` conditions are met (validated by the flat plate);
+- at least one asymptotic criterion: OpenFOAM has no range-based condition, so no runTimeControl
+  is written and the app evaluates ALL criteria after every iteration from the live data
+  (``evaluate``: residuals from the log, quantities from the postProcessing files), combines them
+  with "all" / "any" (``criteria_met``) and stops the solver with the clean stop (SIGUSR1 and
+  stopAtWriteNowSignal, D-010; foam/solver_run.py).
+
+v2606 condition used natively (keywords read from the sources):
 
 - ``equationInitialResidual`` (fields, value, mode minimum, timeStart): satisfied when the initial
   residual of the field's first solve in the iteration (a vector field: its largest component)
   is below ``value``; never before time index 3 nor before ``timeStart``.
-- ``average`` (functionObject, fields, tolerance, window, windowType exact, nIterStartUp): the mean
-  of the last ``window`` values of a function-object result (the current one included) and
-  delta = |mean - current|; satisfied when delta <= tolerance (absolute) and the condition has
-  been applied more than nIterStartUp + 2 times. Measured on a real run: nIterStartUp N first
-  allows a stop at iteration N + 3 (the condition is first applied at iteration 1).
 - grouping (``groupID``): the run stops when every condition of one group is met in the same
   iteration; "all" puts every criterion in group 1, "any" gives each criterion its own group.
+
+Asymptotic criterion (app-side): over the last W iterations (one value per iteration),
+r = (max - min) / max(|mean|, floor) <= tolerance; for a vector (a probe's U) max - min is the
+length of the vector of per-component ranges and |mean| the length of the mean vector. Evaluated
+only once W values exist and from the minimum iterations on.
 """
 
 import math
@@ -25,12 +31,9 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from vortexcfd.core.model import AsymptoticCriterion, ResidualCriterion, StoppingCriteria
-from vortexcfd.core.reports import report_label, split_part, split_probe
+from vortexcfd.core.reports import default_floor, report_label
 
 FUNCTION_NAME = "runTimeControl1"
-# forceCoeffs result names (forceCoeffs.C: setResult(coeff & "pressure") camel-cases the suffix).
-COEFF_RESULTS = {"Cd": "Cd", "Cl": "Cl", "CmPitch": "CmPitch", "Cd_pressure": "CdPressure",
-                 "Cd_viscous": "CdViscous", "Cl_pressure": "ClPressure", "Cl_viscous": "ClViscous"}
 
 
 def force_coeffs_name(patch: str | None) -> str:
@@ -42,29 +45,17 @@ def probe_function_name(name: str) -> str:
     return f"probe_{name}"
 
 
-def quantity_source(quantity: str) -> tuple[str, str]:
-    """(function object, result name) an ``average`` condition reads for the quantity: a forceCoeffs
-    result, or a probes object's "average(p)" / "average(U)" (one probe per object, so the
-    average over its probes is the probe's value; Probes.C setResult)."""
-    probe = split_probe(quantity)
-    if probe is not None:
-        return probe_function_name(probe[0]), f"average({probe[1]})"
-    base, patch = split_part(quantity)
-    return force_coeffs_name(patch), COEFF_RESULTS[base]
-
-
 def quantity_label(quantity: str) -> str:
     return report_label(quantity)
 # The equationInitialResidual condition never checks the first two time indices.
 FIRST_RESIDUAL_CHECK = 3
-# ``average``: nIterStartUp N first allows a stop at iteration N + START_UP_OFFSET (real run, D-058).
-START_UP_OFFSET = 3
 
 Series = Sequence[tuple[float, float]]  # (iteration, value)
 
 
 def condition_name(index: int, criterion) -> str:
-    """The condition's name in the runTimeControl dictionary (and in the solver log)."""
+    """The criterion's name: the runTimeControl condition name (and in the solver log), also used
+    for app-side criteria in the run record."""
     target = criterion.field if isinstance(criterion, ResidualCriterion) else criterion.quantity
     return f"c{index + 1}_{criterion.kind}_{target}"
 
@@ -74,45 +65,46 @@ def describe(criterion) -> str:
     if isinstance(criterion, ResidualCriterion):
         return f"{criterion.field} initial residual < {criterion.threshold:.3g}"
     label = quantity_label(criterion.quantity)
-    return f"{label}: |value - mean of last {criterion.window}| <= {criterion.tolerance:.3g}"
+    return (f"{label}: (max - min) / max(|mean|, {criterion.effective_floor:.3g}) over the last "
+            f"{criterion.window} <= {criterion.tolerance:.3g}")
 
 
 def short_label(criterion) -> str:
-    """A few words naming the criterion (tables; ``describe`` states it exactly)."""
+    """A few words naming the criterion (tables, the run state; ``describe`` states it exactly)."""
     if isinstance(criterion, ResidualCriterion):
         return f"{criterion.field} residual"
     return f"{quantity_label(criterion.quantity)} asymptotic"
 
 
-def n_iter_start_up(criterion: AsymptoticCriterion, min_iterations: int) -> int:
-    """nIterStartUp so that the window is full and min_iterations reached before any stop."""
-    return max(max(min_iterations, criterion.window) - START_UP_OFFSET, 0)
+def is_native(stopping: StoppingCriteria) -> bool:
+    """True when OpenFOAM's runTimeControl stops the run (only residual criteria); False when the
+    app evaluates the criteria (at least one asymptotic criterion) or there are none."""
+    return bool(stopping.criteria) and all(isinstance(c, ResidualCriterion) for c in stopping.criteria)
+
+
+def app_side(stopping: StoppingCriteria | None) -> bool:
+    """True when the app must evaluate the criteria and stop the solver itself."""
+    return stopping is not None and bool(stopping.criteria) and not is_native(stopping)
 
 
 def earliest_iteration(criterion, min_iterations: int) -> int:
-    """The first iteration at which OpenFOAM may consider the criterion met."""
+    """The first iteration at which the criterion may be considered met."""
     if isinstance(criterion, ResidualCriterion):
         return max(min_iterations, FIRST_RESIDUAL_CHECK)
-    return n_iter_start_up(criterion, min_iterations) + START_UP_OFFSET
+    return max(min_iterations, criterion.window)
 
 
 def run_time_control(stopping: StoppingCriteria) -> dict | None:
-    """The runTimeControl function object for the criteria (None without criteria)."""
-    if not stopping.criteria:
+    """The runTimeControl function object for residual-only criteria (None without criteria or
+    when an asymptotic criterion makes the app evaluate them all)."""
+    if not is_native(stopping):
         return None
     conditions: dict[str, dict] = {}
     for i, c in enumerate(stopping.criteria):
         group = 1 if stopping.combine == "all" else i + 1
-        if isinstance(c, ResidualCriterion):
-            entry = {"type": "equationInitialResidual", "fields": [c.field], "value": c.threshold,
-                     "mode": "minimum", "timeStart": stopping.min_iterations}
-        else:
-            function, result = quantity_source(c.quantity)
-            entry = {"type": "average", "functionObject": function, "fields": [result],
-                     "tolerance": c.tolerance, "window": c.window, "windowType": "exact",
-                     "nIterStartUp": n_iter_start_up(c, stopping.min_iterations)}
-        entry["groupID"] = group
-        conditions[condition_name(i, c)] = entry
+        conditions[condition_name(i, c)] = {
+            "type": "equationInitialResidual", "fields": [c.field], "value": c.threshold,
+            "mode": "minimum", "timeStart": stopping.min_iterations, "groupID": group}
     return {"type": "runTimeControl", "libs": ["utilityFunctionObjects"], "conditions": conditions,
             "satisfiedAction": "end"}
 
@@ -121,6 +113,12 @@ def criteria_outcome(stopping: StoppingCriteria, met: Sequence[str]) -> tuple[tu
     """(descriptions of all criteria, descriptions of those named in ``met``), for the run record."""
     names = {condition_name(i, c): describe(c) for i, c in enumerate(stopping.criteria)}
     return tuple(names.values()), tuple(names.get(n, n) for n in met)
+
+
+def met_labels(stopping: StoppingCriteria, met: Sequence[str]) -> tuple[str, ...]:
+    """The short labels of the criteria named in ``met`` (the run state "Criteria met: ...")."""
+    names = {condition_name(i, c): short_label(c) for i, c in enumerate(stopping.criteria)}
+    return tuple(names.get(n, n) for n in met)
 
 
 def unique_by_iteration(series: Series) -> list[tuple[float, float]]:
@@ -134,18 +132,38 @@ def unique_by_iteration(series: Series) -> list[tuple[float, float]]:
     return out
 
 
-def asymptotic_delta(series, window: int) -> float | None:
-    """|x_n - mean of the last ``window`` values| (x_n included), as the ``average`` condition
-    computes it (``mag``: for a vector the length of the difference); None until ``window`` values
-    exist."""
+def relative_range(values: Sequence, floor: float) -> float:
+    """(max - min) / max(|mean|, floor) of the values (for vectors: the length of the vector of
+    per-component ranges over the length of the mean vector)."""
+    n = len(values)
+    if isinstance(values[0], tuple):
+        comps = range(len(values[0]))
+        spread = math.sqrt(sum((max(v[i] for v in values) - min(v[i] for v in values)) ** 2 for i in comps))
+        mean = math.sqrt(sum((sum(v[i] for v in values) / n) ** 2 for i in comps))
+    else:
+        spread = max(values) - min(values)
+        mean = abs(sum(values) / n)
+    return spread / max(mean, floor)
+
+
+def asymptotic_range(series, window: int, floor: float) -> float | None:
+    """The asymptotic criterion's value over the last ``window`` iterations (relative_range);
+    None until ``window`` values exist."""
     values = [v for _, v in unique_by_iteration(series)]
     if len(values) < window:
         return None
-    last = values[-window:]
-    if isinstance(values[-1], tuple):
-        mean = [sum(v[i] for v in last) / window for i in range(len(values[-1]))]
-        return math.sqrt(sum((values[-1][i] - mean[i]) ** 2 for i in range(len(mean))))
-    return abs(values[-1] - sum(last) / window)
+    return relative_range(values[-window:], floor)
+
+
+def first_met_iteration(series, criterion: AsymptoticCriterion, min_iterations: int = 0) -> int | None:
+    """The first iteration of ``series`` at which ``criterion`` alone is met (None: never)."""
+    rows = unique_by_iteration(series)
+    w, floor = criterion.window, criterion.effective_floor
+    for i in range(w, len(rows) + 1):
+        it = rows[i - 1][0]
+        if it >= min_iterations and relative_range([v for _, v in rows[i - w:i]], floor) <= criterion.tolerance:
+            return int(it)
+    return None
 
 
 @dataclass(frozen=True)
@@ -158,6 +176,8 @@ class CriterionStatus:
     satisfied: bool
     note: str = ""  # e.g. "from iteration 50"
     label: str = ""  # short_label
+    iteration: float | None = None  # the iteration the value belongs to
+    name: str = ""  # condition_name
 
 
 def residual_value(residuals: dict[str, Series], field: str) -> tuple[float, float] | None:
@@ -175,23 +195,37 @@ def evaluate(stopping: StoppingCriteria, residuals: dict[str, Series],
              quantity: Callable[[str], Series]) -> list[CriterionStatus]:
     """The state of every criterion from the residual history and the report series."""
     out = []
-    for c in stopping.criteria:
+    for i, c in enumerate(stopping.criteria):
         earliest = earliest_iteration(c, stopping.min_iterations)
         if isinstance(c, ResidualCriterion):
             got = residual_value(residuals, c.field)
-            value, it = (got[1], got[0]) if got else (None, 0)
+            value, it = (got[1], got[0]) if got else (None, None)
             met = value is not None and value < c.threshold
             threshold = c.threshold
         else:
             series = unique_by_iteration(quantity(c.quantity))
-            value = asymptotic_delta(series, c.window)
-            it = series[-1][0] if series else 0
+            value = asymptotic_range(series, c.window, c.effective_floor)
+            it = series[-1][0] if series else None
             met = value is not None and value <= c.tolerance
             threshold = c.tolerance
-        early = it < earliest
+        early = it is None or it < earliest
         note = f"from iteration {earliest}" if early and earliest > 1 else ""
-        out.append(CriterionStatus(describe(c), value, threshold, met and not early, note, short_label(c)))
+        out.append(CriterionStatus(describe(c), value, threshold, met and not early, note, short_label(c),
+                                   it, condition_name(i, c)))
     return out
+
+
+def criteria_met(stopping: StoppingCriteria, statuses: Sequence[CriterionStatus],
+                 iteration: float) -> tuple[str, ...]:
+    """The names of the criteria that stop the run at ``iteration`` ("all": every criterion is
+    met at that iteration; "any": at least one), or () when the run goes on. A criterion whose
+    value belongs to another iteration (its file lags behind the log) is not met."""
+    met = tuple(s.name for s in statuses if s.satisfied and s.iteration == iteration)
+    if not statuses or not met:
+        return ()
+    if stopping.combine == "all" and len(met) < len(statuses):
+        return ()
+    return met
 
 
 @dataclass(frozen=True)
@@ -199,16 +233,22 @@ class Oscillation:
     """A monitored quantity that oscillates over the window without drifting."""
 
     quantity: str
-    amplitude: float  # (max - min) / |mean| over the window
+    amplitude: float  # (max - min) / max(|mean|, floor) over the window
     mean: float
+    spread: float = 0.0  # max - min
+    floor: float = 0.0
 
     def message(self) -> str:
         label = quantity_label(self.quantity)
-        return (f"{label} oscillates by {100 * self.amplitude:.2g}% - the flow may be unsteady; "
-                "a steady solution may not exist")
+        tail = " - the flow may be unsteady; a steady solution may not exist"
+        if abs(self.mean) >= self.floor:
+            return f"{label} oscillates by {100 * self.amplitude:.2g}%{tail}"
+        return (f"{label} oscillates with a range of {self.spread:.2g} around a mean near zero "
+                f"({self.mean:.2g}){tail}")
 
 
-# The relative amplitude is not evaluated when the mean is this close to zero (it is undefined).
+# Quantities without a scale floor (no criterion floor, no default): the relative amplitude is
+# not evaluated when the mean is this close to zero (it is undefined).
 MEAN_FLOOR = 1e-3
 # Not drifting: the least-squares line over the window changes by less than this fraction of
 # max - min.
@@ -225,14 +265,17 @@ def linear_change(values: Sequence[float]) -> float:
     return sxy / sxx * (n - 1)
 
 
-def oscillation(quantity: str, series: Series, window: int, threshold: float) -> Oscillation | None:
+def oscillation(quantity: str, series: Series, window: int, threshold: float,
+                floor: float | None = None) -> Oscillation | None:
     """The oscillation warning of one quantity, or None.
 
-    Over the last ``window`` values: amplitude a = (max - min) / |mean|. It is reported when
-    a > threshold and the mean is not drifting, i.e. the least-squares line through the window
-    changes by less than DRIFT_FRACTION * (max - min) (a monotonic ramp changes by about its whole
-    range; an oscillation over at least two periods by much less). Not evaluated with fewer than
-    ``window`` values or a mean below MEAN_FLOOR in magnitude.
+    Over the last ``window`` values: amplitude a = (max - min) / max(|mean|, floor), the
+    asymptotic criterion's normalisation (``floor`` None: the quantity's default,
+    core/reports.default_floor; a quantity without one is not evaluated when |mean| < MEAN_FLOOR).
+    It is reported when a > threshold and the mean is not drifting, i.e. the least-squares line
+    through the window changes by less than DRIFT_FRACTION * (max - min) (a monotonic ramp changes
+    by about its whole range; an oscillation over at least two periods by much less). Not
+    evaluated with fewer than ``window`` values.
     """
     values = [v for _, v in unique_by_iteration(series)]
     if len(values) < window or window < 2 or any(isinstance(v, tuple) for v in values[-1:]):
@@ -240,9 +283,15 @@ def oscillation(quantity: str, series: Series, window: int, threshold: float) ->
     last = values[-window:]
     mean = sum(last) / window
     spread = max(last) - min(last)
-    if not all(math.isfinite(v) for v in last) or abs(mean) < MEAN_FLOOR or spread <= 0:
+    if floor is None:
+        floor = default_floor(quantity)
+    if floor is None:
+        if abs(mean) < MEAN_FLOOR:
+            return None
+        floor = 0.0
+    if not all(math.isfinite(v) for v in last) or spread <= 0:
         return None
-    amplitude = spread / abs(mean)
+    amplitude = spread / max(abs(mean), floor)
     if amplitude <= threshold or abs(linear_change(last)) >= DRIFT_FRACTION * spread:
         return None
-    return Oscillation(quantity, amplitude, mean)
+    return Oscillation(quantity, amplitude, mean, spread, floor)

@@ -32,7 +32,8 @@ from vortexcfd.core.model import (
     ResidualCriterion,
 )
 from vortexcfd.core.model import Probe
-from vortexcfd.core.reports import PROBE_NAME_RE, criterion_quantities, missing_reference, report_label
+from vortexcfd.core.reports import (PROBE_NAME_RE, criterion_quantities, default_floor, missing_reference,
+                                    report_label)
 from vortexcfd.foam.forces import MASS_WARNING
 from vortexcfd.foam.wall_fields import case_yplus_histogram
 from vortexcfd.gui.charts import YPlusHistogramChart
@@ -210,13 +211,13 @@ STOPPING_TOOLTIPS = {
     "combine": "all: the run stops when every criterion is met in the same iteration; any: when one is",
     "min": "No criterion may stop the run before this iteration",
     "max": "The iteration limit (endTime): always applies",
-    "osc_threshold": "Warn when a monitored quantity's (max - min) / |mean| over the window exceeds this "
-                     "while its mean is not drifting (a warning only, never a stop)",
+    "osc_threshold": "Warn when a monitored quantity's (max - min) / max(|mean|, floor) over the window "
+                     "exceeds this while its mean is not drifting (a warning only, never a stop)",
     "osc_window": "Iterations over which the oscillation is measured",
     "residual": "Stop when the initial residual of the field (U: its largest component) falls below the "
                 "threshold (runTimeControl equationInitialResidual)",
-    "asymptotic": "Stop when |value - mean of the last N values| <= tolerance, in the quantity's units "
-                  "(runTimeControl average, exact window)",
+    "asymptotic": "Stop when (max - min) / max(|mean|, floor) over the last N iterations <= tolerance "
+                  "(evaluated by the app, which then stops the solver cleanly)",
 }
 NO_CRITERIA = "No criteria: the run stops at the iteration limit"
 
@@ -1136,6 +1137,7 @@ class PropertiesPanel(QWidget):
                     combo.setCurrentIndex(combo.findData(c.quantity))
                     row["window"].setValue(c.window)
                     row["tolerance"].setValue(c.tolerance)
+                    row["floor"].setValue(c.effective_floor)
                 row["earliest"].setText(f"iteration {earliest_iteration(c, stop.min_iterations)}")
         finally:
             for w in widgets:
@@ -1188,8 +1190,8 @@ class PropertiesPanel(QWidget):
             self._criterion_row(f"{i + 1} \u00b7 {'Residual' if kind == 'residual' else 'Asymptotic'}", remove)
             earliest = QLabel()
             earliest.setObjectName("checkValue")
-            earliest.setToolTip("The first iteration at which OpenFOAM may consider this criterion: the minimum "
-                                "iterations, the full window, and never before iteration 3")
+            earliest.setToolTip("The first iteration at which this criterion may be met: the minimum iterations "
+                                "and the full window (residuals: never before iteration 3)")
             widgets: dict[str, QWidget] = {"remove": remove, "earliest": earliest}
             if kind == "residual":
                 field = _combo(RESIDUAL_FIELDS)
@@ -1206,14 +1208,20 @@ class PropertiesPanel(QWidget):
                     quantity.addItem(report_label(q), q)
                 window = _spin(2, 10_000_000, " it.")
                 tolerance = _sci()
-                tolerance.setToolTip("Absolute, in the quantity's units: |value - window mean| <= tolerance")
+                tolerance.setToolTip("Relative: (max - min) / max(|mean|, floor) over the window <= tolerance")
+                floor = _sci()
+                floor.setToolTip("Scale floor of the relative range, in the quantity's units: |mean| is replaced by "
+                                 "it when smaller (default 0.01 for force and moment coefficients; probes: set it, "
+                                 "suggested 1% of the free-stream dynamic pressure or speed)")
                 self._criterion_row("Quantity", quantity)
                 self._criterion_row("Window", window)
                 self._criterion_row("Tolerance", tolerance)
+                self._criterion_row("Scale floor", floor)
                 quantity.currentIndexChanged.connect(lambda _i, n=i: self._commit_criterion(n, "quantity"))
                 window.editingFinished.connect(lambda n=i: self._commit_criterion(n, "window"))
                 tolerance.editingFinished.connect(lambda n=i: self._commit_criterion(n, "tolerance"))
-                widgets.update(quantity=quantity, window=window, tolerance=tolerance)
+                floor.editingFinished.connect(lambda n=i: self._commit_criterion(n, "floor"))
+                widgets.update(quantity=quantity, window=window, tolerance=tolerance, floor=floor)
             _wrap(earliest)
             self._criterion_row("Earliest stop", earliest)
             self.criterion_widgets.append(widgets)
@@ -1262,8 +1270,16 @@ class PropertiesPanel(QWidget):
 
         def mutate(d: dict) -> None:
             d["criteria"][index][key] = value
+            if key == "quantity":  # the floor is in the quantity's units: start from its default
+                d["criteria"][index]["floor"] = None if default_floor(value) is not None else self._probe_floor(value)
 
         self._edit_stopping(mutate)
+
+    def _probe_floor(self, quantity: str) -> float:
+        """Suggested scale floor of a probe criterion: 1% of the free-stream dynamic pressure
+        (kinematic, 0.5 U^2) for p, 1% of the free-stream speed for U."""
+        speed = self._project.sim.inflow.speed
+        return 0.01 * (0.5 * speed ** 2 if quantity.endswith(":p") else speed)
 
     def _add_criterion(self, kind: str) -> None:
         """Add a criterion with defaults: a p residual of 1e-4, or an asymptotic Cd criterion."""
@@ -1466,7 +1482,7 @@ class PropertiesPanel(QWidget):
         if not show or record is None:
             return
         self.run_state.setText(record.label)
-        self._set_warn(self.run_state, record.state != "converged")
+        self._set_warn(self.run_state, record.state != "criteria_met")
         self.run_iterations.setText(str(record.iterations))
         residuals = ", ".join(f"{k} {v:.3g}" for k, v in record.final_residuals.items())
         self.run_residuals.setText(residuals or "\u2014")

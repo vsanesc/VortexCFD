@@ -67,6 +67,19 @@ def is_criterion_quantity(quantity: str) -> bool:
     return probe is not None and probe[1] in PROBE_CRITERION_COMPONENTS
 
 
+# Scale floor of the relative range (max - min) / max(|mean|, floor) for force and moment
+# coefficients: a coefficient whose mean is near zero (Cl of a symmetric body) is judged against
+# 0.01 instead (D-058, D-059). Probes have no natural scale: their floor is set by the user.
+COEFFICIENT_FLOOR = 0.01
+
+
+def default_floor(quantity: str) -> float | None:
+    """The floor of the relative range for ``quantity``: COEFFICIENT_FLOOR for a force or moment
+    coefficient (all walls or one part), None for anything else (no natural scale)."""
+    base, _patch = split_part(quantity)
+    return COEFFICIENT_FLOOR if base in FORCE_COEFFS + BREAKDOWN else None
+
+
 def report_label(report_id: str) -> str:
     base, patch = split_part(report_id)
     if patch is not None:

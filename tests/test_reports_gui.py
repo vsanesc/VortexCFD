@@ -65,7 +65,7 @@ def test_two_parts_columns_and_slot_options(make_window) -> None:
     _load(w, DATA / "two_parts_run")
     t = w.properties.forces_table
     assert [r.name for r in t.rows] == ["All walls", "Ball", "Pod"]
-    assert t.text("cd", "Pod") == "0.0179" and t.text("x_cp", "Ball") == "undefined"
+    assert t.text("cd", "Pod") == "0.0179" and t.text("x_cp", "Pod") == "1.505 m"
     labels = [a.text() for a in w.monitors.kpis.slot_actions(1)]
     assert "Cd (Pod)" in labels and "x_cp (m) (Ball)" in labels
     next(a for a in w.monitors.kpis.slot_actions(1) if a.text() == "Cd viscous (Ball)").trigger()
@@ -117,7 +117,7 @@ def test_probe_values_reach_a_slot(make_window) -> None:
                              slots=["probe:wake:p", "probe:wake:Ux", "mass_imbalance"])
     _load(w, DATA / "breakdown_run")
     values = w.monitors.kpis.values
-    assert (values[1].text(), values[2].text(), values[3].text()) == ("20.41", "13.97", "0")
+    assert (values[1].text(), values[2].text(), values[3].text()) == ("21.78", "14.27", "0")
 
 
 def test_mass_imbalance_warning_in_the_monitors(make_window) -> None:

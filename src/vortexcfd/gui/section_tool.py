@@ -17,11 +17,11 @@ from PySide6.QtWidgets import (
 )
 
 from vortexcfd.gui.charts import LineChart
-from vortexcfd.gui.sections import AXES, Section, cut_section, export_csv, stations
+from vortexcfd.gui.sections import AXES, NEGATIVE_SIDES, Section, cut_section, export_csv, stations
 from vortexcfd.gui.theme import DARK, Theme, residual_style
 
-# Section colours cycle through the residual chart's three hue families (D-049); upper solid, lower
-# dashed (a single line: solid).
+# Section colours cycle through the residual chart's three hue families (D-049); the positive side
+# (upper, +y side) solid, the negative side (lower, -y side) dashed (a single line: solid).
 _COLOURS = ("p", "Ux", "k")
 
 
@@ -120,7 +120,7 @@ class SectionTool(QDialog):
         for i, s in enumerate(self.sections):
             colour = _colour(self._theme, i)
             for line in s.lines:
-                style = "DashLine" if line.surface == "lower" else "SolidLine"
+                style = "DashLine" if line.surface.startswith(NEGATIVE_SIDES) else "SolidLine"
                 name = s.label if line.surface == "all" else f"{s.label} {line.surface}"
                 series.append((name, colour, style, list(zip(line.x_c.tolist(), line.cp.tolist()))))
         self.chart.set_series(series)

@@ -512,7 +512,7 @@ def test_successful_mesh_removes_the_previous_results(make_window, fake_run) -> 
     w.top_bar.mesh_button.click()  # writes the marker-protected case
     (case / "60").mkdir()
     (case / "postProcessing" / "forceCoeffs1" / "0").mkdir(parents=True)
-    write_run_record(case, RunRecord("converged", 60, {"p": 1e-5}, "old", 0))
+    write_run_record(case, RunRecord("criteria_met", 60, {"p": 1e-5}, "old", 0))
     fake_run.instances[-1].finish(MeshRunResult(True, False, exit_codes={}, report=_ready_report()))
     assert not (case / "60").exists() and not (case / "postProcessing").exists()
     assert not (case / "vortexcfd_run.json").exists() and (case / "system" / "snappyHexMeshDict").is_file()

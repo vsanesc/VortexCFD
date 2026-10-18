@@ -19,7 +19,8 @@ from vortexcfd.core.reports import (
     missing_reference,
     report_label,
 )
-from vortexcfd.foam.convergence import asymptotic_delta, quantity_source, run_time_control
+from vortexcfd.foam.dictfile import read_foam_file
+from vortexcfd.foam.convergence import asymptotic_range, evaluate, relative_range, run_time_control
 from vortexcfd.foam.forces import (
     CP_MIN_NORMAL,
     CoeffAxes,
@@ -115,7 +116,8 @@ def test_function_objects_for_breakdown_mass_wall_shear_and_probes() -> None:
         "executeControl": "writeTime", "writeControl": "writeTime"}
     assert functions["probe_wake"] == {
         "type": "probes", "libs": ["sampling"], "fields": ["p", "U"], "probeLocations": [[2.0, 0.0, 0.1]],
-        "sampleOnExecute": True, "writeControl": "timeStep", "writeInterval": 1}
+        "interpolationScheme": "cellPoint", "sampleOnExecute": True, "writeControl": "timeStep",
+        "writeInterval": 1}
     two = build_solver_files(_inp(patches=("Ball", "Pod")))["system/controlDict"].content["functions"]
     for name in ("forceCoeffs_Ball", "forces_Ball", "forceCoeffs_Pod", "forces_Pod"):
         assert name in two
@@ -141,28 +143,24 @@ def test_new_function_objects_use_the_v2606_keywords() -> None:
         for key in set(fo) - generic:
             assert f'"{key}"' in text, (fo["type"], key)
     assert '"sum"' in (FOAM_SRC / sources["surfaceFieldValue"][0]).read_text()
+    # the probes' interpolation scheme is a registered v2606 interpolation type
+    cell_point = FOAM_SRC / "finiteVolume/interpolation/interpolation/interpolationCellPoint/interpolationCellPoint.H"
+    assert f'TypeName("{functions["probe_w"]["interpolationScheme"]}")' in cell_point.read_text()
     assert '"patch"' in (FOAM_SRC / sources["surfaceFieldValue"][0]).read_text()
 
 
-def test_criteria_on_part_coefficients_and_probes_read_their_function_objects() -> None:
-    assert quantity_source("Cd") == ("forceCoeffs1", "Cd")
-    assert quantity_source("Cl_viscous") == ("forceCoeffs1", "ClViscous")  # forceCoeffs.C: coeff & "viscous"
-    assert quantity_source("Cd_pressure@Pod") == ("forceCoeffs_Pod", "CdPressure")
-    assert quantity_source("probe:wake:p") == ("probe_wake", "average(p)")  # Probes.C setResult
-    assert quantity_source("probe:wake:U") == ("probe_wake", "average(U)")
-    stop = StoppingCriteria(criteria=[AsymptoticCriterion(quantity="probe:wake:U", window=10, tolerance=0.01)])
-    cond = run_time_control(stop)["conditions"]["c1_asymptotic_probe:wake:U"]
-    assert (cond["functionObject"], cond["fields"]) == ("probe_wake", ["average(U)"])
-
-
-@pytest.mark.skipif(not FOAM_SRC.is_dir(), reason="OpenFOAM v2606 sources not installed")
-def test_result_names_are_those_v2606_sets() -> None:
-    text = (FOAM_SRC / "functionObjects/forces/forceCoeffs/forceCoeffs.C").read_text()
-    assert 'setResult(coeffName & "pressure"' in text and 'setResult(coeffName & "viscous"' in text
-    word = (FOAM_SRC / "OpenFOAM/primitives/strings/word/word.C").read_text()
-    assert "camelCase[a.size()] = char(toupper(b[0]));" in word  # Cd & pressure = CdPressure
-    assert 'this->setResult("average(" + fieldName + ")", avgVal);' in (
-        FOAM_SRC / "sampling/probes/Probes/Probes.C").read_text()
+def test_criteria_on_part_coefficients_and_probes_are_evaluated_by_the_app(tmp_path: Path) -> None:
+    """An asymptotic criterion on a part coefficient or a probe is not a runTimeControl condition
+    (D-058): the app evaluates it from the files of the run (here the real two-part and
+    breakdown runs)."""
+    stop = StoppingCriteria(criteria=[AsymptoticCriterion(quantity="Cd_pressure@Pod", window=5),
+                                      AsymptoticCriterion(quantity="probe:wake:U", window=5, floor=0.2)])
+    assert run_time_control(stop) is None
+    two, run = _monitor(tmp_path / "a", TWO), _monitor(tmp_path / "b", RUN)
+    pod, wake = evaluate(stop, {}, lambda q: two.series(q) if "@" in q else run.series(q))
+    assert pod.iteration == 30.0 and pod.value == pytest.approx(
+        asymptotic_range(two.series("Cd_pressure@Pod"), 5, 0.01))
+    assert wake.iteration == 300.0 and wake.value is not None
 
 
 def test_readiness_flags_a_criterion_on_a_missing_probe(tmp_path: Path) -> None:
@@ -175,7 +173,7 @@ def test_readiness_flags_a_criterion_on_a_missing_probe(tmp_path: Path) -> None:
     p = Project.new("r")
     p.add_part(Part(name="Ball", source_file="geometry/b.stl"))
     p.save(tmp_path / "p.json")
-    stop = StoppingCriteria(criteria=[AsymptoticCriterion(quantity="probe:gone:p")])
+    stop = StoppingCriteria(criteria=[AsymptoticCriterion(quantity="probe:gone:p", floor=2.0)])
     p.update_solver(stopping=stop.model_dump())
     assert physics_problem(p) == "Stopping criterion 1 watches Probe gone p: no probe 'gone'."
     p.update_reports(probes=[Probe(name="gone", location=(2, 0, 0)).model_dump()])
@@ -204,7 +202,7 @@ def test_sphere_breakdown_matches_force_coeffs(tmp_path: Path) -> None:
     assert row.cd_pressure == pytest.approx(0.16044, abs=1e-5) and row.cd_viscous == pytest.approx(0.011652, abs=1e-6)
     assert row.cd_pressure + row.cd_viscous == pytest.approx(row.cd)
     assert row.cl_pressure + row.cl_viscous == pytest.approx(row.cl)
-    # x_cp = x_CofR - M_y / F_z: |C_z| = 0.030 >= 0.01 so it is defined
+    # x_cp = x_CofR - M_y / F_z(body): |C_z| = 0.030 >= 0.001 so it is defined
     assert row.x_cp == pytest.approx(-0.0040227, abs=1e-6)
     assert m.series("Cd_viscous")[-1] == (300.0, pytest.approx(0.011652, abs=1e-6))
     assert len(m.series("Cd_pressure")) == 300  # the last row (repeated by writeAndEnd? no: endTime) once
@@ -212,7 +210,7 @@ def test_sphere_breakdown_matches_force_coeffs(tmp_path: Path) -> None:
 
 def test_two_part_breakdown_per_part(tmp_path: Path) -> None:
     """Real two-part run (Ball + Pod, alpha 4 deg): each part's projected forces reproduce its own
-    forceCoeffs object, the parts add up to all walls, and x_cp is undefined (|C_z| < 0.01)."""
+    forceCoeffs object and the parts add up to all walls."""
     m = _monitor(tmp_path, TWO)
     assert m.part_keys() == ["Ball", "Pod"]
     rows = {r.name: r for r in m.breakdown_rows()}
@@ -225,9 +223,32 @@ def test_two_part_breakdown_per_part(tmp_path: Path) -> None:
     for attr in ("cd", "cd_pressure", "cd_viscous", "cl", "cm"):
         assert getattr(rows["Ball"], attr) + getattr(rows["Pod"], attr) == pytest.approx(
             getattr(rows["All walls"], attr), abs=1e-7)  # separate reductions: 1.6e-8 apart
-    assert all(r.x_cp is None for r in rows.values())
     assert m.series("Cd@Pod")[-1] == (30.0, pytest.approx(0.01790015))
-    assert m.series("x_cp@Ball") and m.series("x_cp@Ball")[-1][0] < 30  # undefined once |C_z| < 0.01
+
+
+def test_centre_of_pressure_in_body_axes_at_alpha_4(tmp_path: Path) -> None:
+    """Real two-part run at alpha = 4 deg (tests/data/two_parts_run, iteration 30): x_cp = x_CofR -
+    M_y / F_z(body); the app turns the free stream, not the body, so F_z(body) is the global z
+    force. By hand from force.dat / moment.dat (CofR x 0.6252914, q A_ref = 0.5 1.225 20^2 2.24301):
+    each sphere's centre of pressure lies at its own centre (Ball at x = 0, Pod at x = 1.5), as it
+    must for a sphere; the lift-normal definition would not give that at 4 deg."""
+    m = _monitor(tmp_path, TWO)
+    rows = {r.name: r for r in m.breakdown_rows()}
+    q_a = 0.5 * 1.225 * 20.0 ** 2 * 2.243010
+    hand = {"All walls": (-3.374339, -3.484443), "Ball": (-2.692395, -4.259943), "Pod": (-0.6819434, 0.7755001)}
+    for name, (m_y, f_z) in hand.items():
+        assert abs(f_z) / q_a >= CP_MIN_NORMAL == 1e-3  # Pod: 0.0014, defined
+        assert rows[name].x_cp == pytest.approx(0.6252914 - m_y / f_z, abs=1e-5)
+    assert rows["Ball"].x_cp == pytest.approx(-0.00673, abs=1e-4)
+    assert rows["Pod"].x_cp == pytest.approx(1.50465, abs=1e-4)
+    # with the lift direction as the normal (the alternative of docs/QUESTIONS.md item 63) the
+    # Pod's centre of pressure would move 0.7 m away from the sphere
+    lift = (-6.975647e-02, 0.0, 9.975641e-01)
+    f_lift = 9.806599 * lift[0] + 0.7755001 * lift[2]
+    assert abs((0.6252914 - (-0.6819434) / f_lift) - 1.50465) > 0.5
+    # undefined below the threshold: iteration 5, where the Ball's F_z = 0.3675 N changes sign
+    # (0.3675 / 549.5 = 6.7e-4 < 1e-3)
+    assert 5.0 not in {t for t, _ in m.series("x_cp@Ball")} and len(m.series("x_cp@Ball")) == 29
 
 
 def test_breakdown_and_centre_of_pressure_hand_values() -> None:
@@ -319,40 +340,51 @@ def test_yplus_histogram_of_the_real_sphere_field(tmp_path: Path) -> None:
 
 
 def test_probe_series_from_the_real_files(tmp_path: Path) -> None:
+    """Probes interpolated with cellPoint (the fixture's controlDict). Upstream of the sphere on the
+    stagnation line the total pressure is the free stream's: p + |U|^2 / 2 = 20^2 / 2 = 200 m2/s2
+    (198.9 here; the cell values of the previous fixture gave 199.6 with p 42.72 instead of 49.53)."""
+    control = read_foam_file(RUN / "system" / "controlDict")["functions"]
+    assert control["probe_wake"]["interpolationScheme"] == control["probe_front"]["interpolationScheme"] == "cellPoint"
     m = _monitor(tmp_path, RUN)
-    assert m.series("probe:wake:p")[-1] == (300.0, 20.4072) and len(m.series("probe:wake:p")) == 300
-    assert m.series("probe:front:p")[-1] == (300.0, 42.7191)
-    assert m.series("probe:wake:U")[-1] == (300.0, (13.9701, 0.462082, 2.20037))
-    assert m.series("probe:wake:Uz")[-1] == (300.0, 2.20037)
-    assert m.series("probe:wake:Umag")[-1][1] == pytest.approx(np.linalg.norm([13.9701, 0.462082, 2.20037]))
+    assert m.series("probe:wake:p")[-1] == (300.0, 21.7841) and len(m.series("probe:wake:p")) == 300
+    assert m.series("probe:front:p")[-1] == (300.0, 49.5309)
+    assert m.series("probe:wake:U")[-1] == (300.0, (14.2693, 0.389491, 1.21209))
+    assert m.series("probe:wake:Uz")[-1] == (300.0, 1.21209)
+    assert m.series("probe:wake:Umag")[-1][1] == pytest.approx(np.linalg.norm([14.2693, 0.389491, 1.21209]))
+    front_u = np.array(m.series("probe:front:U")[-1][1])
+    assert 49.5309 + 0.5 * front_u @ front_u == pytest.approx(200.0, rel=0.01)
     assert m.series("probe:absent:p") == []
-    # an asymptotic criterion on U uses the length of the vector difference (the average condition's mag)
+    # an asymptotic criterion on U: the length of the per-component ranges over |mean vector|
     u = m.series("probe:wake:U")
     last = np.array([v for _, v in u[-5:]])
-    assert asymptotic_delta(u, 5) == pytest.approx(np.linalg.norm(last[-1] - last.mean(axis=0)))
+    expected = np.linalg.norm(last.max(axis=0) - last.min(axis=0)) / max(np.linalg.norm(last.mean(axis=0)), 0.2)
+    assert asymptotic_range(u, 5, 0.2) == pytest.approx(expected)
+    assert relative_range([v for _, v in u[-5:]], 0.2) == pytest.approx(expected)
     with pytest.raises(KeyError):
         m.series("bogus")
 
 
 @pytest.mark.slow
 def test_probe_criterion_stops_simplefoam_on_the_session_mesh(sphere_mesh, tmp_path: Path) -> None:
-    """runTimeControl reads a probe's result: an asymptotic criterion on probe p with a loose
-    tolerance stops simpleFoam at its earliest iteration (window 6 -> iteration 6)."""
+    """An asymptotic criterion on probe p with a loose tolerance is met at its earliest iteration
+    (window 6 -> iteration 6) from the probe's file; the app stops simpleFoam cleanly, which
+    runs and writes iteration 8 (the signal applies at the next time increment)."""
     from vortexcfd.core.model import Inflow, Physics
     from vortexcfd.foam.case_writer import enable_clean_stop
     from vortexcfd.foam.dictfile import write_foam_file
     from vortexcfd.foam.physics_case import SolverCaseInput, build_solver_files
-    from vortexcfd.foam.solver_run import CONVERGED, SolverRun
+    from vortexcfd.foam.solver_run import CRITERIA_MET, SolverRun
 
     case = tmp_path / "case"
     shutil.copytree(sphere_mesh.case_dir, case)
-    stop = StoppingCriteria(criteria=[AsymptoticCriterion(quantity="probe:wake:p", window=6, tolerance=1e3)])
+    stop = StoppingCriteria(criteria=[AsymptoticCriterion(quantity="probe:wake:p", window=6, tolerance=1e3,
+                                                          floor=2.0)])
     inp = SolverCaseInput(Physics(), Inflow(), Solvers(iterations=40, write_interval=40, stopping=stop),
                           sphere_mesh.inputs.parts, sphere_mesh.inputs.parts_bounds, False,
                           Reports(probes=[Probe(name="wake", location=(1.5, 0.0, 0.0))]))
     for rel, spec in enable_clean_stop(build_solver_files(inp)).items():
         write_foam_file(case / rel, spec.content, object_name=Path(rel).name, class_name=spec.class_name)
-    run = SolverRun(case, timeout_s=110)
+    run = SolverRun(case, timeout_s=110, stopping=stop)
     run.start()
     try:
         result = run.wait(115)
@@ -360,9 +392,10 @@ def test_probe_criterion_stops_simplefoam_on_the_session_mesh(sphere_mesh, tmp_p
         if run.is_running():
             run.request_stop()
             run.wait(30)
-    assert result is not None and result.state == CONVERGED and result.iterations == 6
-    assert result.criteria_met == ("c1_asymptotic_probe:wake:p",)
+    assert result is not None and result.state == CRITERIA_MET and result.exit_code == 0
+    assert result.criteria_met == ("c1_asymptotic_probe:wake:p",) and result.met_iteration == 6
+    assert result.iterations == 8 and (case / "8" / "U").is_file()
     monitor = ReportMonitor(case)
     monitor.poll()
-    assert len({t for t, _ in monitor.series("probe:wake:p")}) == 6
+    assert len({t for t, _ in monitor.series("probe:wake:p")}) == 8
     assert monitor.mass_balance() is not None and monitor.breakdown_rows()[0].name == "All walls"

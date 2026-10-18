@@ -22,12 +22,13 @@ class SolverWorker(QObject):
         self.runner_factory = runner_factory  # tests replace it with a fake runner
         self._run: SolverRun | None = None
 
-    def start(self, case_dir: Path, timeout_s: float | None = None) -> None:
+    def start(self, case_dir: Path, timeout_s: float | None = None, stopping=None) -> None:
+        """``stopping``: the run's StoppingCriteria (evaluated by SolverRun when OpenFOAM cannot)."""
         if self.is_running():
             raise RuntimeError("the solver is already running")
         self._run = SolverRun(
             case_dir, on_line=self.line.emit, on_step=self.step.emit, on_done=self.finished.emit,
-            timeout_s=timeout_s, runner_factory=self.runner_factory,
+            timeout_s=timeout_s, runner_factory=self.runner_factory, stopping=stopping,
         )
         self._run.start()
 

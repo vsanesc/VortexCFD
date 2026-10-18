@@ -1,31 +1,31 @@
 # Status
 
-Updated 2026-10-17 (Task 6.1 done). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
+Updated 2026-10-18 (Task 6.1 review fixes). Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every
 task (CLAUDE.md).
 
 ## Current branch
 
 **task/6.1-monitors** (not yet published; Task 6.2 was merged in PR #14). Done on it:
 - Part A (D-058, D-059; schema v6): stopping criteria under Solvers (residual and asymptotic criteria,
-  "all"/"any", minimum iterations; the iteration limit always applies) written as OpenFOAM's
-  runTimeControl function object (residualControl is no longer written); a Stopping Criteria node;
+  "all"/"any", minimum iterations; the iteration limit always applies); a Stopping Criteria node;
   a convergence banner and a per-criterion table (value, threshold, satisfied) in the monitors
-  column; the oscillation warning. Real run: an asymptotic criterion on Cd stopped simpleFoam at
-  iteration 49 of 150 on the coarse sphere.
+  column; the oscillation warning.
 - Part B (D-060, D-061): Cd and Cl split into pressure and viscous parts per part and in total, Cm,
   centre of pressure, mass balance (warning above 0.1 %), probes (reports and asymptotic criteria),
   wallShearStress written at write times, Cf and Cf_x in the Results Scene with a separation
   highlight, and the y+ histogram on the Reports & Monitors node.
 - Part C (D-062): Sections tool in the Results Scene: Cp against x/c on y or z wall sections (one position
-  or N stations), upper and lower surfaces, CSV export.
+  or N stations), two branches per loop, CSV export.
+- Review fixes (2026-10-18, D-058 to D-062 Accepted; docs/QUESTIONS.md items 60-65 closed): the
+  asymptotic criterion is (max - min) / max(|mean|, floor) over the window, evaluated by the app,
+  which stops the solver with the clean stop (residual-only criteria keep runTimeControl); the
+  oscillation check uses the same normalisation; the end state is "Criteria met: <names>" (old
+  records migrated); x_cp in body axes with a 1e-3 threshold; probes interpolated with cellPoint;
+  sections ordered along the cut and split at min/max x. Real run: Cd (window 20, 2 %) met at
+  iteration 144 on the coarse sphere, run ended cleanly at 146.
 
-Open: docs/QUESTIONS.md items 60 (the asymptotic tolerance is absolute; the test can be met by chance),
-61 (oscillation around a zero mean is not flagged), 62 (run state label), 63 (x_cp axes), 64 (probe
-interpolation) and 65 (z sections drawn as one line).
-
-Task 6.1 is complete on this branch (Parts A to D). Next steps (docs/PLAN.md): a mesh independence
-study workflow with the GCI (6.4), an angle-of-attack sweep for polars (6.5), parallel runs with
-mpirun (6.6).
+Task 6.1 is complete on this branch. Next steps (docs/PLAN.md): parallel runs with mpirun (6.6), a
+mesh independence study workflow with the GCI (6.4), an angle-of-attack sweep for polars (6.5).
 
 ## Phases
 
@@ -56,7 +56,7 @@ mpirun (6.6).
 | 5.3 | M3: alternative volume mesher | not started (cfMesh build spike pending) |
 | 5.4 | M4: prism layer robustness | not started |
 | 5.5 | M5: own mesher (go/no-go) | not started |
-| 6.1 | Monitors and reports | done: report slots with Cd, Cl, Cm pitch and wall y+ (D-048); reference values (D-047); stopping criteria through runTimeControl, convergence banner and oscillation warning (D-058, D-059); force breakdown, x_cp, mass balance, probes (D-060) |
+| 6.1 | Monitors and reports | done: report slots with Cd, Cl, Cm pitch and wall y+ (D-048); reference values (D-047); stopping criteria (runTimeControl for residuals, app-side range-based asymptotic criterion), convergence banner and oscillation warning (D-058, D-059); force breakdown, body-axis x_cp, mass balance, cellPoint probes (D-060) |
 | 6.2 | Scenes and derived parts | Cp along wall sections with CSV export (D-062); Cf / Cf_x and separation highlight (D-061); scalar scenes done (D-053): field/colormap/range selection, scalar bar, section; scene saving, image export, iso-surfaces and streamlines not started |
 | 6.3 | Data export and reports | not started (section CSV export only, D-062) |
 | 6.4 | Mesh independence study (GCI) | not started |

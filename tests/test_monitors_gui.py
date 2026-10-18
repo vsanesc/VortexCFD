@@ -306,7 +306,7 @@ def test_end_to_end_solver_run_on_the_shared_sphere_mesh(sphere_mesh, qtbot: QtB
             qtbot.waitUntil(lambda: not w.solver_worker.is_running(), timeout=30_000)
     record = w.run_record
     assert record.exit_code == 0, (case / "log.simpleFoam").read_text()[-1500:]
-    assert record.state in ("converged", "iteration_limit") and record.iterations == 60
+    assert record.state in ("criteria_met", "iteration_limit") and record.iterations == 60
     assert any(l.startswith("Time = 60") for l in lines) and any("Solving for p" in l for l in lines)
     assert len(w.monitors.history.series["p"]) == 60
     cd = w.monitors.reports.series("Cd")

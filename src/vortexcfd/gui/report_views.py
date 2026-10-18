@@ -15,7 +15,9 @@ FORCE_TABLE_ROWS = (
     ("cl_pressure", "Cl,p", "Pressure lift coefficient", "{:.4g}"),
     ("cl_viscous", "Cl,v", "Viscous lift coefficient", "{:.4g}"),
     ("cm", "Cm", "Pitching moment coefficient about CofR (pitch axis +y)", "{:.4g}"),
-    ("x_cp", "x_cp", "Centre of pressure along x: x_CofR - M_y / F_z", "{:.4g} m"),
+    ("x_cp", "x_cp", "Centre of pressure along the body x axis: x_CofR - M_y / F_z(body); body axes = the "
+     "geometry axes (the free stream turns with alpha, the body does not); undefined when |F_z(body)| < "
+     "0.001 q A_ref", "{:.4g} m"),
 )
 UNDEFINED = "undefined"  # x_cp with a near-zero normal force
 
@@ -66,7 +68,8 @@ class ForcesTable(QWidget):
                 cell = self._label(UNDEFINED if value is None else fmt.format(value))
                 cell.setAlignment(Qt.AlignmentFlag.AlignRight)
                 if value is None:
-                    cell.setToolTip("Centre of pressure undefined: the normal force is near zero (|C_z| < 0.01)")
+                    cell.setToolTip("Centre of pressure undefined: the body normal force is near zero "
+                                    "(|F_z(body)| < 0.001 q A_ref)")
                 self._add(cell, r, col)
                 self.cells[(attr, row.name)] = cell
         self.grid.setColumnStretch(0, 1)

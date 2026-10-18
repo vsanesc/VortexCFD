@@ -417,11 +417,11 @@ def banner_for(state: str | None, stopped_by: tuple[str, ...], iterations: int |
     """(text, colour state) of the convergence banner for a run state (None: running)."""
     if state is None:
         return BANNER_RUNNING, None
-    if state == "converged":
+    if state == "criteria_met":
         at = f" at iteration {iterations}" if iterations else ""
         if stopped_by:
             return f"Criteria met{at}: " + "; ".join(stopped_by), "ok"
-        return f"Converged{at} (SIMPLE residual control)", "ok"
+        return f"Criteria met{at}: SIMPLE residual control", "ok"
     if state == "iteration_limit":
         return BANNER_LIMIT, "warn"
     if state == "stopped":
@@ -664,8 +664,10 @@ class MonitorsPanel(QWidget):
             banner = banner_for(*self.outcome)
         warnings = []
         if stop is not None and self.reports is not None:
+            floors = {c.quantity: c.effective_floor for c in stop.criteria if isinstance(c, AsymptoticCriterion)}
             for name in self.monitored_quantities():
-                osc = oscillation(name, series_of(name), stop.oscillation_window, stop.oscillation_threshold)
+                osc = oscillation(name, series_of(name), stop.oscillation_window, stop.oscillation_threshold,
+                                  floors.get(name))
                 if osc is not None:
                     warnings.append(osc.message())
         if self.reports is not None:

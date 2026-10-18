@@ -178,6 +178,8 @@ functions
     
         probeLocations ((1.5 0.0 0.0));
     
+        interpolationScheme cellPoint;
+    
         sampleOnExecute yes;
     
         writeControl timeStep;
@@ -194,6 +196,8 @@ functions
         fields (p U);
     
         probeLocations ((-1.0 0.0 0.0));
+    
+        interpolationScheme cellPoint;
     
         sampleOnExecute yes;
     

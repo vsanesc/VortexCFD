@@ -159,12 +159,12 @@ def test_run_streams_through_signals_and_converges(make_window, qtbot: QtBot) ->
     wait_done(qtbot, w)
     assert all(t is w.thread() for t in threads)  # slots ran in the GUI thread
     record = w.run_record
-    assert record.state == "converged" and record.iterations == 3
+    assert record.state == "criteria_met" and record.iterations == 3
     assert record.final_residuals["p"] == pytest.approx(0.1)
     assert w.top_bar.run_button.text() == "Run Solver" and w.top_bar.run_button.isEnabled()
     assert w.top_bar.state_badge.text() in ("Saved", "Modified")
     assert w.top_bar.mesh_button.isEnabled()
-    assert "Converged after 3 iterations" in w.statusBar().currentMessage()
+    assert "Criteria met after 3 iterations" in w.statusBar().currentMessage()
     saved = read_run_record(case)
     assert saved == record and saved.inputs_hash == solving.results_hash(w.project)
 

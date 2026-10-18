@@ -23,7 +23,7 @@ def _select(w, kind: str) -> None:
 def _stop_lines(*names: str) -> list[str]:
     """runTimeControl's lines when its conditions are met (format of tests/data/stop_run)."""
     lines = ["runTimeControl runTimeControl1 output:\n"]
-    lines += [f"    average: {n} condition satisfied\n" for n in names]
+    lines += [f"    equationInitialResidual: {n} condition satisfied\n" for n in names]
     return lines + ["    Stopping calculation\n", "    Writing fields\n", "\n", "End\n"]
 
 
@@ -69,9 +69,10 @@ def test_add_edit_and_remove_criteria(make_window) -> None:
     p = w.properties
     p.stop_add_asymptotic.click()
     stop = w.project.sim.solvers.stopping
-    assert stop.criteria[-1] == AsymptoticCriterion(quantity="Cd", window=50, tolerance=1e-4)
+    assert stop.criteria[-1] == AsymptoticCriterion(quantity="Cd", window=50, tolerance=1e-3)
     row = p.criterion_widgets[-1]
     assert row["quantity"].currentText() == "Cd" and row["window"].value() == 50
+    assert row["floor"].text() == "0.01" and row["earliest"].text() == "iteration 50"
     row["quantity"].setCurrentIndex(2)  # Cm (pitch)
     assert w.project.sim.solvers.stopping.criteria[-1].quantity == "CmPitch"
     row = p.criterion_widgets[-1]
@@ -81,6 +82,9 @@ def test_add_edit_and_remove_criteria(make_window) -> None:
     p.criterion_widgets[-1]["tolerance"].editingFinished.emit()
     assert w.project.sim.solvers.stopping.criteria[-1] == AsymptoticCriterion(quantity="CmPitch", window=25,
                                                                                tolerance=5e-4)
+    p.criterion_widgets[-1]["floor"].setText("0.05")
+    p.criterion_widgets[-1]["floor"].editingFinished.emit()
+    assert w.project.sim.solvers.stopping.criteria[-1].floor == pytest.approx(0.05)
     for _ in range(4):  # remove the four residual criteria
         p.criterion_widgets[0]["remove"].click()
     assert [c.kind for c in w.project.sim.solvers.stopping.criteria] == ["asymptotic"]
@@ -100,6 +104,8 @@ def test_add_edit_and_remove_criteria(make_window) -> None:
 
 
 def test_banner_states_which_criterion_stopped_the_run(make_window, qtbot: QtBot) -> None:
+    """With an asymptotic criterion the app evaluates every criterion ("any" here): the p residual
+    met at iteration 3 makes it stop the solver cleanly; the solver writes iteration 4."""
     w = make_window()
     stop = StoppingCriteria(criteria=[ResidualCriterion(field="p", threshold=1e-3),
                                       AsymptoticCriterion(quantity="Cd", window=20, tolerance=1e-3)],
@@ -107,28 +113,52 @@ def test_banner_states_which_criterion_stopped_the_run(make_window, qtbot: QtBot
     w.project.update_solver(stopping=stop.model_dump())
     box = w.monitors.convergence
     assert box.isVisible() and box.banner.text() == BANNER_NO_RUN
-    runner = use_runner(w, FakeRunner(iteration(1) + iteration(2), hold=True))
+    runner = use_runner(w, FakeRunner(iteration(1) + iteration(2), hold=True,
+                                      stop_lines=iteration(4)[1:] + ["End\n"]))
     w.run_solver()
     qtbot.waitUntil(lambda: len(w.monitors.history.series.get("p", [])) == 2, timeout=20000)
     w.monitors.refresh()
     assert box.banner.text() == BANNER_RUNNING
     # p residual 0.1 against 1e-3; Cd not written: no value yet
     assert box.statuses_text == [("p residual", "0.1", "0.001", "no"), ("Cd asymptotic", "—", "0.001", "no")]
-    assert box.rows[1][0].toolTip() == "Cd: |value - mean of last 20| <= 0.001 (from iteration 20)"
+    assert box.rows[1][0].toolTip() == ("Cd: (max - min) / max(|mean|, 0.01) over the last 20 <= 0.001 "
+                                        "(from iteration 20)")
     assert box.rows[0][3].toolTip() == "from iteration 3"
-    runner.release(iteration(3, p=1e-4) + _stop_lines("c1_residual_p"))
+    assert not runner.stop_requested
+    runner.push(iteration(3, p=1e-4) + ["Time = 4\n"])  # step 3 completes with the next Time line
     wait_done(qtbot, w)
+    assert runner.stop_requested  # the app stopped it (clean stop)
     record = w.run_record
-    assert record.state == "converged" and record.stopped_by == ("p initial residual < 0.001",)
-    assert record.criteria == ("p initial residual < 0.001", "Cd: |value - mean of last 20| <= 0.001")
+    assert record.state == "criteria_met" and record.stopped_by == ("p initial residual < 0.001",)
+    assert record.met_iteration == 3 and record.iterations == 4
+    assert record.label == "Criteria met: p residual"
+    assert record.criteria == ("p initial residual < 0.001",
+                               "Cd: (max - min) / max(|mean|, 0.01) over the last 20 <= 0.001")
     assert box.banner.text() == "Criteria met at iteration 3: p initial residual < 0.001"
     assert box.banner.property("ok") == "true"
-    assert box.statuses_text[0] == ("p residual", "0.0001", "0.001", "yes")
-    assert "p initial residual < 0.001" in w.statusBar().currentMessage()
+    message = w.statusBar().currentMessage()
+    assert message.startswith("Solver: Criteria met: p residual after 4 iterations")
+    assert "p initial residual < 0.001 at iteration 3" in message
     assert read_run_record(w.project.path.parent / "case") == record
     # reopening the project shows the same banner from the record
     w._load_run_record(w.project)
     assert box.banner.text() == "Criteria met at iteration 3: p initial residual < 0.001"
+
+
+def test_residual_only_criteria_are_stopped_by_runtimecontrol(make_window, qtbot: QtBot) -> None:
+    """Residual criteria only: OpenFOAM's runTimeControl stops the run (its log lines), the app
+    does not stop it."""
+    w = make_window()
+    stop = StoppingCriteria(criteria=[ResidualCriterion(field="p", threshold=1e-3)])
+    w.project.update_solver(stopping=stop.model_dump())
+    runner = use_runner(w, FakeRunner(iteration(1) + iteration(2) + iteration(3, p=1e-4) + _stop_lines("c1_residual_p")))
+    w.run_solver()
+    wait_done(qtbot, w)
+    assert not runner.stop_requested
+    record = w.run_record
+    assert record.state == "criteria_met" and record.met_iteration == 3 and record.iterations == 3
+    assert record.stopped_by == ("p initial residual < 0.001",) and record.label == "Criteria met: p residual"
+    assert w.monitors.convergence.banner.text() == "Criteria met at iteration 3: p initial residual < 0.001"
 
 
 def test_banner_iteration_limit_stopped_and_no_criteria(make_window, qtbot: QtBot) -> None:

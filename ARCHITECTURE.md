@@ -34,7 +34,7 @@ src/vortexcfd/
   - Encapsulates the simulation data model.
   - `core/model.py`: defines the simulation tree data models validated via Pydantic.
   - `core/project_io.py`: handles saving, loading, validation, and migration of JSON project files.
-  - `core/reports.py`: the report ids (force coefficients of all walls or per part, their pressure/viscous parts, x_cp, mass imbalance, y+, probes), their labels and the lists offered to report slots and asymptotic criteria (D-060).
+  - `core/reports.py`: the report ids (force coefficients of all walls or per part, their pressure/viscous parts, x_cp, mass imbalance, y+, probes), their labels, the lists offered to report slots and asymptotic criteria and the default scale floor of the relative range (D-058, D-060).
   - `core/project.py`: Qt-free `Project` document wrapping a `Simulation` with validated edits, snapshot undo/redo, dirty tracking and change observers.
   - `Project` is not thread-safe: only the GUI thread may call its methods.
   - Must **NOT** import Qt (`PySide6`), `pyvista`, `pyvistaqt`, or anything GUI-related.
@@ -55,9 +55,9 @@ src/vortexcfd/
   - `foam/mesh_record.py`: `case/vortexcfd_mesh.json`, the last `MeshReport` plus the hash of the meshing inputs (used to flag an out-of-date mesh).
   - `foam/runner.py`: process execution via `run_foam` and streaming runner `FoamRun` returning `RunResult`. Clean stop works for single-process solvers launched through `FoamRun` with `clean_stop=True`.
   - `foam/logparse.py`: incremental solver log parsing via `LogParser` recording `TimeStep` events (and `Converged` when the SIMPLE residualControl is reached).
-  - `foam/solver_run.py`: `SolverRun` runs simpleFoam through `FoamRun(clean_stop=True)` on a worker thread, parses the log and classifies the end state (converged, iteration limit, stopped, crashed).
-  - `foam/run_record.py`: `case/vortexcfd_run.json`, the last run's state, iterations, final residuals, results inputs hash and the stopping criteria (all of them and those that stopped the run).
-  - `foam/convergence.py`: stopping criteria as the runTimeControl function object (`run_time_control`, condition names and start-up), their live evaluation with the same formulas (`evaluate`, `asymptotic_delta`), and the oscillation check (`oscillation`) (D-058, D-059). `LogParser` reports runTimeControl's stop as the `CriteriaMet` event.
+  - `foam/solver_run.py`: `SolverRun` runs simpleFoam through `FoamRun(clean_stop=True)` on a worker thread, parses the log, evaluates app-side stopping criteria after every iteration (and stops the solver cleanly when they are met) and classifies the end state (criteria met, iteration limit, stopped, crashed).
+  - `foam/run_record.py`: `case/vortexcfd_run.json`, the last run's state, iterations, final residuals, results inputs hash and the stopping criteria (all of them, those that stopped the run and the iteration at which they were met); old "converged" records are migrated on read.
+  - `foam/convergence.py`: stopping criteria: residual-only sets as the runTimeControl function object (`run_time_control`, `is_native`), otherwise evaluated by the app (`app_side`, `evaluate`, `criteria_met`, the range-based `asymptotic_range`); the oscillation check (`oscillation`) uses the same normalisation (D-058, D-059). `LogParser` reports runTimeControl's stop as the `CriteriaMet` event.
   - `foam/residuals.py`: `ResidualHistory` (initial residual per field and iteration) and `decimate` (at most about 2000 points per series).
   - `foam/forces.py`: force breakdown (pressure / viscous coefficients from force.dat with the coefficient.dat header), Cm and centre of pressure, mass imbalance (D-060). `foam/wall_fields.py`: Cf and Cf_x from wallShearStress, the y+ histogram and wall face values of a field file (D-061).
   - `foam/postprocessing.py`: tails the forceCoeffs (`coefficient.dat`), forces (`force.dat`) and yPlus (`yPlus.dat`) output files (`ReportMonitor`, `TailReader`), tolerating a partial last line; `ReportMonitor` also finds the per-part forces, massFlow_<patch> and probe_<name> objects by name and serves every report id of core/reports.py; y+ across walls is face-count weighted from `constant/polyMesh/boundary`; `project_coefficients` projects a force onto the drag and lift directions.
@@ -83,7 +83,7 @@ src/vortexcfd/
   - `gui/meshing.py`: Qt-free orchestration joining core, geometry and foam (it cannot live in `foam/`, which must not depend on `geometry/`): `readiness(project)` says why a project cannot be meshed and `prepare_job(project)` writes <project>/case (dictionaries and part STLs in metres).
   - `foam/mesh_estimate.py`: `estimate_mesh` gives background cells, refinement levels and surface cell size from the sizing targets (limit 2,000,000 background cells).
   - `gui/results_scene.py`: Results Scene: `read_results` (PyVista OpenFOAM reader, run by `ResultsLoader` on a worker thread, signals only), `ResultsView` (fields on the walls and the section plane, range modes, scalar bar in the `text` token).
-  - `gui/sections.py`: Qt-free cuts of the wall patches by y or z planes, x/c and Cp, upper/lower split and CSV export; `gui/section_tool.py`: the Results Scene's Sections window (D-062).
+  - `gui/sections.py`: Qt-free cuts of the wall patches by y or z planes, ordered along the cut's connectivity and split at min/max x into two branches labelled by the in-plane normal, x/c and Cp, CSV export; `gui/section_tool.py`: the Results Scene's Sections window (D-062).
   - `gui/charts.py`: QPainter charts (y+ histogram, line chart); `gui/report_views.py`: the Forces table of the Reports & Monitors node.
   - `gui/colormaps.py`: the Results Scene colormaps (matplotlib lookup tables, D-054), the one place to add one.
   - `gui/paraview.py`: Open in ParaView (executable from Preferences or detected under /mnt/c/Program Files, `wslpath -w`, detached launch).

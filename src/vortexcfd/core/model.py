@@ -3,7 +3,7 @@
 from typing import Annotated, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from vortexcfd.core.reports import PROBE_NAME_RE, is_criterion_quantity, is_report_id
+from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
 CURRENT_SCHEMA_VERSION: int = 6
 
@@ -116,15 +116,20 @@ class ResidualCriterion(StrictModel):
 
 
 class AsymptoticCriterion(StrictModel):
-    """Stop when a monitored quantity has settled: |x_n - mean of the last ``window`` values
-    (x_n included)| <= ``tolerance``, in the quantity's own units (absolute). This is OpenFOAM's
-    runTimeControl condition ``average`` with an exact window (D-058). ``quantity`` is a force
-    coefficient of all walls or of one part, or a probe's p or U (core/reports.py, D-060)."""
+    """Stop when a monitored quantity has settled: over the last ``window`` iterations,
+    (max - min) / max(|mean|, floor) <= ``tolerance`` (relative). ``floor`` keeps the test
+    meaningful for a quantity whose mean is near zero: None takes the quantity's default
+    (core/reports.default_floor: 0.01 for force and moment coefficients); a probe has no default
+    and needs it set, in the probe's units (m2/s2 for kinematic p, m/s for U). OpenFOAM has no such
+    condition: the app evaluates it from the live data and stops the solver cleanly (D-058).
+    ``quantity`` is a force coefficient of all walls or of one part, or a probe's p or U
+    (core/reports.py, D-060)."""
 
     kind: Literal["asymptotic"] = "asymptotic"
     quantity: str
     window: int = Field(default=50, ge=2)
-    tolerance: float = Field(default=1e-4, gt=0)
+    tolerance: float = Field(default=1e-3, gt=0)  # relative
+    floor: float | None = Field(default=None, gt=0)
 
     @field_validator("quantity")
     @classmethod
@@ -132,6 +137,16 @@ class AsymptoticCriterion(StrictModel):
         if not is_criterion_quantity(value):
             raise ValueError(f"not a quantity an asymptotic criterion can watch: {value!r}")
         return value
+
+    @model_validator(mode="after")
+    def _floor_known(self) -> "AsymptoticCriterion":
+        if self.effective_floor is None:
+            raise ValueError(f"{self.quantity} has no default scale floor: set floor")
+        return self
+
+    @property
+    def effective_floor(self) -> float | None:
+        return self.floor if self.floor is not None else default_floor(self.quantity)
 
 
 Criterion = Annotated[Union[ResidualCriterion, AsymptoticCriterion], Field(discriminator="kind")]

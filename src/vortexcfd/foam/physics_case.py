@@ -203,15 +203,21 @@ def _wall_shear_stress(inp: SolverCaseInput) -> dict:
     }
 
 
+# Probe values interpolated to the point (cell value corrected with the point values,
+# interpolationCellPoint, TypeName "cellPoint"), not the containing cell's value (D-060).
+PROBE_INTERPOLATION = "cellPoint"
+
+
 def _probe(location) -> dict:
-    """One probes object per probe (p and U at one point, cell value), sampled every iteration;
-    its results average(p) / average(U) are that probe's values (the runTimeControl source).
+    """One probes object per probe (p and U at one point, interpolated with cellPoint), sampled
+    every iteration; its results average(p) / average(U) are that probe's values.
     Output: postProcessing/probe_<name>/<start time>/p and U."""
     return {
         "type": "probes",
         "libs": ["sampling"],
         "fields": ["p", "U"],
         "probeLocations": [list(location)],
+        "interpolationScheme": PROBE_INTERPOLATION,
         "sampleOnExecute": True,
         "writeControl": "timeStep",
         "writeInterval": 1,
@@ -219,8 +225,9 @@ def _probe(location) -> dict:
 
 
 def control_dict(inp: SolverCaseInput) -> FoamFileSpec:
-    """controlDict: endTime is the iteration limit; the stopping criteria are a runTimeControl
-    function object placed after the function objects whose results it reads (D-058)."""
+    """controlDict: endTime is the iteration limit; residual-only stopping criteria are a
+    runTimeControl function object placed last; with an asymptotic criterion none is written and
+    the app evaluates the criteria and stops the solver (D-058)."""
     functions = {
         "forceCoeffs1": _force_coeffs(inp),
         "forces1": _forces(inp),
@@ -289,8 +296,8 @@ def fv_solution(solvers: Solvers) -> FoamFileSpec:
     """motorBike fvSolution (v2606), preset "robust": SIMPLEC (consistent), U 0.9, k/omega 0.7.
 
     No residualControl: the stop is the runTimeControl function object of the stopping criteria
-    (controlDict), which also honours the minimum iterations and the "any" combination;
-    residualControl would end the run on its own targets regardless (D-058)."""
+    (controlDict) or the app's own evaluation, which honour the minimum iterations and the "any"
+    combination; residualControl would end the run on its own targets regardless (D-058)."""
     p = {"solver": "GAMG", "smoother": "GaussSeidel", "tolerance": 1e-7, "relTol": 0.01}
     smooth = {"solver": "smoothSolver", "smoother": "GaussSeidel", "tolerance": 1e-8, "relTol": 0.1,
               "nSweeps": 1}
