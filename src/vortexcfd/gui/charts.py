@@ -186,6 +186,7 @@ class LineChart(QWidget):
             pen.setStyle(getattr(Qt.PenStyle, style))
             painter.setPen(pen)
             painter.drawPolyline(QPolygonF([px(x, y) for x, y in pts]))
+        painter.restore()
         radius = max(3.0, fm.height() / 4)
         for i, points in self.markers.items():
             color = QColor(self.series[i][1])
@@ -198,7 +199,6 @@ class LineChart(QWidget):
                     painter.setBrush(color)
                 painter.drawEllipse(px(x, y), radius, radius)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.restore()
         col_w = (self.width() - 2 * pad) / 2
         for i, (name, color, style, _pts) in enumerate(self.series):
             x = pad + (i % 2) * col_w

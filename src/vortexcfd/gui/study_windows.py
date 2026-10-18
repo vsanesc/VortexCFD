@@ -66,6 +66,8 @@ class MeshStudyWindow(QDialog):
         self._theme = DARK
         self.table = _table(STUDY_HEADERS)
         self.levels = _table(LEVEL_HEADERS)
+        rows = self.levels.verticalHeader().defaultSectionSize()
+        self.levels.setFixedHeight(self.levels.horizontalHeader().sizeHint().height() + 3 * rows + 4)  # all levels
         self.quantity = QComboBox()
         self.chart = LineChart("h [m]", "value")
         self.chart.EMPTY_MESSAGE = "No mesh study results yet"
@@ -80,7 +82,7 @@ class MeshStudyWindow(QDialog):
         layout = QVBoxLayout(self)
         layout.addLayout(top)
         layout.addWidget(self.table, 2)
-        layout.addWidget(self.levels, 1)
+        layout.addWidget(self.levels)
         layout.addWidget(self.chart, 3)
         layout.addWidget(self.status)
         self.quantity.currentIndexChanged.connect(lambda _i: self._chart())
