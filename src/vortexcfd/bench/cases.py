@@ -52,13 +52,17 @@ class BenchCase:
 
 
 def _wing_zones() -> tuple[Zone, ...]:
-    c, span = geo.WING_CHORD / 1000, geo.WING_SPAN / 1000
-    tip = 0.05 * c
+    """The half wing's zones (D-092): its root lies on the y_min symmetry plane (y = 0), its tip at
+    y = span."""
+    c, span = geo.WING_CHORD / 1000, geo.HALF_WING_SPAN / 1000
+    band = 0.05 * c
     return (
         Zone("trailing_edge", "last 5 % of the chord (x/c >= 0.95), whole span",
              boxes=((0.95 * c, INF, -INF, INF, -INF, INF),)),
-        Zone("tips", f"faces within {tip:g} m (5 % of the chord) of either tip plane",
-             boxes=((-INF, INF, -INF, tip, -INF, INF), (-INF, INF, span - tip, INF, -INF, INF))),
+        Zone("tips", f"faces within {band:g} m (5 % of the chord) of the tip plane y = {span:g} m",
+             boxes=((-INF, INF, span - band, INF, -INF, INF),)),
+        Zone("root", f"faces within {band:g} m (5 % of the chord) of the root on the symmetry plane y = 0",
+             boxes=((-INF, INF, -INF, band, -INF, INF),)),
     )
 
 
@@ -96,10 +100,11 @@ CASES: dict[str, BenchCase] = {
         reports={"reference_length": 1.0},  # l_ref = the diameter
     ),
     "wing": BenchCase(
-        name="wing", geometry="wing", units="mm", reference_length=1.0,
+        name="wing", geometry="half_wing", units="mm", reference_length=1.0,
         reports={"reference_length": 1.0},  # l_ref = the chord
-        description="rectangular wing NACA 0012, chord 1 m, span 3 m, trailing edge 0.25 % of the chord, "
-                    "flat tips, STEP",
+        domain={"symmetry": "y_min"},  # the root on the symmetry plane (D-092)
+        description="rectangular half wing NACA 0012, chord 1 m, span 1.5 m from the root on a y_min "
+                    "symmetry plane, trailing edge 0.25 % of the chord, flat tip, STEP",
         zones=_wing_zones(),
     ),
     "ahmed": BenchCase(
@@ -121,5 +126,5 @@ def deviations(case: BenchCase, cores: int | None = None) -> list[str]:
     out.append(f"solvers.iterations = {case.iterations} (fixed; stopping criteria removed; indicative y+ run)")
     out.append(f"solvers.write_interval = {case.iterations}")
     if cores is not None:
-        out.append(f"solvers.cores = {cores} (the recommended count for the mesh, D-064)")
+        out.append(f"solvers.cores = {cores} (cells / 50,000, at most 10 and two cores left free; D-092)")
     return out

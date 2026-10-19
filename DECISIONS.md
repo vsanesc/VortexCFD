@@ -106,6 +106,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-089 | 2026-10-19 | Layers field disabled with absolute sizing | Accepted |
 | D-090 | 2026-10-19 | Preset files versioned with the project schema | Accepted |
 | D-091 | 2026-10-19 | Benchmark: fidelity in metres, layer diagnostics | Accepted |
+| D-092 | 2026-10-19 | Benchmark: half wing on a symmetry plane; y+ run cores | Accepted |
 
 ---
 
@@ -856,3 +857,12 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   - Layers, per wall, patch and zone: mean layers as a percentage of the target, the share of the area with at least 80 % of the target count, the share with no layer, the area per layer count.
   - From log.snappyHexMesh (the snap and layer run): faces whose extrusion the layer-mesh check removed ("Removed extrusion at N faces", summed over the iterations) and the checks that failed there; the checks that failed while the mesh was moved for the layers, where snappyHexMesh scales the displacement down locally (to zero at worst) instead of removing faces, and the number of scaling steps; feature-edge points given no layer (layer featureAngle); isolated points stopped; medial-axis thickness reductions.
 - Consequences: diagnostics only; no meshing change.
+
+## D-092 Benchmark: half wing on a symmetry plane; y+ run cores
+- Status: Accepted (owner decisions in the review of task 5.1).
+- Context: the full benchmark after 5.1 took 1,477 s, 813 s of it the 965k-cell full-span wing's y+ run on 4 cores; the y+ runs used the app's recommended core count, capped at 4 by D-064's efficiency limit.
+- Decision:
+  - The wing case is a half wing: geometry `half_wing` (benchmarks/geometries/half_wing.step, the same NACA 0012 section, chord 1 m, span 1.5 m from the root at y = 0 to the tip at y = 1.5 m), with `domain.symmetry "y_min"` (a deviation from the defaults): the symmetry plane is the parts' y_min, so the root face lies on it, as a user's half model does. Zones: the trailing-edge band (x/c >= 0.95, whole span), the tip (within 5 % of the chord of y = 1.5 m) and the root (within 5 % of the chord of the symmetry plane). The full-span `wing` geometry stays available.
+  - The y+ runs use cells / 50,000 ranks (the app's CELLS_PER_CORE) with at most 10 and never more than the physical cores minus 2 (`bench/runner.yplus_cores`), not D-064's cap of 4; the cores are recorded per case (`yplus.cores`, the "y+ cores" column, the deviations).
+- Alternatives considered: fewer y+ iterations (the owner chose the geometry and the cores).
+- Consequences: the wing is no longer comparable with benchmarks/baseline.json (accepted by the owner); benchmarks/baseline_candidate.json is the new reference candidate. The y+ run times are not comparable either (more ranks, beyond the efficient range measured in D-064).

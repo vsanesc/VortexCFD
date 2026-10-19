@@ -218,10 +218,21 @@ def run_mesh(project: Project) -> tuple:
     return job, result, steps
 
 
+# The y+ runs use the recommended count for each mesh (cells / CELLS_PER_CORE) with a cap of
+# YPLUS_MAX_CORES and never more than the physical cores minus YPLUS_FREE_CORES, not the app's
+# efficiency cap of D-064 (D-092).
+YPLUS_MAX_CORES = 10
+YPLUS_FREE_CORES = 2
+
+
+def yplus_cores(cells: int, physical: int) -> int:
+    return recommended_cores(cells, physical, efficient=max(1, min(YPLUS_MAX_CORES, physical - YPLUS_FREE_CORES)))
+
+
 def run_yplus(project: Project, case: BenchCase, cells: int, patches: tuple[str, ...]) -> dict:
     """The indicative y+ run: the app's default physics, ``case.iterations`` iterations, no stopping
-    criteria, the recommended cores; then the yPlus field on the walls."""
-    cores = recommended_cores(cells, physical_cores())
+    criteria, ``yplus_cores`` ranks (recorded); then the yPlus field on the walls."""
+    cores = yplus_cores(cells, physical_cores())
     project.update_solver(iterations=case.iterations, write_interval=case.iterations, cores=cores,
                           stopping=StoppingCriteria(criteria=[]))
     case_dir = solving.prepare_solver_case(project)

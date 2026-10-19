@@ -3,6 +3,8 @@
 - sphere: diameter 1 m, binary STL in metres (the control case).
 - wing: rectangular wing, NACA 0012, chord 1 m, span 3 m, trailing edge 0.25 % of the chord thick
   (flat), flat closed tips; STEP (millimetres) built with OCP.
+- half_wing: the same section, span 1.5 m from the root at y = 0 (on a y_min symmetry plane) to the
+  tip at y = 1.5 m (the benchmark's wing case since task 5.1b, D-092).
 - ahmed: Ahmed-type body without stilts: length 1.044 m, width 0.389 m, height 0.288 m, the four front
   edges rounded with radius 0.1 m, a 25 degree rear slant 0.222 m long, sharp rear edges; STEP
   (millimetres) built with OCP.
@@ -27,6 +29,7 @@ SPHERE_RESOLUTION = (180, 90)  # theta, phi: chord error 0.5 (1 - cos(1 deg)) = 
 # -- wing (millimetres in the STEP file) -------------------------------------------------------------
 WING_CHORD = 1000.0
 WING_SPAN = 3000.0
+HALF_WING_SPAN = 1500.0
 WING_THICKNESS = 0.12  # NACA 0012
 WING_TE_THICKNESS = 0.0025  # trailing edge thickness / chord
 WING_POINTS = 201  # per side, cosine spacing
@@ -68,7 +71,7 @@ def write_sphere(path: Path) -> Path:
     return path
 
 
-def _wing_shape():
+def _wing_shape(span: float = WING_SPAN):
     from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakeWire
     from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism
     from OCP.GeomAPI import GeomAPI_Interpolate
@@ -92,7 +95,7 @@ def _wing_shape():
     wire = BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(curve).Edge(),
                                    BRepBuilderAPI_MakeEdge(te_bottom, te_top).Edge()).Wire()
     face = BRepBuilderAPI_MakeFace(wire, True).Face()
-    return BRepPrimAPI_MakePrism(face, gp_Vec(0.0, WING_SPAN, 0.0)).Shape()
+    return BRepPrimAPI_MakePrism(face, gp_Vec(0.0, span, 0.0)).Shape()
 
 
 def _ahmed_shape():
@@ -157,6 +160,10 @@ def write_wing(path: Path) -> Path:
     return _write_step(_wing_shape(), path)
 
 
+def write_half_wing(path: Path) -> Path:
+    return _write_step(_wing_shape(HALF_WING_SPAN), path)
+
+
 def write_ahmed(path: Path) -> Path:
     return _write_step(_ahmed_shape(), path)
 
@@ -170,6 +177,7 @@ class GeometrySpec:
 GEOMETRIES: dict[str, GeometrySpec] = {
     "sphere": GeometrySpec("sphere.stl", write_sphere),
     "wing": GeometrySpec("wing.step", write_wing),
+    "half_wing": GeometrySpec("half_wing.step", write_half_wing),
     "ahmed": GeometrySpec("ahmed.step", write_ahmed),
 }
 
