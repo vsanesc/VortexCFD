@@ -154,7 +154,7 @@ Reality check: "as powerful as a commercial mesher" is not a deliverable that ca
 - STAR-like mesh controls: base size, surface target/min size relative to base, per-surface and per-volume refinement, feature-edge refinement, wake refinement boxes, prism-layer parameters (number, growth, total thickness or first-cell height), automatic `snappyHexMeshDict` + `blockMeshDict` generation, `checkMesh` report in GUI.
 - Acceptance: wing and VTOL meshed from the GUI without editing text files; benchmark results recorded as baseline.
 
-### 5.2 Level M2 — Surface preparation ("wrapper-like") pipeline
+### 5.2 Level M2 — Surface preparation ("wrapper-like") pipeline — *first step done (task 5.2-surface-prep): the Surface Preparation operation with diagnostics, intersection features and CAD union (D-093), local benchmark cases with fidelity against a reference surface (D-094); benchmarks/RESULT_5.2_before.md, RESULT_5.2.md. No shell wrapper built (not needed for the owner's aircraft); the dirty-STL set is not in the benchmark yet*
 - Goal: robust watertight, quality surface from dirty/CAD tessellation before volume meshing (leak closing, remeshing, feature preservation).
 - Acceptance: improves benchmark success rate on the dirty set vs M1 baseline.
 

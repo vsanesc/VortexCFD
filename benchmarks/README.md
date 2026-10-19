@@ -26,6 +26,30 @@ Results go to `benchmarks/results/<UTC date and time>_<git sha>.json` and `.md` 
 case projects to `run/bench/<case>/`. The geometry files in `benchmarks/geometries/` are generated
 when missing and are git-ignored.
 
+## Local cases (D-094)
+
+Optional cases on geometry that must not enter the repository (the owner's models). Copy
+`local_cases.example.json` to `benchmarks/local_cases.json` (git-ignored), point it at the files and
+run:
+
+```bash
+nice -n 15 .venv/bin/python -m vortexcfd.bench --local
+```
+
+`--cases <name> ...` picks some of them. A missing config or geometry file skips the cases with a
+message. Each case: a geometry file, the import's answer for several bodies (`import_mode`, "parts"
+by default in the example), an optional surface preparation (`surface_prep`: null,
+"intersection_features" or "cad_union", D-093), whether the y+ run follows (`solve`), and mesh /
+inflow / domain deviations. The shared `reference` block names the clean reference CAD file, its
+components (body indices), l_ref (`{"mean_chord": "<component>"}`) and the zones (junction bands
+around a component's intersection curves, the trailing edge, the tips; half-width `band` x l_ref).
+Metrics on top of the usual ones: fidelity against the reference's outer skin in both directions
+(mesh -> reference and reference -> mesh: max and RMS in mm, share further than half the local cell
+size), overall and per zone; wall surface left inside a component; faces per component patch; the
+per-part force partition check. Projects and a reference cache go to
+~/.cache/vortexcfd/bench_local/ (outside the repository); results to benchmarks/results/local/
+(git-ignored); local results are never part of baseline.json.
+
 ## Files
 
 - `baseline.json`, `BASELINE.md`: the committed baseline of the current mesher (the 5.1b run).
@@ -36,6 +60,9 @@ when missing and are git-ignored.
   curvature refinement, absolute y+ 50 layers, seed lines out of snapping) against `baseline_0.json`.
 - `RESULT_5.1b.md`: the run after the 5.1 review (half wing, y+ cores, layer diagnostics) that became
   `baseline.json`.
+- `local_cases.example.json`: the format of the git-ignored local cases (D-094).
+- `RESULT_5.2_before.md`, `RESULT_5.2.md`: the owner's aircraft (local, numbers only) before surface
+  preparation and with each strategy (D-093), and the public re-run against `baseline.json`.
 
 ## Metrics (D-082)
 

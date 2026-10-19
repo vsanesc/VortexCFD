@@ -1,41 +1,31 @@
 # Status
 
-Updated 2026-10-19 (task/5.1-sizing: sizing defaults after the meshing baseline, and the owner review follow-up). Phases and sub-phases
-are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
+Updated 2026-10-19 (task/5.2-surface-prep: surface preparation of multi-component models). Phases and
+sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
 
-**task/5.1-sizing** (not yet published; task/5.0-mesh-benchmark was merged in PR #19). Done on it:
-- Part A (D-083): the Qt-free orchestration (meshing, solving, part_ops, mesh_study, polar_sweep) moved
-  from gui/ to the new package vortexcfd/workflow/; bench/ imports nothing from gui/; gui/__init__.py
-  imports MainWindow eagerly again.
-- Part B (D-084, [NUMERICS-REVIEW]): confirmed that the seed lines attracted the wing's wall points
-  (max deviation 2.664 mm with seeding, 1.849 mm without); seeded cases now castellate in a first
-  snappyHexMesh run with the seed lines and snap / add layers in a second one without them.
-- Part C (D-085, [NUMERICS-REVIEW], schema v10): the surface cell size comes from l_ref (warning when l_ref
-  is automatic); curvatureLevel refinement up to 2 levels above each part's surface level; older projects
-  keep L and no curvature (migration, v9 fixture).
-- Part D (D-086, [NUMERICS-REVIEW]): new simulations use absolute layer sizing for y+ 50; relative mode
-  disables the y+ field with a tooltip; older projects keep their layer settings.
-- Part E (D-087): strict coverage is the benchmark's headline; full run against the baseline in
-  benchmarks/RESULT_5.1.md: all meshes valid, y+ means 27.0 / 33.9 / 67.8 against the target 50, wing
-  964,710 cells (over 500k) and the full run 1,477 s (over 12 min), not tuned; baseline.json unchanged.
+**task/5.2-surface-prep** (not yet published; task/5.1-sizing was merged in PR #20). Done on it:
+- Part A (D-094): optional local-only benchmark cases from the git-ignored benchmarks/local_cases.json
+  (format in local_cases.example.json; projects outside the repository); a reference analysis (outer
+  skin, intersection-curve zones, mean chord as l_ref) and fidelity against it in both directions,
+  the wall left inside a component, patch faces and the per-part force partition.
+- Part B: the owner's aircraft through the current pipeline (benchmarks/RESULT_5.2_before.md): the
+  untrimmed export imports as six compounds of loose (sewable) faces; no check looks across parts;
+  the repair is per part (and loses the wings on a one-part import); the trimmed export is four
+  overlapping solids, not one skin (QUESTIONS 108).
+- Part C (D-093, [NUMERICS-REVIEW], schema v11): the Surface Preparation operation (tree node, Edit >
+  Prepare Surfaces, background worker, undoable, stale results block meshing): diagnostics,
+  "intersection_features" (crossing curves as snap features) and "cad_union" (sew, fuse, per-part
+  shares of the outer skin with their CAD faces; per-part fallback).
+- Part D: comparison (benchmarks/RESULT_5.2.md): CAD union is closest to the reference at the
+  junctions and leaves the least internal wall; proposed as the default (QUESTIONS 109). Every
+  aircraft mesh fails checkMesh at the 24-layer stack (QUESTIONS 111, input for 5.4). Public benchmark
+  re-run against baseline.json: no regressions, identical meshes (599 s).
 
-Owner review of 5.1 (same branch): D-084, D-085 and D-086 accepted. Follow-up done:
-- D-088 ([NUMERICS-REVIEW]): the y+ first layer takes Re on l_ref (L for projects made before schema v10).
-- D-089: the Layers field is disabled with absolute sizing and shows the computed count.
-- D-090: presets carry schema_version (file format 2); a preset written before v10 keeps the v9 mesh.
-- D-091: fidelity in mm with its reference (the 5.1 comparison was like-for-like); layer diagnostics
-  (mean / target, >= 80 % of target, no layer, area per count, the layer phase from the log).
-- D-092: the benchmark wing is a 1.5 m half wing on a y_min symmetry plane; y+ runs on cells / 50,000
-  cores (at most 10). One full run: 632 s, every mesh under 340k cells (benchmarks/RESULT_5.1b.md,
-  benchmarks/baseline_candidate.json; baseline.json unchanged). Ahmed layers: half the wall within two
-  layers of the 10-layer target, a third collapsed to 1-5 layers at the sharp edges (item 106).
-- The slow and long tests touched in 5.1 were re-run and pass.
-
-Next candidates: promoting baseline_candidate.json; 5.4 prism layers
-(item 87); 5.2 surface preparation. Open: docs/QUESTIONS.md items 67, 69, 70, 71, 72, 73, 75, 82, 87,
-89 to 92, 93, 94, 96, 97, 98 and 103 to 107.
+Next candidates: owner review of D-093 / D-094 and QUESTIONS 108-118; 5.4 prism layers (items 87, 106,
+111); a dirty-STL set for 5.2. Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75, 82, 87,
+89 to 94, 96, 97, 106 and 108 to 118.
 
 ## Phases
 
@@ -62,7 +52,7 @@ Next candidates: promoting baseline_candidate.json; 5.4 prism layers
 | 4.4 | Numerics presets | preset "robust" only (merged in PR #13) |
 | 5.0 | Meshing benchmark suite | done (D-081, D-082): sphere, wing, Ahmed-type body; baseline in benchmarks/BASELINE.md; the dirty-STL set and solver convergence are not in it |
 | 5.1 | M1: GUI over snappyHexMesh | done (published in PR #11 and #12); y+ layer sizing done (D-024, D-026, D-045); sizing defaults revised after the baseline (D-084 to D-086, task 5.1-sizing) |
-| 5.2 | M2: surface preparation | not started |
+| 5.2 | M2: surface preparation | first step done (D-093, D-094): Surface Preparation operation (diagnostics, intersection features, CAD union), local benchmark cases with fidelity against a reference; no shell wrapper; dirty-STL set not in the benchmark |
 | 5.3 | M3: alternative volume mesher | not started (cfMesh build spike pending) |
 | 5.4 | M4: prism layer robustness | not started |
 | 5.5 | M5: own mesher (go/no-go) | not started |
