@@ -1,0 +1,30 @@
+{
+  "format_version": 1,
+  "_comment": "Copy to benchmarks/local_cases.json (git-ignored) and point the files at your own geometry. Local cases run with: python -m vortexcfd.bench --local (D-094). Their results go to benchmarks/results/local/ and are never committed.",
+  "reference": {
+    "file": "~/my-geometry/clean_model.step",
+    "components": {"fuselage": 0, "wing": 1, "htail": 2, "vtail": 3},
+    "l_ref": {"mean_chord": "wing"},
+    "zones": {
+      "band": 0.05,
+      "junctions": {"wing_junction": "wing", "htail_junction": "htail", "vtail_junction": "vtail"},
+      "trailing_edge": "wing",
+      "tips": "wing"
+    }
+  },
+  "defaults": {
+    "import_mode": "parts",
+    "inflow": {"speed": 30.0},
+    "mesh": {"target_surface_size": 0.1}
+  },
+  "cases": [
+    {"name": "model_reference", "file": "~/my-geometry/clean_model.step", "solve": true,
+     "description": "the clean model itself (the reference)"},
+    {"name": "model_dirty_as_is", "file": "~/my-geometry/dirty_model.step",
+     "description": "the dirty model as imported"},
+    {"name": "model_dirty_intersection_features", "file": "~/my-geometry/dirty_model.step",
+     "surface_prep": "intersection_features", "description": "the dirty model, intersection features"},
+    {"name": "model_dirty_cad_union", "file": "~/my-geometry/dirty_model.step",
+     "surface_prep": "cad_union", "description": "the dirty model, CAD union"}
+  ]
+}

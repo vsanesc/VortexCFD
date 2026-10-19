@@ -158,6 +158,21 @@ def point_segment_distance(points: np.ndarray, a: Sequence[float], b: Sequence[f
     return np.linalg.norm(p - (a + t[:, None] * ab), axis=1)
 
 
+# Above this many segments a zone's distance test uses a VTK cell locator instead of a loop.
+LOCATOR_SEGMENTS = 64
+
+
+def segments_distance(points: np.ndarray, segments) -> np.ndarray:
+    """Distance from each point to the nearest of many segments (VTK static cell locator)."""
+    import pyvista as pv
+
+    seg = np.asarray(segments, dtype=float).reshape(-1, 2, 3)
+    lines = np.hstack([np.full((len(seg), 1), 2), np.arange(2 * len(seg)).reshape(-1, 2)]).ravel()
+    poly = pv.PolyData(seg.reshape(-1, 3), lines=lines)
+    _cells, closest = poly.find_closest_cell(np.asarray(points, dtype=float), return_closest_point=True)
+    return np.linalg.norm(np.asarray(points, dtype=float) - closest, axis=1)
+
+
 def zone_mask(centres: np.ndarray, boxes=(), segments=(), width: float = 0.0) -> np.ndarray:
     """Faces whose centre lies in one of ``boxes`` or within ``width`` of one of ``segments``."""
     c = np.asarray(centres, dtype=float).reshape(-1, 3)
@@ -165,6 +180,9 @@ def zone_mask(centres: np.ndarray, boxes=(), segments=(), width: float = 0.0) ->
     for x0, x1, y0, y1, z0, z1 in boxes:
         mask |= ((c[:, 0] >= x0) & (c[:, 0] <= x1) & (c[:, 1] >= y0) & (c[:, 1] <= y1)
                  & (c[:, 2] >= z0) & (c[:, 2] <= z1))
+    if len(segments) > LOCATOR_SEGMENTS and len(c):
+        mask |= segments_distance(c, segments) <= width
+        return mask
     for a, b in segments:
         mask |= point_segment_distance(c, a, b) <= width
     return mask
@@ -194,6 +212,63 @@ def fidelity(distances: np.ndarray, reference_length: float) -> dict:
     rms = float(np.sqrt(np.mean(d * d)))
     return {"points": int(d.size), "max_rel": float(d.max() / reference_length), "rms_rel": rms / reference_length,
             "max_m": float(d.max()), "rms_m": rms, "reference_m": reference_length}
+
+
+# -- fidelity against a reference surface (local cases, D-094) ------------------------------------------
+
+# A point is "far" when its distance exceeds this fraction of the local surface cell size.
+FAR_FRACTION = 0.5
+
+
+def reference_fidelity(distances: np.ndarray, local_size: np.ndarray, far_fraction: float = FAR_FRACTION) -> dict:
+    """Distances (m) of points to a surface: max and RMS in mm, and the share of the points further
+    than ``far_fraction`` times the local surface cell size (m, one per point)."""
+    d = np.asarray(distances, dtype=float)
+    size = np.asarray(local_size, dtype=float)
+    if d.size == 0:
+        return {"points": 0, "max_mm": None, "rms_mm": None, "far_percent": None}
+    return {"points": int(d.size), "max_mm": 1000.0 * float(d.max()), "rms_mm": 1000.0 * float(np.sqrt(np.mean(d * d))),
+            "far_percent": 100.0 * float(np.mean(d > far_fraction * size))}
+
+
+def point_sizes(points: np.ndarray, faces: np.ndarray, face_area: np.ndarray) -> np.ndarray:
+    """Local surface cell size at each point: the mean of sqrt(area) of the faces that use it.
+    ``faces``: (m, k) point ids (k vertices per face, -1 padded)."""
+    size = np.sqrt(np.asarray(face_area, dtype=float))
+    total = np.zeros(len(points))
+    count = np.zeros(len(points))
+    for column in np.asarray(faces).T:
+        ok = column >= 0
+        np.add.at(total, column[ok], size[ok])
+        np.add.at(count, column[ok], 1.0)
+    return np.where(count > 0, total / np.maximum(count, 1.0), 0.0)
+
+
+def force_partition(part_patches: dict[str, tuple[str, ...]], total_patches: tuple[str, ...],
+                    face_counts: dict[str, int], patch_areas: dict[str, float]) -> dict:
+    """The geometric check that per-part forces sum to the total (D-073, D-094): the per-part force
+    objects' patch sets must be disjoint and together cover exactly the patches of the all-walls
+    object, every one of them with faces; the parts' wall areas then sum to the total. Forces are
+    integrals over the patches, so a partition makes the per-part forces add up to the total."""
+    seen: dict[str, str] = {}
+    problems = []
+    for part, patches in part_patches.items():
+        for p in patches:
+            if p in seen:
+                problems.append(f"patch {p} is in both {seen[p]} and {part}")
+            seen[p] = part
+            if face_counts.get(p, 0) <= 0:
+                problems.append(f"patch {p} of {part} has no faces")
+    missing = sorted(set(total_patches) - set(seen))
+    extra = sorted(set(seen) - set(total_patches))
+    problems += [f"patch {p} is in the total but in no part" for p in missing]
+    problems += [f"patch {p} is in a part but not in the total" for p in extra]
+    parts_area = sum(patch_areas.get(p, 0.0) for patches in part_patches.values() for p in patches)
+    total_area = sum(patch_areas.get(p, 0.0) for p in total_patches)
+    return {"ok": not problems, "problems": problems, "parts_area_m2": parts_area, "total_area_m2": total_area,
+            "parts": {part: {"patches": list(patches), "faces": int(sum(face_counts.get(p, 0) for p in patches)),
+                             "area_m2": float(sum(patch_areas.get(p, 0.0) for p in patches))}
+                      for part, patches in part_patches.items()}}
 
 
 # -- snappyHexMesh layer log -----------------------------------------------------------------------------

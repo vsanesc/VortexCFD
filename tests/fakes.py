@@ -7,6 +7,8 @@ class FakeDialogs:
     def __init__(self, open_path=None, save_path=None, discard="discard", import_path=None,
                  units="m", paraview_path=None, csv_path=None, solids_mode="regions") -> None:
         self.csv_path = csv_path
+        self.surface_prep_strategy = None  # ask_surface_prep's answer
+        self.surface_prep_asked: list = []
         self.solids_mode = solids_mode
         self.solids_asked: list = []
         self.repair_reports: list = []
@@ -96,6 +98,10 @@ class FakeDialogs:
 
     def show_about(self):
         self.about_shown += 1
+
+    def ask_surface_prep(self, strategies, default):
+        self.surface_prep_asked.append((list(strategies), default))
+        return self.surface_prep_strategy
 
     def ask_generate_domain(self, part_names, checked, domain):
         self.domain_asked.append((list(part_names), list(checked)))

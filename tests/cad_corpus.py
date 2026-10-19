@@ -119,3 +119,51 @@ def box_iges(path: Path) -> Path:
     writer.ComputeModel()
     assert writer.Write(str(path))
     return Path(path)
+
+
+def surface_model_step(path: Path, sets: list[tuple[str, list[tuple[float, float, float, float]]]]) -> Path:
+    """A minimal STEP surface model: per (name, patches) one named GEOMETRIC_SET of flat bilinear
+    B-spline patches z = 0 over (x0, x1, y0, y1), metres, as conceptual design tools export them."""
+    lines, n = [], [0]
+
+    def add(text: str) -> int:
+        n[0] += 1
+        lines.append(f"#{n[0]}={text};")
+        return n[0]
+
+    unit = add("(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT($,.METRE.))")
+    unc = add(f"UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-06),#{unit},'distance_accuracy_value','')")
+    angle = add("(NAMED_UNIT(*)PLANE_ANGLE_UNIT()SI_UNIT($,.RADIAN.))")
+    solid = add("(NAMED_UNIT(*)SI_UNIT($,.STERADIAN.)SOLID_ANGLE_UNIT())")
+    ctx = add(f"(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#{unc}))"
+              f"GLOBAL_UNIT_ASSIGNED_CONTEXT((#{unit},#{angle},#{solid}))REPRESENTATION_CONTEXT('',''))")
+    appc = add("APPLICATION_CONTEXT('configuration controlled 3d designs of mechanical parts and assemblies')")
+    add(f"APPLICATION_PROTOCOL_DEFINITION('international standard','config_control_design',1994,#{appc})")
+    mech = add(f"MECHANICAL_CONTEXT('',#{appc},'mechanical')")
+    prod = add(f"PRODUCT('model','model','',(#{mech}))")
+    form = add(f"PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('','',#{prod},.NOT_KNOWN.)")
+    dctx = add(f"DESIGN_CONTEXT('',#{appc},'design')")
+    pdef = add(f"PRODUCT_DEFINITION('','',#{form},#{dctx})")
+    pds = add(f"PRODUCT_DEFINITION_SHAPE('','',#{pdef})")
+    origin = add("CARTESIAN_POINT('',(0.,0.,0.))")
+    zdir, xdir = add("DIRECTION('',(0.,0.,1.))"), add("DIRECTION('',(1.,0.,0.))")
+    axis = add(f"AXIS2_PLACEMENT_3D('',#{origin},#{zdir},#{xdir})")
+    reps = []
+    for name, patches in sets:
+        surfaces = []
+        for x0, x1, y0, y1 in patches:
+            pts = [[add(f"CARTESIAN_POINT('',({x:.6g},{y:.6g},0.))") for y in (y0, y1)] for x in (x0, x1)]
+            rows = ",".join("(" + ",".join(f"#{p}" for p in row) + ")" for row in pts)
+            surfaces.append(add(f"B_SPLINE_SURFACE_WITH_KNOTS('',1,1,({rows}),.UNSPECIFIED.,.F.,.F.,.F.,"
+                                "(2,2),(2,2),(0.,1.),(0.,1.),.UNSPECIFIED.)"))
+        gset = add(f"GEOMETRIC_SET('{name}',(" + ",".join(f"#{s}" for s in surfaces) + "))")
+        reps.append(add(f"GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION('',(#{gset}),#{ctx})"))
+    main = add(f"SHAPE_REPRESENTATION('',(#{axis}),#{ctx})")
+    add(f"SHAPE_DEFINITION_REPRESENTATION(#{pds},#{main})")
+    for r in reps:
+        add(f"SHAPE_REPRESENTATION_RELATIONSHIP('','',#{main},#{r})")
+    text = ("ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\n"
+            "FILE_NAME('model','2026-01-01T00:00:00',(''),(''),'','','');\n"
+            "FILE_SCHEMA(('CONFIG_CONTROL_DESIGN'));\nENDSEC;\nDATA;\n" + "\n".join(lines) + "\nENDSEC;\nEND-ISO-10303-21;\n")
+    Path(path).write_text(text, encoding="ascii")
+    return Path(path)

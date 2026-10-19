@@ -52,7 +52,7 @@ from vortexcfd.foam.mesh_case import force_report_keys, part_patch_names, wall_p
 from vortexcfd.geometry.cad import CadImportError
 from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.geometry.regions import RegionError
-from vortexcfd.workflow import part_ops
+from vortexcfd.workflow import part_ops, surface_prep
 from vortexcfd.foam.physics_case import (
     AREA_BASIS_LABELS,
     CENTRE_AUTO_LABEL,
@@ -287,6 +287,7 @@ CHECK_ROWS = (
     ("duplicates", "Duplicate faces"),
     ("orientation", "Flipped normals"),
     ("intersections", "Self-intersections"),
+    ("crossings", "Other parts crossed"),
     ("normals", "Normals"),
     ("watertight", "Watertight"),
 )
@@ -354,6 +355,8 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
     study_results_requested = Signal(str)
     regions_selected = Signal(int, list)  # part index, selected region names (viewer highlight, D-071)
     generate_domain_requested = Signal()  # the Generate domain button (D-078)
+    prepare_surfaces_requested = Signal()  # the Surface Preparation node's buttons (D-093)
+    remove_surface_prep_requested = Signal()
     # part index, linear (m) or None, angular (deg) or None: re-tessellate on the worker (D-073)
     retessellate_requested = Signal(int, object, object)
 
@@ -472,6 +475,7 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         self._layout.addWidget(self._region_buttons)
         self.geometry_busy = False
         self.request_intersections = None  # callable(path, units): background check (D-073)
+        self.request_overlaps = None  # callable(): background check of the parts crossing each other (D-099)
         self.region_split.clicked.connect(self._split_region)
         self.region_merge.clicked.connect(self._merge_regions)
         self.region_own_patches.clicked.connect(self._patch_per_region)
@@ -535,6 +539,25 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         self._layout.addWidget(self.domain_warning)
         self.domain_enabled.toggled.connect(lambda _: self._commit_domain("enabled"))
         self.domain_symmetry.currentTextChanged.connect(lambda _: self._commit_domain("symmetry"))
+        # Surface Preparation node (D-093): its result and report; run / remove.
+        self._section("sp_title", "Surface preparation")
+        self.sp_strategy = self._ro_row("sp_strategy", "Strategy")
+        self.sp_state = self._ro_row("sp_state", "State")
+        self.sp_parts = self._ro_row("sp_parts", "Parts")
+        self.sp_features = self._ro_row("sp_features", "Intersection curves")
+        self.sp_report = self._ro_row("sp_report", "Report")
+        sp_buttons = QWidget()
+        sp_box = QHBoxLayout(sp_buttons)
+        sp_box.setContentsMargins(0, 0, 0, 0)
+        self.sp_run = QPushButton("Prepare surfaces\u2026")
+        self.sp_run.setToolTip("Diagnose the parts and prepare them for meshing (intersection features or CAD union)")
+        self.sp_run.clicked.connect(self.prepare_surfaces_requested.emit)
+        self.sp_remove = QPushButton("Remove")
+        self.sp_remove.setToolTip("Remove the preparation: the parts mesh as imported (undoable)")
+        self.sp_remove.clicked.connect(self.remove_surface_prep_requested.emit)
+        sp_box.addWidget(self.sp_run)
+        sp_box.addWidget(self.sp_remove)
+        self._layout.addWidget(self._make_row("sp_buttons", "Operation", sp_buttons))
         # Fluid Region node: what is meshed, the domain minus the parts (D-078).
         self._section("fr_title", "Fluid region")
         self.fluid_definition = self._ro_row("fr_definition", "Definition")
@@ -974,7 +997,8 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         self._refresh_mesh(self._kind == "mesh")
         self.info_label.setVisible(
             not show_name and not is_domain
-            and self._kind not in ("mesh", "reference_values", "stopping", "reports", "probes")
+            and self._kind not in ("mesh", "reference_values", "stopping", "reports", "probes", "surface_prep",
+                                   "prepare_surfaces")
             and self._kind not in GROUPS
         )
         self._apply_label_column()
@@ -1153,7 +1177,12 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             "points": (num(report.points), False),
             "non_ortho": (num(report.max_non_orthogonality, "{:.4g}\u00b0"), False),
             "skewness": (num(report.max_skewness, "{:.4g}"), False),
-            "failed": (str(report.failed_checks), report.failed_checks > 0),
+            "failed": (str(report.failed_checks)
+                       + "".join(f"\nhard: {line}" for line in report.hard_failures)
+                       + "".join(f"\nwarning: {line}" for line in report.soft_warnings)
+                       + ("\nRun Solver is blocked: the mesh has hard checkMesh failures" if report.hard_failures
+                          else "\nWarnings only: the solver can run" if report.soft_warnings else ""),
+                       bool(report.hard_failures or report.soft_warnings)),
             "ok": ("yes" if report.mesh_ok else "no", not report.mesh_ok),
             "lost": (", ".join(report.lost_parts), False),
             "extruded": (num(report.extruded_percent, "{:g} %"), False),
@@ -1165,6 +1194,7 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         self._rows["mesh_extruded"].setVisible(show and report.extruded_percent is not None)
         self._rows["mesh_lost"].setVisible(show and bool(report.lost_parts))
         self._set_error(self.mesh_values["lost"], bool(report.lost_parts))
+        self._set_error(self.mesh_values["failed"], bool(report.hard_failures))
         self.mesh_values["lost"].setToolTip("\n".join(report.lost_messages()))
         self._fill_layer_rows(report)
 
@@ -1691,6 +1721,7 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             self._sections[key].setVisible(show and generated)
         self.domain_warning.setVisible(show and generated)
         self._refresh_fluid_region(self._kind == "fluid_region")
+        self._refresh_surface_prep(self._kind in ("surface_prep", "prepare_surfaces"))
         if not show or not generated:
             return
         widgets = [self.domain_enabled, self.domain_symmetry, self.domain_shape, *self.domain_fields.values()]
@@ -1715,6 +1746,33 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         self.domain_parts.setText(", ".join(domain.parts) if domain.parts else "all parts")
         self.domain_warning.setText("\n".join(box.warnings))
         self._set_warn(self.domain_warning, bool(box.warnings))
+
+    def _refresh_surface_prep(self, show: bool) -> None:
+        keys = ("sp_strategy", "sp_state", "sp_parts", "sp_features", "sp_report", "sp_buttons")
+        for key in keys:
+            self._rows[key].setVisible(show)
+        self._sections["sp_title"].setVisible(show)
+        if not show:
+            return
+        prep = self._project.sim.surface_prep
+        state = surface_prep.state(self._project)
+        self.sp_remove.setEnabled(prep is not None and not self.geometry_busy)
+        self.sp_run.setEnabled(bool(self._project.sim.geometry.parts) and not self.geometry_busy)
+        for key in ("sp_parts", "sp_features", "sp_report"):
+            self._rows[key].setVisible(prep is not None)
+        if prep is None:
+            self.sp_strategy.setText("not run (the parts mesh as imported)")
+            self.sp_state.setText("\u2014")
+            self._set_warn(self.sp_state, False)
+            return
+        self.sp_strategy.setText(surface_prep.STRATEGY_LABELS[prep.strategy])
+        self.sp_state.setText({"current": "up to date: meshing uses it",
+                               "stale": surface_prep.STALE_MESSAGE}.get(state, state))
+        self._set_warn(self.sp_state, state == "stale")
+        self.sp_parts.setText("\n".join(f"{p.part}: {surface_prep.STRATEGY_LABELS[p.strategy]}"
+                                         + (f" ({p.note})" if p.note else "") for p in prep.parts))
+        self.sp_features.setText(prep.features_file or "none")
+        self.sp_report.setText("\n".join(f"{label}: {value}" for label, value in prep.report))
 
     def _refresh_fluid_region(self, show: bool) -> None:
         for key in ("fr_definition", "fr_domain", "fr_parts", "fr_location"):
@@ -1771,6 +1829,14 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             return
         if report.intersections_pending and self.request_intersections is not None:
             self.request_intersections(part_file(self._project, part), part.units)
+        # Overlaps between parts (D-099): the self-intersection check looks within one part only.
+        known = surface_prep.crossings_known(self._project)
+        if not known and self.request_overlaps is not None:
+            self.request_overlaps()
+        crossings = surface_prep.crossing_parts(self._project, compute=False) if known else None
+        crossing = (surface_prep.crossing_text(self._project, part.name, crossings) if known
+                    else ("checking\u2026", False))
+        crosses_others = bool(crossings and crossings.get(part.name))
         size = " \u00d7 ".join(f"{v:.4g}" for v in report.size)
         values = {
             "triangles": (str(report.n_triangles), False),
@@ -1781,10 +1847,13 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             "degenerate": (str(report.degenerate_triangles), False),
             "duplicates": (str(report.duplicate_faces), False),
             "orientation": (str(report.inconsistent_orientation), False),
-            "intersections": ((str(report.self_intersections), report.self_intersections > 0)
+            "intersections": ((str(report.self_intersections)
+                               + (" within the part; it crosses other parts (below)" if crosses_others else ""),
+                               report.self_intersections > 0 or crosses_others)
                               if report.self_intersections is not None
                               else ("checking\u2026", False) if report.intersections_pending
                               else (report.intersections_note, True)),
+            "crossings": crossing,
             "watertight": ("yes" if report.watertight else "no", not report.watertight),
             "normals": (("point inward", True) if report.normals_inward
                         else ("outward", False) if report.watertight else ("\u2014 (open surface)", False)),
@@ -2002,6 +2071,8 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             widget.setEnabled(not busy)
         if not busy:
             self._update_region_fields()
+        self.sp_run.setEnabled(not busy and bool(self._project.sim.geometry.parts))
+        self.sp_remove.setEnabled(not busy and self._project.sim.surface_prep is not None)
 
     def _commit_units(self, units: str) -> None:
         try:

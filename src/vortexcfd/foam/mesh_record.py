@@ -34,6 +34,8 @@ def read_mesh_record(case_dir: Path) -> MeshRecord | None:
         report["layers"] = tuple(LayerCoverage(**row) for row in report.get("layers", ()))
         report["lost_parts"] = tuple(report.get("lost_parts", ()))  # absent in records before D-052
         report["domain_errors"] = tuple(report.get("domain_errors", ()))  # absent before D-078
+        report["failed_check_lines"] = tuple(report.get("failed_check_lines", ()))  # absent before D-096
+        report["warning_lines"] = tuple(report.get("warning_lines", ()))  # absent before D-100
         return MeshRecord(MeshReport(**report), str(data["inputs_hash"]), tuple(data["patches"]))
     except (OSError, ValueError, KeyError, TypeError):
         return None

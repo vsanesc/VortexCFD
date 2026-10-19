@@ -112,6 +112,9 @@ class MeshCaseInput:
     # The length target_surface_size multiplies (l_ref or L, Mesh.surface_size_reference, resolved by
     # the caller; D-085). None: reference_length.
     surface_length: float | None = None
+    # Extra feature edge files in constant/triSurface with their refinement level: the intersection
+    # curves of the surface preparation (D-093), snapped to like every feature.
+    extra_features: tuple[tuple[str, int], ...] = ()
 
     @property
     def rounded(self) -> bool:
@@ -519,6 +522,7 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
                         for p in inp.domain_patches},
         }
         features.append({"file": f'"{DOMAIN_SURFACE}.eMesh"', "level": 0})
+    features += [{"file": f'"{name}"', "level": level} for name, level in inp.extra_features]
     if with_seeds:
         features += [{"file": f'"{seed_file_name(inp.parts[i])}"', "level": levels[i][1]}
                      for i in seeded_parts(inp, est.base_size, est.level_min, est.level_max)]

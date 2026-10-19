@@ -162,6 +162,16 @@ class Dialogs:
         dialog.exec()
         return dialog.result_fields
 
+    def ask_surface_prep(self, strategies, default):
+        """The surface preparation strategy (D-093): a key of ``strategies`` [(key, label)], or None."""
+        from PySide6.QtWidgets import QInputDialog
+
+        labels = [label for _key, label in strategies]
+        keys = [key for key, _label in strategies]
+        current = keys.index(default) if default in keys else 0
+        text, ok = QInputDialog.getItem(self.parent, "Prepare surfaces", "Strategy:", labels, current, False)
+        return keys[labels.index(text)] if ok and text in labels else None
+
     def show_about(self) -> None:
         QMessageBox.about(self.parent, "About VortexCFD",
                           "VortexCFD: an integrated CFD workflow on top of OpenFOAM ESI v2606.")

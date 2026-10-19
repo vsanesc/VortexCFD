@@ -63,9 +63,20 @@ def physics_problem(project: Project) -> str | None:
     return None
 
 
+FAILED_CHECKS_ADVICE = ("the solver must not run on invalid cells: change the mesh settings (refinement, "
+                        "layers) and generate the mesh again")
+
+
+def failed_checks_reason(failed_checks: str | None) -> str | None:
+    """The Run Solver reason for a mesh with hard checkMesh failures (MeshReport.failed_checks_message,
+    D-096, D-100); soft quality warnings do not block."""
+    return None if failed_checks is None else f"The mesh failed checkMesh ({failed_checks}): {FAILED_CHECKS_ADVICE}."
+
+
 def readiness(project: Project, *, has_mesh: bool, mesh_stale: bool, meshing: bool,
-              lost_parts: tuple[str, ...] = ()) -> str | None:
-    """Why Run Solver is disabled, or None when the solver can run."""
+              lost_parts: tuple[str, ...] = (), failed_checks: str | None = None) -> str | None:
+    """Why Run Solver is disabled, or None when the solver can run. ``failed_checks``: the mesh's
+    MeshReport.failed_checks_message() (a mesh that failed checkMesh blocks the solver, D-096)."""
     if project.path is None:
         return "Save the project first."
     if meshing:
@@ -76,6 +87,8 @@ def readiness(project: Project, *, has_mesh: bool, mesh_stale: bool, meshing: bo
         return lost_part_message(lost_parts[0]) + ": raise its refinement and generate the mesh again."
     if mesh_stale:
         return "The mesh is out of date: generate it again."
+    if failed_checks is not None:
+        return failed_checks_reason(failed_checks)
     return physics_problem(project)
 
 

@@ -18,6 +18,8 @@ from pathlib import Path
 
 from vortexcfd.bench import report
 from vortexcfd.bench.cases import CASES, deviations
+from vortexcfd.bench.local import LocalConfigError, load_local_cases
+from vortexcfd.bench.local import work_root as local_work_root
 
 
 def repo_root() -> Path:
@@ -42,9 +44,10 @@ def git_sha(root: Path) -> str:
 def _worker(name: str, out_file: Path, root: Path, solve: bool) -> int:
     from vortexcfd.bench.runner import run_case
 
-    case = CASES[name]
+    case = CASES.get(name) or load_local_cases(root)[0][name]
+    work = local_work_root() if case.local else root / "run" / "bench"
     try:
-        result = run_case(case, root / "run" / "bench", root / "benchmarks" / "geometries", solve=solve)
+        result = run_case(case, work, root / "benchmarks" / "geometries", solve=solve)
     except Exception as exc:  # a crash is a benchmark result, not a reason to lose the others
         result = {"case": name, "description": case.description, "failed": True,
                   "failure": f"{type(exc).__name__}: {exc}"}
@@ -84,7 +87,9 @@ def print_compare(old: dict, new: dict, old_name: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m vortexcfd.bench", description="Meshing benchmark (D-082).")
-    parser.add_argument("--cases", nargs="+", choices=sorted(CASES), help="cases to run (default: all)")
+    parser.add_argument("--cases", nargs="+", help=f"cases to run (default: all public ones: {', '.join(CASES)})")
+    parser.add_argument("--local", action="store_true",
+                        help="run the local-only cases of benchmarks/local_cases.json (git-ignored; D-094)")
     parser.add_argument("--compare", type=Path, help="an earlier result file to compare with")
     parser.add_argument("--result", type=Path, help="compare this existing result instead of running")
     parser.add_argument("--no-solve", action="store_true", help="mesh only (no indicative y+ run)")
@@ -108,17 +113,37 @@ def main(argv: list[str] | None = None) -> int:
         from vortexcfd.foam.parallel import physical_cores
 
         names = args.cases or list(CASES)
+        local = {}
+        if args.local:
+            try:
+                local, messages = load_local_cases(root)
+            except LocalConfigError as exc:
+                print(f"Local cases: {exc}")
+                return 2
+            for line in messages:
+                print(line)
+            names = [n for n in args.cases if n in local] if args.cases else list(local)
+            if not names:
+                print("No local case to run.")
+                return 0
+        unknown = [n for n in names if n not in CASES and n not in local]
+        if unknown:
+            print(f"Unknown case(s): {', '.join(unknown)} (public: {', '.join(CASES)}; local cases need --local)")
+            return 2
         now = datetime.now(timezone.utc)
         start = time.monotonic()
         cases = run_cases(names, root, not args.no_solve)
         new = {"meta": {"stamp": now.strftime("%Y%m%dT%H%M%SZ"), "utc": now.strftime("%Y-%m-%d %H:%M:%S"),
                         "git_sha": git_sha(root), "cases": names, "solve": not args.no_solve,
-                        "physical_cores": physical_cores(), "wall_s": time.monotonic() - start},
+                        "physical_cores": physical_cores(), "wall_s": time.monotonic() - start,
+                        "local": bool(args.local)},
                "cases": cases}
-        json_path, md_path = report.write_result(new, args.out or root / "benchmarks" / "results")
+        # Local results never go next to the public ones (D-094): benchmarks/results/local/, git-ignored.
+        folder = args.out or root / "benchmarks" / "results" / ("local" if args.local else "")
+        json_path, md_path = report.write_result(new, folder)
         print(f"\nWrote {json_path} and {md_path.name}")
         print(f"Wall-clock {new['meta']['wall_s']:.0f} s\n")
-    print(report.markdown_table(new))
+    print(report.local_table(new) if new.get("meta", {}).get("local") else report.markdown_table(new))
     if args.compare is not None:
         old = json.loads(args.compare.read_text(encoding="utf-8"))
         return print_compare(old, new, str(args.compare))

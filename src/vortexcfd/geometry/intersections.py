@@ -130,3 +130,98 @@ def intersecting_triangles(points: np.ndarray, triangles: np.ndarray) -> np.ndar
     if not found:
         return np.empty(0, dtype=np.int64)
     return np.unique(np.concatenate(found))
+
+
+# -- intersection curves between surfaces (surface preparation, D-093) ----------------------------
+
+
+def _candidate_pairs(pts: np.ndarray, tris: np.ndarray, groups: np.ndarray) -> np.ndarray:
+    """Grid candidate pairs of triangles of DIFFERENT groups whose bounding boxes overlap."""
+    pairs = _cell_pairs(tris, pts)
+    if not len(pairs):
+        return pairs
+    pairs = pairs[groups[pairs[:, 0]] != groups[pairs[:, 1]]]
+    corners = pts[tris]
+    lo, hi = corners.min(axis=1), corners.max(axis=1)
+    i, j = pairs[:, 0], pairs[:, 1]
+    keep = np.ones(len(pairs), dtype=bool)
+    for axis in range(3):
+        keep &= (lo[i, axis] <= hi[j, axis]) & (lo[j, axis] <= hi[i, axis])
+    return pairs[keep]
+
+
+def _plane_cut(tri: np.ndarray, normal: np.ndarray, offset: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Where each triangle (n, 3, 3) crosses the plane normal . x = offset (one per row): the two
+    crossing points and whether the triangle straddles the plane. A vertex exactly on the plane is
+    moved to its positive side (a symbolic perturbation), so a straddling triangle always has exactly
+    two crossing edges."""
+    s = np.einsum("nkj,nj->nk", tri, normal) - offset[:, None]
+    scale = np.abs(s).max(axis=1, keepdims=True)
+    s = np.where(np.abs(s) <= 1e-12 * np.maximum(scale, 1e-300), 1e-12 * np.maximum(scale, 1e-300), s)
+    straddle = (s.min(axis=1) < 0) & (s.max(axis=1) > 0)
+    points = []
+    crosses = []
+    for a, b in ((0, 1), (1, 2), (2, 0)):
+        sa, sb = s[:, a], s[:, b]
+        c = (sa * sb) < 0
+        t = np.where(c, sa / np.where(c, sa - sb, 1.0), 0.0)
+        points.append(tri[:, a] + t[:, None] * (tri[:, b] - tri[:, a]))
+        crosses.append(c)
+    crosses = np.stack(crosses, axis=1)  # (n, 3)
+    points = np.stack(points, axis=1)  # (n, 3, 3)
+    order = np.argsort(~crosses, axis=1, kind="stable")  # crossing edges first
+    rows = np.arange(len(tri))
+    return points[rows, order[:, 0]], points[rows, order[:, 1]], straddle
+
+
+def _segments_of_pairs(pts: np.ndarray, tris: np.ndarray, pairs: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The intersection segment (2 points) of every crossing pair of triangles, and the mask of the
+    pairs that cross. Coplanar pairs are not handled (no segment)."""
+    a, b = pts[tris[pairs[:, 0]]], pts[tris[pairs[:, 1]]]
+    na = np.cross(a[:, 1] - a[:, 0], a[:, 2] - a[:, 0])
+    nb = np.cross(b[:, 1] - b[:, 0], b[:, 2] - b[:, 0])
+    direction = np.cross(na, nb)
+    dlen = np.linalg.norm(direction, axis=1)
+    scale = np.linalg.norm(na, axis=1) * np.linalg.norm(nb, axis=1)
+    ok = dlen > 1e-9 * np.maximum(scale, 1e-300)
+    a0, a1, sa = _plane_cut(a, nb, np.einsum("ij,ij->i", nb, b[:, 0]))
+    b0, b1, sb = _plane_cut(b, na, np.einsum("ij,ij->i", na, a[:, 0]))
+    ok &= sa & sb
+    unit = direction / np.where(dlen > 0, dlen, 1.0)[:, None]
+    ta0, ta1 = np.einsum("ij,ij->i", a0, unit), np.einsum("ij,ij->i", a1, unit)
+    tb0, tb1 = np.einsum("ij,ij->i", b0, unit), np.einsum("ij,ij->i", b1, unit)
+    lo = np.maximum(np.minimum(ta0, ta1), np.minimum(tb0, tb1))
+    hi = np.minimum(np.maximum(ta0, ta1), np.maximum(tb0, tb1))
+    ok &= hi > lo
+    p_lo = a0 + (lo - ta0)[:, None] * unit
+    p_hi = a0 + (hi - ta0)[:, None] * unit
+    return np.stack([p_lo, p_hi], axis=1), ok
+
+
+def intersection_segments(points: np.ndarray, triangles: np.ndarray, groups: np.ndarray
+                          ) -> tuple[np.ndarray, np.ndarray]:
+    """The curves where triangles of different ``groups`` (one label per triangle, e.g. the
+    component) cross each other, as segments.
+
+    Returns (segments (n, 2, 3), group pairs (n, 2), the lower label first). Candidate pairs come
+    from the same grid as the self-intersection check; the segment of a crossing pair is the overlap
+    of the two triangles' cuts by each other's plane. Coplanar overlaps give no segment.
+    """
+    pts = np.asarray(points, dtype=float)
+    tris = np.asarray(triangles, dtype=np.int64)
+    groups = np.asarray(groups)
+    empty = np.empty((0, 2, 3)), np.empty((0, 2), dtype=groups.dtype if len(groups) else np.int64)
+    if len(tris) < 2:
+        return empty
+    pairs = _candidate_pairs(pts, tris, groups)
+    out_s, out_g = [], []
+    for s in range(0, len(pairs), PAIR_CHUNK):
+        chunk = pairs[s:s + PAIR_CHUNK]
+        segments, ok = _segments_of_pairs(pts, tris, chunk)
+        if ok.any():
+            g = np.sort(np.stack([groups[chunk[ok, 0]], groups[chunk[ok, 1]]], axis=1), axis=1)
+            out_s.append(segments[ok])
+            out_g.append(g)
+    if not out_s:
+        return empty
+    return np.concatenate(out_s), np.concatenate(out_g)
