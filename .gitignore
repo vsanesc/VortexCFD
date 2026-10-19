@@ -23,7 +23,7 @@ cavity/
 run/
 *:Zone.Identifier
 
-# Meshing benchmark (D-081): generated geometries and result files; benchmarks/baseline.json is kept
+# Meshing benchmark (D-081, D-082): generated geometries and result files; benchmarks/baseline.json is kept
 benchmarks/geometries/*.stl
 benchmarks/geometries/*.step
 benchmarks/results/

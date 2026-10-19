@@ -41,4 +41,5 @@ markers = [
     "slow: tests above ~5 s (real meshing runs); deselect with -m 'not slow'",
     "validation: numerics validation against reference solutions; run explicitly with -m validation",
     "long: real OpenFOAM runs above 60 s (studies, serial vs parallel); run explicitly with -m long",
+    "bench: real meshing benchmark runs (D-082); run explicitly with -m bench",
 ]
