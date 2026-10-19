@@ -414,7 +414,7 @@ def test_physics_inflow_solver_defaults() -> None:
     sv = Solvers()
     assert (sv.iterations, sv.write_interval, sv.relaxation) == (1000, 200, "robust")
     m = Mesh()
-    assert (m.layer_sizing, m.target_yplus) == ("relative", 1.0)
+    assert (m.layer_sizing, m.target_yplus) == ("absolute_yplus", 50.0)  # wall-function range (D-086)
 
 
 @pytest.mark.parametrize("model, fields", [
@@ -594,6 +594,10 @@ def test_mesh_study_settings_validation() -> None:
 V9_FIXTURE = Path(__file__).parent / "data" / "project_v9.json"
 
 
+def load_simulation_data(data: dict) -> Simulation:
+    return Simulation.model_validate(migrate(data))
+
+
 def test_v9_fixture_keeps_its_mesh_behaviour() -> None:
     """Hand-written v9 project as the app saved it (tests/data/project_v9.json): its stored mesh values
     are kept and the settings the v10 defaults changed take the values it had (D-085)."""
@@ -605,10 +609,15 @@ def test_v9_fixture_keeps_its_mesh_behaviour() -> None:
         assert getattr(sim.mesh, key) == value, key
     assert sim.mesh.surface_size_reference == "largest_extent" and sim.mesh.curvature_levels == 0
     assert sim.reports.reference_length is None and sim.inflow.speed == 20.0
+    assert (sim.mesh.layer_sizing, sim.mesh.target_yplus) == ("relative", 1.0)  # its stored layers (D-086)
+    # a minimal v9 file without layer settings keeps the v9 defaults, not the v10 ones
+    minimal = load_simulation_data({"schema_version": 9, "name": "m", "mesh": {"layers": 2}})
+    assert (minimal.mesh.layer_sizing, minimal.mesh.target_yplus, minimal.mesh.layers) == ("relative", 1.0, 2)
 
 
 def test_new_simulation_sizes_the_surface_from_l_ref_with_curvature() -> None:
     mesh = Simulation(name="x").mesh
+    assert (mesh.layer_sizing, mesh.target_yplus) == ("absolute_yplus", 50.0)  # D-086
     assert mesh.surface_size_reference == "reference_length" and mesh.target_surface_size == 0.01
     assert mesh.curvature_levels == 2
     with pytest.raises(ValidationError):

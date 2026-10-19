@@ -17,6 +17,7 @@ import pytest
 
 from tests.real_cases import mesh_body, run_solver, sphere, write_solver_case
 from vortexcfd.core.model import Inflow, Mesh, Solvers, StoppingCriteria
+from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR
 from vortexcfd.foam.parallel import BINDINGS
 from vortexcfd.foam.solver_run import ITERATION_LIMIT
 
@@ -31,7 +32,7 @@ CORES = (1, 2, 4, 8)
 def test_speedup_study(tmp_path: Path) -> None:
     import shutil
 
-    meshed = mesh_body(tmp_path / "mesh", sphere(), "Sphere", Mesh(background_cells_target=BACKGROUND_CELLS),
+    meshed = mesh_body(tmp_path / "mesh", sphere(), "Sphere", Mesh(**V9_MESH_BEHAVIOUR, background_cells_target=BACKGROUND_CELLS),
                        step_timeout_s=1800, total_timeout_s=3600)
     assert meshed.ok, "".join(meshed.lines[-30:])
     rows = []

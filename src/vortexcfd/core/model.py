@@ -153,10 +153,11 @@ class Mesh(StrictModel):
     expansion_ratio: float = Field(default=1.2, ge=1.0)
     final_layer_thickness: float = Field(default=0.5, gt=0)
     min_thickness: float = Field(default=0.1, gt=0)
-    # "relative": layer sizes relative to the local cell; "absolute_yplus": the first layer
-    # thickness follows from target_yplus (see foam/yplus.py), expansion_ratio is reused.
-    layer_sizing: Literal["relative", "absolute_yplus"] = "relative"
-    target_yplus: float = Field(default=1.0, gt=0)
+    # "relative": layer sizes relative to the local cell (target_yplus unused); "absolute_yplus": the
+    # first layer thickness follows from target_yplus (see foam/yplus.py), expansion_ratio is reused.
+    # Default since schema v10: absolute sizing for y+ 50, the wall-function range (D-086).
+    layer_sizing: Literal["relative", "absolute_yplus"] = "absolute_yplus"
+    target_yplus: float = Field(default=50.0, gt=0)
 
     @model_validator(mode="after")
     def _levels_ordered(self) -> "Mesh":

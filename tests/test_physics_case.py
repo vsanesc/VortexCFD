@@ -231,8 +231,9 @@ def _mesh_input(mesh: Mesh, first: float | None) -> MeshCaseInput:
     return MeshCaseInput((-5, 10, -5, 5, -5, 5), False, ("Wing",), (0.0, 1.0, -0.5, 0.5, 0.0, 0.3), 1.0, mesh, first)
 
 
-def test_relative_layers_are_the_default() -> None:
-    content = snappy_hex_mesh_dict(_mesh_input(Mesh(), None)).content
+def test_absolute_yplus_50_is_the_default_and_relative_stays_selectable() -> None:
+    assert (Mesh().layer_sizing, Mesh().target_yplus) == ("absolute_yplus", 50.0)  # D-086
+    content = snappy_hex_mesh_dict(_mesh_input(Mesh(layer_sizing="relative"), None)).content
     assert content["meshQualityControls"]["minTetQuality"] == 1e-15  # the default quality limits
     assert "relaxed" not in content["meshQualityControls"] and "nRelaxedIter" not in content["addLayersControls"]
     layers = content["addLayersControls"]
@@ -369,7 +370,7 @@ def test_snappy_uses_the_computed_layer_count_for_absolute_sizing() -> None:
     d = snappy_hex_mesh_dict(inp).content
     assert d["addLayersControls"]["layers"]['"Wing.*"'] == {"nSurfaceLayers": 9} and d["addLayers"] is True
     rel = MeshCaseInput((-5, 10, -5, 5, -5, 5), False, ("Wing",), (0.0, 1.0, -0.5, 0.5, 0.0, 0.3), 1.0,
-                        Mesh(layers=4), layer_count=9)
+                        Mesh(layers=4, layer_sizing="relative"), layer_count=9)
     assert snappy_hex_mesh_dict(rel).content["addLayersControls"]["layers"]['"Wing.*"'] == {"nSurfaceLayers": 4}
 
 

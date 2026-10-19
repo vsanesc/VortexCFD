@@ -115,7 +115,8 @@ def test_estimate_uses_the_actual_volume_and_a_background_margin() -> None:
 
 
 def _inputs(shape: str, symmetry: str = "none", mesh: Mesh = Mesh(base_size=0.5, surface_level_min=1,
-                                                                  surface_level_max=2, layers=0)):
+                                                                  surface_level_max=2, layers=0,
+                                                                  layer_sizing="relative")):
     box = _box(shape, symmetry)
     return box, MeshCaseInput(box.bounds, symmetry == "y_min", ("Sphere",), PART, box.reference_length, mesh,
                               **domain_fields(box))
@@ -214,7 +215,8 @@ def test_domain_parts_follow_renames_and_removals() -> None:
 def _real_mesh(tmp_path: Path, shape: str):
     sphere = pv.Sphere(radius=0.5, theta_resolution=24, phi_resolution=24)
     box = compute_domain([tuple(sphere.bounds)], Domain(shape=shape))
-    mesh = Mesh(base_size=0.5, surface_level_min=1, surface_level_max=2, layers=0)  # the same base size
+    mesh = Mesh(base_size=0.5, surface_level_min=1, surface_level_max=2, layers=0,
+                layer_sizing="relative")  # the same base size
     inp = MeshCaseInput(box.bounds, False, ("Sphere",), tuple(sphere.bounds), box.reference_length, mesh,
                         **domain_fields(box))
     case = tmp_path / shape

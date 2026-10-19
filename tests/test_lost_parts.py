@@ -114,7 +114,7 @@ def _inp(levels) -> MeshCaseInput:
 
     box = compute_domain([BALL_BOUNDS, POD_BOUNDS], Domain())
     union = (-0.5, 1.8, -0.5, 0.5, -0.5, 0.5)
-    return MeshCaseInput(box.bounds, False, ("Ball", "Pod"), union, box.reference_length, Mesh(),
+    return MeshCaseInput(box.bounds, False, ("Ball", "Pod"), union, box.reference_length, Mesh(layer_sizing="relative"),
                          part_bounds=(BALL_BOUNDS, POD_BOUNDS), part_levels=levels)
 
 
@@ -152,7 +152,7 @@ def test_unseeded_case_keeps_the_single_run(tmp_path: Path) -> None:
     from vortexcfd.foam.mesh_case import CASTELLATE_DICT, MESH_COMMANDS, STEP_DICTS, build_mesh_files, prepare_case_dir
 
     ball_only = MeshCaseInput(_inp(((None, None), (None, None))).domain_bounds, False, ("Ball",), BALL_BOUNDS, 1.0,
-                              Mesh(), part_bounds=(BALL_BOUNDS,), part_levels=((None, None),))
+                              Mesh(layer_sizing="relative"), part_bounds=(BALL_BOUNDS,), part_levels=((None, None),))
     assert snappy_castellation_dict(ball_only) is None
     main = snappy_hex_mesh_dict(ball_only).content
     assert (main["castellatedMesh"], main["snap"], main["addLayers"]) == (True, True, True)

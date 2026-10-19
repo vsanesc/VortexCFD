@@ -100,7 +100,7 @@ def test_patch_names_are_safe_and_unique_across_parts() -> None:
 
 
 def test_snappy_dict_has_one_region_per_patch() -> None:
-    inp = MeshCaseInput((-5, 5, -5, 5, -5, 5), False, ("Body", "Ball"), (-1, 1, -1, 1, -1, 1), 2.0, Mesh(),
+    inp = MeshCaseInput((-5, 5, -5, 5, -5, 5), False, ("Body", "Ball"), (-1, 1, -1, 1, -1, 1), 2.0, Mesh(layer_sizing="relative"),
                         part_patches=(("nose", "Body"), ("Ball",)))
     assert inp.patches == ("nose", "Body", "Ball") and inp.has_regions(0) and not inp.has_regions(1)
     content = snappy_hex_mesh_dict(inp).content
@@ -142,13 +142,13 @@ def test_an_unassigned_project_hashes_as_before(tmp_path: Path) -> None:
 
     from vortexcfd.workflow.meshing import _hash_file
 
-    from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR
+    from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR, V10_MESH_FIELDS
 
     project = _project(tmp_path)
     _box_part(project)
-    project.update_mesh(**V9_MESH_BEHAVIOUR, layer_sizing="relative")  # a project made before v10 (D-085)
+    project.update_mesh(**V9_MESH_BEHAVIOUR)  # a project made before v10 (D-085, D-086)
     part = project.sim.geometry.parts[0]
-    mesh = {k: v for k, v in project.sim.mesh.model_dump().items() if k not in V9_MESH_BEHAVIOUR}  # the v9 fields
+    mesh = {k: v for k, v in project.sim.mesh.model_dump().items() if k not in V10_MESH_FIELDS}  # the v9 fields
     payload = {
         "parts": [[part.name, part.units, _hash_file(project.resolve_part_path(part)), None, None]],
         "domain": project.sim.domain.model_dump(), "mesh": mesh, "yplus_inputs": None,

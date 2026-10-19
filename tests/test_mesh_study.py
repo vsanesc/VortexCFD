@@ -64,7 +64,7 @@ def test_every_level_gets_the_same_absolute_layer_stack() -> None:
     """Relative sizing: first = final * h_surface / ER^(n-1) at the current surface size, the same
     on every level (relativeSizes false); absolute y+: the y+ first layer and the current count.
     The quality controls stay those of the project's sizing (no relaxed set for relative)."""
-    mesh = Mesh()
+    mesh = Mesh(layer_sizing="relative")
     surface = estimate_mesh(DOMAIN, 1.0, mesh).surface_size
     stack = reference_layers(mesh, surface, None)
     assert stack.count == 3 and stack.first == pytest.approx(0.5 * surface / 1.2**2)
@@ -80,7 +80,7 @@ def test_every_level_gets_the_same_absolute_layer_stack() -> None:
     yplus = Mesh(layer_sizing="absolute_yplus", target_yplus=1.0)
     s2 = reference_layers(yplus, surface, 2e-5)
     assert s2.first == 2e-5 and s2.count > 3
-    assert reference_layers(Mesh(layers=0), surface, None) is None
+    assert reference_layers(Mesh(layers=0, layer_sizing="relative"), surface, None) is None
     with pytest.raises(ValueError):
         reference_layers(yplus, surface, None)
 

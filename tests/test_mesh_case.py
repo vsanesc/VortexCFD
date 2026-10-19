@@ -29,13 +29,19 @@ DATA = Path(__file__).parent / "data"
 TUTORIAL = Path("/usr/lib/openfoam/openfoam2606/tutorials/incompressible/simpleFoam/motorBike/system")
 
 
+def relative(mesh: Mesh) -> Mesh:
+    """The structural tests build MeshCaseInput directly, without the workflow's y+ estimate, so they
+    use relative layer sizing (the default is absolute y+ since D-086)."""
+    return mesh.model_copy(update={"layer_sizing": "relative"})
+
+
 def sphere_input(mesh: Mesh | None = None, domain: Domain | None = None, symmetric: bool = False) -> MeshCaseInput:
     sphere = pv.Sphere(radius=0.5, theta_resolution=24, phi_resolution=24)
     dom = domain or Domain(upstream=2, downstream=4, lateral=2, vertical=2,
                            symmetry="y_min" if symmetric else "none")
     box = compute_domain([tuple(sphere.bounds)], dom)
     return MeshCaseInput(box.bounds, symmetric, tuple(safe_part_names(["Sphere"])),
-                         tuple(sphere.bounds), box.reference_length, mesh or Mesh(base_size=0.5))
+                         tuple(sphere.bounds), box.reference_length, relative(mesh or Mesh(base_size=0.5)))
 
 
 # -- names, sizes, locationInMesh -------------------------------------------------------------

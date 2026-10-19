@@ -7,6 +7,7 @@ from tests.fakes import FakeDialogs
 from vortexcfd.core.project import Project
 from vortexcfd.foam.physics_case import inlet_turbulence
 from vortexcfd.gui.main_window import MainWindow
+from vortexcfd.gui.properties_panel import YPLUS_RELATIVE_TIP
 
 
 @pytest.fixture
@@ -122,14 +123,23 @@ def test_mesh_node_has_layer_sizing_rows(window: MainWindow) -> None:
     _select(window, "mesh")
     p = window.properties
     f = p.mesh_fields
-    assert f["layer_sizing"].currentText() == "relative" and f["target_yplus"].value() == 1.0
+    # a new simulation: absolute sizing for y+ 50 (D-086), the field in use
+    assert f["layer_sizing"].currentText() == "absolute_yplus" and f["target_yplus"].value() == 50.0
+    assert f["target_yplus"].isEnabled() and f["target_yplus"].toolTip() == ""
+    f["layer_sizing"].setCurrentText("relative")
+    assert window.project.sim.mesh.layer_sizing == "relative"
     assert not p.mesh_yplus_note.isVisible()  # relative sizing: no y+ guidance
-    f["target_yplus"].setValue(30.0)
-    f["target_yplus"].editingFinished.emit()
-    assert window.project.sim.mesh.target_yplus == 30.0
+    # relative sizing: the target y+ sizes nothing, so its field is disabled and says why
+    assert not f["target_yplus"].isEnabled()
+    assert f["target_yplus"].toolTip() == YPLUS_RELATIVE_TIP
+    assert "follows the surface cell size" in YPLUS_RELATIVE_TIP and "not targeted" in YPLUS_RELATIVE_TIP
     f["layer_sizing"].setCurrentText("absolute_yplus")
     assert window.project.sim.mesh.layer_sizing == "absolute_yplus"
     assert window.project.undo_label == "Edit mesh (layer_sizing)"
+    assert f["target_yplus"].isEnabled()
+    f["target_yplus"].setValue(30.0)
+    f["target_yplus"].editingFinished.emit()
+    assert window.project.sim.mesh.target_yplus == 30.0
     assert p.mesh_yplus_note.isVisible() and p.mesh_yplus_note.objectName() == "muted"
     assert "Cf about 6% low at y+ 1, about 3.6% low at y+ 0.5" in p.mesh_yplus_note.text()
     _select(window, "physics")
@@ -169,9 +179,12 @@ def test_mesh_properties_show_the_computed_first_layer_thickness(qtbot: QtBot, t
     try:
         w.tree.setCurrentItem(w._items[("mesh", None)])
         p = w.properties
+        length = domain_box_for(project).reference_length
+        h50 = first_layer_thickness(50.0, 20.0, 1.5e-5, length)
+        assert p.mesh_first_layer.text() == f"{h50:.4g} m (for y+ 50)"  # the default (D-086)
+        project.update_mesh(layer_sizing="relative")
         assert p.mesh_first_layer.text() == "relative sizing"
         project.update_mesh(layer_sizing="absolute_yplus", target_yplus=30.0)
-        length = domain_box_for(project).reference_length
         h = first_layer_thickness(30.0, 20.0, 1.5e-5, length)
         assert p.mesh_first_layer.text() == f"{h:.4g} m (for y+ 30)"
         project.update_inflow(speed=40.0)  # the computed value follows the flow
@@ -185,6 +198,7 @@ def test_absolute_layers_make_the_mesh_depend_on_the_flow(tmp_path) -> None:
     from vortexcfd.workflow.meshing import inputs_hash
 
     project = _project_with_sphere(tmp_path)
+    project.update_mesh(layer_sizing="relative")
     base = inputs_hash(project)
     project.update_inflow(speed=40.0)
     assert inputs_hash(project) == base  # relative layers do not depend on the flow
@@ -199,7 +213,7 @@ def test_absolute_layers_make_the_mesh_depend_on_the_flow(tmp_path) -> None:
 def test_layer_count_rows_and_the_y_plus_warning(qtbot: QtBot, tmp_path) -> None:
     from vortexcfd.foam.yplus import WARNING_HINT, first_layer_thickness, plan_layers
     from vortexcfd.gui.scene import domain_box_for
-    from vortexcfd.foam.mesh_estimate import estimate_mesh
+    from vortexcfd.workflow.meshing import project_estimate
 
     project = _project_with_sphere(tmp_path)
     w = MainWindow(project, FakeDialogs(), with_viewer=False)
@@ -208,9 +222,10 @@ def test_layer_count_rows_and_the_y_plus_warning(qtbot: QtBot, tmp_path) -> None
     try:
         w.tree.setCurrentItem(w._items[("mesh", None)])
         p = w.properties
+        project.update_mesh(layer_sizing="relative")
         assert p.mesh_layer_count.text() == "3 (set)" and p.mesh_layer_stack.text() == "—"  # relative
         box = domain_box_for(project)
-        surface = estimate_mesh(box.bounds, box.reference_length, project.sim.mesh).surface_size
+        surface = project_estimate(project, box).surface_size
         project.update_mesh(layer_sizing="absolute_yplus", target_yplus=30.0)
         plan = plan_layers(first_layer_thickness(30.0, 20.0, 1.5e-5, box.reference_length),
                            project.sim.mesh.expansion_ratio, surface)

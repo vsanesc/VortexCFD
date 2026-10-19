@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from vortexcfd.core.project import Project
-from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR
+from vortexcfd.core.project_io import V10_MESH_FIELDS
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.yplus import LayerPlan, first_layer_thickness, plan_layers
 from vortexcfd.foam.mesh_case import (
@@ -352,7 +352,7 @@ def inputs_hash(project: Project) -> str:
             entry.append(_hash_file(ids) if ids is not None and ids.is_file() else None)
         parts.append(entry)
     mesh = project.sim.mesh.model_dump()
-    for key, legacy in V9_MESH_BEHAVIOUR.items():  # a project meshed before v10 keeps its hash (D-085)
+    for key, legacy in V10_MESH_FIELDS.items():  # a project meshed before v10 keeps its hash (D-085)
         if mesh.get(key) == legacy:
             del mesh[key]
     payload = {

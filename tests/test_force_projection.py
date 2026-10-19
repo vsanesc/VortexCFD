@@ -99,6 +99,7 @@ def test_projection_agrees_on_a_real_run(tmp_path: Path) -> None:
     import pyvista as pv
 
     from vortexcfd.core.model import Domain, Inflow, Mesh, Physics, Solvers
+    from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR
     from vortexcfd.foam.case_writer import enable_clean_stop
     from vortexcfd.foam.dictfile import write_foam_file
     from vortexcfd.foam.mesh_case import TRI_SURFACE, MeshCaseInput, build_mesh_files, prepare_case_dir
@@ -109,7 +110,8 @@ def test_projection_agrees_on_a_real_run(tmp_path: Path) -> None:
 
     body = pv.ParametricEllipsoid(0.5, 0.5, 0.15, u_res=48, v_res=24, w_res=24).triangulate().clean()
     box = compute_domain([tuple(body.bounds)], Domain())
-    inputs = MeshCaseInput(box.bounds, False, ("Body",), tuple(body.bounds), box.reference_length, Mesh())
+    inputs = MeshCaseInput(box.bounds, False, ("Body",), tuple(body.bounds), box.reference_length,
+                           Mesh(**V9_MESH_BEHAVIOUR))  # the set-up of tests/data/projection_run
     case = tmp_path / "case"
     prepare_case_dir(case, build_mesh_files(inputs))
     body.save(str(case / TRI_SURFACE / "Body.stl"))

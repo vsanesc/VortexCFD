@@ -207,6 +207,9 @@ def format_vector(v) -> str:
 # Shown under Target y+ with absolute (y+) layer sizing (D-024).
 YPLUS_NOTE = ("Flat-plate verification: Cf about 6% low at y+ 1, about 3.6% low at y+ 0.5 "
               "(docs/validation/flat_plate)")
+# Tooltip of the disabled Target y+ field with relative layer sizing (D-086).
+YPLUS_RELATIVE_TIP = ("Relative layer sizing: the layer thickness follows the surface cell size, so y+ is not "
+                      "targeted. Choose absolute_yplus to size the layers for this y+.")
 
 # Physics / Inflow / Solvers nodes: model section, update method and editable fields.
 GROUPS: dict[str, dict] = {
@@ -995,6 +998,9 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         self.mesh_thin_warning.setVisible(bool(thin))
         mesh = self._project.sim.mesh
         self.mesh_yplus_note.setVisible(mesh.layer_sizing == "absolute_yplus")
+        yplus_used = mesh.layer_sizing == "absolute_yplus"
+        self.mesh_fields["target_yplus"].setEnabled(yplus_used)
+        self.mesh_fields["target_yplus"].setToolTip("" if yplus_used else YPLUS_RELATIVE_TIP)
         widgets = list(self.mesh_fields.values())
         for w in widgets:
             w.blockSignals(True)
