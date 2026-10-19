@@ -113,6 +113,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-096 | 2026-10-19 | A mesh that fails checkMesh blocks the solver | Proposed |
 | D-097 | 2026-10-19 | Junction curves refine to the finest surface level | Proposed |
 | D-098 | 2026-10-19 | Component names from the STEP entities | Proposed |
+| D-099 | 2026-10-19 | The import checks report parts that cross each other | Proposed |
 
 ---
 
@@ -933,4 +934,11 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Fallback: intersection features now improve every junction against no preparation, so it stays the per-part fallback of the CAD union (the "as is with a warning" alternative of the review is not needed).
 - Alternatives considered: surfaceBooleanFeatures per pair (same numbers, an OpenFOAM run per pair); keeping level 5 and adding a distance refinement around the curves (the cells are already at level 7 near most of the curve).
 - Consequences: about 11,000 more cells on the aircraft; junction layers collapse more (input for 5.4). The CAD union's junctions are its parts' open edges, still refined at the parts' surface level (5): not changed here (docs/QUESTIONS.md).
+
+## D-099 The import checks report parts that cross each other
+- Status: Proposed (task 5.2 review, item 4).
+- Context: the per-part self-intersection check reported 0 on every component of the aircraft while every overlapping pair crossed (benchmarks/RESULT_5.2_before.md).
+- Decision: `workflow/surface_prep.crossing_parts` finds, for every part, the other parts its surface crosses (the surface-preparation intersection curves, the parts inside a third part included), cached by the parts' geometry hash and skipped above 2,000,000 triangles in total (as the self-intersection check). The GUI runs it on a background thread (`gui/geometry_worker.OverlapChecker`). A part's Checks group gains the row "Other parts crossed": "checking...", "none", "<parts>: the parts overlap; snappyHexMesh needs their junctions prepared. Run Surface Preparation (Edit > Prepare Surfaces)." (a warning), or "<parts> (resolved by the surface preparation, <strategy>)" while a preparation is current; the "Self-intersections" row of such a part reads "0 within the part; it crosses other parts (below)", as a warning. After an import into a project with several parts the console warns "Parts cross each other: A / B; ...: run Surface Preparation (Edit > Prepare Surfaces)." unless a current preparation covers them.
+- Alternatives considered: folding the crossings into the self-intersection count (it would mix a defect of a part with a property of the assembly).
+- Consequences: one more background check after imports and part edits (0.1 s on the aircraft); tests/test_surface_prep.py.
 

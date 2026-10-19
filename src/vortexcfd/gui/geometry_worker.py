@@ -77,6 +77,56 @@ class GeometryWorker(QObject):
         return not self.is_running()
 
 
+class OverlapChecker(QObject):
+    """Finds which parts cross each other (workflow/surface_prep.crossing_parts, D-099) on a
+    background thread, for the import checks; ``checked`` is emitted on the GUI thread when the result
+    for a geometry hash is cached."""
+
+    checked = Signal(str)  # geometry hash
+    _done = Signal(str)
+
+    def __init__(self, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._lock = threading.Lock()
+        self._pending: set[str] = set()
+        self._done.connect(self._deliver)
+
+    def _deliver(self, key: str) -> None:
+        try:
+            self.checked.emit(key)
+        finally:
+            with self._lock:
+                self._pending.discard(key)
+
+    def request(self, project: Project) -> bool:
+        """Start the check for the project's parts (a snapshot is taken here, on the GUI thread);
+        False when it is cached or running."""
+        from vortexcfd.workflow import surface_prep
+
+        if surface_prep.crossings_known(project):
+            return False
+        snap = snapshot(project)
+        key = surface_prep.geometry_hash(snap)
+        with self._lock:
+            if key in self._pending:
+                return False
+            self._pending.add(key)
+
+        def run() -> None:
+            try:
+                surface_prep.crossing_parts(snap)
+            except Exception:  # reported as "not checked" by the panel
+                log.exception("The overlap check failed")
+            GeometryWorker._emit(self._done, key)
+
+        threading.Thread(target=run, daemon=True, name="overlaps").start()
+        return True
+
+    def busy(self) -> bool:
+        with self._lock:
+            return bool(self._pending)
+
+
 class IntersectionChecker(QObject):
     """Computes full surface reports (self-intersections) one after another on a background
     thread; ``checked`` carries the (path, units) whose report is now cached."""

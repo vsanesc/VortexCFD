@@ -89,6 +89,57 @@ def current(project: Project) -> SurfacePrep | None:
     return project.sim.surface_prep if state(project) == "current" else None
 
 
+# Parts crossing each other, per geometry hash (the import checks, D-099).
+_crossings: dict[str, dict[str, list[str]] | None] = {}
+
+
+def crossing_parts(project: Project, compute: bool = True) -> dict[str, list[str]] | None:
+    """For every part, the other parts its surface crosses (from the surface-preparation curves, the
+    parts inside a third part included), cached by the parts' geometry hash. None when it was not
+    computed yet (``compute`` False), when the parts cannot be loaded, or above
+    intersections.MAX_TRIANGLES triangles in total (as the self-intersection check)."""
+    from vortexcfd.geometry.intersections import MAX_TRIANGLES
+
+    if project.folder is None or not project.sim.geometry.parts:
+        return {}
+    key = geometry_hash(project)
+    if key in _crossings or not compute:
+        return _crossings.get(key)
+    parts = project.sim.geometry.parts
+    try:
+        meshes = [_original_surface(project, p) for p in parts]
+    except Exception:  # a missing or unreadable file: the part's own checks say so
+        return None
+    if sum(m.n_cells for m in meshes) > MAX_TRIANGLES:
+        result = None
+    else:
+        result = {p.name: [] for p in parts}
+        for a, b in prep_geometry.intersection_curves(meshes, drop_hidden=False).pair_lengths():
+            result[parts[a].name].append(parts[b].name)
+            result[parts[b].name].append(parts[a].name)
+    _crossings[key] = result
+    return result
+
+
+def crossings_known(project: Project) -> bool:
+    """True when ``crossing_parts`` has a cached result for the parts as they are."""
+    return project.folder is None or not project.sim.geometry.parts or geometry_hash(project) in _crossings
+
+
+def crossing_text(project: Project, part_name: str, crossings: dict[str, list[str]] | None) -> tuple[str, bool]:
+    """The import check's text for a part (D-099) and whether it is a warning."""
+    if crossings is None:
+        return "not checked", False
+    others = crossings.get(part_name, [])
+    if not others:
+        return "none", False
+    names = ", ".join(others)
+    if state(project) == "current":
+        return f"{names} (resolved by the surface preparation, {STRATEGY_LABELS[project.sim.surface_prep.strategy]})", False
+    return (f"{names}: the parts overlap; snappyHexMesh needs their junctions prepared. Run Surface Preparation "
+            "(Edit > Prepare Surfaces)."), True
+
+
 def _original_surface(project: Project, part: Part) -> pv.PolyData:
     return load_surface(project.resolve_part_path(part), part.units)
 

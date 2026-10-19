@@ -32,7 +32,7 @@ def sphere_stl(tmp_path: Path) -> Path:
 def wait_geometry(qtbot, window, timeout: int = 60000) -> None:
     """Wait until the window's geometry job and background self-intersection checks are done (D-073)."""
     qtbot.waitUntil(lambda: not window.geometry_busy and not window.geometry_worker.is_running()
-                    and not window.intersections.busy(), timeout=timeout)
+                    and not window.intersections.busy() and not window.overlaps.busy(), timeout=timeout)
 
 
 @pytest.fixture

@@ -319,3 +319,55 @@ def test_gui_prepares_shows_the_report_and_removes(qtbot, tmp_path: Path, shapes
         window.geometry_worker.wait(60)
         project.save = lambda *a, **k: None
         window.close()
+
+
+# -- import checks: parts crossing each other (D-099) ---------------------------------------------
+
+
+def _stl_project(tmp_path: Path) -> Project:
+    project = Project.create(tmp_path, "overlap")
+    shapes = {"Body": pv.Box(bounds=(0, 2, -0.5, 0.5, -0.5, 0.5)), "Wing": pv.Box(bounds=(0.7, 1.3, -1.5, 1.5, -0.1, 0.1)),
+              "Pod": pv.Sphere(radius=0.2, center=(4.0, 0.0, 0.0))}
+    for name, mesh in shapes.items():
+        mesh.triangulate().clean().save(str(project.folder / "geometry" / f"{name}.stl"))
+        project.add_part(Part(name=name, source_file=f"geometry/{name}.stl", units="m"))
+    project.save()
+    return project
+
+
+def test_crossing_parts_are_found_and_point_to_surface_preparation(tmp_path: Path) -> None:
+    project = _stl_project(tmp_path)
+    assert not surface_prep.crossings_known(project) and surface_prep.crossing_parts(project, compute=False) is None
+    crossings = surface_prep.crossing_parts(project)
+    assert crossings == {"Body": ["Wing"], "Wing": ["Body"], "Pod": []} and surface_prep.crossings_known(project)
+    text, warn = surface_prep.crossing_text(project, "Wing", crossings)
+    assert warn and text.startswith("Body: the parts overlap") and "Run Surface Preparation" in text
+    assert surface_prep.crossing_text(project, "Pod", crossings) == ("none", False)
+    project.set_surface_prep(surface_prep.prepare(project, "intersection_features"))
+    text, warn = surface_prep.crossing_text(project, "Wing", crossings)
+    assert not warn and text == "Body (resolved by the surface preparation, Intersection features)"
+
+
+def test_the_import_checks_report_overlapping_parts(qtbot, tmp_path: Path) -> None:
+    from tests.fakes import FakeDialogs
+    from tests.test_import import wait_geometry
+    from vortexcfd.gui.main_window import MainWindow
+
+    project = _stl_project(tmp_path)
+    window = MainWindow(project, FakeDialogs(), with_viewer=False)
+    qtbot.addWidget(window)
+    window.show()
+    try:
+        window.tree.setCurrentItem(window._items[("part", 1)])  # Wing
+        wait_geometry(qtbot, window)
+        window.properties.refresh()
+        values = window.properties.check_values
+        assert values["intersections"].text() == "0 within the part; it crosses other parts (below)"
+        assert values["crossings"].text().startswith("Body: the parts overlap")
+        assert "Edit > Prepare Surfaces" in values["crossings"].text()
+        assert values["crossings"].property("warn") == "true"
+        window._announce_overlaps = True  # as after an import: the console warning
+        window._on_overlaps_checked(surface_prep.geometry_hash(project))
+        assert "Parts cross each other: Body / Wing" in window.console.text()
+    finally:
+        window.close()

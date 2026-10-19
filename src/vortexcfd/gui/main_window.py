@@ -79,7 +79,7 @@ from vortexcfd.foam.mesh_case import (
     remove_results,
 )
 from vortexcfd.foam.mesh_report import MeshReport
-from vortexcfd.gui.geometry_worker import GeometryWorker, IntersectionChecker, snapshot
+from vortexcfd.gui.geometry_worker import GeometryWorker, IntersectionChecker, OverlapChecker, snapshot
 from vortexcfd.workflow import surface_prep
 from vortexcfd.gui.mesh_worker import MeshWorker
 from vortexcfd.foam.logparse import parse_log_text
@@ -342,6 +342,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.geometry_busy = False
         self.intersections = IntersectionChecker(self)
         self.intersections.checked.connect(self._on_intersections_checked)
+        self.overlaps = OverlapChecker(self)
+        self.overlaps.checked.connect(self._on_overlaps_checked)
+        self._announce_overlaps = False
         self._announce_checks: dict[tuple[str, str], str] = {}
         self.mesh_worker = MeshWorker(self)
         self.mesh_worker.line.connect(self._on_mesh_line)
@@ -378,6 +381,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.properties.regions_selected.connect(self._on_regions_selected)
         self.properties.retessellate_requested.connect(self._retessellate)
         self.properties.request_intersections = self.intersections.request
+        self.properties.request_overlaps = lambda: self.overlaps.request(self._project)
         self.properties.pending_changed.connect(self._update_actions)
         self.properties.generate_domain_requested.connect(self.generate_domain)
         self.properties.prepare_surfaces_requested.connect(self.prepare_surfaces)
@@ -2294,8 +2298,25 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.properties.refresh()
         self._update_selection_views()
 
+    def _on_overlaps_checked(self, key: str) -> None:
+        """The parts-crossing check finished (D-099): refresh the Checks rows; after an import, warn in
+        the console about parts that cross each other and point to Surface Preparation."""
+        self.properties.refresh()
+        if not self._announce_overlaps or surface_prep.geometry_hash(self._project) != key:
+            return
+        self._announce_overlaps = False
+        crossings = surface_prep.crossing_parts(self._project, compute=False) or {}
+        pairs = sorted({tuple(sorted((a, b))) for a, others in crossings.items() for b in others})
+        if pairs and surface_prep.state(self._project) != "current":
+            log.warning("Parts cross each other: %s. snappyHexMesh needs their junctions prepared: run Surface "
+                        "Preparation (Edit > Prepare Surfaces).", "; ".join(f"{a} / {b}" for a, b in pairs))
+
     def _request_checks(self, parts) -> None:
         """Queue the self-intersection check of newly imported parts (announced when done)."""
+        if len(self._project.sim.geometry.parts) > 1:
+            self._announce_overlaps = True
+            if not self.overlaps.request(self._project):
+                self._on_overlaps_checked(surface_prep.geometry_hash(self._project))
         for part in parts:
             path = (self._project.folder / part.source_file).resolve()
             self._announce_checks[(str(path), part.units)] = part.name

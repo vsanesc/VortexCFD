@@ -287,6 +287,7 @@ CHECK_ROWS = (
     ("duplicates", "Duplicate faces"),
     ("orientation", "Flipped normals"),
     ("intersections", "Self-intersections"),
+    ("crossings", "Other parts crossed"),
     ("normals", "Normals"),
     ("watertight", "Watertight"),
 )
@@ -474,6 +475,7 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         self._layout.addWidget(self._region_buttons)
         self.geometry_busy = False
         self.request_intersections = None  # callable(path, units): background check (D-073)
+        self.request_overlaps = None  # callable(): background check of the parts crossing each other (D-099)
         self.region_split.clicked.connect(self._split_region)
         self.region_merge.clicked.connect(self._merge_regions)
         self.region_own_patches.clicked.connect(self._patch_per_region)
@@ -1823,6 +1825,14 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             return
         if report.intersections_pending and self.request_intersections is not None:
             self.request_intersections(part_file(self._project, part), part.units)
+        # Overlaps between parts (D-099): the self-intersection check looks within one part only.
+        known = surface_prep.crossings_known(self._project)
+        if not known and self.request_overlaps is not None:
+            self.request_overlaps()
+        crossings = surface_prep.crossing_parts(self._project, compute=False) if known else None
+        crossing = (surface_prep.crossing_text(self._project, part.name, crossings) if known
+                    else ("checking\u2026", False))
+        crosses_others = bool(crossings and crossings.get(part.name))
         size = " \u00d7 ".join(f"{v:.4g}" for v in report.size)
         values = {
             "triangles": (str(report.n_triangles), False),
@@ -1833,10 +1843,13 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             "degenerate": (str(report.degenerate_triangles), False),
             "duplicates": (str(report.duplicate_faces), False),
             "orientation": (str(report.inconsistent_orientation), False),
-            "intersections": ((str(report.self_intersections), report.self_intersections > 0)
+            "intersections": ((str(report.self_intersections)
+                               + (" within the part; it crosses other parts (below)" if crosses_others else ""),
+                               report.self_intersections > 0 or crosses_others)
                               if report.self_intersections is not None
                               else ("checking\u2026", False) if report.intersections_pending
                               else (report.intersections_note, True)),
+            "crossings": crossing,
             "watertight": ("yes" if report.watertight else "no", not report.watertight),
             "normals": (("point inward", True) if report.normals_inward
                         else ("outward", False) if report.watertight else ("\u2014 (open surface)", False)),
