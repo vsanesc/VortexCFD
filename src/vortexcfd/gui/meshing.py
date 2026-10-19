@@ -9,23 +9,30 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
+
 from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.yplus import LayerPlan, first_layer_thickness, plan_layers
 from vortexcfd.foam.mesh_case import (
+    DOMAIN_SURFACE,
     TRI_SURFACE,
     MeshCaseInput,
     build_mesh_files,
+    location_in_mesh,
     needs_seeding,
     part_level_range,
     prepare_case_dir,
     part_patch_names,
     safe_part_names,
     wall_patch_names,
+    write_domain_guard,
     write_seed_edge_meshes,
 )
+from vortexcfd.foam.mesh_estimate import BACKGROUND_MARGIN_CELLS, MeshEstimate
 from vortexcfd.geometry import regions
 from vortexcfd.geometry.domain import DomainBox, compute_domain, union_bounds
+from vortexcfd.geometry.domain_surface import ROLE_ARRAY, meshing_surface
 from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
 
 CASE_DIR_NAME = "case"
@@ -101,13 +108,55 @@ def write_part_surfaces(case_dir: Path, project: Project, inputs: MeshCaseInput,
         regions.write_patch_stl(path, mesh, labels, list(inputs.patches_of(i)))
 
 
+def estimate_for(box: DomainBox, mesh) -> MeshEstimate:
+    """The mesh estimate of ``box`` (its actual volume; the background box of a rounded shape)."""
+    return estimate_mesh(box.bounds, box.reference_length, mesh, volume=box.volume, rounded=box.rounded,
+                         symmetric=box.symmetric)
+
+
+def domain_fields(box: DomainBox) -> dict:
+    """The MeshCaseInput fields of the domain shape (D-078). A rounded shape's surface carries every
+    role but the symmetry plane, which is the background box's y_min face."""
+    if not box.rounded:
+        return {}
+    return {"domain_shape": box.shape, "domain_volume": box.volume, "inlet_x": box.inlet_x,
+            "domain_patches": tuple(r for r in box.roles if r != "symmetry")}
+
+
+def write_domain_surface(case_dir: Path, box: DomainBox, inputs: MeshCaseInput) -> None:
+    """constant/triSurface/domain.stl of a rounded domain: one solid per patch, the open edge on a
+    symmetry plane extended through it by the background margin (geometry/domain_surface.py)."""
+    if not inputs.rounded:
+        return
+    est = inputs.estimate()
+    surface = meshing_surface(box, BACKGROUND_MARGIN_CELLS * est.base_size)
+    names = list(inputs.domain_patches)
+    role_index = {i: names.index(r) for i, r in enumerate(box.roles) if r in names}
+    labels = np.array([role_index[int(r)] for r in surface.cell_data[ROLE_ARRAY]], dtype=int)
+    regions.write_patch_stl(case_dir / TRI_SURFACE / f"{DOMAIN_SURFACE}.stl", surface, labels, names)
+
+
+def fluid_location(project: Project) -> tuple[float, float, float] | None:
+    """The locationInMesh of the project's mesh (the fluid side kept by snappyHexMesh), or None when
+    the parts cannot be loaded or there are none."""
+    try:
+        box, _names, meshes = _loaded_parts(project)
+    except MeshingNotReady:
+        return None
+    if box.bounds is None:
+        return None
+    est = estimate_for(box, project.sim.mesh)
+    parts = union_bounds([tuple(float(b) for b in m.bounds) for m in meshes])
+    return location_in_mesh(est.background_bounds, parts, est.cells, box.inlet_x if box.rounded else None)
+
+
 def plan_layers_for(project: Project, box: DomainBox) -> LayerPlan:
     """The y+ layer stack for ``project``: first layer from the estimator, count from the surface
     cell size at the maximum refinement level (see foam/yplus.plan_layers)."""
     mesh = project.sim.mesh
     first = first_layer_thickness(mesh.target_yplus, project.sim.inflow.speed, project.sim.physics.nu,
                                   box.reference_length)
-    est = estimate_mesh(box.bounds, box.reference_length, mesh)
+    est = estimate_for(box, mesh)
     return plan_layers(first, mesh.expansion_ratio, est.surface_size)
 
 
@@ -135,12 +184,14 @@ def readiness(project: Project) -> str | None:
     if missing:
         return f"The file of part '{missing[0]}' is missing."
     if not project.sim.domain.enabled:
+        if project.sim.analysis_type == "empty":
+            return "Generate the domain first (Regions > Domain)."
         return "Enable the fluid domain."
     try:
         box, _, _ = _loaded_parts(project)
     except MeshingNotReady as exc:
         return str(exc)
-    return estimate_mesh(box.bounds, box.reference_length, project.sim.mesh).limit_message()
+    return estimate_for(box, project.sim.mesh).limit_message()
 
 
 def prepare_job(project: Project) -> MeshJob:
@@ -172,10 +223,13 @@ def prepare_job(project: Project) -> MeshJob:
         part_bounds=tuple(bounds),
         part_levels=_part_overrides(project),
         part_patches=tuple(part_patch_names(project.sim.geometry.parts)),
+        **domain_fields(box),
     )
     case_dir = case_dir_for(project)
     prepare_case_dir(case_dir, build_mesh_files(inputs))
     write_part_surfaces(case_dir, project, inputs, meshes)
+    write_domain_surface(case_dir, box, inputs)
+    write_domain_guard(case_dir, inputs)
     write_seed_edge_meshes(case_dir, inputs)
     return MeshJob(case_dir, inputs, box)
 
@@ -198,7 +252,7 @@ def thin_part_warnings(project: Project) -> list[str]:
         return []
     if box.bounds is None:
         return []
-    est = estimate_mesh(box.bounds, box.reference_length, project.sim.mesh)
+    est = estimate_for(box, project.sim.mesh)
     out = []
     for part, name, surf in zip(project.sim.geometry.parts, names, meshes):
         bounds = tuple(float(b) for b in surf.bounds)

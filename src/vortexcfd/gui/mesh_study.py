@@ -18,9 +18,10 @@ from vortexcfd.foam.mesh_case import (
     MeshCaseInput,
     build_mesh_files,
     prepare_case_dir,
+    write_domain_guard,
     write_seed_edge_meshes,
 )
-from vortexcfd.foam.mesh_estimate import MAX_BACKGROUND_CELLS, MeshEstimate, estimate_mesh
+from vortexcfd.foam.mesh_estimate import MAX_BACKGROUND_CELLS, MeshEstimate
 from vortexcfd.foam.mesh_record import read_mesh_record
 from vortexcfd.foam.mesh_study import (
     STUDY_DIR_NAME,
@@ -41,7 +42,10 @@ from vortexcfd.gui.meshing import (
     _loaded_parts,
     _part_overrides,
     case_dir_for,
+    domain_fields,
+    estimate_for,
     readiness,
+    write_domain_surface,
     write_part_surfaces,
 )
 from vortexcfd.gui.solving import clear_results, physics_problem, solver_input
@@ -100,14 +104,13 @@ def plan_study(project: Project) -> StudyPlan:
     settings = project.sim.studies.mesh
     box, _names, _meshes = _loaded_parts(project)
     mesh = project.sim.mesh
-    current = estimate_mesh(box.bounds, box.reference_length, mesh)
+    current = estimate_for(box, mesh)
     yplus_first = None
     if mesh.layer_sizing == "absolute_yplus":
         yplus_first = first_layer_thickness(mesh.target_yplus, project.sim.inflow.speed, project.sim.physics.nu,
                                             box.reference_length)
     layers = reference_layers(mesh, current.surface_size, yplus_first)
-    b = box.bounds
-    volume = (b[1] - b[0]) * (b[3] - b[2]) * (b[5] - b[4])
+    volume = box.volume  # the actual domain volume (D-078)
     ratio, measured = DEFAULT_CELLS_PER_BACKGROUND_CELL, False
     case = case_dir_for(project)
     record = read_mesh_record(case) if case is not None else None
@@ -116,7 +119,7 @@ def plan_study(project: Project) -> StudyPlan:
     per_cell_it, last_cores = _seconds_per_cell_iteration(project)
     plans, warning = [], None
     for level in study_levels(mesh, settings.ratio, settings.current_as):
-        est = estimate_mesh(box.bounds, box.reference_length, level.mesh)
+        est = estimate_for(box, level.mesh)
         cells = round(est.total_cells * ratio)
         seconds = estimate_seconds(per_cell_it, cells, project.sim.solvers.iterations, last_cores, settings.cores)
         plans.append(LevelPlan(level, est, cells, seconds))
@@ -172,12 +175,15 @@ def prepare_study(project: Project) -> tuple[Path, StudyRecord, MeshCaseInput]:
             part_bounds=tuple(bounds), part_levels=_part_overrides(project),
             part_patches=tuple(part_patch_names(project.sim.geometry.parts)),
             fixed_layers=fixed if fixed is not None else (1.0, 0),
+            **domain_fields(box),
         )
         case = level_dir(study, lp.level.index)
         if case.is_dir():
             clear_results(case) if (case / "constant" / "polyMesh").is_dir() else None
         prepare_case_dir(case, build_mesh_files(inputs))
         write_part_surfaces(case, project, inputs, meshes)
+        write_domain_surface(case, box, inputs)
+        write_domain_guard(case, inputs)
         write_seed_edge_meshes(case, inputs)
         levels.append(LevelResult(lp.level.index, lp.level.name, lp.level.factor, estimated_cells=lp.estimated_cells))
     record = StudyRecord(settings.ratio, settings.current_as, list(settings.quantities), settings.cores,

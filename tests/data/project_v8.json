@@ -1,0 +1,14 @@
+{
+  "schema_version": 8,
+  "name": "v8 project",
+  "geometry": {"parts": [{"name": "Body", "source_file": "geometry/body.stl", "units": "mm",
+                          "regions": [{"name": "nose", "members": [0], "patch": "nose"},
+                                      {"name": "rest", "members": [1, 2]}],
+                          "region_ids": "geometry/body_ids_0123456789ab.npy"}]},
+  "domain": {"enabled": true, "upstream": 3.0, "downstream": 8.0, "lateral": 4.0, "vertical": 4.0,
+             "symmetry": "y_min"},
+  "mesh": {"background_cells_target": 80000, "layers": 2},
+  "inflow": {"speed": 15.0},
+  "solvers": {"iterations": 400, "cores": 2},
+  "reports": {"slots": ["Cd", "Cl", null]}
+}

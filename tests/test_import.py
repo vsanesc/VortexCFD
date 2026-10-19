@@ -79,14 +79,14 @@ def test_import_copies_file_and_is_one_undo_step(make_window, sphere_stl: Path, 
     assert (project_dir / "geometry" / "wing.stl").is_file()  # the copy stays on disk
 
 
-def test_import_on_unsaved_project_never_asks_to_save(make_window, sphere_stl: Path, tmp_path: Path) -> None:
-    """D-076: the untitled project imports into its temporary workspace; no save dialog."""
+def test_import_without_a_project_folder_is_refused(make_window, sphere_stl: Path, tmp_path: Path) -> None:
+    """D-077: every project the app creates has a folder; an in-memory one cannot import (and never
+    asks to save first, D-076)."""
     w = make_window(import_path=sphere_stl, saved=False, save_path=tmp_path / "never.vcfd")
     w.act_import.trigger()
     assert w.dialogs.save_asked == [] and w.project.path is None
-    (part,) = w.project.sim.geometry.parts
-    assert part.source_file == "geometry/wing.stl"
-    assert (w.project.workspace / "geometry" / "wing.stl").is_file()
+    assert w.project.sim.geometry.parts == []
+    assert "Create or open a project first" in w.statusBar().currentMessage()
     assert not (tmp_path / "never.vcfd").exists()
 
 

@@ -11,7 +11,8 @@ from vtkmodules.vtkRenderingCore import vtkCellPicker, vtkPropPicker
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
 from vortexcfd.geometry.checks import SurfaceReport, basic_report, cached_report
-from vortexcfd.geometry.domain import DomainBox, compute_domain, face_corners
+from vortexcfd.geometry.domain import DomainBox, compute_domain
+from vortexcfd.geometry.domain_surface import ROLE_ARRAY, domain_surface
 from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
 from vortexcfd.gui.theme import BOUNDARY_FACE_OPACITY, SECTION_EPS_FRACTION, DOMAIN_OPACITY, HIGHLIGHT_OPACITY, PICK_MOVE_TOLERANCE_PX, Theme
 
@@ -255,7 +256,8 @@ def domain_box_for(project: Project) -> DomainBox:
 
 
 class DomainView:
-    """The domain box as a translucent wireframe, plus a highlighted boundary face."""
+    """The domain surface as a translucent wireframe (every shape, D-078), plus the highlighted faces
+    of the selected boundary role."""
 
     BOX = "domain_box"
     HIGHLIGHT = "domain_highlight"
@@ -265,32 +267,44 @@ class DomainView:
         self.theme = theme
         self.box_actor = None
         self.highlight_actor = None
+        self.highlight_cells = 0
+        self._surface_key = None
+        self._surface = None
+
+    def surface(self, box: DomainBox):
+        """The box's surface (cached while the domain does not change)."""
+        key = (box.shape, box.bounds, box.axis, box.radius_m, box.x_rear, box.y_span, box.symmetric, box.roles)
+        if key != self._surface_key:
+            self._surface_key, self._surface = key, domain_surface(box, triangulate=False)
+        return self._surface
 
     def update(self, box: DomainBox | None, visible: bool, boundary: str | None) -> None:
-        """Show the box (edges only) when ``visible``; highlight ``boundary``'s faces."""
+        """Show the domain (edges only) when ``visible``; highlight ``boundary``'s faces."""
         self._clear()
         if box is None or box.bounds is None or not visible:
             return
         t = self.theme
+        surface = self.surface(box)
         self.box_actor = self.plotter.add_mesh(
-            pv.Box(bounds=box.bounds), style="wireframe", color=t.border_active, line_width=1,
+            surface, style="wireframe", color=t.border_active, line_width=1,
             opacity=DOMAIN_OPACITY, lighting=False, pickable=False, reset_camera=False,
             render=False, name=self.BOX,
         )
-        faces = box.boundaries.get(boundary or "", ())
-        if faces:
-            quads = [pv.PolyData(np.array(face_corners(box.bounds, axis, side)), faces=[4, 0, 1, 2, 3])
-                     for axis, side in faces]
-            merged = quads[0] if len(quads) == 1 else quads[0].merge(quads[1:])
-            self.highlight_actor = self.plotter.add_mesh(
-                merged, color=t.accent_secondary, opacity=HIGHLIGHT_OPACITY, lighting=False,
-                pickable=False, reset_camera=False, render=False, name=self.HIGHLIGHT,
-            )
+        if boundary in box.roles:
+            role = box.roles.index(boundary)
+            faces = surface.extract_cells(np.flatnonzero(np.asarray(surface.cell_data[ROLE_ARRAY]) == role))
+            if faces.n_cells:
+                self.highlight_cells = faces.n_cells
+                self.highlight_actor = self.plotter.add_mesh(
+                    faces, color=t.accent_secondary, opacity=HIGHLIGHT_OPACITY, lighting=False,
+                    pickable=False, reset_camera=False, render=False, name=self.HIGHLIGHT,
+                )
 
     def _clear(self) -> None:
         for name in (self.BOX, self.HIGHLIGHT):
             self.plotter.remove_actor(name, render=False)
         self.box_actor = self.highlight_actor = None
+        self.highlight_cells = 0
 
 
 # -- mesh view ----------------------------------------------------------------------------------

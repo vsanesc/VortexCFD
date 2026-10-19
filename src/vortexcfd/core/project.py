@@ -1,17 +1,62 @@
 """Qt-free project document: current simulation, undo/redo history, dirty state, observers."""
 
+import re
+import shutil
 from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from vortexcfd.core import workspace as ws
+from vortexcfd.core import save_rules
 from vortexcfd.core.model import Part, Simulation
 from vortexcfd.core.project_io import load_simulation, save_simulation
 
 MAX_OBSERVER_ERRORS = 20
 
 Observer = Callable[["Project"], None]
+
+# A project name is also its folder and file name (D-077): letters, digits, space, "_", "-" and ".",
+# starting with a letter or digit, not ending with a space or a dot, at most 64 characters.
+PROJECT_NAME_RE = re.compile(r"^\w[\w .-]{0,63}$")
+GEOMETRY_DIR = save_rules.GEOMETRY_DIR
+CASE_DIR = "case"
+
+
+class ProjectFolderError(ValueError):
+    """A new project's folder cannot be used; the message says why."""
+
+
+def validate_project_name(name: str) -> str:
+    """The stripped name, or ValueError saying why it cannot be a folder and file name."""
+    if not isinstance(name, str):
+        raise TypeError(f"Project name must be a string, got {type(name).__name__}")
+    cleaned = name.strip()
+    if not cleaned:
+        raise ValueError("Enter a project name.")
+    if len(cleaned) > 64:
+        raise ValueError("A project name has at most 64 characters.")
+    if not PROJECT_NAME_RE.match(cleaned) or cleaned.endswith("."):
+        raise ValueError("A project name has only letters, digits, spaces, '_', '-' and '.', starts with a "
+                         "letter or digit and does not end with a dot.")
+    return cleaned
+
+
+def check_new_project_folder(parent: Path, name: str) -> Path:
+    """<parent>/<name> for a new project; ProjectFolderError if it exists and is not an empty folder."""
+    name = validate_project_name(name)
+    if not str(parent).strip():
+        raise ProjectFolderError("Choose the parent folder.")
+    parent = Path(parent)
+    if parent.exists() and not parent.is_dir():
+        raise ProjectFolderError(f"{parent} is not a folder.")
+    folder = parent / name
+    if folder.exists():
+        if not folder.is_dir():
+            raise ProjectFolderError(f"{folder} exists and is a file: choose another name.")
+        if any(folder.iterdir()):
+            raise ProjectFolderError(f"The folder {folder} already exists and is not empty: choose another "
+                                     "name or parent folder.")
+    return folder
 
 
 class Project:
@@ -29,7 +74,6 @@ class Project:
         *,
         saved: bool = False,
         max_depth: int = 100,
-        workspace: Path | None = None,
     ) -> None:
         """Wrap a simulation as a document.
 
@@ -38,8 +82,6 @@ class Project:
             path: File the state was loaded from, if any.
             saved: True if ``sim`` equals the content of ``path`` on disk (clean state).
             max_depth: Maximum number of undo steps kept; the oldest is dropped beyond it.
-            workspace: The temporary folder of an untitled project (its geometry/ until the
-                first save, D-076); created on demand by ``ensure_folder``.
         """
         if max_depth < 1:
             raise ValueError("max_depth must be at least 1")
@@ -47,7 +89,6 @@ class Project:
         self._path = Path(path) if path is not None else None
         self._saved: Simulation | None = sim.model_copy(deep=True) if saved else None
         self._max_depth = max_depth
-        self._workspace = Path(workspace) if workspace is not None and path is None else None
         self._undo: list[tuple[Simulation, str]] = []  # (state before the edit, edit label)
         self._redo: list[tuple[Simulation, str]] = []  # (state before the undo, edit label)
         self._observers: list[Observer] = []
@@ -55,9 +96,80 @@ class Project:
 
     @classmethod
     def new(cls, name: str, *, max_depth: int = 100) -> "Project":
-        """Create an unsaved project (dirty until first saved)."""
+        """An in-memory project without a file (dirty until saved). The app never offers one to the
+        user (every project is created with ``create``, D-077); scripts and tests use it."""
         name = cls._clean_name(name, "Simulation")
         return cls(Simulation(name=name), max_depth=max_depth)
+
+    @classmethod
+    def create(cls, parent: Path, name: str, sim: Simulation | None = None, *, max_depth: int = 100) -> "Project":
+        """Create <parent>/<name>/ with <name>.vcfd, geometry/ and case/ and save at once (D-077).
+
+        ``sim`` (its name is replaced by ``name``) defaults to a new Simulation. Raises ValueError for
+        an invalid name and ProjectFolderError when <parent>/<name> exists and is not an empty folder.
+        """
+        folder = check_new_project_folder(Path(parent), name)
+        name = validate_project_name(name)
+        sim = (sim or Simulation(name=name)).model_copy(update={"name": name}, deep=True)
+        sim = Simulation.model_validate(sim.model_dump())
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / GEOMETRY_DIR).mkdir(exist_ok=True)
+        (folder / CASE_DIR).mkdir(exist_ok=True)
+        project = cls(sim, max_depth=max_depth)
+        project.save(folder / f"{name}{save_rules.PROJECT_EXTENSION}")
+        return project
+
+    def referenced_files(self) -> list[str]:
+        """The project-relative paths of every file the parts read (surface or CAD tessellation,
+        region ids, CAD source), each once, in part order."""
+        out: list[str] = []
+        for part in self._sim.geometry.parts:
+            for rel in (part.source_file, part.region_ids, part.cad.file if part.cad else None):
+                if rel and rel not in out:
+                    out.append(rel)
+        return out
+
+    def duplicate(self, parent: Path, name: str, *, max_depth: int = 100) -> tuple["Project", list[str]]:
+        """Save As (D-079): a new project <parent>/<name>/<name>.vcfd with the current state (renamed
+        ``name``) and a copy of every file the parts reference; case/ is created empty (no mesh, no
+        results). This project and its folder are not changed. Returns the new project and the
+        referenced files that were missing (not copied).
+
+        Raises ValueError for an invalid name, ProjectFolderError when <parent>/<name> exists and is
+        not an empty folder or a referenced path leaves the project folder.
+        """
+        if self.folder is None:
+            raise ProjectFolderError("The project has no folder to duplicate (never saved).")
+        target = check_new_project_folder(Path(parent), name)
+        name = validate_project_name(name)
+        source = self.folder.resolve()
+        if target.resolve() == source or source in target.resolve().parents:
+            raise ProjectFolderError("The duplicate cannot be inside the project's own folder.")
+        files = self.referenced_files()
+        for rel in files:
+            resolved = (source / rel).resolve()
+            if Path(rel).is_absolute() or source not in resolved.parents:
+                raise ProjectFolderError(f"{rel} is outside the project folder: it cannot be duplicated.")
+        sim = self._sim.model_copy(update={"name": name}, deep=True)
+        existed = target.exists()
+        duplicate = Project.create(parent, name, sim, max_depth=max_depth)
+        missing = []
+        try:
+            for rel in files:
+                src = source / rel
+                if not src.is_file():
+                    missing.append(rel)
+                    continue
+                dest = target / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dest)
+        except OSError:  # leave nothing half-copied behind (the folder was new or empty)
+            for child in list(target.iterdir()):
+                shutil.rmtree(child) if child.is_dir() else child.unlink()
+            if not existed:
+                target.rmdir()
+            raise
+        return duplicate, missing
 
     @classmethod
     def open(cls, path: Path, *, max_depth: int = 100) -> "Project":
@@ -88,24 +200,9 @@ class Project:
 
     @property
     def folder(self) -> Path | None:
-        """The folder part files are relative to: the project file's folder, or the temporary
-        workspace of an untitled project (None until something was imported into it)."""
-        return self._path.parent if self._path is not None else self._workspace
-
-    @property
-    def workspace(self) -> Path | None:
-        return self._workspace
-
-    def ensure_folder(self) -> Path:
-        """The project folder, creating the untitled project's workspace when needed (D-076)."""
-        if self._path is None and self._workspace is None:
-            self._workspace = ws.new_workspace()
-        return self.folder
-
-    def discard_workspace(self) -> None:
-        """Delete the untitled project's workspace (closing without saving)."""
-        ws.remove_workspace(self._workspace)
-        self._workspace = None
+        """The folder part files are relative to: the project file's folder (None for an in-memory
+        project that was never saved)."""
+        return self._path.parent if self._path is not None else None
 
     def geometry_sources(self) -> list[Path]:
         """Every file the parts read (surface, region ids, CAD source), resolved."""
@@ -122,55 +219,23 @@ class Project:
     def save(self, path: Path | None = None) -> None:
         """Save atomically to ``path`` (or to ``self.path``) and clear the dirty state.
 
-        The target is checked first (``workspace.check_save_target``): never a geometry file of
+        The target is checked first (``save_rules.check_save_target``): never a geometry file of
         any kind or of this project, never an existing file that is not a VortexCFD project
-        (SaveTargetError). The first save of an untitled project moves its workspace's geometry/
-        next to the project file (files renamed on a name clash, the parts' paths updated in the
-        whole undo history) and deletes the workspace.
+        (SaveTargetError).
         """
         target = Path(path) if path is not None else self._path
         if target is None:
             raise ValueError("Project has no path yet: pass a path to save()")
-        ws.check_save_target(target, self.geometry_sources())
-        plan: dict[str, str] = {}
-        if self._path is None and self._workspace is not None:
-            plan = ws.plan_geometry_move(self._workspace, target.parent)
-        renamed = {old: new for old, new in plan.items() if old != new}
-        sim = self._remapped(self._sim, renamed) if renamed else self._sim
-        save_simulation(sim, target)  # nothing has moved yet if this fails
-        if plan:
-            ws.apply_geometry_move(self._workspace, target.parent, plan)
-        if renamed:
-            self._sim = sim
-            self._undo = [(self._remapped(state, renamed), label) for state, label in self._undo]
-            self._redo = [(self._remapped(state, renamed), label) for state, label in self._redo]
-        if self._path is None:
-            ws.remove_workspace(self._workspace)
-            self._workspace = None
+        save_rules.check_save_target(target, self.geometry_sources())
+        save_simulation(self._sim, target)
         self._path = target
         self._saved = self._sim.model_copy(deep=True)
         self._notify()
 
-    @staticmethod
-    def _remapped(sim: Simulation, renamed: dict[str, str]) -> Simulation:
-        """``sim`` with the parts' file paths renamed (source, region ids, CAD source)."""
-        data = sim.model_dump()
-        for part in data["geometry"]["parts"]:
-            for key in ("source_file", "region_ids"):
-                if part.get(key) in renamed:
-                    part[key] = renamed[part[key]]
-            if part.get("cad") and part["cad"]["file"] in renamed:
-                part["cad"]["file"] = renamed[part["cad"]["file"]]
-        return Simulation.model_validate(data)
-
     def resolve_part_path(self, part: Part) -> Path:
-        """Return the part's source file, relative paths taken from the project folder (the
-        workspace of an untitled project)."""
+        """Return the part's source file, relative paths taken from the project folder."""
         if self.folder is None:
-            raise ValueError(
-                "Cannot resolve part file paths: the project has no folder yet (nothing imported, "
-                "not saved)."
-            )
+            raise ValueError("Cannot resolve part file paths: the project has no folder (never saved).")
         return self.folder / part.source_file
 
     # -- edits ---------------------------------------------------------------
@@ -209,6 +274,10 @@ class Project:
 
         def mutate(data: dict[str, Any]) -> None:
             del data["geometry"]["parts"][index]
+            listed = data["domain"].get("parts")
+            if listed is not None and old_name in listed:  # an empty list falls back to every part
+                listed = [n for n in listed if n != old_name]
+                data["domain"]["parts"] = listed or None
 
         self._edit(f"Remove part '{old_name}'", mutate)
 
@@ -220,18 +289,25 @@ class Project:
 
         def mutate(data: dict[str, Any]) -> None:
             data["geometry"]["parts"][index].update(fields)
+            listed = data["domain"].get("parts")
+            if "name" in fields and listed is not None:  # the domain follows a renamed part
+                data["domain"]["parts"] = [fields["name"] if n == old_name else n for n in listed]
 
         changed = ", ".join(fields) or "no fields"
         self._edit(f"Edit part '{old_name}' ({changed})", mutate)
 
-    def update_domain(self, **fields: Any) -> None:
+    def update_domain(self, label: str | None = None, **fields: Any) -> None:
         """Edit far-field domain fields as one undoable step (validated; no-ops leave no trace)."""
 
         def mutate(data: dict[str, Any]) -> None:
             data["domain"].update(fields)
 
         changed = ", ".join(fields) or "no fields"
-        self._edit(f"Edit domain ({changed})", mutate)
+        self._edit(label or f"Edit domain ({changed})", mutate)
+
+    def replace_simulation(self, sim: Simulation, label: str) -> None:
+        """Make ``sim`` the current state as one undoable step (a preset applied, for example)."""
+        self._commit(Simulation.model_validate(sim.model_dump()), label)
 
     def update_mesh(self, **fields: Any) -> None:
         """Edit meshing controls as one undoable step (validated; no-ops leave no trace)."""

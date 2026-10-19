@@ -50,7 +50,7 @@ def test_v7_project_migrates_without_regions() -> None:
     path = Path(__file__).parent / "data" / "project_v7.json"
     assert json.loads(path.read_text())["schema_version"] == 7
     sim = load_simulation(path)
-    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 8
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION
     ball, fin = sim.geometry.parts
     assert (ball.units, ball.surface_level_max, ball.regions, ball.region_ids, ball.cad) == ("mm", 4, [], None, None)
     assert ball.patch_names() == ["Ball"] and fin.patch_names() == ["Fin"]

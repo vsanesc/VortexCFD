@@ -11,10 +11,10 @@ from PySide6.QtCore import QSettings  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def isolated_cache(tmp_path_factory, monkeypatch):
-    """Untitled-project workspaces (D-076) go to a temporary cache, never the user's ~/.cache."""
-    path = tmp_path_factory.mktemp("cache")
-    monkeypatch.setenv("XDG_CACHE_HOME", str(path))
+def isolated_config(tmp_path_factory, monkeypatch):
+    """User presets (D-077) go to a temporary config directory, never the user's ~/.config."""
+    path = tmp_path_factory.mktemp("config")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(path))
     return path
 
 

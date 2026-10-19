@@ -1,4 +1,5 @@
-"""Import without saving first, the .vcfd project files and the save target rules (D-076).
+"""The .vcfd project files and the save target rules (D-076); every project has a folder from its
+creation, so there is no untitled workspace any more (D-077).
 
 Every dialog is a fake (tests/fakes.py)."""
 
@@ -13,7 +14,7 @@ import pyvista as pv
 from tests import cad_corpus
 from tests.geometry_corpus import box_faces, write_multi_solid
 from tests.test_import import _fresh_cache, make_window, wait_geometry  # noqa: F401 (fixtures)
-from vortexcfd.core import workspace as ws
+from vortexcfd.core import save_rules as ws
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
 from vortexcfd.geometry import regions
@@ -39,21 +40,20 @@ def _import(w, path: Path) -> None:
     wait_geometry(w._qtbot, w)
 
 
-# -- import into an untitled project, first save, reopen --------------------------------------
+# -- import into a project, save, reopen ---------------------------------------------------------
 
 
 def test_import_save_reopen(make_window, tmp_path: Path) -> None:
     files = _sources(tmp_path)
-    w = make_window(saved=False, save_path=tmp_path / "work" / "wing")
+    w = make_window()  # saved as proj/proj.json by the fixture
     for path in files.values():
         _import(w, path)
-    assert w.dialogs.save_asked == [] and w.project.path is None
-    workspace = w.project.workspace
-    assert workspace.parent == ws.cache_root() and (workspace / "geometry" / "body.step").is_file()
+    assert w.dialogs.save_asked == []
+    assert (tmp_path / "proj" / "geometry" / "body.step").is_file()
     assert [p.name for p in w.project.sim.geometry.parts] == ["ball", "box", "body"]
     assert w.save()
-    target = tmp_path / "work" / "wing.vcfd"  # the extension was appended
-    assert w.project.path == target and target.is_file() and not workspace.exists()
+    target = tmp_path / "proj" / "proj.vcfd"  # the legacy .json is saved as .vcfd next to it
+    assert w.project.path == target and target.is_file()
     reopened = Project.open(target)
     for part in reopened.sim.geometry.parts:
         mesh = load_surface(reopened.resolve_part_path(part), part.units)
@@ -65,62 +65,16 @@ def test_import_save_reopen(make_window, tmp_path: Path) -> None:
     assert reopened.sim.geometry.parts == w.project.sim.geometry.parts
 
 
-def test_first_save_renames_clashing_files_in_the_whole_history(make_window, tmp_path: Path) -> None:
-    files = _sources(tmp_path)
-    folder = tmp_path / "busy"
-    (folder / "geometry").mkdir(parents=True)
-    (folder / "geometry" / "ball.stl").write_text("somebody else's file")
-    w = make_window(saved=False, save_path=folder / "p.vcfd")
-    _import(w, files["ball"])
-    w.act_add_part.trigger()  # an edit after the import, to undo after the save
-    assert w.save()
-    part = w.project.sim.geometry.parts[0]
-    assert part.source_file == "geometry/ball_2.stl"
-    assert (folder / "geometry" / "ball.stl").read_text() == "somebody else's file"
-    w.project.undo()  # the history before the save points to the renamed file too
-    assert w.project.sim.geometry.parts[0].source_file == "geometry/ball_2.stl"
-    assert load_surface(w.project.resolve_part_path(w.project.sim.geometry.parts[0]), "m").n_cells > 0
+def test_no_untitled_workspace_is_left(tmp_path: Path) -> None:
+    """D-077 supersedes the temporary workspace of D-076: nothing of it is left in the API."""
+    from vortexcfd.core import project as project_module
+
+    assert not hasattr(Project, "ensure_folder") and not hasattr(Project, "discard_workspace")
+    assert not hasattr(ws, "new_workspace") and not hasattr(project_module, "ws")
+    assert Project.new("P").folder is None
 
 
-def test_discard_deletes_the_workspace(make_window, tmp_path: Path) -> None:
-    w = make_window(saved=False)
-    _import(w, _sources(tmp_path)["ball"])
-    workspace = w.project.workspace
-    assert workspace.is_dir()
-    w.dialogs.discard = "discard"
-    w.new_project()
-    assert not workspace.exists() and w.project.workspace is None
-
-
-def test_close_without_saving_deletes_the_workspace(make_window, tmp_path: Path) -> None:
-    w = make_window(saved=False)
-    _import(w, _sources(tmp_path)["ball"])
-    workspace = w.project.workspace
-    w.dialogs.discard = "discard"
-    assert w.close()
-    assert not workspace.exists()
-
-
-def test_close_with_save_moves_the_workspace(make_window, tmp_path: Path) -> None:
-    w = make_window(saved=False, save_path=tmp_path / "kept.vcfd")
-    _import(w, _sources(tmp_path)["ball"])
-    workspace = w.project.workspace
-    w.dialogs.discard = "save"
-    assert w.close()
-    assert not workspace.exists() and (tmp_path / "geometry" / "ball.stl").is_file()
-    assert Project.open(tmp_path / "kept.vcfd").sim.geometry.parts[0].source_file == "geometry/ball.stl"
-
-
-def test_cancelled_close_keeps_the_workspace(make_window, tmp_path: Path) -> None:
-    w = make_window(saved=False)
-    _import(w, _sources(tmp_path)["ball"])
-    w.dialogs.discard = "cancel"
-    assert not w.close()
-    assert w.project.workspace.is_dir()
-    w.dialogs.discard = "discard"
-
-
-# -- the save dialog's result -------------------------------------------------------------------
+# -- the save dialog's result (in-memory projects only: a project with a folder is duplicated) ----
 
 
 @pytest.mark.parametrize("name", ["model.STEP", "model.step", "part.STL", "mesh.obj", "scan.ply", "body.stp",
@@ -130,12 +84,10 @@ def test_a_geometry_file_picked_in_the_save_dialog_is_refused(make_window, tmp_p
     cad_corpus.named_box_step(victim) if victim.suffix.lower() in (".step", ".stp") else victim.write_bytes(b"geometry \x00\x01")
     before = _digest(victim)
     w = make_window(saved=False, save_path=victim)
-    _import(w, _sources(tmp_path)["ball"])
-    w.act_save_as.trigger()
-    assert not w.save()
+    assert not w.save_as()
     assert _digest(victim) == before  # byte-identical
     assert not victim.with_name(victim.name + ".vcfd").exists()  # no extension appended either
-    assert w.project.path is None and w.project.workspace.is_dir()
+    assert w.project.path is None
     assert w.dialogs.errors and "is a geometry file" in w.dialogs.errors[-1][1]
     assert w.dialogs.overwrite_asked == []
     assert "Not saved" in w.statusBar().currentMessage()
@@ -152,7 +104,7 @@ def test_an_existing_non_project_file_is_never_overwritten(make_window, tmp_path
                           ("other.vcfd", json.dumps({"name": "no version"}).encode())):
         victim = tmp_path / name
         victim.write_bytes(content)
-        w = make_window(save_path=victim)
+        w = make_window(saved=False, save_path=victim)
         assert not w.save_as()
         assert victim.read_bytes() == content
         assert "is not a VortexCFD project" in w.dialogs.errors[-1][1] and w.dialogs.overwrite_asked == []
@@ -162,7 +114,7 @@ def test_an_existing_project_is_overwritten_only_after_confirmation(make_window,
     other = Project.new("Other")
     other.save(tmp_path / "other.vcfd")
     before = _digest(tmp_path / "other.vcfd")
-    w = make_window(save_path=tmp_path / "other.vcfd")
+    w = make_window(saved=False, save_path=tmp_path / "other.vcfd")
     w.dialogs.overwrite = False
     assert not w.save_as()
     assert w.dialogs.overwrite_asked == [tmp_path / "other.vcfd"] and _digest(tmp_path / "other.vcfd") == before
@@ -234,3 +186,92 @@ def test_is_project_file(tmp_path: Path) -> None:
     with pytest.raises(ws.SaveTargetError, match="not a VortexCFD project"):
         Project.new("P").save(tmp_path / "b")
     assert (tmp_path / "b").read_bytes() == b"\xff\xfe"
+
+
+# -- Save As duplicates the project folder (D-079) ------------------------------------------------
+
+
+def _tree_digest(folder: Path) -> dict[str, str]:
+    return {str(p.relative_to(folder)): _digest(p) for p in sorted(folder.rglob("*")) if p.is_file()}
+
+
+def _project_with_geometry(make_window, tmp_path: Path):
+    files = _sources(tmp_path)
+    w = make_window()
+    for path in files.values():  # a plain STL, a multi-solid STL with region ids, a STEP (CAD source)
+        _import(w, path)
+    w.project.save(w.project.path.with_suffix(".vcfd"))
+    case = w.project.folder / "case"
+    case.mkdir(exist_ok=True)
+    (case / "vortexcfd_mesh.json").write_text("{}")  # stands for a mesh that must not be copied
+    return w
+
+
+def test_save_as_duplicates_the_folder_with_its_geometry(make_window, tmp_path: Path) -> None:
+    w = _project_with_geometry(make_window, tmp_path)
+    original = w.project.path
+    referenced = w.project.referenced_files()
+    assert any(r.endswith(".npy") for r in referenced) and any(r.endswith(".step") for r in referenced)
+    before = _tree_digest(original.parent)
+    w.dialogs.duplicate_target = ("Wing copy", tmp_path / "copies")
+    assert w.save_as()
+    target = tmp_path / "copies" / "Wing copy"
+    assert w.dialogs.duplicate_asked == [("Demo", original.parent.parent)]
+    assert w.dialogs.save_asked == []  # no file dialog
+    assert w.project.path == target / "Wing copy.vcfd" and not w.project.dirty
+    assert sorted(p.name for p in target.iterdir()) == ["Wing copy.vcfd", "case", "geometry"]
+    assert list((target / "case").iterdir()) == []  # mesh and results not copied
+    assert w.mesh_report is None and w.run_record is None
+    for rel in referenced:
+        assert _digest(target / rel) == _digest(original.parent / rel), rel
+    assert _tree_digest(original.parent) == before  # the original is byte-identical
+    reopened = Project.open(target / "Wing copy.vcfd")
+    assert reopened.sim.name == "Wing copy"
+    assert reopened.sim.geometry == Project.open(original).sim.geometry
+    for part in reopened.sim.geometry.parts:
+        path = reopened.resolve_part_path(part)
+        assert path.is_relative_to(target)
+        mesh = load_surface(path, part.units)
+        assert mesh.n_cells > 0
+        if part.region_ids:
+            assert len(regions.read_ids(target / part.region_ids, mesh.n_cells)) == mesh.n_cells
+        if part.cad:
+            assert (target / part.cad.file).is_file()
+
+
+def test_save_as_refuses_a_non_empty_folder(make_window, tmp_path: Path) -> None:
+    w = _project_with_geometry(make_window, tmp_path)
+    original = w.project.path
+    before = _tree_digest(original.parent)
+    busy = tmp_path / "busy" / "Taken"
+    busy.mkdir(parents=True)
+    (busy / "notes.txt").write_text("mine")
+    w.dialogs.duplicate_target = ("Taken", tmp_path / "busy")
+    assert not w.save_as()
+    assert sorted(p.name for p in busy.iterdir()) == ["notes.txt"] and (busy / "notes.txt").read_text() == "mine"
+    assert "already exists and is not empty" in w.dialogs.errors[-1][1]
+    assert w.project.path == original and _tree_digest(original.parent) == before
+    w.dialogs.duplicate_target = ("bad/name", tmp_path)  # the New simulation name rules
+    assert not w.save_as() and w.project.path == original
+    w.dialogs.duplicate_target = None  # cancelled
+    assert not w.save_as() and w.project.path == original
+
+
+def test_duplicate_keeps_unsaved_edits_and_never_lands_in_its_own_folder(tmp_path: Path) -> None:
+    project = Project.create(tmp_path, "Src")
+    project.rename("Edited")  # unsaved: the duplicate takes the current state, the original file stays
+    before = _digest(project.path)
+    copy, missing = project.duplicate(tmp_path, "Dup")
+    assert missing == [] and copy.sim.name == "Dup" and _digest(project.path) == before
+    from vortexcfd.core.project import ProjectFolderError
+
+    with pytest.raises(ProjectFolderError, match="inside the project"):
+        project.duplicate(project.folder, "Nested")
+    assert not (project.folder / "Nested").exists()
+    project.add_part(Part(name="gone", source_file="geometry/gone.stl"))
+    copy2, missing2 = project.duplicate(tmp_path, "Dup2")
+    assert missing2 == ["geometry/gone.stl"]  # reported, not copied
+    project.add_part(Part(name="out", source_file="../elsewhere.stl"))
+    with pytest.raises(ProjectFolderError, match="outside the project folder"):
+        project.duplicate(tmp_path, "Dup3")
+    assert not (tmp_path / "Dup3").exists()

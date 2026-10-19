@@ -213,13 +213,17 @@ def test_refresh_errors_surface_in_status_bar(make_window, monkeypatch) -> None:
     assert not window.project.observer_errors
 
 
-def test_new_project_asks_when_dirty(make_window) -> None:
+def test_new_project_asks_when_dirty(make_window, tmp_path: Path) -> None:
+    from vortexcfd.core.presets import BUILTIN_PRESETS
+    from vortexcfd.gui.start_dialogs import NewSimulationSpec
+
     window, dialogs = make_window(discard="cancel")
+    dialogs.new_simulation = NewSimulationSpec("Fresh", tmp_path, BUILTIN_PRESETS[0], 1)
     window.act_new.trigger()
-    assert window.project.sim.name == "Demo"
+    assert window.project.sim.name == "Demo" and dialogs.new_asked == 0
     dialogs.discard = "discard"
     window.act_new.trigger()
-    assert window.project.sim.name == "Untitled"
+    assert window.project.sim.name == "Fresh" and window.project.path == tmp_path / "Fresh" / "Fresh.vcfd"
 
 
 def test_add_part_selects_new_part(make_window) -> None:

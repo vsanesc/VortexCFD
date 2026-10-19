@@ -4,12 +4,13 @@ No Qt. Everything runs on a worker thread; ``on_line``, ``on_step`` and ``on_don
 from worker/reader threads, so a GUI must forward them through Qt signals only.
 """
 
+import json
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from vortexcfd.foam.mesh_case import MESH_COMMANDS
+from vortexcfd.foam.mesh_case import DOMAIN_GUARD_FILE, MESH_COMMANDS
 from vortexcfd.foam.mesh_report import MeshReport, parse_check_mesh, parse_layer_table
 from vortexcfd.foam.postprocessing import patch_face_counts
 from vortexcfd.foam.runner import FoamRun
@@ -35,6 +36,21 @@ def lost_parts(case_dir: Path, parts: tuple[str, ...]) -> tuple[str, ...]:
     boundary file loses every part."""
     counts = patch_face_counts(case_dir)
     return tuple(p for p in parts if counts.get(p, 0) <= 0)
+
+
+def domain_problems(case_dir: Path) -> tuple[str, ...]:
+    """The domain guard (D-078) from case/vortexcfd_domain.json: a background-box patch that still has
+    faces, or an expected domain patch with no faces. Empty without the file (cases before D-078)."""
+    try:
+        data = json.loads((Path(case_dir) / DOMAIN_GUARD_FILE).read_text(encoding="utf-8"))
+        expected, background = list(data.get("expected", ())), list(data.get("background", ()))
+    except (OSError, ValueError, AttributeError):
+        return ()
+    counts = patch_face_counts(case_dir)
+    out = [f"The background box patch {name} still has {counts[name]} faces: the domain surface does not "
+           "close the fluid region" for name in background if counts.get(name, 0) > 0]
+    out += [f"Domain patch {name} has no faces" for name in expected if counts.get(name, 0) <= 0]
+    return tuple(out)
 
 
 class MeshRun:
@@ -97,6 +113,8 @@ class MeshRun:
                     break
             if name == "surfaceFeatureExtract" and not (self.case_dir / "system" / "surfaceFeatureExtractDict").is_file():
                 continue
+            if name == "createPatch" and not (self.case_dir / "system" / "createPatchDict").is_file():
+                continue
             if self._on_step is not None:
                 self._on_step(name)
             run = FoamRun()
@@ -118,7 +136,8 @@ class MeshRun:
                 # checkMesh may exit non-zero when checks fail: the report tells.
                 report = parse_check_mesh(res.log_file.read_text(encoding="utf-8", errors="replace"))
                 report = replace(report, layers=layers, extruded_percent=extruded,
-                                 lost_parts=lost_parts(self.case_dir, self._parts))
+                                 lost_parts=lost_parts(self.case_dir, self._parts),
+                                 domain_errors=domain_problems(self.case_dir))
             elif res.exit_code != 0:
                 failed = name
                 break

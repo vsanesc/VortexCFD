@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from vortexcfd.core.model import (
+    DOMAIN_SHAPES,
     RESIDUAL_FIELDS,
     AsymptoticCriterion,
     Domain,
@@ -51,7 +52,6 @@ from vortexcfd.geometry.cad import CadImportError
 from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.geometry.regions import RegionError
 from vortexcfd.gui import part_ops
-from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.physics_case import (
     AREA_BASIS_LABELS,
     CENTRE_AUTO_LABEL,
@@ -59,7 +59,15 @@ from vortexcfd.foam.physics_case import (
     inlet_turbulence,
     reference_values,
 )
-from vortexcfd.gui.meshing import MeshingNotReady, parts_layout, plan_layers_for, thin_part_warnings
+from vortexcfd.gui.meshing import (
+    MeshingNotReady,
+    estimate_for,
+    fluid_location,
+    parts_layout,
+    plan_layers_for,
+    thin_part_warnings,
+)
+from vortexcfd.geometry.domain import SHAPE_LABELS
 from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_file, part_status, report_for_part
 from vortexcfd.gui.study_rows import StudyRowsMixin
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
@@ -69,6 +77,14 @@ ALLOWED_UNITS: tuple[str, ...] = get_args(Part.model_fields["units"].annotation)
 
 
 DOMAIN_SYMMETRY = get_args(Domain.model_fields["symmetry"].annotation)
+# The domain fields each shape uses (D-078) and their labels.
+DOMAIN_SHAPE_FIELDS = {
+    "box": ("upstream", "downstream", "lateral", "vertical"),
+    "bullet": ("radius", "downstream"),
+    "c_type": ("radius", "downstream", "lateral"),
+}
+DOMAIN_FIELD_LABELS = {"upstream": "Upstream", "downstream": "Downstream", "lateral": "Lateral",
+                       "vertical": "Vertical", "radius": "Radius"}
 
 # The solver's cores are limited to the machine's physical cores (read at start-up, D-063).
 PHYSICAL_CORES = physical_cores()
@@ -283,6 +299,11 @@ class ElidedLabel(QLabel):
     def full_text(self) -> str:
         return self._full
 
+    def set_full_text(self, text: str) -> None:
+        """Change the label (the column layout elides it again on the next pass)."""
+        self._full = text
+        self.setText(text)
+
     def set_full_width(self) -> None:
         """Stacked layout: the label takes the whole row width and shows its full text."""
         self.setMinimumWidth(0)
@@ -321,6 +342,7 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
     study_run_requested = Signal(str)  # "mesh" or "polar": Run / Stop on a study node (D-066, D-067)
     study_results_requested = Signal(str)
     regions_selected = Signal(int, list)  # part index, selected region names (viewer highlight, D-071)
+    generate_domain_requested = Signal()  # the Generate domain button (D-078)
     # part index, linear (m) or None, angular (deg) or None: re-tessellate on the worker (D-073)
     retessellate_requested = Signal(int, object, object)
 
@@ -455,13 +477,25 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             value.setObjectName("checkValue")
             self.check_values[key] = value
             self._layout.addWidget(self._make_row(f"check_{key}", text, value))
-        # Far-field domain rows (Fluid Domain node): edited through Project.update_domain.
+        # Far-field domain rows (Fluid Domain node): edited through Project.update_domain. The Domain
+        # node of a project whose domain was not generated yet shows the Generate domain button (D-078).
+        self.domain_generate = QPushButton("Generate domain\u2026")
+        self.domain_generate.setToolTip("Create the far-field domain around the selected parts (shape and sizes)")
+        self.domain_generate.clicked.connect(self.generate_domain_requested.emit)
+        self._layout.addWidget(self._make_row("dom_generate", "Domain", self.domain_generate))
         self.domain_enabled = QCheckBox()
         self.domain_fields: dict[str, QDoubleSpinBox] = {}
         self._domain_keys = ["enabled"]
         self._layout.addWidget(self._make_row("dom_enabled", "Enabled", self.domain_enabled))
+        self.domain_shape = QComboBox()
+        for shape in DOMAIN_SHAPES:
+            self.domain_shape.addItem(SHAPE_LABELS[shape], shape)
+        self.domain_shape.setToolTip("Box; bullet: hemisphere and cylinder along +x; C-type: front half-cylinder "
+                                     "with a spanwise axis, flat top, bottom and sides")
+        self._layout.addWidget(self._make_row("dom_shape", "Shape", self.domain_shape))
+        self.domain_shape.currentIndexChanged.connect(lambda _: self._commit_domain("shape"))
         self._section("dom_size", "Size")
-        for key in ("upstream", "downstream", "lateral", "vertical"):
+        for key in ("upstream", "downstream", "lateral", "vertical", "radius"):
             spin = QDoubleSpinBox()
             spin.setRange(0.001, 10000.0)
             spin.setDecimals(3)
@@ -469,7 +503,7 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             spin.setSuffix(" L")
             self.domain_fields[key] = spin
             self._domain_keys.append(key)
-            self._layout.addWidget(self._make_row(f"dom_{key}", key.capitalize(), spin))
+            self._layout.addWidget(self._make_row(f"dom_{key}", DOMAIN_FIELD_LABELS[key], spin))
             spin.editingFinished.connect(lambda k=key: self._commit_domain(k))
         self._section("dom_symmetry", "Symmetry")
         self.domain_symmetry = QComboBox()
@@ -481,13 +515,21 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         self._layout.addWidget(self._make_row("dom_length", "Reference length L", self.domain_length))
         self.domain_size = QLineEdit()
         self.domain_size.setReadOnly(True)
-        self._layout.addWidget(self._make_row("dom_size", "Box size", self.domain_size))
+        self._layout.addWidget(self._make_row("dom_size", "Bounding box", self.domain_size))
+        self.domain_volume = self._ro_row("dom_volume", "Volume")
+        self.domain_parts = self._ro_row("dom_parts", "Sized around")
         self.domain_warning = QLabel()
         self.domain_warning.setObjectName("checkValue")
         _wrap(self.domain_warning)
         self._layout.addWidget(self.domain_warning)
         self.domain_enabled.toggled.connect(lambda _: self._commit_domain("enabled"))
         self.domain_symmetry.currentTextChanged.connect(lambda _: self._commit_domain("symmetry"))
+        # Fluid Region node: what is meshed, the domain minus the parts (D-078).
+        self._section("fr_title", "Fluid region")
+        self.fluid_definition = self._ro_row("fr_definition", "Definition")
+        self.fluid_domain = self._ro_row("fr_domain", "Domain")
+        self.fluid_parts = self._ro_row("fr_parts", "Minus parts")
+        self.fluid_location = self._ro_row("fr_location", "Kept side")
         # Mesh node: editable sizing/layer settings (Project.update_mesh) with computed values
         # shown read-only next to their overrides, then the checkMesh report.
         self.mesh_fields: dict[str, QWidget] = {}
@@ -900,8 +942,8 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         self._refresh_regions(part)
         self._refresh_file_info(part)
         self._rows["name"].setVisible(show_name)
-        is_domain = self._kind == "fluid_domain"
-        self._refresh_domain(is_domain)
+        is_domain = self._kind in ("fluid_domain", "fluid_region")
+        self._refresh_domain(self._kind == "fluid_domain")
         self._refresh_groups()
         self._refresh_run(self._kind == "solvers")
         self._refresh_stopping(self._kind == "stopping")
@@ -978,7 +1020,7 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
                 label.setText("\u2014")
             self._set_warn(self.mesh_bg_cells, False)
             return
-        est = estimate_mesh(box.bounds, box.reference_length, mesh)
+        est = estimate_for(box, mesh)
         auto = "" if est.base_size_overridden else " (computed)"
         self.mesh_base_used.setText(f"{est.base_size:.4g} m{auto}")
         self.mesh_levels_used.setText(
@@ -1597,33 +1639,65 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
 
     def _refresh_domain(self, show: bool) -> None:
         """Populate the domain rows from the project (no commits) and show them if ``show``."""
-        keys = [f"dom_{k}" for k in self._domain_keys] + ["dom_symmetry", "dom_length", "dom_size"]
-        for key in keys:
-            self._rows[key].setVisible(show)
-        for key in ("dom_size", "dom_symmetry", "dom_computed"):
-            self._sections[key].setVisible(show)
-        self.domain_warning.setVisible(show)
-        if not show:
-            return
         domain = self._project.sim.domain
-        widgets = [self.domain_enabled, self.domain_symmetry, *self.domain_fields.values()]
+        generated = domain.enabled or self._project.sim.analysis_type != "empty"
+        keys = [f"dom_{k}" for k in self._domain_keys] + ["dom_shape", "dom_symmetry", "dom_length", "dom_size",
+                                                         "dom_volume", "dom_parts"]
+        used = DOMAIN_SHAPE_FIELDS[domain.shape]
+        for key in keys:
+            field = key.removeprefix("dom_")
+            visible = show and generated and (field not in self.domain_fields or field in used)
+            self._rows[key].setVisible(visible)
+        self._rows["dom_generate"].setVisible(show and not generated)
+        for key in ("dom_size", "dom_symmetry", "dom_computed"):
+            self._sections[key].setVisible(show and generated)
+        self.domain_warning.setVisible(show and generated)
+        self._refresh_fluid_region(self._kind == "fluid_region")
+        if not show or not generated:
+            return
+        widgets = [self.domain_enabled, self.domain_symmetry, self.domain_shape, *self.domain_fields.values()]
         for w in widgets:
             w.blockSignals(True)
         try:
             self.domain_enabled.setChecked(domain.enabled)
             self.domain_symmetry.setCurrentText(domain.symmetry)
+            self.domain_shape.setCurrentIndex(DOMAIN_SHAPES.index(domain.shape))
             for key, spin in self.domain_fields.items():
                 spin.setValue(getattr(domain, key))
         finally:
             for w in widgets:
                 w.blockSignals(False)
+        self._row_labels["dom_lateral"].set_full_text("Half-width" if domain.shape == "c_type" else "Lateral")
         box = domain_box_for(self._project)
         self.domain_length.setText(f"{box.reference_length:.4g} m" if box.bounds else "\u2014")
         self.domain_size.setText(
             " \u00d7 ".join(f"{v:.3g}" for v in box.size) + " m" if box.bounds else "\u2014"
         )
+        self.domain_volume.setText(f"{box.volume:.4g} m\u00b3" if box.bounds else "\u2014")
+        self.domain_parts.setText(", ".join(domain.parts) if domain.parts else "all parts")
         self.domain_warning.setText("\n".join(box.warnings))
         self._set_warn(self.domain_warning, bool(box.warnings))
+
+    def _refresh_fluid_region(self, show: bool) -> None:
+        for key in ("fr_definition", "fr_domain", "fr_parts", "fr_location"):
+            self._rows[key].setVisible(show)
+        self._sections["fr_title"].setVisible(show)
+        if not show:
+            return
+        sim = self._project.sim
+        self.fluid_definition.setText("domain minus parts")
+        box = domain_box_for(self._project)
+        if not sim.domain.enabled or box.bounds is None:
+            self.fluid_domain.setText("not generated" if not sim.domain.enabled else "\u2014 (no parts)")
+        else:
+            self.fluid_domain.setText(f"{SHAPE_LABELS[box.shape]}, {box.volume:.4g} m\u00b3")
+        names = [p.name for p in sim.geometry.parts]
+        self.fluid_parts.setText(", ".join(names) if names else "none")
+        location = fluid_location(self._project) if sim.domain.enabled else None
+        self.fluid_location.setText(
+            "the cells connected to locationInMesh " + format_vector(location)
+            + " (snappyHexMesh removes the cells inside the parts and outside the domain)"
+            if location is not None else "\u2014")
 
     def _commit_domain(self, key: str) -> None:
         if self._kind != "fluid_domain":
@@ -1632,6 +1706,8 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             value = self.domain_enabled.isChecked()
         elif key == "symmetry":
             value = self.domain_symmetry.currentText()
+        elif key == "shape":
+            value = self.domain_shape.currentData()
         else:
             value = self.domain_fields[key].value()
         try:
