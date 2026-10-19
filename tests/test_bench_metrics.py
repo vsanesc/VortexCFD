@@ -57,6 +57,21 @@ def test_snappy_stage_times() -> None:
                                                      "snappy_total": None}
 
 
+def test_two_run_stage_times(tmp_path: Path) -> None:
+    """With seeded parts the castellation comes from the castellation-only run and the totals add up
+    (D-084); a single run reads as before."""
+    from vortexcfd.bench.runner import snappy_stages
+
+    (tmp_path / "log.snappyHexMesh").write_text((DATA / "snappyHexMesh_sphere_default.log").read_text())
+    assert snappy_stages(tmp_path) == {"castellation": 8.75, "snap": 11.54, "layers": 2.93, "snappy_total": 24.18}
+    (tmp_path / "log.snappyHexMesh.castellate").write_text("Mesh refined in = 15.62 s.\nFinished meshing in = 16.5 s.\n")
+    (tmp_path / "log.snappyHexMesh").write_text("Mesh snapped in = 14.37 s.\nLayers added in = 9.62 s.\n"
+                                                 "Finished meshing in = 25.76 s.\n")
+    t = snappy_stages(tmp_path)
+    assert t["castellation"] == 15.62 and t["snap"] == 14.37 and t["layers"] == 9.62
+    assert t["snappy_total"] == pytest.approx(42.26)
+
+
 def test_face_field_reader_and_counts() -> None:
     text = "FoamFile{}\ndimensions [];\ninternalField   nonuniform List<scalar> \n5\n(\n10\n66\n70\n70.5\n89\n)\n;\n"
     values = metrics.read_scalar_list_field(text)

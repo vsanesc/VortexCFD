@@ -178,6 +178,19 @@ def face_quality(case_dir: Path) -> dict:
             "internal_faces": int(values.size)}
 
 
+def snappy_stages(log_dir: Path) -> dict:
+    """snappyHexMesh's stage times; with seeded parts the castellation comes from the castellation-only
+    run (log.snappyHexMesh.castellate) and the whole run is the sum of both runs (D-084)."""
+    main, first = log_dir / "log.snappyHexMesh", log_dir / "log.snappyHexMesh.castellate"
+    stages = metrics.snappy_stage_times(main.read_text(errors="replace")) if main.is_file() else {}
+    if first.is_file() and stages:
+        pre = metrics.snappy_stage_times(first.read_text(errors="replace"))
+        stages["castellation"] = pre["castellation"]
+        if pre["snappy_total"] is not None and stages["snappy_total"] is not None:
+            stages["snappy_total"] += pre["snappy_total"]
+    return stages
+
+
 def run_mesh(project: Project) -> tuple:
     """Prepare and run the meshing case; returns (job, MeshRunResult, step durations)."""
     job = meshing.prepare_job(project)
@@ -252,8 +265,7 @@ def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool =
     job, result, steps = run_mesh(project)
     out["mesh_peak_mb"] = _peak_child_mb()
     report = result.report if result else None
-    snappy_log = job.case_dir / "logs" / "log.snappyHexMesh"
-    stages = metrics.snappy_stage_times(snappy_log.read_text(errors="replace")) if snappy_log.is_file() else {}
+    stages = snappy_stages(job.case_dir / "logs")
     out["time_s"] = {**{k: v for k, v in stages.items()}, "steps": steps, "mesh_total": steps.get("mesh_total")}
     out["mesh_success"] = bool(result and result.success)
     out["failed_step"] = result.failed_step if result else "not run"

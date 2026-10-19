@@ -418,7 +418,43 @@ def _quality_controls(m: Mesh) -> dict:
     return controls
 
 
+# Seed lines refine without acting as snap features (D-084): a case with seeded parts runs
+# snappyHexMesh twice from the same settings, as v2606 supports through the castellatedMesh / snap /
+# addLayers switches and -dict: CASTELLATE_DICT castellates only, with the seed lines in `features`;
+# system/snappyHexMeshDict then snaps and adds layers on that mesh (castellatedMesh false, its
+# surface intersections recomputed by snappyHexMesh) with the seed lines left out of `features`, so
+# explicit feature snapping never attracts wall points to them. Cases without seeded parts keep the
+# single run. [NUMERICS-REVIEW]
+CASTELLATE_DICT = "system/snappyHexMeshDict.castellate"
+
+
 def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
+    """system/snappyHexMeshDict: the whole run, or, with seeded parts, snap and layers only on the
+    mesh castellated by snappy_castellation_dict (D-084)."""
+    seeded = _seeded(inp)
+    content = _snappy_content(inp, with_seeds=False)
+    if seeded:
+        content["castellatedMesh"] = False
+    return FoamFileSpec(content=content)
+
+
+def snappy_castellation_dict(inp: MeshCaseInput) -> FoamFileSpec | None:
+    """CASTELLATE_DICT: castellation only, the seed lines in `features` at their parts' maximum
+    levels (D-052, D-084); None when no part is seeded."""
+    if not _seeded(inp):
+        return None
+    content = _snappy_content(inp, with_seeds=True)
+    content["snap"] = False
+    content["addLayers"] = False
+    return FoamFileSpec(content=content)
+
+
+def _seeded(inp: MeshCaseInput) -> list[int]:
+    est = inp.estimate()
+    return seeded_parts(inp, est.base_size, est.level_min, est.level_max)
+
+
+def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
     m = inp.mesh
     est = inp.estimate()
     cells = est.cells
@@ -458,8 +494,9 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
                         for p in inp.domain_patches},
         }
         features.append({"file": f'"{DOMAIN_SURFACE}.eMesh"', "level": 0})
-    features += [{"file": f'"{seed_file_name(inp.parts[i])}"', "level": levels[i][1]}
-                 for i in seeded_parts(inp, est.base_size, est.level_min, est.level_max)]
+    if with_seeds:
+        features += [{"file": f'"{seed_file_name(inp.parts[i])}"', "level": levels[i][1]}
+                     for i in seeded_parts(inp, est.base_size, est.level_min, est.level_max)]
     n_layers = m.layers
     if m.layer_sizing == "absolute_yplus" and inp.layer_count is not None:
         n_layers = inp.layer_count
@@ -519,7 +556,7 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
         "meshQualityControls": _quality_controls(m),
         "mergeTolerance": 1e-6,
     }
-    return FoamFileSpec(content=content)
+    return content
 
 
 def control_dict() -> FoamFileSpec:
@@ -565,6 +602,9 @@ def build_mesh_files(inp: MeshCaseInput) -> dict[str, FoamFileSpec]:
         "system/blockMeshDict": block_mesh_dict(inp),
         "system/snappyHexMeshDict": snappy_hex_mesh_dict(inp),
     }
+    castellate = snappy_castellation_dict(inp)
+    if castellate is not None:
+        files[CASTELLATE_DICT] = castellate
     if inp.parts or inp.rounded:
         files["system/surfaceFeatureExtractDict"] = surface_feature_extract_dict(inp)
     if inp.rounded:
@@ -590,6 +630,7 @@ def write_domain_guard(case_dir: Path, inp: MeshCaseInput) -> None:
 MESH_COMMANDS: tuple[tuple[str, list[str]], ...] = (
     ("blockMesh", ["blockMesh"]),
     ("surfaceFeatureExtract", ["surfaceFeatureExtract"]),
+    ("snappyHexMesh.castellate", ["snappyHexMesh", "-overwrite", "-dict", CASTELLATE_DICT]),  # seeded parts only
     ("snappyHexMesh", ["snappyHexMesh", "-overwrite"]),
     ("createPatch", ["createPatch", "-overwrite"]),  # rounded domains only (system/createPatchDict)
     ("checkMesh", ["checkMesh"]),
@@ -597,7 +638,10 @@ MESH_COMMANDS: tuple[tuple[str, list[str]], ...] = (
 
 
 # Generated dictionaries that only some set-ups have (a run skips a step whose dictionary is missing).
-OPTIONAL_DICTS = ("system/surfaceFeatureExtractDict", "system/createPatchDict")
+OPTIONAL_DICTS = ("system/surfaceFeatureExtractDict", "system/createPatchDict", CASTELLATE_DICT)
+# The step that runs only when its dictionary was written.
+STEP_DICTS = {"surfaceFeatureExtract": "system/surfaceFeatureExtractDict", "createPatch": "system/createPatchDict",
+              "snappyHexMesh.castellate": CASTELLATE_DICT}
 
 
 def prepare_case_dir(case_dir: Path, files: dict[str, FoamFileSpec]) -> None:
