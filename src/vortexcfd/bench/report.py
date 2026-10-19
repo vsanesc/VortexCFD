@@ -75,7 +75,9 @@ TABLE_COLUMNS = (
     ("faces_gt65", "Faces >65", "d"), ("faces_gt70", "Faces >70", "d"),
     ("max_skewness", "Max skew", ".2f"), ("faces_skew_gt4", "Faces skew>4", "d"),
     ("max_aspect", "Max AR", ".1f"), ("failed_checks", "Failed checks", "d"),
-    ("coverage", "Wall coverage %", ".1f"), ("extruded", "Extruded %", ".1f"), ("mean_layers", "Mean layers", ".2f"),
+    # headline layer metric: strict coverage, the wall area with the full target layer count (D-087)
+    ("coverage", "Strict coverage %", ".1f"), ("target_layers", "Target layers", "d"),
+    ("extruded", "Extruded %", ".1f"), ("mean_layers", "Mean layers", ".2f"),
     ("worst_zone", "Worst zone", "s"), ("worst_zone_coverage", "Worst zone %", ".1f"),
     ("thickness_percent", "Thickness % of target", ".1f"),
     ("fidelity_rms", "Fidelity RMS/L", ".2e"), ("fidelity_max", "Fidelity max/L", ".2e"),
@@ -173,14 +175,17 @@ def compare(old: dict, new: dict) -> tuple[list[str], list[str], list[str]]:
             deltas.append(f"{name}: not in the reference result")
             continue
         parts = []
-        for key in ("cells", "max_non_ortho", "faces_gt70", "coverage", "worst_zone_coverage", "fidelity_rms",
-                    "yplus_mean", "total_time"):
+        for key in ("cells", "max_non_ortho", "faces_gt70", "coverage", "target_layers", "worst_zone_coverage",
+                    "fidelity_rms", "yplus_mean", "total_time"):
             delta = d(a[key], b[key])
             parts.append(f"{key} {_fmt(a[key], '.4g')} -> {_fmt(b[key], '.4g')} ({_fmt(delta, '+.4g')})")
         deltas.append(f"{name}: " + "; ".join(parts))
         cov = d(a["coverage"], b["coverage"])
         if cov is not None and cov < -COVERAGE_DROP_POINTS:
-            regressions.append(f"{name}: wall layer coverage dropped {-cov:.1f} points")
+            regressions.append(f"{name}: strict layer coverage dropped {-cov:.1f} points")
+        if a["target_layers"] is not None and b["target_layers"] is not None and a["target_layers"] != b["target_layers"]:
+            flags.append(f"{name}: target layer count {a['target_layers']} -> {b['target_layers']}: strict coverage "
+                         "counts the full stack, so the coverage figures measure different stacks")
         old_zones = _get(old_cases[name], "layers", "zones") or {}
         for zname, z in (_get(case, "layers", "zones") or {}).items():
             dz = d((old_zones.get(zname) or {}).get("coverage_percent"), z.get("coverage_percent"))

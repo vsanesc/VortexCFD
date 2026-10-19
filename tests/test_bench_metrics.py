@@ -201,13 +201,26 @@ def test_compare_flags_each_rule() -> None:
     c["time_s"]["case_total"] = 130.0  # +30 %: flag only
     _deltas, regressions, flags = report.compare(old, new)
     assert len(regressions) == 6 and len(flags) == 1
-    assert any("coverage dropped 2.5" in r for r in regressions)
+    assert any("strict layer coverage dropped 2.5" in r for r in regressions)
     assert any("zone tips" in r for r in regressions)
     assert "time is noisy" in flags[0]
     small = _result()
     small["cases"][0]["layers"]["walls"]["coverage_percent"] = 88.5  # -1.5 points: within the rule
     small["cases"][0]["cells"] = 109_000
     assert report.compare(old, small)[1] == []
+
+
+def test_headline_coverage_is_strict_and_a_changed_stack_is_flagged() -> None:
+    """D-087: the headline is the strict coverage (full target layer count), extruded is its own
+    column; a different target layer count is flagged, while a coverage drop stays a regression."""
+    head = report.markdown_table(_result()).splitlines()[0]
+    assert "| Strict coverage % | Target layers | Extruded % |" in head
+    old, new = _result(), _result()
+    old["cases"][0]["layers"]["walls"]["target_layers"] = 3
+    new["cases"][0]["layers"]["walls"].update(target_layers=10, coverage_percent=50.0)
+    _deltas, regressions, flags = report.compare(old, new)
+    assert any("target layer count 3 -> 10" in f for f in flags)
+    assert any("strict layer coverage dropped 40.0" in r for r in regressions)
 
 
 def test_compare_flags_failed_lost_and_missing_cases() -> None:

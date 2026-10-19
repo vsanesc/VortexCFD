@@ -101,6 +101,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-084 | 2026-10-19 | Seed lines refine in a castellation-only run, never as snap features | Proposed |
 | D-085 | 2026-10-19 | Surface cell size from l_ref; curvature refinement (schema v10) | Proposed |
 | D-086 | 2026-10-19 | Absolute layer sizing from a default target y+ of 50 | Proposed |
+| D-087 | 2026-10-19 | Benchmark headline layer metric: strict coverage | Accepted |
 
 ---
 
@@ -814,3 +815,10 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Decision: `Mesh.layer_sizing` defaults to "absolute_yplus" and `Mesh.target_yplus` to 50. The first-layer thickness and the layer count come from the existing estimator (D-024, D-026: flat-plate Cf with Re on L, count clamped to [1, 30] with the existing warning when 30 layers do not reach half the surface cell); the relaxed quality controls of absolute sizing apply (D-044, D-045). With relative sizing the Mesh properties disable the Target y+ field, with the tooltip "Relative layer sizing: the layer thickness follows the surface cell size, so y+ is not targeted. Choose absolute_yplus to size the layers for this y+." Existing projects keep their stored layer settings: the app always saved them, and the v9 -> v10 migration (D-085) also fills `layer_sizing "relative"` and `target_yplus 1` where an older file does not set them; tests/data/project_v9.json is the fixture. The built-in presets take the new default.
 - Alternatives considered: keeping relative sizing and greying out the target y+ only (the other option in item 88); y+ 30 (the lower edge of the log layer: more layers on coarse surfaces; 50 is the owner's value).
 - Consequences: new simulations get a y+-sized stack (on the default 1 m sphere at 20 m/s: first layer 0.90 mm, 10 layers); results depend on the flow speed and viscosity through the layer sizes (they are mesh inputs, D-046). The Layers count field is not used with absolute sizing (unchanged behaviour). The tests that build meshing dictionaries directly, without the y+ estimate, use relative sizing; the real-run fixtures whose recorded data describe the v9 defaults (the shared sphere mesh, the projection run, the speedup study) are pinned to the v9 mesh (V9_MESH_BEHAVIOUR).
+
+## D-087 Benchmark headline layer metric: strict coverage
+- Status: Accepted (owner decision, task 5.1, docs/QUESTIONS.md item 84).
+- Context: D-082 reported coverage (the wall area with the full target layer count) and extruded (the area with at least one layer); item 84 asked which is the headline for 5.2 to 5.4.
+- Decision: the headline is the strict coverage. The summary table labels it "Strict coverage %" and shows the target layer count next to it; "Extruded %" stays a separate column; the regression rules use the strict coverage (wall and zones, as in D-082). `--compare` also flags a changed target layer count (strict coverage of a 10-layer stack is not the same measure as of a 3-layer one); the coverage drop is still reported as a regression.
+- Alternatives considered: extruded as the headline (hides partly collapsed stacks).
+- Consequences: comparisons across a change of the layer count (D-086: absolute y+ sizing) carry a flag.
