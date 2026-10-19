@@ -225,7 +225,7 @@ def test_unnamed_components_keep_the_previous_names(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("raw, name", [
-    ("ZUXSFJQWRT, Fuselage, 0", "Fuselage_0"), ("Fuselage", "Fuselage"), ("  Main  wing ", "Main wing"),
+    ("QWERTYUIOP, Fuselage, 0", "Fuselage_0"), ("Fuselage", "Fuselage"), ("  Main  wing ", "Main wing"),
     ("COMPOUND", None), ("solid", None), ("=>[0:1:1:2]", None), ("", None), (None, None),
     ("Wing, 1", "Wing_1"), ("abc12345, Wing", "abc12345_Wing"), ("a/b\\c", "a_b_c"),
 ])

@@ -79,7 +79,7 @@ def _ext(path: Path) -> str:
 # Names OpenCASCADE gives a shape that has none of its own (its type): not a component name.
 GENERIC_NAMES = frozenset({"COMPOUND", "COMPSOLID", "SOLID", "SHELL", "FACE", "WIRE", "EDGE", "VERTEX", "SHAPE",
                            "NONE", "OPEN_SHELL", "CLOSED_SHELL", "MANIFOLD_SOLID_BREP"})
-# A leading token like "ZUXSFJQWRT" (upper-case letters and digits, 8 or more) in a comma-separated
+# A leading token like "QWERTYUIOP" (upper-case letters and digits, 8 or more) in a comma-separated
 # entity name is an identifier, not part of the name.
 _ID_TOKEN = re.compile(r"^[A-Z0-9]{8,}$")
 
