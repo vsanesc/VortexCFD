@@ -150,7 +150,7 @@ Reality check: "as powerful as a commercial mesher" is not a deliverable that ca
 - Metrics: success/failure, wall time, cell count, `checkMesh` (non-orthogonality, skewness, aspect ratio, negative volumes), prism-layer coverage %, first-cell y+ distribution, solver convergence on the resulting mesh.
 - Acceptance: one command runs the suite and outputs a comparison table.
 
-### 5.1 Level M1 — GUI over snappyHexMesh — *done*
+### 5.1 Level M1 — GUI over snappyHexMesh — *done; sizing defaults revised after the 5.0 baseline (task 5.1-sizing: D-084 seed lines out of snapping, D-085 surface size from l_ref and curvature refinement, D-086 absolute y+ 50 layers; benchmarks/RESULT_5.1.md)*
 - STAR-like mesh controls: base size, surface target/min size relative to base, per-surface and per-volume refinement, feature-edge refinement, wake refinement boxes, prism-layer parameters (number, growth, total thickness or first-cell height), automatic `snappyHexMeshDict` + `blockMeshDict` generation, `checkMesh` report in GUI.
 - Acceptance: wing and VTOL meshed from the GUI without editing text files; benchmark results recorded as baseline.
 

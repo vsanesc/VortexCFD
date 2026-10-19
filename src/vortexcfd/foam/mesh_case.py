@@ -82,7 +82,7 @@ class MeshCaseInput:
     symmetric: bool  # a symmetry plane at y_min
     parts: tuple[str, ...]  # safe, unique patch names (see ``safe_part_names``)
     parts_bounds: Bounds  # union of the parts' bounding boxes
-    reference_length: float
+    reference_length: float  # L, the largest extent of the parts (domain sizes)
     mesh: Mesh
     # First prism-layer thickness (m) for layer_sizing "absolute_yplus" (see foam/yplus.py).
     first_layer_thickness: float | None = None
@@ -109,6 +109,9 @@ class MeshCaseInput:
     domain_volume: float | None = None
     domain_patches: tuple[str, ...] = ()
     inlet_x: float | None = None
+    # The length target_surface_size multiplies (l_ref or L, Mesh.surface_size_reference, resolved by
+    # the caller; D-085). None: reference_length.
+    surface_length: float | None = None
 
     @property
     def rounded(self) -> bool:
@@ -116,7 +119,8 @@ class MeshCaseInput:
 
     def estimate(self, mesh: Mesh | None = None):
         """The mesh estimate of this domain (mesh_estimate.estimate_mesh)."""
-        return estimate_mesh(self.domain_bounds, self.reference_length, mesh or self.mesh, volume=self.domain_volume,
+        length = self.surface_length if self.surface_length is not None else self.reference_length
+        return estimate_mesh(self.domain_bounds, length, mesh or self.mesh, volume=self.domain_volume,
                              rounded=self.rounded, symmetric=self.symmetric)
 
     def expected_domain_patches(self) -> tuple[str, ...]:
@@ -203,6 +207,24 @@ def force_report_keys(parts: Sequence) -> tuple[str, ...]:
 # check uses the part's second-largest bounding-box extent as that diameter (D-052).
 SEED_BACKGROUND_CELLS = math.sqrt(2.0)
 SEED_EXTENSION = 0.2  # seed lines reach this fraction of the extent beyond the part's box
+
+
+# Curvature refinement (refinementSurfaces curvatureLevel, v2606: refinementSurfaces.C
+# setCurvatureMinLevelFields; tutorial mesh/snappyHexMesh/block_with_curvature): (cells per radius of
+# curvature, start level (not used by v2606), maximum level, ignore level (-1: none)). A surface
+# triangle gets level round(log2(cells * base / radius)) when that is above its surface level and at
+# most the maximum; a radius that would need more than the maximum gets no curvature refinement, and
+# points on sharp edges (beyond resolveFeatureAngle) are skipped. 4 cells per radius: about 14 degrees
+# of arc per cell. [NUMERICS-REVIEW]
+CURVATURE_CELLS_PER_RADIUS = 4
+
+
+def curvature_level(part_max_level: int, extra_levels: int) -> list[int] | None:
+    """The curvatureLevel entry of a part at maximum surface level ``part_max_level``; None when
+    curvature refinement is off (D-085)."""
+    if extra_levels <= 0:
+        return None
+    return [CURVATURE_CELLS_PER_RADIUS, 0, part_max_level + extra_levels, -1]
 
 
 def part_level_range(level_min: int, level_max: int, override: tuple[int | None, int | None]) -> tuple[int, int]:
@@ -418,7 +440,43 @@ def _quality_controls(m: Mesh) -> dict:
     return controls
 
 
+# Seed lines refine without acting as snap features (D-084): a case with seeded parts runs
+# snappyHexMesh twice from the same settings, as v2606 supports through the castellatedMesh / snap /
+# addLayers switches and -dict: CASTELLATE_DICT castellates only, with the seed lines in `features`;
+# system/snappyHexMeshDict then snaps and adds layers on that mesh (castellatedMesh false, its
+# surface intersections recomputed by snappyHexMesh) with the seed lines left out of `features`, so
+# explicit feature snapping never attracts wall points to them. Cases without seeded parts keep the
+# single run. [NUMERICS-REVIEW]
+CASTELLATE_DICT = "system/snappyHexMeshDict.castellate"
+
+
 def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
+    """system/snappyHexMeshDict: the whole run, or, with seeded parts, snap and layers only on the
+    mesh castellated by snappy_castellation_dict (D-084)."""
+    seeded = _seeded(inp)
+    content = _snappy_content(inp, with_seeds=False)
+    if seeded:
+        content["castellatedMesh"] = False
+    return FoamFileSpec(content=content)
+
+
+def snappy_castellation_dict(inp: MeshCaseInput) -> FoamFileSpec | None:
+    """CASTELLATE_DICT: castellation only, the seed lines in `features` at their parts' maximum
+    levels (D-052, D-084); None when no part is seeded."""
+    if not _seeded(inp):
+        return None
+    content = _snappy_content(inp, with_seeds=True)
+    content["snap"] = False
+    content["addLayers"] = False
+    return FoamFileSpec(content=content)
+
+
+def _seeded(inp: MeshCaseInput) -> list[int]:
+    est = inp.estimate()
+    return seeded_parts(inp, est.base_size, est.level_min, est.level_max)
+
+
+def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
     m = inp.mesh
     est = inp.estimate()
     cells = est.cells
@@ -440,6 +498,9 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
         for i, n in enumerate(inp.parts)
     }
     for i, n in enumerate(inp.parts):
+        curvature = curvature_level(levels[i][1], m.curvature_levels)
+        if curvature is not None:  # read per surface; its regions inherit it
+            refinement_surfaces[n]["curvatureLevel"] = curvature
         if inp.has_regions(i):
             refinement_surfaces[n]["regions"] = {
                 p: {"level": list(levels[i]), "patchInfo": {"type": "wall", "inGroups": [f"{n}Group"]}}
@@ -458,8 +519,9 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
                         for p in inp.domain_patches},
         }
         features.append({"file": f'"{DOMAIN_SURFACE}.eMesh"', "level": 0})
-    features += [{"file": f'"{seed_file_name(inp.parts[i])}"', "level": levels[i][1]}
-                 for i in seeded_parts(inp, est.base_size, est.level_min, est.level_max)]
+    if with_seeds:
+        features += [{"file": f'"{seed_file_name(inp.parts[i])}"', "level": levels[i][1]}
+                     for i in seeded_parts(inp, est.base_size, est.level_min, est.level_max)]
     n_layers = m.layers
     if m.layer_sizing == "absolute_yplus" and inp.layer_count is not None:
         n_layers = inp.layer_count
@@ -519,7 +581,7 @@ def snappy_hex_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
         "meshQualityControls": _quality_controls(m),
         "mergeTolerance": 1e-6,
     }
-    return FoamFileSpec(content=content)
+    return content
 
 
 def control_dict() -> FoamFileSpec:
@@ -565,6 +627,9 @@ def build_mesh_files(inp: MeshCaseInput) -> dict[str, FoamFileSpec]:
         "system/blockMeshDict": block_mesh_dict(inp),
         "system/snappyHexMeshDict": snappy_hex_mesh_dict(inp),
     }
+    castellate = snappy_castellation_dict(inp)
+    if castellate is not None:
+        files[CASTELLATE_DICT] = castellate
     if inp.parts or inp.rounded:
         files["system/surfaceFeatureExtractDict"] = surface_feature_extract_dict(inp)
     if inp.rounded:
@@ -590,6 +655,7 @@ def write_domain_guard(case_dir: Path, inp: MeshCaseInput) -> None:
 MESH_COMMANDS: tuple[tuple[str, list[str]], ...] = (
     ("blockMesh", ["blockMesh"]),
     ("surfaceFeatureExtract", ["surfaceFeatureExtract"]),
+    ("snappyHexMesh.castellate", ["snappyHexMesh", "-overwrite", "-dict", CASTELLATE_DICT]),  # seeded parts only
     ("snappyHexMesh", ["snappyHexMesh", "-overwrite"]),
     ("createPatch", ["createPatch", "-overwrite"]),  # rounded domains only (system/createPatchDict)
     ("checkMesh", ["checkMesh"]),
@@ -597,7 +663,10 @@ MESH_COMMANDS: tuple[tuple[str, list[str]], ...] = (
 
 
 # Generated dictionaries that only some set-ups have (a run skips a step whose dictionary is missing).
-OPTIONAL_DICTS = ("system/surfaceFeatureExtractDict", "system/createPatchDict")
+OPTIONAL_DICTS = ("system/surfaceFeatureExtractDict", "system/createPatchDict", CASTELLATE_DICT)
+# The step that runs only when its dictionary was written.
+STEP_DICTS = {"surfaceFeatureExtract": "system/surfaceFeatureExtractDict", "createPatch": "system/createPatchDict",
+              "snappyHexMesh.castellate": CASTELLATE_DICT}
 
 
 def prepare_case_dir(case_dir: Path, files: dict[str, FoamFileSpec]) -> None:

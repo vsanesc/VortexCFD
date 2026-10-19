@@ -1,5 +1,5 @@
 """Cp on wall sections: cut the part walls with planes and order the cut along the wall (Qt-free;
-pyvista, so it lives in gui/ like gui/meshing.py). (D-062)
+pyvista, so it cannot live in foam/). (D-062)
 
 A section is the intersection of the wall patches with the plane ``axis = position`` (axis y, the
 spanwise default, or z). Each cut segment carries its wall face's cell values; the point used is the

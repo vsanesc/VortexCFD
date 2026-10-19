@@ -15,7 +15,7 @@ from vortexcfd.geometry import regions
 from vortexcfd.geometry.cad import FACE_ARRAY, CadImportError, read_cad, tessellate
 from vortexcfd.geometry.checks import check_surface, surface_report
 from vortexcfd.geometry.loader import load_surface
-from vortexcfd.gui import part_ops
+from vortexcfd.workflow import part_ops
 
 
 @pytest.fixture

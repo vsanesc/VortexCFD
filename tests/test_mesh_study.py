@@ -64,7 +64,7 @@ def test_every_level_gets_the_same_absolute_layer_stack() -> None:
     """Relative sizing: first = final * h_surface / ER^(n-1) at the current surface size, the same
     on every level (relativeSizes false); absolute y+: the y+ first layer and the current count.
     The quality controls stay those of the project's sizing (no relaxed set for relative)."""
-    mesh = Mesh()
+    mesh = Mesh(layer_sizing="relative")
     surface = estimate_mesh(DOMAIN, 1.0, mesh).surface_size
     stack = reference_layers(mesh, surface, None)
     assert stack.count == 3 and stack.first == pytest.approx(0.5 * surface / 1.2**2)
@@ -80,7 +80,7 @@ def test_every_level_gets_the_same_absolute_layer_stack() -> None:
     yplus = Mesh(layer_sizing="absolute_yplus", target_yplus=1.0)
     s2 = reference_layers(yplus, surface, 2e-5)
     assert s2.first == 2e-5 and s2.count > 3
-    assert reference_layers(Mesh(layers=0), surface, None) is None
+    assert reference_layers(Mesh(layers=0, layer_sizing="relative"), surface, None) is None
     with pytest.raises(ValueError):
         reference_layers(yplus, surface, None)
 
@@ -243,7 +243,7 @@ def test_real_mesh_study_on_the_coarse_sphere_at_re_200(tmp_path: Path) -> None:
 
     from vortexcfd.core.model import AsymptoticCriterion, Part, StoppingCriteria
     from vortexcfd.core.project import Project
-    from vortexcfd.gui.mesh_study import prepare_study, solver_writer
+    from vortexcfd.workflow.mesh_study import prepare_study, solver_writer
 
     folder = tmp_path / "proj"
     (folder / "geometry").mkdir(parents=True)
@@ -251,6 +251,9 @@ def test_real_mesh_study_on_the_coarse_sphere_at_re_200(tmp_path: Path) -> None:
     project = Project.new("study")
     project.add_part(Part(name="Sphere", source_file="geometry/sphere.stl", units="m"))
     project.save(folder / "p.json")
+    from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR
+
+    project.update_mesh(**V9_MESH_BEHAVIOUR)  # the set-up this study was designed with (D-085, D-086)
     project.update_inflow(speed=0.003, alpha_deg=4.0)
     stopping = StoppingCriteria(criteria=[AsymptoticCriterion(quantity="Cd", window=50, tolerance=1e-4),
                                           AsymptoticCriterion(quantity="Cl", window=50, tolerance=1e-4)])

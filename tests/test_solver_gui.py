@@ -21,9 +21,9 @@ from vortexcfd.foam.mesh_record import MeshRecord, write_mesh_record
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.foam.run_record import read_run_record
 from vortexcfd.geometry.loader import clear_cache
-from vortexcfd.gui import solving
+from vortexcfd.workflow import solving
 from vortexcfd.gui.main_window import MainWindow
-from vortexcfd.gui.meshing import inputs_hash
+from vortexcfd.workflow.meshing import inputs_hash
 
 REPORT = MeshReport(points=10, faces=40, cells=1234, max_non_orthogonality=30.5, avg_non_orthogonality=10.0,
                     max_skewness=0.5, failed_checks=0, mesh_ok=True)

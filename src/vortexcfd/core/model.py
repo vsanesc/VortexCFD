@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 9
+CURRENT_SCHEMA_VERSION: int = 10
 
 
 class StrictModel(BaseModel):
@@ -123,19 +123,28 @@ class Geometry(StrictModel):
     parts: list[Part] = Field(default_factory=list)
 
 
+# Curvature refinement goes at most this many levels above a part's maximum surface level (D-085).
+MAX_CURVATURE_LEVELS = 2
+
+
 class Mesh(StrictModel):
     """snappyHexMesh controls (mesher level M1).
 
     Sizing is derived from two targets unless overridden: the background mesh gets about
     ``background_cells_target`` cells (so ``base_size`` = (domain volume / target)^(1/3)), and
-    the surface cells aim at ``target_surface_size`` times L (L = largest extent of the parts), which
-    fixes the refinement levels. ``base_size`` (metres) and the two surface levels are optional
-    explicit overrides (None = computed). ``final_layer_thickness`` and ``min_thickness`` are
-    relative to the local cell size.
+    the surface cells aim at ``target_surface_size`` times a length, which fixes the refinement
+    levels: the reference length l_ref of the Reference Values (``surface_size_reference``
+    "l_ref", the default since schema v10, D-085) or L, the largest extent of the parts
+    ("largest_extent", every project made before v10). ``base_size`` (metres) and the two surface
+    levels are optional explicit overrides (None = computed). ``curvature_levels``: surface
+    curvature refinement up to this many levels above a part's maximum surface level (0 = off,
+    D-085). ``final_layer_thickness`` and ``min_thickness`` are relative to the local cell size.
     """
 
     background_cells_target: int = Field(default=100_000, gt=0)
-    target_surface_size: float = Field(default=0.01, gt=0)  # relative to L
+    target_surface_size: float = Field(default=0.01, gt=0)  # relative to surface_size_reference
+    surface_size_reference: Literal["l_ref", "largest_extent"] = "l_ref"
+    curvature_levels: int = Field(default=2, ge=0, le=MAX_CURVATURE_LEVELS)
     base_size: float | None = Field(default=None, gt=0)
     surface_level_min: int | None = Field(default=None, ge=0)
     surface_level_max: int | None = Field(default=None, ge=0)
@@ -144,10 +153,11 @@ class Mesh(StrictModel):
     expansion_ratio: float = Field(default=1.2, ge=1.0)
     final_layer_thickness: float = Field(default=0.5, gt=0)
     min_thickness: float = Field(default=0.1, gt=0)
-    # "relative": layer sizes relative to the local cell; "absolute_yplus": the first layer
-    # thickness follows from target_yplus (see foam/yplus.py), expansion_ratio is reused.
-    layer_sizing: Literal["relative", "absolute_yplus"] = "relative"
-    target_yplus: float = Field(default=1.0, gt=0)
+    # "relative": layer sizes relative to the local cell (target_yplus unused); "absolute_yplus": the
+    # first layer thickness follows from target_yplus (see foam/yplus.py), expansion_ratio is reused.
+    # Default since schema v10: absolute sizing for y+ 50, the wall-function range (D-086).
+    layer_sizing: Literal["relative", "absolute_yplus"] = "absolute_yplus"
+    target_yplus: float = Field(default=50.0, gt=0)
 
     @model_validator(mode="after")
     def _levels_ordered(self) -> "Mesh":

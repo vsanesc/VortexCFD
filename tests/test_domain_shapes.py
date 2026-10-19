@@ -29,7 +29,7 @@ from vortexcfd.foam.postprocessing import patch_face_counts
 from vortexcfd.geometry.checks import check_surface
 from vortexcfd.geometry.domain import compute_domain
 from vortexcfd.geometry.domain_surface import ROLE_ARRAY, domain_surface, meshing_surface, role_names
-from vortexcfd.gui.meshing import domain_fields, estimate_for, write_domain_surface
+from vortexcfd.workflow.meshing import domain_fields, estimate_for, write_domain_surface
 
 PART = (-0.5, 0.5, -0.5, 0.5, -0.5, 0.5)  # L = 1 m, centred on the origin
 SHAPES = ("box", "bullet", "c_type")
@@ -115,7 +115,8 @@ def test_estimate_uses_the_actual_volume_and_a_background_margin() -> None:
 
 
 def _inputs(shape: str, symmetry: str = "none", mesh: Mesh = Mesh(base_size=0.5, surface_level_min=1,
-                                                                  surface_level_max=2, layers=0)):
+                                                                  surface_level_max=2, layers=0,
+                                                                  layer_sizing="relative")):
     box = _box(shape, symmetry)
     return box, MeshCaseInput(box.bounds, symmetry == "y_min", ("Sphere",), PART, box.reference_length, mesh,
                               **domain_fields(box))
@@ -214,7 +215,8 @@ def test_domain_parts_follow_renames_and_removals() -> None:
 def _real_mesh(tmp_path: Path, shape: str):
     sphere = pv.Sphere(radius=0.5, theta_resolution=24, phi_resolution=24)
     box = compute_domain([tuple(sphere.bounds)], Domain(shape=shape))
-    mesh = Mesh(base_size=0.5, surface_level_min=1, surface_level_max=2, layers=0)  # the same base size
+    mesh = Mesh(base_size=0.5, surface_level_min=1, surface_level_max=2, layers=0,
+                layer_sizing="relative")  # the same base size
     inp = MeshCaseInput(box.bounds, False, ("Sphere",), tuple(sphere.bounds), box.reference_length, mesh,
                         **domain_fields(box))
     case = tmp_path / shape

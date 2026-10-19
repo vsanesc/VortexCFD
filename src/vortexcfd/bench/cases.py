@@ -1,7 +1,7 @@
 """Benchmark case definitions (D-081).
 
 Every case starts from the app's defaults: a new Simulation with the built-in "External flow" preset,
-as the New simulation dialog creates it. A case lists only what it changes (``mesh``, ``inflow``,
+as the New simulation dialog creates it. A case lists only what it changes (``mesh``, ``inflow``, ``reports``,
 ``domain``); ``deviations`` reports every value that differs from those defaults, plus the
 benchmark-only settings of the indicative y+ run (fixed iterations, no stopping criteria, cores).
 
@@ -39,9 +39,12 @@ class BenchCase:
     name: str
     geometry: str  # key of geometries.GEOMETRIES
     units: str  # units of an STL file (CAD files carry their own)
-    reference_length: float  # m: normalises surface fidelity (the app's own L is reported too)
+    # m: normalises surface fidelity (the app's own L is reported too) and is set as the project's l_ref
+    # (``reports``), from which the surface cell size follows (D-085)
+    reference_length: float
     description: str
     mesh: dict = field(default_factory=dict)  # Mesh fields changed from the preset
+    reports: dict = field(default_factory=dict)  # Reports fields changed from the defaults
     inflow: dict = field(default_factory=dict)  # Inflow fields changed from the defaults
     domain: dict = field(default_factory=dict)  # Domain fields changed from the preset
     zones: tuple[Zone, ...] = ()
@@ -49,13 +52,17 @@ class BenchCase:
 
 
 def _wing_zones() -> tuple[Zone, ...]:
-    c, span = geo.WING_CHORD / 1000, geo.WING_SPAN / 1000
-    tip = 0.05 * c
+    """The half wing's zones (D-092): its root lies on the y_min symmetry plane (y = 0), its tip at
+    y = span."""
+    c, span = geo.WING_CHORD / 1000, geo.HALF_WING_SPAN / 1000
+    band = 0.05 * c
     return (
         Zone("trailing_edge", "last 5 % of the chord (x/c >= 0.95), whole span",
              boxes=((0.95 * c, INF, -INF, INF, -INF, INF),)),
-        Zone("tips", f"faces within {tip:g} m (5 % of the chord) of either tip plane",
-             boxes=((-INF, INF, -INF, tip, -INF, INF), (-INF, INF, span - tip, INF, -INF, INF))),
+        Zone("tips", f"faces within {band:g} m (5 % of the chord) of the tip plane y = {span:g} m",
+             boxes=((-INF, INF, span - band, INF, -INF, INF),)),
+        Zone("root", f"faces within {band:g} m (5 % of the chord) of the root on the symmetry plane y = 0",
+             boxes=((-INF, INF, -INF, band, -INF, INF),)),
     )
 
 
@@ -90,15 +97,19 @@ CASES: dict[str, BenchCase] = {
     "sphere": BenchCase(
         name="sphere", geometry="sphere", units="m", reference_length=1.0,
         description="sphere, diameter 1 m, STL (control case)",
+        reports={"reference_length": 1.0},  # l_ref = the diameter
     ),
     "wing": BenchCase(
-        name="wing", geometry="wing", units="mm", reference_length=1.0,
-        description="rectangular wing NACA 0012, chord 1 m, span 3 m, trailing edge 0.25 % of the chord, "
-                    "flat tips, STEP",
+        name="wing", geometry="half_wing", units="mm", reference_length=1.0,
+        reports={"reference_length": 1.0},  # l_ref = the chord
+        domain={"symmetry": "y_min"},  # the root on the symmetry plane (D-092)
+        description="rectangular half wing NACA 0012, chord 1 m, span 1.5 m from the root on a y_min "
+                    "symmetry plane, trailing edge 0.25 % of the chord, flat tip, STEP",
         zones=_wing_zones(),
     ),
     "ahmed": BenchCase(
         name="ahmed", geometry="ahmed", units="mm", reference_length=geo.AHMED_LENGTH / 1000,
+        reports={"reference_length": geo.AHMED_LENGTH / 1000},  # l_ref = the body length
         description="Ahmed-type body 1.044 x 0.389 x 0.288 m, front radius 0.1 m, 25 degree slant, no stilts, "
                     "STEP",
         zones=_ahmed_zones(),
@@ -111,8 +122,9 @@ def deviations(case: BenchCase, cores: int | None = None) -> list[str]:
     out = [f"mesh.{k} = {v!r}" for k, v in sorted(case.mesh.items())]
     out += [f"inflow.{k} = {v!r}" for k, v in sorted(case.inflow.items())]
     out += [f"domain.{k} = {v!r}" for k, v in sorted(case.domain.items())]
+    out += [f"reports.{k} = {v!r}" for k, v in sorted(case.reports.items())]
     out.append(f"solvers.iterations = {case.iterations} (fixed; stopping criteria removed; indicative y+ run)")
     out.append(f"solvers.write_interval = {case.iterations}")
     if cores is not None:
-        out.append(f"solvers.cores = {cores} (the recommended count for the mesh, D-064)")
+        out.append(f"solvers.cores = {cores} (cells / 50,000, at most 10 and two cores left free; D-092)")
     return out

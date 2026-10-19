@@ -1,50 +1,63 @@
-# Meshing benchmark baseline (Phase 5.0)
+# Meshing benchmark baseline (after task 5.1)
 
-The current mesher (snappyHexMesh through the app's default settings), measured on 2026-10-19 06:28:57 UTC at git
-`a47f09c` on the development PC (12 physical cores, Ryzen 9 5900X, WSL2). Full
-benchmark wall-clock: 469 s. Result file: `baseline.json` (D-081, D-082). y+ values are indicative,
-not converged (a fixed 400-iteration run).
+The mesher with the app's defaults after task 5.1 (D-084 to D-092), measured on 2026-10-19 10:18:06 UTC
+at git `8bca687` (clean tree) on the development PC (12 physical cores, Ryzen 9 5900X, WSL2). Full
+benchmark wall-clock: 632 s. Result file: `baseline.json` (D-081, D-082, D-091, D-092); the run and its
+analysis are in RESULT_5.1b.md. y+ values are indicative, not converged (a fixed 400-iteration run).
 
-| Case | Status | Cells | Max non-ortho | Avg non-ortho | Faces >65 | Faces >70 | Max skew | Faces skew>4 | Max AR | Failed checks | Wall coverage % | Extruded % | Mean layers | Worst zone | Worst zone % | Thickness % of target | Fidelity RMS/L | Fidelity max/L | y+ mean | y+ in band % | Mesh s | Total s |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| sphere | ok | 193151 | 40.2 | 7.22 | 0 | 0 | 0.51 | 0 | 3.7 | 0 | 100.0 | 100.0 | 3.00 | - | - | 100.0 | 8.88e-05 | 1.54e-04 | 168.9 | 0.0 | 26 | 154 |
-| wing | ok | 199947 | 61.5 | 6.70 | 0 | 0 | 1.98 | 0 | 8.8 | 0 | 88.9 | 99.1 | 2.82 | trailing_edge | 0.0 | 92.9 | 1.33e-04 | 2.66e-03 | 230.5 | 0.0 | 36 | 168 |
-| ahmed | ok | 188140 | 56.3 | 7.98 | 0 | 0 | 1.43 | 0 | 8.2 | 0 | 87.5 | 99.9 | 2.81 | rear_edges | 0.0 | 88.2 | 5.05e-05 | 3.39e-04 | 107.7 | 0.0 | 32 | 145 |
+`baseline_0.json` is the previous baseline: the pre-5.1 mesher (surface size from L, seed lines as snap
+features, 3 relative layers, full-span wing). It is not comparable for the wing (a different geometry:
+the full 3 m span then, the 1.5 m half wing now).
 
-Columns: coverage = wall area with the full target layer count (3); extruded = area with at least one
-layer; worst zone = the zone with the lowest coverage; fidelity = distance from the mesh wall points to
-the original surface over the reference length (sphere diameter, wing chord, body length); y+ in band =
-wall area with y+ in [0.5, 2] times the target y+ (1); times in seconds (mesh = blockMesh to checkMesh,
-total = the whole case with the y+ run).
+## Case definitions
 
-## Case deviations from the app's defaults
+Every case starts from a new simulation with the built-in "External flow" preset (D-081): box domain
+(5 L upstream, 10 L downstream, 5 L lateral and vertical), 100,000 background cells, target surface size
+0.01 l_ref with curvature refinement up to 2 levels above the surface level (D-085), absolute layer
+sizing for y+ 50 with Re on l_ref (D-086, D-088), 20 m/s, k-omega SST. Deviations:
 
-No case changes a meshing, domain or flow default (box domain, 100,000 background cells, target surface
-size 0.01 L, 3 relative layers, 20 m/s, k-omega SST). The indicative y+ run of every case uses:
+- sphere: diameter 1 m, STL (control case); l_ref = 1 m (the diameter).
+- wing: half wing NACA 0012, chord 1 m, span 1.5 m from the root on a y_min symmetry plane, trailing
+  edge 0.25 % of the chord, flat tip, STEP; `domain.symmetry = 'y_min'`; l_ref = 1 m (the chord). Zones:
+  trailing edge (x/c >= 0.95), tip (within 5 % of the chord of y = 1.5 m), root (within 5 % of the chord
+  of the symmetry plane) (D-092).
+- ahmed: Ahmed-type body 1.044 x 0.389 x 0.288 m, front radius 0.1 m, 25 degree slant, no stilts, STEP;
+  l_ref = 1.044 m (the length). Zones: slant edges, rear-face edges (within 0.02 m).
+- The indicative y+ run of every case: solvers.iterations = 400 (fixed, stopping criteria removed),
+  solvers.write_interval = 400, solvers.cores = cells / 50,000, at most 10 and two cores left free
+  (D-092): sphere 5, wing 6, ahmed 4.
 
-- solvers.iterations = 400, fixed (stopping criteria removed);
-- solvers.write_interval = 400;
-- solvers.cores = 3, the recommended count for meshes of 188k to 200k cells (D-064; default 1).
+## Table
+
+| Case | Status | Cells | Max non-ortho | Avg non-ortho | Faces >65 | Faces >70 | Max skew | Faces skew>4 | Max AR | Failed checks | Strict coverage % | Target layers | Extruded % | Mean layers | Mean / target % | >=80 % of target % | No layer % | Layer faces removed by checks | Worst zone | Worst zone % | Thickness % of target | Fidelity RMS mm | Fidelity max mm | Fidelity RMS/ref | Fidelity max/ref | ref m | y+ mean | y+ in band % | y+ cores | Mesh s | Total s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| sphere | ok | 276078 | 46.6 | 7.06 | 0 | 0 | 0.85 | 0 | 14.4 | 0 | 100.0 | 10 | 100.0 | 10.00 | 100.0 | 100.0 | 0.0 | 0 | - | - | 100.0 | 0.089 | 0.154 | 8.88e-05 | 1.54e-04 | 1 | 26.8 | 60.5 | 5 | 50 | 225 |
+| wing | ok | 337824 | 64.8 | 8.16 | 0 | 0 | 2.86 | 0 | 25.7 | 0 | 78.4 | 11 | 99.9 | 9.79 | 89.0 | 82.4 | 0.1 | 2 | trailing_edge | 0.0 | 97.3 | 0.107 | 0.777 | 1.07e-04 | 7.77e-04 | 1 | 43.3 | 67.6 | 6 | 50 | 231 |
+| ahmed | ok | 225842 | 64.9 | 10.89 | 0 | 0 | 1.43 | 0 | 19.0 | 0 | 31.0 | 10 | 99.9 | 6.86 | 68.6 | 49.8 | 0.1 | 0 | rear_edges | 0.0 | 93.2 | 0.063 | 0.363 | 6.07e-05 | 3.48e-04 | 1.044 | 67.8 | 57.9 | 4 | 34 | 174 |
+
+Columns: strict coverage = wall area with the full target layer count (D-087); mean / target, >= 80 %
+of target and no layer are the layer diagnostics of D-091; "layer faces removed by checks" counts the
+faces whose extrusion snappyHexMesh's layer-mesh check removed; fidelity = distance from the mesh wall
+points to the original surface, in mm and over the reference length "ref m" (sphere diameter, wing
+chord, body length); y+ in band = wall area with y+ in [25, 100] (0.5 to 2 times the target 50); times
+in seconds (mesh = blockMesh to checkMesh, total = the whole case with the y+ run).
 
 ## Observations
 
-1. All three meshes pass checkMesh with 0 failed checks and no lost part; max non-orthogonality 40.2 /
-   61.5 / 56.3 degrees (sphere / wing / Ahmed body), 0 faces above 65 degrees, max skewness 0.51 / 1.98 / 1.43.
-2. Wing trailing edge (x/c >= 0.95): 0.0 % of the area has the 3 layers, mean 1.49 layers, 51.5 % of the
-   wanted thickness, while 99.5 % of it has at least one layer. Wing tips: 5.3 % coverage, 1.42 layers, 41.5 %.
-3. Ahmed body rear-face edges: 0.0 % coverage, 1.45 layers, 52.8 % thickness; slant edges: 29.4 %, 1.92
-   layers, 66.2 %. The sphere has 100 % coverage (3.00 / 3 layers).
-4. The wing's surface cells are 24.1 mm (2.4 % of the chord), against 8.4 mm on the sphere and the body:
-   the target surface size is 0.01 L and the app's L is the wing's largest extent, the 3 m span. The
-   2.5 mm trailing edge is about 1/10 of a surface cell.
-5. Wing surface fidelity: max 2.66e-3 L against an RMS of 1.33e-4 L. The two largest distances (2.66 mm
-   and 2.58 mm) are wall points at y = 1.5 m, z = 0 near the trailing and leading edges, on the seed line
-   that the automatic seeding (D-052) adds through the wing's centre; the wing is seeded because its chord
-   (1 m) is under 1.41 background cells (0.77 m each). By band: x/c < 0.05 RMS 0.50 mm, 0.05-0.95 RMS
-   0.038 mm, x/c >= 0.95 RMS 0.108 mm.
-6. y+ after 400 iterations: area-weighted mean 169 / 231 / 108, min 7.4 / 53.4 / 10, 0.0 % of the wall
-   area in [0.5, 2] in every case. The default layer sizing is relative (layer thickness from the local
-   cell size), so the target y+ of 1 does not size the first layer.
-7. Cost: 188,140 to 199,947 cells, meshing 25.5 to 36.0 s (snappyHexMesh layers stage 2.8 / 8.2 / 4.5 s),
-   peak memory of the largest child process 368 to 433 MiB while meshing and 983 MiB in the wing's
-   solver stage.
+1. All three meshes pass checkMesh with 0 failed checks and no lost part; every mesh is under 340,000
+   cells. Max non-orthogonality 46.6 / 64.8 / 64.9 degrees (sphere / wing / Ahmed body), at the
+   maxNonOrtho 65 limit for the wing and the body; 0 faces above 65 degrees.
+2. Sphere: 10 of 10 layers on 100 % of the wall, fidelity unchanged from baseline_0 (RMS 0.089 mm).
+3. Half wing: 78.4 % strict coverage of 11 layers, 82.4 % of the area with at least 9 layers. The root on
+   the symmetry plane keeps its layers (90.1 %, 10.47 of 11); the trailing edge (3.10 of 11) and the tip
+   (2.71 of 11) collapse (0.0 % strict coverage).
+4. Ahmed body: 31.0 % strict coverage of 10 layers, but 49.8 % of the area has at least 8 layers; 31.4 %
+   has 1 to 5 layers, at the sharp edges (rear edges 1.45 of 10, slant edges 3.50 of 10). The layer-mesh
+   check removed no faces; while the mesh was shrunk for the layers, 441 faces exceeded non-orthogonality
+   65 and the displacement was scaled down, and 668 feature-edge points sharper than 60 degrees got no
+   layer (docs/QUESTIONS.md item 106, input for 5.4).
+5. y+ after 400 iterations (target 50): area-weighted mean 26.8 / 43.3 / 67.8, 60.5 / 67.6 / 57.9 % of
+   the wall area in [25, 100].
+6. Surface fidelity: RMS 0.089 / 0.107 / 0.063 mm, max 0.154 / 0.777 / 0.363 mm.
+7. Cost: 225,842 to 337,824 cells, meshing 34 to 50 s; y+ runs 136 to 172 s on 4 to 6 cores; peak memory
+   of the largest child process 412 to 583 MiB while meshing and 903 MiB in the wing's solver stage.

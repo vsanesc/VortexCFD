@@ -1,0 +1,15 @@
+{
+  "schema_version": 9,
+  "name": "v9 project",
+  "analysis_type": "external",
+  "preset_name": "External flow",
+  "geometry": {"parts": [{"name": "Wing", "source_file": "geometry/wing.stl", "units": "mm"}]},
+  "domain": {"enabled": true, "shape": "box", "upstream": 5.0, "downstream": 10.0, "lateral": 5.0,
+             "vertical": 5.0, "symmetry": "none"},
+  "mesh": {"background_cells_target": 100000, "target_surface_size": 0.01, "base_size": null,
+           "surface_level_min": null, "surface_level_max": null, "feature_angle": 30.0, "layers": 3,
+           "expansion_ratio": 1.2, "final_layer_thickness": 0.5, "min_thickness": 0.1,
+           "layer_sizing": "relative", "target_yplus": 1.0},
+  "inflow": {"speed": 20.0},
+  "reports": {"reference_length": null}
+}

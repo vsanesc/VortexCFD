@@ -1,4 +1,5 @@
-"""Sequential meshing run (blockMesh, surfaceFeatureExtract, snappyHexMesh, checkMesh).
+"""Sequential meshing run (blockMesh, surfaceFeatureExtract, snappyHexMesh, checkMesh; the optional steps
+run only when their dictionary was written).
 
 No Qt. Everything runs on a worker thread; ``on_line``, ``on_step`` and ``on_done`` are called
 from worker/reader threads, so a GUI must forward them through Qt signals only.
@@ -10,7 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from vortexcfd.foam.mesh_case import DOMAIN_GUARD_FILE, MESH_COMMANDS
+from vortexcfd.foam.mesh_case import DOMAIN_GUARD_FILE, MESH_COMMANDS, STEP_DICTS
 from vortexcfd.foam.mesh_report import MeshReport, parse_check_mesh, parse_layer_table
 from vortexcfd.foam.postprocessing import patch_face_counts
 from vortexcfd.foam.runner import FoamRun
@@ -111,9 +112,7 @@ class MeshRun:
             with self._lock:
                 if self._stop:
                     break
-            if name == "surfaceFeatureExtract" and not (self.case_dir / "system" / "surfaceFeatureExtractDict").is_file():
-                continue
-            if name == "createPatch" and not (self.case_dir / "system" / "createPatchDict").is_file():
+            if name in STEP_DICTS and not (self.case_dir / STEP_DICTS[name]).is_file():
                 continue
             if self._on_step is not None:
                 self._on_step(name)

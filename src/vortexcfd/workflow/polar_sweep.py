@@ -13,8 +13,8 @@ from vortexcfd.foam.case_writer import enable_clean_stop
 from vortexcfd.foam.dictfile import write_foam_file
 from vortexcfd.foam.physics_case import build_solver_files
 from vortexcfd.foam.polar_sweep import SWEEP_DIR_NAME, SweepRecord, copy_mesh, new_record
-from vortexcfd.gui.meshing import case_dir_for
-from vortexcfd.gui.solving import physics_problem, solver_input
+from vortexcfd.workflow.meshing import case_dir_for
+from vortexcfd.workflow.solving import physics_problem, solver_input
 
 
 def sweep_dir_for(project: Project) -> Path | None:

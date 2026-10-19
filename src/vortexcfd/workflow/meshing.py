@@ -1,6 +1,6 @@
 """Meshing orchestration: project -> meshing case directory (Qt-free).
 
-Lives in gui/ although it needs no Qt: it joins core (project), geometry (surfaces, domain) and
+Lives in workflow/: it joins core (project), geometry (surfaces, domain) and
 foam (case files), and foam/ must not depend on geometry/ (which imports pyvista).
 """
 
@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from vortexcfd.core.project import Project
+from vortexcfd.core.project_io import V10_MESH_FIELDS
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.yplus import LayerPlan, first_layer_thickness, plan_layers
 from vortexcfd.foam.mesh_case import (
@@ -30,6 +31,7 @@ from vortexcfd.foam.mesh_case import (
     write_seed_edge_meshes,
 )
 from vortexcfd.foam.mesh_estimate import BACKGROUND_MARGIN_CELLS, MeshEstimate
+from vortexcfd.foam.physics_case import LENGTH_AUTO_LABEL, reference_values
 from vortexcfd.geometry import regions
 from vortexcfd.geometry.domain import DomainBox, compute_domain, union_bounds
 from vortexcfd.geometry.domain_surface import ROLE_ARRAY, meshing_surface
@@ -108,10 +110,65 @@ def write_part_surfaces(case_dir: Path, project: Project, inputs: MeshCaseInput,
         regions.write_patch_stl(path, mesh, labels, list(inputs.patches_of(i)))
 
 
-def estimate_for(box: DomainBox, mesh) -> MeshEstimate:
-    """The mesh estimate of ``box`` (its actual volume; the background box of a rounded shape)."""
-    return estimate_mesh(box.bounds, box.reference_length, mesh, volume=box.volume, rounded=box.rounded,
+def estimate_for(box: DomainBox, mesh, surface_length: float | None = None) -> MeshEstimate:
+    """The mesh estimate of ``box`` (its actual volume; the background box of a rounded shape) with
+    the surface size from ``surface_length`` (None: the domain's L; see ``surface_length``)."""
+    length = box.reference_length if surface_length is None else surface_length
+    return estimate_mesh(box.bounds, length, mesh, volume=box.volume, rounded=box.rounded,
                          symmetric=box.symmetric)
+
+
+@dataclass(frozen=True)
+class SurfaceLength:
+    """The length the target surface size multiplies (D-085): ``source`` is "l_ref" (set in the
+    Reference Values), "l_ref_auto" (l_ref never set: its automatic value) or "largest_extent" (L,
+    projects made before schema v10)."""
+
+    value: float
+    source: str
+
+    def describe(self) -> str:
+        if self.source == "largest_extent":
+            return f"L = {self.value:.4g} m (largest extent of the parts)"
+        return f"l_ref = {self.value:.4g} m" + (f" ({LENGTH_AUTO_LABEL})" if self.source == "l_ref_auto" else "")
+
+
+SURFACE_LENGTH_AUTO_WARNING = ("l_ref is not set: the surface cell size and the y+ first layer use its automatic "
+                               "value ({auto}). Set the reference length under Reports & Monitors > "
+                               "Reference Values.")
+
+
+def surface_length(project: Project, box: DomainBox, parts_bounds=None) -> SurfaceLength:
+    """The surface size length of ``project`` (``parts_bounds``: the union of every part's box, as
+    the solver's reference values use; None: loaded here). Never raises."""
+    if project.sim.mesh.surface_size_reference == "largest_extent":
+        return SurfaceLength(box.reference_length, "largest_extent")
+    if parts_bounds is None:
+        try:
+            _box, _names, meshes = _loaded_parts(project)
+            parts_bounds = union_bounds([tuple(float(b) for b in m.bounds) for m in meshes]) if meshes else None
+        except MeshingNotReady:  # a part cannot be loaded (readiness says so): the parts the box knows
+            parts_bounds = box.parts_bounds
+    if parts_bounds is None:
+        return SurfaceLength(box.reference_length, "largest_extent")
+    ref = reference_values(parts_bounds, project.sim.reports)
+    if ref.l_ref <= 0:  # a part with no x extent: l_ref is unusable (Run Solver says so, D-047)
+        return SurfaceLength(box.reference_length, "largest_extent")
+    return SurfaceLength(ref.l_ref, "l_ref_auto" if ref.l_auto else "l_ref")
+
+
+def surface_length_warning(length: SurfaceLength) -> str | None:
+    """The Mesh properties warning when the surface size (and the y+ Reynolds number, D-088) follow an
+    l_ref that was never set."""
+    if length.source != "l_ref_auto":
+        return None
+    return SURFACE_LENGTH_AUTO_WARNING.format(auto=LENGTH_AUTO_LABEL)
+
+
+def project_estimate(project: Project, box: DomainBox, mesh=None, parts_bounds=None) -> MeshEstimate:
+    """The mesh estimate of ``project`` in ``box`` with its surface length (``mesh``: other settings,
+    e.g. a mesh study level)."""
+    return estimate_for(box, mesh or project.sim.mesh, surface_length(project, box, parts_bounds).value)
 
 
 def domain_fields(box: DomainBox) -> dict:
@@ -151,12 +208,14 @@ def fluid_location(project: Project) -> tuple[float, float, float] | None:
 
 
 def plan_layers_for(project: Project, box: DomainBox) -> LayerPlan:
-    """The y+ layer stack for ``project``: first layer from the estimator, count from the surface
-    cell size at the maximum refinement level (see foam/yplus.plan_layers)."""
+    """The y+ layer stack for ``project``: first layer from the estimator with Re on the surface size
+    length (l_ref, or L for projects made before schema v10; D-088), count from the surface cell size
+    at the maximum refinement level (see foam/yplus.plan_layers). [NUMERICS-REVIEW]"""
     mesh = project.sim.mesh
+    length = surface_length(project, box)
     first = first_layer_thickness(mesh.target_yplus, project.sim.inflow.speed, project.sim.physics.nu,
-                                  box.reference_length)
-    est = estimate_for(box, mesh)
+                                  length.value)
+    est = estimate_for(box, mesh, length.value)
     return plan_layers(first, mesh.expansion_ratio, est.surface_size)
 
 
@@ -206,6 +265,7 @@ def prepare_job(project: Project) -> MeshJob:
         raise MeshingNotReady(reason)
     box, names, meshes = _loaded_parts(project)
     bounds = [tuple(float(b) for b in m.bounds) for m in meshes]
+    length = surface_length(project, box, union_bounds(bounds))
     safe = safe_part_names(names)
     first_layer = layer_count = None
     if project.sim.mesh.layer_sizing == "absolute_yplus":
@@ -223,6 +283,7 @@ def prepare_job(project: Project) -> MeshJob:
         part_bounds=tuple(bounds),
         part_levels=_part_overrides(project),
         part_patches=tuple(part_patch_names(project.sim.geometry.parts)),
+        surface_length=length.value,
         **domain_fields(box),
     )
     case_dir = case_dir_for(project)
@@ -252,7 +313,8 @@ def thin_part_warnings(project: Project) -> list[str]:
         return []
     if box.bounds is None:
         return []
-    est = estimate_for(box, project.sim.mesh)
+    bounds = union_bounds([tuple(float(b) for b in m.bounds) for m in meshes])
+    est = project_estimate(project, box, parts_bounds=bounds)
     out = []
     for part, name, surf in zip(project.sim.geometry.parts, names, meshes):
         bounds = tuple(float(b) for b in surf.bounds)
@@ -293,14 +355,20 @@ def inputs_hash(project: Project) -> str:
             entry.append([[r.name, r.members, r.patch] for r in part.regions])
             entry.append(_hash_file(ids) if ids is not None and ids.is_file() else None)
         parts.append(entry)
+    mesh = project.sim.mesh.model_dump()
+    for key, legacy in V10_MESH_FIELDS.items():  # a project meshed before v10 keeps its hash (D-085)
+        if mesh.get(key) == legacy:
+            del mesh[key]
     payload = {
         "parts": parts,
         "domain": project.sim.domain.model_dump(),
-        "mesh": project.sim.mesh.model_dump(),
+        "mesh": mesh,
         # Absolute (y+) layer sizes depend on the flow; relative sizes do not.
         "yplus_inputs": (
             [project.sim.inflow.speed, project.sim.physics.nu]
             if project.sim.mesh.layer_sizing == "absolute_yplus" else None
         ),
     }
+    if project.sim.mesh.surface_size_reference == "l_ref":  # l_ref sizes the surface (D-085)
+        payload["surface_l_ref"] = project.sim.reports.reference_length
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()

@@ -1,0 +1,443 @@
+{
+  "cases": [
+    {
+      "app_reference_length": 1.0,
+      "case": "sphere",
+      "cells": 276078,
+      "description": "sphere, diameter 1 m, STL (control case)",
+      "deviations": [
+        "reports.reference_length = 1.0",
+        "solvers.iterations = 400 (fixed; stopping criteria removed; indicative y+ run)",
+        "solvers.write_interval = 400",
+        "solvers.cores = 4 (the recommended count for the mesh, D-064)"
+      ],
+      "estimate": {
+        "background_cells": 100860,
+        "base_size": 0.2685127992366564,
+        "curvature_level": 7,
+        "level_max": 5,
+        "level_min": 4,
+        "surface_length": 1.0,
+        "surface_length_source": "l_ref",
+        "surface_size": 0.008391024976145512
+      },
+      "extruded_percent": 100.0,
+      "failed": false,
+      "failed_step": null,
+      "layers": {
+        "fidelity": {
+          "max_rel": 0.0001539774421905893,
+          "points": 13778,
+          "rms_rel": 8.880950497180418e-05
+        },
+        "fields_found": true,
+        "low_coverage": [],
+        "patches": {
+          "sphere": {
+            "area": 3.1396904303412367,
+            "coverage_percent": 100.0,
+            "extruded_percent": 100.0,
+            "faces": 10636,
+            "mean_layers": 10.0,
+            "mean_thickness_m": 0.02337964251637459,
+            "target_layers": 10,
+            "thickness_percent": 100.0
+          }
+        },
+        "walls": {
+          "area": 3.1396904303412367,
+          "coverage_percent": 100.0,
+          "extruded_percent": 100.0,
+          "faces": 10636,
+          "mean_layers": 10.0,
+          "mean_thickness_m": 0.02337964251637459,
+          "target_layers": 10,
+          "thickness_percent": 100.0
+        },
+        "zones": {}
+      },
+      "mesh_peak_mb": 493.16796875,
+      "mesh_success": true,
+      "quality": {
+        "avg_non_ortho": 7.0636314,
+        "faces_non_ortho_gt65": 0,
+        "faces_non_ortho_gt70": 0,
+        "faces_non_ortho_gt70_checkmesh": 0,
+        "faces_skew_gt4": 0,
+        "failed_by_type": {},
+        "failed_checks": 0,
+        "internal_faces": 857313,
+        "max_aspect_ratio": 14.398802,
+        "max_non_ortho": 46.621122,
+        "max_skewness": 0.84925812,
+        "mesh_ok": true
+      },
+      "reference_length": 1.0,
+      "robustness": {
+        "domain_errors": [],
+        "lost_parts": [],
+        "mesh_ok": true,
+        "valid": true
+      },
+      "snappy_layer_table": [
+        {
+          "basis": "thickness",
+          "faces": 10636,
+          "mesh_layers": 10.0,
+          "patch": "sphere",
+          "target_layers": 10,
+          "thickness_m": 0.0234,
+          "thickness_percent": 100.0
+        }
+      ],
+      "solve_peak_mb": 493.16796875,
+      "time_s": {
+        "case_total": 280.3369581620009,
+        "castellation": 33.27,
+        "layers": 5.51,
+        "mesh_total": 57.02229706500111,
+        "snap": 13.44,
+        "snappy_total": 53.7,
+        "steps": {
+          "blockMesh": 1.1723209400006454,
+          "checkMesh": 2.2142482430008386,
+          "mesh_total": 57.02229706500111,
+          "snappyHexMesh": 53.01519145999919,
+          "surfaceFeatureExtract": 0.6199104259994783
+        }
+      },
+      "yplus": {
+        "band": [
+          25.0,
+          100.0
+        ],
+        "cores": 4,
+        "in_band_percent": 60.86342054704753,
+        "iterations": 400,
+        "iterations_asked": 400,
+        "label": "indicative, not converged",
+        "max": 40.71839904785156,
+        "mean": 26.97333673194332,
+        "min": 1.6712299585342407,
+        "state": "iteration_limit",
+        "target": 50.0,
+        "time_s": 219.07846658299968
+      }
+    },
+    {
+      "app_reference_length": 3.000000238418579,
+      "case": "wing",
+      "cells": 964710,
+      "description": "rectangular wing NACA 0012, chord 1 m, span 3 m, trailing edge 0.25 % of the chord, flat tips, STEP",
+      "deviations": [
+        "reports.reference_length = 1.0",
+        "solvers.iterations = 400 (fixed; stopping criteria removed; indicative y+ run)",
+        "solvers.write_interval = 400",
+        "solvers.cores = 4 (the recommended count for the mesh, D-064)"
+      ],
+      "estimate": {
+        "background_cells": 100620,
+        "base_size": 0.7703871223978,
+        "curvature_level": 9,
+        "level_max": 7,
+        "level_min": 6,
+        "surface_length": 1.0,
+        "surface_length_source": "l_ref",
+        "surface_size": 0.006018649393732813
+      },
+      "extruded_percent": 99.872484,
+      "failed": false,
+      "failed_step": null,
+      "layers": {
+        "fidelity": {
+          "max_rel": 0.0014573668365948941,
+          "points": 69942,
+          "rms_rel": 0.0001819644394395231
+        },
+        "fields_found": true,
+        "low_coverage": [
+          "trailing_edge",
+          "tips"
+        ],
+        "patches": {
+          "wing": {
+            "area": 6.278712299322455,
+            "coverage_percent": 89.65710068069195,
+            "extruded_percent": 99.96660540378366,
+            "faces": 69011,
+            "mean_layers": 7.586735346712526,
+            "mean_thickness_m": 0.015756899525416278,
+            "target_layers": 8,
+            "thickness_percent": 98.33448631953739
+          }
+        },
+        "walls": {
+          "area": 6.278712299322455,
+          "coverage_percent": 89.65710068069195,
+          "extruded_percent": 99.96660540378366,
+          "faces": 69011,
+          "mean_layers": 7.586735346712526,
+          "mean_thickness_m": 0.015756899525416278,
+          "target_layers": 8,
+          "thickness_percent": 98.33448631953739
+        },
+        "zones": {
+          "tips": {
+            "area": 0.36258898897674574,
+            "coverage_percent": 0.8614183506053009,
+            "description": "faces within 0.05 m (5 % of the chord) of either tip plane",
+            "extruded_percent": 99.42172799404027,
+            "faces": 7187,
+            "mean_layers": 3.8904987824835557,
+            "mean_thickness_m": 0.012985386971558174,
+            "target_layers": 8,
+            "thickness_percent": 83.72199208868953
+          },
+          "trailing_edge": {
+            "area": 0.30031317882827646,
+            "coverage_percent": 10.538338360199194,
+            "description": "last 5 % of the chord (x/c >= 0.95), whole span",
+            "extruded_percent": 99.61425194138513,
+            "faces": 8024,
+            "mean_layers": 4.238976950155456,
+            "mean_thickness_m": 0.012969105836934693,
+            "target_layers": 8,
+            "thickness_percent": 83.5574259607977
+          }
+        }
+      },
+      "mesh_peak_mb": 1586.015625,
+      "mesh_success": true,
+      "quality": {
+        "avg_non_ortho": 8.6478834,
+        "faces_non_ortho_gt65": 0,
+        "faces_non_ortho_gt70": 0,
+        "faces_non_ortho_gt70_checkmesh": 0,
+        "faces_skew_gt4": 0,
+        "failed_by_type": {},
+        "failed_checks": 0,
+        "internal_faces": 2919889,
+        "max_aspect_ratio": 14.528364,
+        "max_non_ortho": 64.985365,
+        "max_skewness": 3.0265942,
+        "mesh_ok": true
+      },
+      "reference_length": 1.0,
+      "robustness": {
+        "domain_errors": [],
+        "lost_parts": [],
+        "mesh_ok": true,
+        "valid": true
+      },
+      "snappy_layer_table": [
+        {
+          "basis": "thickness",
+          "faces": 69011,
+          "mesh_layers": 7.11,
+          "patch": "wing",
+          "target_layers": 8,
+          "thickness_m": 0.0153,
+          "thickness_percent": 96.1
+        }
+      ],
+      "solve_peak_mb": 1586.015625,
+      "time_s": {
+        "case_total": 1004.7112472019999,
+        "castellation": 71.73,
+        "layers": 28.91,
+        "mesh_total": 173.20322397699965,
+        "snap": 59.98,
+        "snappy_total": 169.07,
+        "steps": {
+          "blockMesh": 1.0482025649998832,
+          "checkMesh": 6.3197338139998465,
+          "mesh_total": 173.20322397699965,
+          "snappyHexMesh": 93.10832092700002,
+          "snappyHexMesh.castellate": 72.0533951010002,
+          "surfaceFeatureExtract": 0.6731742989995837
+        }
+      },
+      "yplus": {
+        "band": [
+          25.0,
+          100.0
+        ],
+        "cores": 4,
+        "in_band_percent": 82.64244053562021,
+        "iterations": 400,
+        "iterations_asked": 400,
+        "label": "indicative, not converged",
+        "max": 339.07501220703125,
+        "mean": 33.87656444416563,
+        "min": 10.015199661254883,
+        "state": "iteration_limit",
+        "target": 50.0,
+        "time_s": 813.1232492449999
+      }
+    },
+    {
+      "app_reference_length": 1.0440000295639038,
+      "case": "ahmed",
+      "cells": 225842,
+      "description": "Ahmed-type body 1.044 x 0.389 x 0.288 m, front radius 0.1 m, 25 degree slant, no stilts, STEP",
+      "deviations": [
+        "reports.reference_length = 1.044",
+        "solvers.iterations = 400 (fixed; stopping criteria removed; indicative y+ run)",
+        "solvers.write_interval = 400",
+        "solvers.cores = 4 (the recommended count for the mesh, D-064)"
+      ],
+      "estimate": {
+        "background_cells": 99200,
+        "base_size": 0.2687257060439116,
+        "curvature_level": 7,
+        "level_max": 5,
+        "level_min": 4,
+        "surface_length": 1.044,
+        "surface_length_source": "l_ref",
+        "surface_size": 0.008397678313872238
+      },
+      "extruded_percent": 99.82699,
+      "failed": false,
+      "failed_step": null,
+      "layers": {
+        "fidelity": {
+          "max_rel": 0.000347613158334677,
+          "points": 11966,
+          "rms_rel": 6.072200084106514e-05
+        },
+        "fields_found": true,
+        "low_coverage": [
+          "ahmed",
+          "slant_edges",
+          "rear_edges"
+        ],
+        "patches": {
+          "ahmed": {
+            "area": 1.526029611795997,
+            "coverage_percent": 30.998418287388155,
+            "extruded_percent": 99.92065669412274,
+            "faces": 11560,
+            "mean_layers": 6.8626824412046,
+            "mean_thickness_m": 0.0215223120322252,
+            "target_layers": 10,
+            "thickness_percent": 93.16010905270325
+          }
+        },
+        "walls": {
+          "area": 1.526029611795997,
+          "coverage_percent": 30.998418287388155,
+          "extruded_percent": 99.92065669412274,
+          "faces": 11560,
+          "mean_layers": 6.8626824412046,
+          "mean_thickness_m": 0.0215223120322252,
+          "target_layers": 10,
+          "thickness_percent": 93.16010905270325
+        },
+        "zones": {
+          "rear_edges": {
+            "area": 0.038804551911679155,
+            "coverage_percent": 0.0,
+            "description": "within 0.02 m of the four edges of the rear face",
+            "extruded_percent": 100.0,
+            "faces": 538,
+            "mean_layers": 1.4495574149014037,
+            "mean_thickness_m": 0.00931835097932799,
+            "target_layers": 10,
+            "thickness_percent": 52.36103906166012
+          },
+          "slant_edges": {
+            "area": 0.04334974197261329,
+            "coverage_percent": 14.542083456718752,
+            "description": "within 0.02 m of the four edges of the 25 degree slant",
+            "extruded_percent": 99.99999999999999,
+            "faces": 496,
+            "mean_layers": 3.498511477667954,
+            "mean_thickness_m": 0.013721116283447804,
+            "target_layers": 10,
+            "thickness_percent": 67.01781579940678
+          }
+        }
+      },
+      "mesh_peak_mb": 412.4453125,
+      "mesh_success": true,
+      "quality": {
+        "avg_non_ortho": 10.892436,
+        "faces_non_ortho_gt65": 0,
+        "faces_non_ortho_gt70": 0,
+        "faces_non_ortho_gt70_checkmesh": 0,
+        "faces_skew_gt4": 0,
+        "failed_by_type": {},
+        "failed_checks": 0,
+        "internal_faces": 683632,
+        "max_aspect_ratio": 18.986564,
+        "max_non_ortho": 64.907255,
+        "max_skewness": 1.4291996,
+        "mesh_ok": true
+      },
+      "reference_length": 1.044,
+      "robustness": {
+        "domain_errors": [],
+        "lost_parts": [],
+        "mesh_ok": true,
+        "valid": true
+      },
+      "snappy_layer_table": [
+        {
+          "basis": "thickness",
+          "faces": 11560,
+          "mesh_layers": 5.35,
+          "patch": "ahmed",
+          "target_layers": 10,
+          "thickness_m": 0.0199,
+          "thickness_percent": 87.4
+        }
+      ],
+      "solve_peak_mb": 437.6796875,
+      "time_s": {
+        "case_total": 189.25997298699986,
+        "castellation": 15.51,
+        "layers": 4.76,
+        "mesh_total": 36.44491517100141,
+        "snap": 12.43,
+        "snappy_total": 33.65,
+        "steps": {
+          "blockMesh": 0.9533197190012288,
+          "checkMesh": 1.662147269000343,
+          "mesh_total": 36.44491517100141,
+          "snappyHexMesh": 33.265452243000254,
+          "surfaceFeatureExtract": 0.5636952469994867
+        }
+      },
+      "yplus": {
+        "band": [
+          25.0,
+          100.0
+        ],
+        "cores": 4,
+        "in_band_percent": 57.783514395307414,
+        "iterations": 400,
+        "iterations_asked": 400,
+        "label": "indicative, not converged",
+        "max": 545.2100219726562,
+        "mean": 67.8178272115678,
+        "min": 4.2992401123046875,
+        "state": "iteration_limit",
+        "target": 50.0,
+        "time_s": 149.24715443999958
+      }
+    }
+  ],
+  "meta": {
+    "cases": [
+      "sphere",
+      "wing",
+      "ahmed"
+    ],
+    "git_sha": "b5fc377-dirty",
+    "physical_cores": 12,
+    "solve": true,
+    "stamp": "20261019T092748Z",
+    "utc": "2026-10-19 09:27:48",
+    "wall_s": 1477.0701841810005
+  }
+}

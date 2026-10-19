@@ -13,6 +13,11 @@ from vortexcfd.core.model import CURRENT_SCHEMA_VERSION, Simulation
 # v5 Solvers residual targets (SIMPLE residualControl, D-027): key, field, default.
 V5_RESIDUAL_TARGETS = (("residual_p", "p", 1e-4), ("residual_u", "U", 1e-5), ("residual_k", "k", 1e-5),
                        ("residual_omega", "omega", 1e-5))
+# The Mesh fields added in v10 (D-085) with the values that give the v9 behaviour.
+V10_MESH_FIELDS = {"surface_size_reference": "largest_extent", "curvature_levels": 0}
+# The v9 mesh behaviour that the v10 defaults changed (D-085, D-086): a v9 file that does not set these
+# keys keeps them (the app always saved the layer settings; hand-written or older files may not).
+V9_MESH_BEHAVIOUR = {**V10_MESH_FIELDS, "layer_sizing": "relative", "target_yplus": 1.0}
 
 
 class ProjectFileError(Exception):
@@ -32,7 +37,10 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
     v7 -> v8 adds the per-part surface regions, region id file and CAD source (unset: one region,
     the part's own patch, as before; D-070, D-071); v8 -> v9 adds the analysis type ("external" for
     every older project, the owner's decision), the preset provenance (unset) and the domain shape
-    ("box", with the parts it is sized around unset: all of them; D-077, D-078).
+    ("box", with the parts it is sized around unset: all of them; D-077, D-078); v9 -> v10 keeps the
+    mesh behaviour of the project where the v10 defaults changed it (V9_MESH_BEHAVIOUR: the surface
+    size from the largest extent, no curvature refinement, relative layers with target y+ 1; D-085,
+    D-086).
     Data already at the current version (or not a dict /
     without a version) is returned unchanged.
     """
@@ -70,6 +78,13 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
     if data.get("schema_version") == 8:
         data.setdefault("analysis_type", "external")  # owner decision (D-077)
         data["schema_version"] = 9  # Domain.shape defaults to "box" (D-078)
+    if data.get("schema_version") == 9:
+        mesh = data.get("mesh")
+        mesh = dict(mesh) if isinstance(mesh, dict) else {}
+        for key, value in V9_MESH_BEHAVIOUR.items():
+            mesh.setdefault(key, value)  # the behaviour the project had (D-085)
+        data["mesh"] = mesh
+        data["schema_version"] = 10
     return data
 
 

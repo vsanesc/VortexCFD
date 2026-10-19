@@ -23,7 +23,7 @@ from vortexcfd.foam.results import FIELDS_BY_KEY, available_fields, field_values
 from vortexcfd.foam.run_record import RunRecord, write_run_record
 from vortexcfd.gui import paraview
 from vortexcfd.gui.colormaps import COLORMAPS, lookup_table, relative_luminance
-from vortexcfd.gui.meshing import inputs_hash
+from vortexcfd.workflow.meshing import inputs_hash
 from vortexcfd.gui.results_scene import ResultsView, color_range, read_results
 from vortexcfd.gui.theme import DARK
 
@@ -208,7 +208,7 @@ def make_window(qtbot: QtBot, tmp_path: Path, monkeypatch):
             shutil.copytree(CASE / "constant", case / "constant")
         report = MeshReport(10, 40, 128, 0.0, 0.0, 0.0, 0, True)
         write_mesh_record(case, MeshRecord(report, inputs_hash(project), ("Ball",)))
-        from vortexcfd.gui import solving
+        from vortexcfd.workflow import solving
 
         if results:
             h = "old" if stale else solving.results_hash(project)

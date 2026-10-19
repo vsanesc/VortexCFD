@@ -20,9 +20,9 @@ from vortexcfd.foam.mesh_case import (
 from vortexcfd.foam.physics_case import initial_fields
 from vortexcfd.geometry import regions
 from vortexcfd.geometry.loader import load_surface, stl_solid_names
-from vortexcfd.gui import part_ops
-from vortexcfd.gui.meshing import inputs_hash, prepare_job
-from vortexcfd.gui.solving import solver_input
+from vortexcfd.workflow import part_ops
+from vortexcfd.workflow.meshing import inputs_hash, prepare_job
+from vortexcfd.workflow.solving import solver_input
 
 
 def _project(tmp_path: Path) -> Project:
@@ -100,7 +100,7 @@ def test_patch_names_are_safe_and_unique_across_parts() -> None:
 
 
 def test_snappy_dict_has_one_region_per_patch() -> None:
-    inp = MeshCaseInput((-5, 5, -5, 5, -5, 5), False, ("Body", "Ball"), (-1, 1, -1, 1, -1, 1), 2.0, Mesh(),
+    inp = MeshCaseInput((-5, 5, -5, 5, -5, 5), False, ("Body", "Ball"), (-1, 1, -1, 1, -1, 1), 2.0, Mesh(layer_sizing="relative"),
                         part_patches=(("nose", "Body"), ("Ball",)))
     assert inp.patches == ("nose", "Body", "Ball") and inp.has_regions(0) and not inp.has_regions(1)
     content = snappy_hex_mesh_dict(inp).content
@@ -135,18 +135,23 @@ def test_case_surfaces_bcs_and_hash_follow_the_patches(tmp_path: Path) -> None:
 
 
 def test_an_unassigned_project_hashes_as_before(tmp_path: Path) -> None:
-    """Parts without regions keep the pre-v8 inputs hash, so existing meshes stay up to date."""
+    """Parts without regions keep the pre-v8 inputs hash, and a project with the v9 mesh behaviour the
+    pre-v10 hash, so existing meshes stay up to date."""
     import hashlib
     import json
 
-    from vortexcfd.gui.meshing import _hash_file
+    from vortexcfd.workflow.meshing import _hash_file
+
+    from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR, V10_MESH_FIELDS
 
     project = _project(tmp_path)
     _box_part(project)
+    project.update_mesh(**V9_MESH_BEHAVIOUR)  # a project made before v10 (D-085, D-086)
     part = project.sim.geometry.parts[0]
+    mesh = {k: v for k, v in project.sim.mesh.model_dump().items() if k not in V10_MESH_FIELDS}  # the v9 fields
     payload = {
         "parts": [[part.name, part.units, _hash_file(project.resolve_part_path(part)), None, None]],
-        "domain": project.sim.domain.model_dump(), "mesh": project.sim.mesh.model_dump(), "yplus_inputs": None,
+        "domain": project.sim.domain.model_dump(), "mesh": mesh, "yplus_inputs": None,
     }
     assert inputs_hash(project) == hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
@@ -214,7 +219,8 @@ def two_patch_mesh(tmp_path_factory):
     sphere = pv.Sphere(radius=0.3, center=(2.0, 0, 0), theta_resolution=24, phi_resolution=24)
     sphere.save(str(project.path.parent / "geometry" / "Ball.stl"))
     project.add_part(Part(name="Ball", source_file="geometry/Ball.stl"))
-    project.update_mesh(background_cells_target=20_000, target_surface_size=0.05, layers=0)
+    project.update_mesh(background_cells_target=20_000, target_surface_size=0.05, layers=0,
+                        layer_sizing="relative")  # no layers (D-086: absolute sizing ignores the count)
     project.update_part(0, **part_ops.split_region(project, 0, None, 30.0))
     part = project.sim.geometry.parts[0]
     mesh = load_surface(project.path.parent / part.source_file, "m")
@@ -259,7 +265,7 @@ def test_real_per_part_forces_cover_all_patches(two_patch_mesh) -> None:
     from tests.real_cases import run_solver
     from vortexcfd.foam.forces import parse_vector_row
     from vortexcfd.foam.postprocessing import output_file
-    from vortexcfd.gui.solving import prepare_solver_case
+    from vortexcfd.workflow.solving import prepare_solver_case
 
     project, job, _result = two_patch_mesh
     project.update_solver(iterations=5)

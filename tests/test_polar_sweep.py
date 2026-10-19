@@ -217,8 +217,8 @@ def test_real_sweep_on_the_flattened_ellipsoid(tmp_path: Path) -> None:
     from vortexcfd.core.project import Project
     from vortexcfd.foam.mesh_run import MeshRun
     from vortexcfd.foam.polar_sweep import SweepRun
-    from vortexcfd.gui.meshing import prepare_job
-    from vortexcfd.gui.polar_sweep import point_writer, prepare_sweep
+    from vortexcfd.workflow.meshing import prepare_job
+    from vortexcfd.workflow.polar_sweep import point_writer, prepare_sweep
 
     folder = tmp_path / "proj"
     (folder / "geometry").mkdir(parents=True)
@@ -226,6 +226,9 @@ def test_real_sweep_on_the_flattened_ellipsoid(tmp_path: Path) -> None:
     project = Project.new("sweep")
     project.add_part(Part(name="Body", source_file="geometry/body.stl", units="m"))
     project.save(folder / "p.json")
+    from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR
+
+    project.update_mesh(**V9_MESH_BEHAVIOUR)  # the set-up this sweep was designed with (D-085, D-086)
     stopping = StoppingCriteria(criteria=[AsymptoticCriterion(quantity="Cd", window=50, tolerance=0.01),
                                           AsymptoticCriterion(quantity="Cl", window=50, tolerance=0.01)])
     project.update_solver(iterations=600, write_interval=600, stopping=stopping.model_dump())

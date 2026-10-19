@@ -12,7 +12,7 @@ from vortexcfd.core.model import Reports
 from vortexcfd.core.project import Project
 from vortexcfd.foam.dictfile import read_foam_file
 from vortexcfd.foam.logparse import TimeStep
-from vortexcfd.gui import solving
+from vortexcfd.workflow import solving
 from vortexcfd.gui.monitors import ResidualChart, nice_ticks
 from vortexcfd.gui.properties_panel import REFERENCE_NOTE, parse_vector
 from vortexcfd.gui.theme import DARK, RESIDUAL_STYLES, residual_style
@@ -178,7 +178,7 @@ def test_reference_values_node_defaults_are_auto(make_window) -> None:
 
 def test_area_basis_frontal_and_custom(make_window) -> None:
     from vortexcfd.foam.physics_case import bounding_box_area
-    from vortexcfd.gui.meshing import parts_layout
+    from vortexcfd.workflow.meshing import parts_layout
 
     w = make_window()
     _, _, bounds = parts_layout(w.project)
@@ -277,7 +277,7 @@ def test_end_to_end_solver_run_on_the_shared_sphere_mesh(sphere_mesh, qtbot: QtB
     from vortexcfd.foam.mesh_record import MeshRecord, write_mesh_record
     from vortexcfd.foam.run_record import read_run_record
     from vortexcfd.gui.main_window import MainWindow
-    from vortexcfd.gui.meshing import inputs_hash
+    from vortexcfd.workflow.meshing import inputs_hash
 
     folder = tmp_path / "proj"
     (folder / "geometry").mkdir(parents=True)

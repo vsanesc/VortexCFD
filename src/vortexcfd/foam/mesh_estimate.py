@@ -27,6 +27,11 @@ class MeshEstimate:
     levels_overridden: bool  # at least one level is an explicit user value
     surface_size: float  # surface cell size at level_max, metres
     background_bounds: Bounds | None = None  # the blockMesh box (the domain's bounds for a box domain)
+    surface_length: float = 0.0  # the length target_surface_size multiplies, metres
+    # Curvature refinement (D-085): the finest level it may reach on a part at the mesh's levels
+    # (level_max + Mesh.curvature_levels; level_max when it is off) and that level's cell size.
+    curvature_level: int = 0
+    curvature_size: float = 0.0
 
     @property
     def too_many_cells(self) -> bool:
@@ -43,13 +48,15 @@ class MeshEstimate:
         )
 
 
-def estimate_mesh(domain_bounds: Bounds, reference_length: float, mesh: Mesh, volume: float | None = None,
+def estimate_mesh(domain_bounds: Bounds, surface_length: float, mesh: Mesh, volume: float | None = None,
                   rounded: bool = False, symmetric: bool = False) -> MeshEstimate:
     """Background cells, refinement levels and surface cell size for ``mesh`` in the domain.
 
+    ``surface_length`` is the length the target surface size multiplies (l_ref or L, see
+    Mesh.surface_size_reference; the caller resolves it, D-085).
     base_size = (domain volume / background_cells_target)^(1/3) unless overridden, with the actual
     domain ``volume`` when given (a rounded domain is smaller than its bounding box, D-078);
-    level_max = max(0, ceil(log2(base_size / (target_surface_size * L)))) and
+    level_max = max(0, ceil(log2(base_size / (target_surface_size * surface_length)))) and
     level_min = max(level_max - 1, 0), unless given explicitly. A ``rounded`` domain's background box
     is its bounds grown by BACKGROUND_MARGIN_CELLS base cells (not at y_min when ``symmetric``); the
     cell counts are those of the background box.
@@ -72,7 +79,7 @@ def estimate_mesh(domain_bounds: Bounds, reference_length: float, mesh: Mesh, vo
         )
         extents = (background[1] - background[0], background[3] - background[2], background[5] - background[4])
     cells = tuple(max(1, round(e / base)) for e in extents)
-    target = mesh.target_surface_size * reference_length
+    target = mesh.target_surface_size * surface_length
     computed_max = max(0, math.ceil(math.log2(base / target))) if target > 0 else 0
     level_max = mesh.surface_level_max if mesh.surface_level_max is not None else computed_max
     level_min = (
@@ -89,4 +96,7 @@ def estimate_mesh(domain_bounds: Bounds, reference_length: float, mesh: Mesh, vo
         levels_overridden=mesh.surface_level_min is not None or mesh.surface_level_max is not None,
         surface_size=base / 2**level_max,
         background_bounds=background,  # type: ignore[arg-type]
+        surface_length=surface_length,
+        curvature_level=level_max + mesh.curvature_levels,
+        curvature_size=base / 2 ** (level_max + mesh.curvature_levels),
     )

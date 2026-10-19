@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from vortexcfd.core.model import Domain, Inflow, Mesh, Physics, Reports, Solvers
+from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR
 from vortexcfd.foam.case_writer import enable_clean_stop
 from vortexcfd.foam.dictfile import write_foam_file
 from vortexcfd.foam.mesh_case import TRI_SURFACE, MeshCaseInput, build_mesh_files, prepare_case_dir, safe_part_names
@@ -40,7 +41,7 @@ class MeshedCase:
     lines: list = field(default_factory=list)
 
 
-def mesh_body(case: Path, surface, name: str, mesh: Mesh = Mesh(), domain: Domain = Domain(),
+def mesh_body(case: Path, surface, name: str, mesh: Mesh = Mesh(**V9_MESH_BEHAVIOUR), domain: Domain = Domain(),
               step_timeout_s: float = 600, total_timeout_s: float = 1800) -> MeshedCase:
     """Mesh ``surface`` (one part ``name``) in ``case`` with the app's dictionaries."""
     from vortexcfd.geometry.domain import compute_domain

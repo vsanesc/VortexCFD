@@ -1,10 +1,10 @@
 """Run one benchmark case through the app's own pipeline (D-082). No Qt.
 
 Project (New simulation defaults, "External flow" preset) -> geometry import (the STL import or
-part_ops.cad_parts, as File > Import Geometry) -> the preset's box domain -> gui/meshing.prepare_job
+part_ops.cad_parts, as File > Import Geometry) -> the preset's box domain -> workflow/meshing.prepare_job
 (the dictionaries the user gets) -> MeshRun (blockMesh, surfaceFeatureExtract, snappyHexMesh,
 createPatch, checkMesh, the lost-part and domain guards) -> MeshReport; then the benchmark's own
-read-only measurements and the indicative y+ run (gui/solving.prepare_solver_case + SolverRun).
+read-only measurements and the indicative y+ run (workflow/solving.prepare_solver_case + SolverRun).
 
 The only change to the generated case is output: ``writeFlags (layerFields)`` is appended to
 system/snappyHexMeshDict so snappyHexMesh writes its layer fields. A second checkMesh writes the face
@@ -31,7 +31,7 @@ from vortexcfd.foam.parallel import physical_cores, recommended_cores
 from vortexcfd.foam.runner import run_foam
 from vortexcfd.foam.solver_run import SolverRun
 from vortexcfd.geometry.cad import CAD_EXTENSIONS, read_cad, tessellate
-from vortexcfd.gui import meshing, part_ops, solving
+from vortexcfd.workflow import meshing, part_ops, solving
 
 EXTERNAL_FLOW = BUILTIN_PRESETS[0]
 LAYER_FIELDS = ("nSurfaceLayers", "thickness", "thicknessFraction")
@@ -64,6 +64,7 @@ def new_project(case: BenchCase, work_root: Path) -> Project:
     sim = apply_preset(Simulation(name=case.name), EXTERNAL_FLOW)
     data = sim.model_dump()
     data["mesh"].update(case.mesh)
+    data["reports"].update(case.reports)
     data["inflow"].update(case.inflow)
     data["domain"].update(case.domain)
     return Project.create(work_root, case.name, Simulation.model_validate(data))
@@ -178,6 +179,19 @@ def face_quality(case_dir: Path) -> dict:
             "internal_faces": int(values.size)}
 
 
+def snappy_stages(log_dir: Path) -> dict:
+    """snappyHexMesh's stage times; with seeded parts the castellation comes from the castellation-only
+    run (log.snappyHexMesh.castellate) and the whole run is the sum of both runs (D-084)."""
+    main, first = log_dir / "log.snappyHexMesh", log_dir / "log.snappyHexMesh.castellate"
+    stages = metrics.snappy_stage_times(main.read_text(errors="replace")) if main.is_file() else {}
+    if first.is_file() and stages:
+        pre = metrics.snappy_stage_times(first.read_text(errors="replace"))
+        stages["castellation"] = pre["castellation"]
+        if pre["snappy_total"] is not None and stages["snappy_total"] is not None:
+            stages["snappy_total"] += pre["snappy_total"]
+    return stages
+
+
 def run_mesh(project: Project) -> tuple:
     """Prepare and run the meshing case; returns (job, MeshRunResult, step durations)."""
     job = meshing.prepare_job(project)
@@ -204,10 +218,21 @@ def run_mesh(project: Project) -> tuple:
     return job, result, steps
 
 
+# The y+ runs use the recommended count for each mesh (cells / CELLS_PER_CORE) with a cap of
+# YPLUS_MAX_CORES and never more than the physical cores minus YPLUS_FREE_CORES, not the app's
+# efficiency cap of D-064 (D-092).
+YPLUS_MAX_CORES = 10
+YPLUS_FREE_CORES = 2
+
+
+def yplus_cores(cells: int, physical: int) -> int:
+    return recommended_cores(cells, physical, efficient=max(1, min(YPLUS_MAX_CORES, physical - YPLUS_FREE_CORES)))
+
+
 def run_yplus(project: Project, case: BenchCase, cells: int, patches: tuple[str, ...]) -> dict:
     """The indicative y+ run: the app's default physics, ``case.iterations`` iterations, no stopping
-    criteria, the recommended cores; then the yPlus field on the walls."""
-    cores = recommended_cores(cells, physical_cores())
+    criteria, ``yplus_cores`` ranks (recorded); then the yPlus field on the walls."""
+    cores = yplus_cores(cells, physical_cores())
     project.update_solver(iterations=case.iterations, write_interval=case.iterations, cores=cores,
                           stopping=StoppingCriteria(criteria=[]))
     case_dir = solving.prepare_solver_case(project)
@@ -243,17 +268,20 @@ def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool =
     if reason is not None:
         out.update(failed=True, failure=f"not ready: {reason}")
         return out
-    box, _names, _bounds = meshing.parts_layout(project)
-    est = meshing.estimate_for(box, project.sim.mesh)
+    box, _names, bounds = meshing.parts_layout(project)
+    length = meshing.surface_length(project, box, bounds)
+    est = meshing.estimate_for(box, project.sim.mesh, length.value)
     out["app_reference_length"] = box.reference_length
     out["estimate"] = {"base_size": est.base_size, "level_min": est.level_min, "level_max": est.level_max,
-                       "surface_size": est.surface_size, "background_cells": est.total_cells}
+                       "surface_size": est.surface_size, "background_cells": est.total_cells,
+                       "surface_length": length.value, "surface_length_source": length.source,
+                       "curvature_level": est.curvature_level}
     _log(f"{case.name}: meshing")
     job, result, steps = run_mesh(project)
     out["mesh_peak_mb"] = _peak_child_mb()
     report = result.report if result else None
+    stages = snappy_stages(job.case_dir / "logs")
     snappy_log = job.case_dir / "logs" / "log.snappyHexMesh"
-    stages = metrics.snappy_stage_times(snappy_log.read_text(errors="replace")) if snappy_log.is_file() else {}
     out["time_s"] = {**{k: v for k, v in stages.items()}, "steps": steps, "mesh_total": steps.get("mesh_total")}
     out["mesh_success"] = bool(result and result.success)
     out["failed_step"] = result.failed_step if result else "not run"
@@ -272,6 +300,8 @@ def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool =
     out["extruded_percent"] = report.extruded_percent
     _log(f"{case.name}: {report.summary()}")
     out["layers"] = wall_measurements(case, job.case_dir, job.inputs.patches, target_layers, source)
+    if snappy_log.is_file():  # what the layer phase did (D-091); the snap and layer run's log
+        out["layers"]["log"] = metrics.layer_log_diagnostics(snappy_log.read_text(errors="replace"))
     out["failed"] = not report.valid
     if solve and report.valid:
         _log(f"{case.name}: indicative y+ run ({case.iterations} iterations)")

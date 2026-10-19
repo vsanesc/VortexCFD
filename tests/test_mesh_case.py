@@ -1,5 +1,6 @@
 """Tests for the meshing case files, the checkMesh parser and an end-to-end coarse meshing run."""
 
+import math
 import threading
 from pathlib import Path
 
@@ -28,13 +29,19 @@ DATA = Path(__file__).parent / "data"
 TUTORIAL = Path("/usr/lib/openfoam/openfoam2606/tutorials/incompressible/simpleFoam/motorBike/system")
 
 
+def relative(mesh: Mesh) -> Mesh:
+    """The structural tests build MeshCaseInput directly, without the workflow's y+ estimate, so they
+    use relative layer sizing (the default is absolute y+ since D-086)."""
+    return mesh.model_copy(update={"layer_sizing": "relative"})
+
+
 def sphere_input(mesh: Mesh | None = None, domain: Domain | None = None, symmetric: bool = False) -> MeshCaseInput:
     sphere = pv.Sphere(radius=0.5, theta_resolution=24, phi_resolution=24)
     dom = domain or Domain(upstream=2, downstream=4, lateral=2, vertical=2,
                            symmetry="y_min" if symmetric else "none")
     box = compute_domain([tuple(sphere.bounds)], dom)
     return MeshCaseInput(box.bounds, symmetric, tuple(safe_part_names(["Sphere"])),
-                         tuple(sphere.bounds), box.reference_length, mesh or Mesh(base_size=0.5))
+                         tuple(sphere.bounds), box.reference_length, relative(mesh or Mesh(base_size=0.5)))
 
 
 # -- names, sizes, locationInMesh -------------------------------------------------------------
@@ -67,6 +74,25 @@ def test_estimate_default_domain_hits_the_cell_target() -> None:
     assert (est.level_max, est.level_min) == (5, 4)
     assert est.surface_size == pytest.approx(est.base_size / 32)
     assert not est.base_size_overridden and not est.levels_overridden and not est.too_many_cells
+
+
+def test_estimate_reports_the_surface_length_and_the_curvature_level() -> None:
+    """D-085: the target surface size multiplies the given length; curvature refinement may reach
+    Mesh.curvature_levels above level_max, and the background cell budget does not change."""
+    box = default_box_1m()
+    est = estimate_mesh(box.bounds, 0.5, Mesh())
+    assert est.surface_length == 0.5 and est.level_max == math.ceil(math.log2(est.base_size / 0.005))
+    assert (est.curvature_level, est.curvature_size) == (est.level_max + 2, pytest.approx(est.base_size / 2 ** (est.level_max + 2)))
+    off = estimate_mesh(box.bounds, 0.5, Mesh(curvature_levels=0))
+    assert off.curvature_level == off.level_max and off.total_cells == est.total_cells
+    assert off.too_many_cells == est.too_many_cells is False
+
+
+def test_curvature_level_entry() -> None:
+    from vortexcfd.foam.mesh_case import curvature_level
+
+    assert curvature_level(5, 2) == [4, 0, 7, -1] and curvature_level(5, 1) == [4, 0, 6, -1]
+    assert curvature_level(5, 0) is None
 
 
 def test_estimate_scales_with_the_target_and_respects_overrides() -> None:

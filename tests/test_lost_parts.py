@@ -23,13 +23,14 @@ from vortexcfd.foam.mesh_case import (
     part_level_range,
     seed_edge_mesh_text,
     seed_file_name,
+    snappy_castellation_dict,
     snappy_hex_mesh_dict,
 )
 from vortexcfd.foam.mesh_record import MeshRecord, read_mesh_record, write_mesh_record
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.foam.mesh_run import MeshRunResult, lost_parts
 from vortexcfd.geometry.loader import clear_cache
-from vortexcfd.gui.meshing import thin_part_warnings
+from vortexcfd.workflow.meshing import thin_part_warnings
 
 TWO = Path(__file__).parent / "data" / "two_walls"
 BALL_BOUNDS = (-0.5, 0.5, -0.5, 0.5, -0.5, 0.5)
@@ -113,23 +114,58 @@ def _inp(levels) -> MeshCaseInput:
 
     box = compute_domain([BALL_BOUNDS, POD_BOUNDS], Domain())
     union = (-0.5, 1.8, -0.5, 0.5, -0.5, 0.5)
-    return MeshCaseInput(box.bounds, False, ("Ball", "Pod"), union, box.reference_length, Mesh(),
+    return MeshCaseInput(box.bounds, False, ("Ball", "Pod"), union, box.reference_length, Mesh(layer_sizing="relative"),
                          part_bounds=(BALL_BOUNDS, POD_BOUNDS), part_levels=levels)
 
 
 def test_snappy_dict_seeds_small_parts_automatically_at_their_levels() -> None:
-    default = snappy_hex_mesh_dict(_inp(((None, None), (None, None)))).content["castellatedMeshControls"]
-    assert default["refinementSurfaces"]["Pod"]["level"] == [4, 5]
-    assert default["features"] == [{"file": '"Ball.eMesh"', "level": 5}, {"file": '"Pod.eMesh"', "level": 5},
-                                   {"file": f'"{seed_file_name("Pod")}"', "level": 5}]  # seeded by default
-    over = snappy_hex_mesh_dict(_inp(((None, None), (5, 6)))).content["castellatedMeshControls"]
+    """The seed lines refine in the castellation-only run (D-052) and are never snap features (D-084)."""
+    inp = _inp(((None, None), (None, None)))
+    default = snappy_castellation_dict(inp).content
+    assert (default["castellatedMesh"], default["snap"], default["addLayers"]) == (True, False, False)
+    controls = default["castellatedMeshControls"]
+    assert controls["refinementSurfaces"]["Pod"]["level"] == [4, 5]
+    assert controls["features"] == [{"file": '"Ball.eMesh"', "level": 5}, {"file": '"Pod.eMesh"', "level": 5},
+                                    {"file": f'"{seed_file_name("Pod")}"', "level": 5}]  # seeded by default
+    main = snappy_hex_mesh_dict(inp).content
+    assert (main["castellatedMesh"], main["snap"], main["addLayers"]) == (False, True, True)
+    assert main["snapControls"]["explicitFeatureSnap"] is True
+    assert main["castellatedMeshControls"]["features"] == [{"file": '"Ball.eMesh"', "level": 5},
+                                                           {"file": '"Pod.eMesh"', "level": 5}]  # no seed lines
+    # apart from the phase switches and the seed lines, both runs read the same settings
+    same = {k: v for k, v in main.items() if k not in ("castellatedMesh", "snap", "addLayers")}
+    other = {k: v for k, v in default.items() if k not in ("castellatedMesh", "snap", "addLayers")}
+    other["castellatedMeshControls"] = {**other["castellatedMeshControls"],
+                                        "features": main["castellatedMeshControls"]["features"]}
+    assert same == other
+    over = snappy_castellation_dict(_inp(((None, None), (5, 6)))).content["castellatedMeshControls"]
     assert over["refinementSurfaces"]["Ball"]["level"] == [4, 5]
     assert over["refinementSurfaces"]["Pod"]["level"] == [5, 6]
     assert over["features"] == [{"file": '"Ball.eMesh"', "level": 5}, {"file": '"Pod.eMesh"', "level": 6},
                                 {"file": f'"{seed_file_name("Pod")}"', "level": 6}]
-    ball_over = snappy_hex_mesh_dict(_inp(((5, 6), (None, None)))).content["castellatedMeshControls"]
+    ball_over = snappy_castellation_dict(_inp(((5, 6), (None, None)))).content["castellatedMeshControls"]
     assert [f["file"] for f in ball_over["features"]] == ['"Ball.eMesh"', '"Pod.eMesh"', '"Pod_seed.eMesh"']
     # the ball is large enough: never seeded, overridden or not
+
+
+def test_unseeded_case_keeps_the_single_run(tmp_path: Path) -> None:
+    from vortexcfd.foam.mesh_case import CASTELLATE_DICT, MESH_COMMANDS, STEP_DICTS, build_mesh_files, prepare_case_dir
+
+    ball_only = MeshCaseInput(_inp(((None, None), (None, None))).domain_bounds, False, ("Ball",), BALL_BOUNDS, 1.0,
+                              Mesh(layer_sizing="relative"), part_bounds=(BALL_BOUNDS,), part_levels=((None, None),))
+    assert snappy_castellation_dict(ball_only) is None
+    main = snappy_hex_mesh_dict(ball_only).content
+    assert (main["castellatedMesh"], main["snap"], main["addLayers"]) == (True, True, True)
+    # a seeded set-up writes the castellation dictionary; regenerating without seeds removes it
+    case = tmp_path / "case"
+    prepare_case_dir(case, build_mesh_files(_inp(((None, None), (None, None)))))
+    assert (case / CASTELLATE_DICT).is_file()
+    prepare_case_dir(case, build_mesh_files(ball_only))
+    assert not (case / CASTELLATE_DICT).exists()
+    names = [n for n, _ in MESH_COMMANDS]
+    assert set(STEP_DICTS) <= set(names)
+    assert names.index("snappyHexMesh.castellate") == names.index("snappyHexMesh") - 1
+    assert dict(MESH_COMMANDS)["snappyHexMesh.castellate"] == ["snappyHexMesh", "-overwrite", "-dict", CASTELLATE_DICT]
 
 
 def test_thin_criterion_also_seeds() -> None:
@@ -238,7 +274,7 @@ def test_gui_lost_part_fails_the_mesh_and_blocks_the_solver(qtbot: QtBot, tmp_pa
 
 
 def _real_mesh(tmp_path: Path, pod_levels) -> MeshRunResult:
-    from vortexcfd.gui.meshing import prepare_job
+    from vortexcfd.workflow.meshing import prepare_job
 
     project = _two_part_project(tmp_path)
     if pod_levels is not None:

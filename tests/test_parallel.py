@@ -169,7 +169,7 @@ def test_a_crashed_parallel_solver_is_not_reconstructed(tmp_path: Path) -> None:
 
 def test_new_results_clear_the_processor_directories(tmp_path: Path) -> None:
     from vortexcfd.foam.mesh_case import MARKER_NAME, remove_results
-    from vortexcfd.gui.solving import clear_results
+    from vortexcfd.workflow.solving import clear_results
 
     (tmp_path / MARKER_NAME).write_text("")
     for name in ("processor0/0", "processor1/constant", "processorX", "0", "constant/polyMesh", "system", "60"):

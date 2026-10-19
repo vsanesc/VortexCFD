@@ -72,8 +72,9 @@ def flush_deleted_widgets():
 def sphere_mesh(tmp_path_factory):
     """A real mesh of a sphere with the DEFAULT sizing, built ONCE per session (per xdist worker).
 
-    Default domain (5/10/5/5 L) and default ``Mesh()``: 100 000 background cells, 0.01 L surface
-    cells, 3 layers. Tests that only read it use ``case_dir`` directly; a test that modifies the
+    Default domain (5/10/5/5 L) and the v9 default mesh (``Mesh(**V9_MESH_BEHAVIOUR)``, the set-up the
+    recorded data in tests/data describe; D-085, D-086): 100 000 background cells, 0.01 L surface
+    cells, 3 relative layers, no curvature refinement. Tests that only read it use ``case_dir`` directly; a test that modifies the
     case must copy it first (``shutil.copytree(sphere_mesh.case_dir, tmp)``).
     """
     from dataclasses import dataclass, field
@@ -82,6 +83,7 @@ def sphere_mesh(tmp_path_factory):
     import pyvista as pv
 
     from vortexcfd.core.model import Domain, Mesh
+    from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR
     from vortexcfd.foam.mesh_case import (
         TRI_SURFACE,
         MeshCaseInput,
@@ -105,7 +107,7 @@ def sphere_mesh(tmp_path_factory):
     sphere = pv.Sphere(radius=0.5, theta_resolution=24, phi_resolution=24)
     box = compute_domain([tuple(sphere.bounds)], Domain())
     inputs = MeshCaseInput(box.bounds, False, tuple(safe_part_names(["Sphere"])), tuple(sphere.bounds),
-                           box.reference_length, Mesh())
+                           box.reference_length, Mesh(**V9_MESH_BEHAVIOUR))
     case = tmp_path_factory.mktemp("sphere_mesh") / "case"
     prepare_case_dir(case, build_mesh_files(inputs))
     sphere.save(str(case / TRI_SURFACE / "Sphere.stl"))

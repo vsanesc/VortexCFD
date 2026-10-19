@@ -13,8 +13,8 @@ from PySide6.QtCore import QObject, Signal
 from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError
 from vortexcfd.foam.mesh_study import StudyRun, export_csv as export_study_csv, read_record as read_study
 from vortexcfd.foam.polar_sweep import SweepRun, export_csv as export_sweep_csv, read_record as read_sweep
-from vortexcfd.gui import mesh_study, polar_sweep
-from vortexcfd.gui.meshing import MeshingNotReady
+from vortexcfd.workflow import mesh_study, polar_sweep
+from vortexcfd.workflow.meshing import MeshingNotReady
 from vortexcfd.gui.study_rows import format_seconds
 from vortexcfd.gui.study_windows import MeshStudyWindow, PolarSweepWindow
 

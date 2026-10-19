@@ -1,6 +1,6 @@
 """Mesh study orchestration: project -> level cases in <project dir>/case_study (Qt-free). (D-066)
 
-Lives in gui/ for the same reason as gui/meshing.py: it joins core, geometry (surfaces, domain) and
+Lives in workflow/ for the same reason as workflow/meshing.py: it joins core, geometry (surfaces, domain) and
 foam (case files). case/ is never touched: every level is a marker-protected case directory of its
 own, <project dir>/case_study/level_<n>/.
 """
@@ -37,7 +37,7 @@ from vortexcfd.foam.mesh_study import (
 from vortexcfd.foam.run_record import read_run_record
 from vortexcfd.foam.yplus import first_layer_thickness
 from vortexcfd.geometry.domain import union_bounds
-from vortexcfd.gui.meshing import (
+from vortexcfd.workflow.meshing import (
     MeshingNotReady,
     _loaded_parts,
     _part_overrides,
@@ -45,10 +45,11 @@ from vortexcfd.gui.meshing import (
     domain_fields,
     estimate_for,
     readiness,
+    surface_length,
     write_domain_surface,
     write_part_surfaces,
 )
-from vortexcfd.gui.solving import clear_results, physics_problem, solver_input
+from vortexcfd.workflow.solving import clear_results, physics_problem, solver_input
 from vortexcfd.foam.physics_case import build_solver_files
 
 # Background cells per total cell of a meshed case, used for the estimate when the current case
@@ -102,13 +103,14 @@ def plan_study(project: Project) -> StudyPlan:
     if reason is not None and "background mesh would have" not in reason:
         raise MeshingNotReady(reason)
     settings = project.sim.studies.mesh
-    box, _names, _meshes = _loaded_parts(project)
+    box, _names, meshes = _loaded_parts(project)
     mesh = project.sim.mesh
-    current = estimate_for(box, mesh)
+    length = surface_length(project, box, union_bounds([tuple(float(b) for b in m.bounds) for m in meshes])).value
+    current = estimate_for(box, mesh, length)
     yplus_first = None
     if mesh.layer_sizing == "absolute_yplus":
         yplus_first = first_layer_thickness(mesh.target_yplus, project.sim.inflow.speed, project.sim.physics.nu,
-                                            box.reference_length)
+                                            length)  # Re on the surface size length (D-088)
     layers = reference_layers(mesh, current.surface_size, yplus_first)
     volume = box.volume  # the actual domain volume (D-078)
     ratio, measured = DEFAULT_CELLS_PER_BACKGROUND_CELL, False
@@ -119,7 +121,7 @@ def plan_study(project: Project) -> StudyPlan:
     per_cell_it, last_cores = _seconds_per_cell_iteration(project)
     plans, warning = [], None
     for level in study_levels(mesh, settings.ratio, settings.current_as):
-        est = estimate_for(box, level.mesh)
+        est = estimate_for(box, level.mesh, length)
         cells = round(est.total_cells * ratio)
         seconds = estimate_seconds(per_cell_it, cells, project.sim.solvers.iterations, last_cores, settings.cores)
         plans.append(LevelPlan(level, est, cells, seconds))
@@ -175,6 +177,7 @@ def prepare_study(project: Project) -> tuple[Path, StudyRecord, MeshCaseInput]:
             part_bounds=tuple(bounds), part_levels=_part_overrides(project),
             part_patches=tuple(part_patch_names(project.sim.geometry.parts)),
             fixed_layers=fixed if fixed is not None else (1.0, 0),
+            surface_length=surface_length(project, box, union_bounds(bounds)).value,
             **domain_fields(box),
         )
         case = level_dir(study, lp.level.index)
