@@ -145,7 +145,7 @@ source of truth for the state of each sub-phase.
 
 Reality check: "as powerful as a commercial mesher" is not a deliverable that can be verified. It is replaced here by measurable levels (below). Each level must beat the previous one on the benchmark suite, or it is not adopted.
 
-### 5.0 Benchmark suite and quality metrics (do first)
+### 5.0 Benchmark suite and quality metrics (do first) — *done (D-081, D-082: sphere, NACA 0012 wing, Ahmed-type body; baseline in benchmarks/BASELINE.md; the dirty-STL set and solver convergence are not in it)*
 - Geometries: simple (sphere, cylinder), aerodynamic (NACA 0012 wing, wing-fuselage with thin trailing edge), complex (VTOL UAV with props/booms), dirty (broken STLs from 3.1).
 - Metrics: success/failure, wall time, cell count, `checkMesh` (non-orthogonality, skewness, aspect ratio, negative volumes), prism-layer coverage %, first-cell y+ distribution, solver convergence on the resulting mesh.
 - Acceptance: one command runs the suite and outputs a comparison table.
