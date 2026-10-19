@@ -123,16 +123,15 @@ def _write_stl(folder: Path, stem: str, mesh: pv.PolyData) -> Path:
 
 
 def _write_features(folder: Path, segments: np.ndarray) -> Path | None:
+    """The intersection curves as geometry/junctions_<hash>.eMesh; its header names the file it gets
+    in the meshing case (JUNCTION_FILE), where it is copied unchanged."""
     if not len(segments):
         return None
-    tmp = folder / ".junctions.eMesh.tmp"
-    prep_geometry.write_edge_mesh(tmp, segments, "Intersection curves of the components (VortexCFD, D-093)")
-    digest = hashlib.sha256(tmp.read_bytes()).hexdigest()[:12]
-    path = folder / f"junctions_{digest}.eMesh"
-    if path.exists():
-        tmp.unlink()
-    else:
-        tmp.replace(path)
+    text = prep_geometry.edge_mesh_text(segments, JUNCTION_FILE,
+                                        "Intersection curves of the components (VortexCFD, D-093)")
+    path = folder / f"junctions_{hashlib.sha256(text.encode()).hexdigest()[:12]}.eMesh"
+    if not path.exists():
+        path.write_text(text, encoding="utf-8")
     return path
 
 

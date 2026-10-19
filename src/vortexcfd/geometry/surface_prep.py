@@ -138,19 +138,24 @@ def edge_mesh(segments: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return points, edges
 
 
-def write_edge_mesh(path: Path, segments: np.ndarray, comment: str = "") -> int:
-    """Write segments (metres) as an OpenFOAM featureEdgeMesh (.eMesh); returns the edge count."""
+def edge_mesh_text(segments: np.ndarray, object_name: str, comment: str = "") -> str:
+    """An OpenFOAM featureEdgeMesh (.eMesh) of segments (metres); ``object_name`` is its header's
+    object entry (a word: the file name it has in the case)."""
     points, edges = edge_mesh(segments)
     rows = "\n".join(f"({x:.9g} {y:.9g} {z:.9g})" for x, y, z in points)
     lines = "\n".join(f"({a} {b})" for a, b in edges)
-    text = (
+    return (
         "FoamFile\n{\n    version     2.0;\n    format      ascii;\n    class       featureEdgeMesh;\n"
-        f"    object      {Path(path).name};\n}}\n"
+        f"    object      {object_name};\n}}\n"
         + (f"// {comment}\n" if comment else "")
         + f"{len(points)}\n(\n{rows}\n)\n{len(edges)}\n(\n{lines}\n)\n"
     )
-    Path(path).write_text(text, encoding="utf-8")
-    return len(edges)
+
+
+def write_edge_mesh(path: Path, segments: np.ndarray, comment: str = "") -> int:
+    """Write segments (metres) as a featureEdgeMesh named after the file; returns the edge count."""
+    Path(path).write_text(edge_mesh_text(segments, Path(path).name, comment), encoding="utf-8")
+    return len(edge_mesh(segments)[1])
 
 
 def read_edge_mesh(path: Path) -> tuple[np.ndarray, np.ndarray]:

@@ -210,6 +210,8 @@ def test_intersection_features_mesh_case_and_hash(tmp_path: Path, shapes) -> Non
         project, job.box, meshing.surface_length(project, job.box).value)),)
     copied = job.case_dir / "constant" / "triSurface" / surface_prep.JUNCTION_FILE
     assert copied.read_bytes() == (project.folder / prep.features_file).read_bytes()
+    # OpenFOAM reads the header's object entry as a word: the name the file has in the case
+    assert f"    object      {surface_prep.JUNCTION_FILE};\n" in copied.read_text()
     assert f'"{surface_prep.JUNCTION_FILE}"' in (job.case_dir / "system" / "snappyHexMeshDict").read_text()
     # the per-part force groups and patches stay one per component
     assert job.inputs.patches == ("body", "wing")
