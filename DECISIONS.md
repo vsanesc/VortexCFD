@@ -103,6 +103,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-086 | 2026-10-19 | Absolute layer sizing from a default target y+ of 50 | Proposed |
 | D-087 | 2026-10-19 | Benchmark headline layer metric: strict coverage | Accepted |
 | D-088 | 2026-10-19 | y+ estimator: Reynolds number on l_ref | Proposed |
+| D-089 | 2026-10-19 | Layers field disabled with absolute sizing | Accepted |
 
 ---
 
@@ -830,3 +831,10 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Decision: the Reynolds length of the y+ estimator is the surface size length of D-085 (`workflow/meshing.surface_length`): l_ref (the user's value, or its automatic value with the same Mesh-properties warning, which now names the y+ first layer too), or L for a project made before schema v10 (`surface_size_reference "largest_extent"`), so an existing project's layers do not change. Used by the Mesh properties, Generate Mesh and the mesh study's shared layer stack. The estimator itself (Cf = 0.026 / Re^(1/7)) is unchanged.
 - Alternatives considered: always l_ref (would change the layers of existing absolute-sizing projects behind an up-to-date mesh hash).
 - Consequences: for a slender part sized on its chord, Re is lower, Cf and u* higher, so the first layer is thinner: at 20 m/s the y+ 50 first layer on a 1 m l_ref is 7.5 % thinner than on 3 m. The l_ref override is already a meshing input when it sizes the surface (D-085), so the hash covers it.
+
+## D-089 Layers field disabled with absolute sizing
+- Status: Accepted (owner request in the review of task 5.1, docs/QUESTIONS.md item 100).
+- Context: with absolute (y+) layer sizing the layer count comes from the estimator (D-026) and Mesh.layers is ignored, but the Layers field stayed editable.
+- Decision: with absolute sizing the Mesh properties' Layers field is disabled, shows the computed count (the Estimate's "Layers (computed)") and has the tooltip "Absolute (y+) layer sizing: the layer count follows from the target y+ and the surface cell size; it is shown here and cannot be set. Choose relative sizing to set it." The stored Mesh.layers is not changed (it is the count again when relative sizing is chosen). The field's range is 0 to 30 (the estimator's maximum), so a computed count is never clipped.
+- Alternatives considered: hiding the field (the computed count would only be in the Estimate rows).
+- Consequences: mirrors the disabled Target y+ field of relative sizing (D-086).

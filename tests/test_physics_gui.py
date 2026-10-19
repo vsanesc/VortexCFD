@@ -7,7 +7,7 @@ from tests.fakes import FakeDialogs
 from vortexcfd.core.project import Project
 from vortexcfd.foam.physics_case import inlet_turbulence
 from vortexcfd.gui.main_window import MainWindow
-from vortexcfd.gui.properties_panel import YPLUS_RELATIVE_TIP
+from vortexcfd.gui.properties_panel import LAYERS_ABSOLUTE_TIP, YPLUS_RELATIVE_TIP
 
 
 @pytest.fixture
@@ -231,6 +231,8 @@ def test_layer_count_rows_and_the_y_plus_warning(qtbot: QtBot, tmp_path) -> None
         p = w.properties
         project.update_mesh(layer_sizing="relative")
         assert p.mesh_layer_count.text() == "3 (set)" and p.mesh_layer_stack.text() == "—"  # relative
+        layers_field = p.mesh_fields["layers"]
+        assert layers_field.isEnabled() and layers_field.value() == 3 and layers_field.toolTip() == ""
         box = domain_box_for(project)
         surface = project_estimate(project, box).surface_size
         project.update_mesh(layer_sizing="absolute_yplus", target_yplus=30.0)
@@ -238,6 +240,10 @@ def test_layer_count_rows_and_the_y_plus_warning(qtbot: QtBot, tmp_path) -> None
                            project.sim.mesh.expansion_ratio, surface)
         assert plan.warning is None
         assert p.mesh_layer_count.text() == str(plan.count)
+        # absolute sizing: the Layers field shows the computed count, disabled, and says why (D-089)
+        assert not layers_field.isEnabled() and layers_field.value() == plan.count != 3
+        assert layers_field.toolTip() == LAYERS_ABSOLUTE_TIP and "target y+" in LAYERS_ABSOLUTE_TIP
+        assert "surface cell size" in LAYERS_ABSOLUTE_TIP and project.sim.mesh.layers == 3  # stored value kept
         assert p.mesh_layer_stack.text() == f"{plan.total:.4g} m / {plan.final:.4g} m"
         assert p.mesh_layer_count.property("warn") == "false"
         assert WARNING_HINT not in w.top_bar.mesh_button.toolTip() and w.top_bar.mesh_button.isEnabled()

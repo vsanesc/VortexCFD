@@ -41,6 +41,7 @@ from vortexcfd.core.reports import (PROBE_NAME_RE, criterion_quantities, default
 from vortexcfd.foam.forces import MASS_WARNING
 from vortexcfd.foam.parallel import CELLS_PER_CORE, EFFICIENT_CORES, physical_cores, recommended_cores
 from vortexcfd.foam.wall_fields import case_yplus_histogram
+from vortexcfd.foam.yplus import MAX_LAYERS
 from vortexcfd.gui.charts import YPlusHistogramChart
 from vortexcfd.gui.report_views import ForcesTable
 from vortexcfd.foam.convergence import earliest_iteration
@@ -170,7 +171,7 @@ MESH_SETTINGS = (
     ("surface_level_max", "Max surface level", lambda: _spin(-1, 30, "", "auto")),
     ("curvature_levels", "Curvature refinement", lambda: _spin(0, MAX_CURVATURE_LEVELS, " levels", "off")),
     ("feature_angle", "Feature angle", lambda: _dspin(1.0, 180.0, 1, "\u00b0")),
-    ("layers", "Layers", lambda: _spin(0, 20)),
+    ("layers", "Layers", lambda: _spin(0, MAX_LAYERS)),
     ("expansion_ratio", "Expansion ratio", lambda: _dspin(1.0, 3.0, 3)),
     ("final_layer_thickness", "Final layer thickness", lambda: _dspin(0.001, 5.0, 3, " \u00d7 cell")),
     ("min_thickness", "Min layer thickness", lambda: _dspin(0.001, 5.0, 3, " \u00d7 cell")),
@@ -207,6 +208,9 @@ def format_vector(v) -> str:
 # Shown under Target y+ with absolute (y+) layer sizing (D-024).
 YPLUS_NOTE = ("Flat-plate verification: Cf about 6% low at y+ 1, about 3.6% low at y+ 0.5 "
               "(docs/validation/flat_plate)")
+# Tooltip of the disabled Layers field with absolute layer sizing (D-089).
+LAYERS_ABSOLUTE_TIP = ("Absolute (y+) layer sizing: the layer count follows from the target y+ and the surface "
+                       "cell size; it is shown here and cannot be set. Choose relative sizing to set it.")
 # Tooltip of the disabled Target y+ field with relative layer sizing (D-086).
 YPLUS_RELATIVE_TIP = ("Relative layer sizing: the layer thickness follows the surface cell size, so y+ is not "
                       "targeted. Choose absolute_yplus to size the layers for this y+.")
@@ -1018,6 +1022,13 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         box = domain_box_for(self._project)
         absolute = mesh.layer_sizing == "absolute_yplus"
         plan = plan_layers_for(self._project, box) if box.bounds is not None and absolute else None
+        layers_field = self.mesh_fields["layers"]
+        layers_field.setEnabled(not absolute)  # the count follows from y+ and the surface cell (D-089)
+        layers_field.setToolTip(LAYERS_ABSOLUTE_TIP if absolute else "")
+        if plan is not None:
+            layers_field.blockSignals(True)
+            layers_field.setValue(plan.count)  # shown only: the stored Mesh.layers is not changed
+            layers_field.blockSignals(False)
         if plan is not None:
             self.mesh_first_layer.setText(f"{plan.first:.4g} m (for y+ {mesh.target_yplus:g})")
             self.mesh_layer_count.setText(f"{plan.count}" + (" (limit 30)" if plan.warning else ""))

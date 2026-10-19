@@ -180,6 +180,9 @@ def test_every_mesh_field_shows_its_value(make_window, font: int) -> None:
             assert shown == model, key
         elif model is None:
             assert shown == "auto", key
+        elif key == "layers" and mesh.layer_sizing == "absolute_yplus":
+            # absolute sizing shows the computed count in the disabled field (D-089)
+            assert not widget.isEnabled() and shown == p.mesh_layer_count.text().split()[0], (key, shown)
         else:
             assert float(widget.cleanText()) == pytest.approx(float(model)), (key, shown, model)
         assert widget.isVisible() and widget.width() >= 3 * metrics().u
