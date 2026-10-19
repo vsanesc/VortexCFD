@@ -193,3 +193,43 @@ def test_unreadable_cad_import_leaves_nothing(make_window, tmp_path: Path) -> No
     assert w.project.sim.geometry.parts == []
     assert list((w.project.path.parent / "geometry").iterdir()) == []
     assert isinstance(Part, type)
+
+
+# -- component names (D-098) ------------------------------------------------------------------------
+
+
+def test_surface_model_component_names_come_from_the_step_entities(tmp_path: Path, project: Project) -> None:
+    """A surface model whose components are named GEOMETRIC_SETs and carry no product (as a
+    conceptual design tool exports them): the components are named after the sets, cleaned, made
+    unique and file-safe; one Part per body takes those names."""
+    path = cad_corpus.surface_model_step(tmp_path / "plane.step", [
+        ("QWERTYUIOP, Fuselage, 0", [(0, 1, 0, 1), (1, 2, 0, 1)]),
+        ("ASDFGHJKL1, Wing, 1", [(0, 1, 2, 3)]),
+        ("Wing", [(0, 1, 4, 5)]),
+        ("Tail/fin: 2", [(0, 1, 6, 7)]),
+    ])
+    model = read_cad(path)
+    assert [(b.name, len(b.faces)) for b in model.bodies] == [
+        ("Fuselage_0", 2), ("Wing_1", 1), ("Wing", 1), ("Tail_fin_ 2", 1)]
+    dest = project.folder / "geometry" / path.name
+    dest.write_bytes(path.read_bytes())
+    parts = part_ops.cad_parts(project.folder, dest, None, "parts", set())
+    assert [p.name for p in parts] == ["Fuselage_0", "Wing_1", "Wing", "Tail_fin_ 2"]
+    assert all(Path(p.source_file).name.startswith(part_ops.file_stem(p.name) + "_tess_") for p in parts)
+
+
+def test_unnamed_components_keep_the_previous_names(tmp_path: Path) -> None:
+    path = cad_corpus.surface_model_step(tmp_path / "plain.step", [("", [(0, 1, 0, 1)]), ("", [(0, 1, 2, 3)])])
+    # no name in the file: the file name, as for any unnamed body (not OpenCASCADE's type name "COMPOUND")
+    assert [b.name for b in read_cad(path).bodies] == ["plain", "plain_2"]
+
+
+@pytest.mark.parametrize("raw, name", [
+    ("ZUXSFJQWRT, Fuselage, 0", "Fuselage_0"), ("Fuselage", "Fuselage"), ("  Main  wing ", "Main wing"),
+    ("COMPOUND", None), ("solid", None), ("=>[0:1:1:2]", None), ("", None), (None, None),
+    ("Wing, 1", "Wing_1"), ("abc12345, Wing", "abc12345_Wing"), ("a/b\\c", "a_b_c"),
+])
+def test_clean_name(raw, name) -> None:
+    from vortexcfd.geometry.cad import clean_name
+
+    assert clean_name(raw) == name

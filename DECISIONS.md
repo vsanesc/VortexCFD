@@ -111,6 +111,8 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-094 | 2026-10-19 | Benchmark: optional local cases, fidelity against a reference surface | Proposed |
 | D-095 | 2026-10-19 | The case/ and geometry/ folders found in the home folder | Proposed |
 | D-096 | 2026-10-19 | A mesh that fails checkMesh blocks the solver | Proposed |
+| D-097 | 2026-10-19 | Junction curves refine to the finest surface level | Proposed |
+| D-098 | 2026-10-19 | Component names from the STEP entities | Proposed |
 
 ---
 
@@ -914,4 +916,12 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Decision: `MeshReport` keeps checkMesh's "***" lines (`failed_check_lines`, also in case/vortexcfd_mesh.json; older records have none) and `failed_checks_message()`. Run Solver (`workflow/solving.readiness`) and the polar sweep (`workflow/polar_sweep.sweep_readiness`) are disabled when the current mesh failed checkMesh, after the lost-part and out-of-date reasons, with the reason "The mesh failed checkMesh (checkMesh failed N checks: <the *** lines>): the solver must not run on invalid cells: change the mesh settings (refinement, layers) and generate the mesh again." as the button's tooltip; the Mesh report's "Failed checks" row lists the lines and says that Run Solver is blocked. There is no override (none existed). Every checkMesh failure blocks, not only negative volumes: checkMesh's failed checks are its own error thresholds (non-orthogonality above 90 degrees, skewness above 4, ...).
 - Alternatives considered: blocking only negative volumes and face-pyramid errors (a skewness failure, as the 5.2 as-imported mesh shows, is milder; the owner may relax this); an explicit "run anyway" action (not added: the task allows only an existing override).
 - Consequences: a project whose mesh fails only the skewness check (4.23 on the as-imported aircraft) can no longer be solved until the mesh passes; tests/test_solver_gui.py::test_a_mesh_that_failed_checkmesh_blocks_run_solver.
+
+## D-098 Component names from the STEP entities
+- Status: Proposed (task 5.2 review, item 3; docs/QUESTIONS.md item 114).
+- Context: the untrimmed aircraft export names its components only on its GEOMETRIC_SET entities ("<id>, Fuselage, 0", "<id>, Ala, 0", ...); it has one product. OpenCASCADE's XDE document gives every component the placeholder name "COMPOUND" (the shape type), so the parts were COMPOUND, COMPOUND_2, ...
+- Decision: `geometry/cad.read_cad` names a body after, in order: its XDE label or product name, the name of the STEP entity it was transferred from (`XSControl_TransferReader.EntityFromShapeResult`, mode 1), the inherited assembly name, the file name. A name is cleaned (`cad.clean_name`): whitespace collapsed; empty names, XDE's generated "=>[0:1:1:2]" and OpenCASCADE's type names (COMPOUND, SOLID, SHELL, FACE, ...) count as no name; a comma-separated name drops a leading identifier token (8 or more upper-case letters and digits) and joins the rest with "_" ("<id>, Fuselage, 0" -> "Fuselage_0"); characters other than letters, digits, space, "_", "." and "-" become "_". Repeated names get _2, _3 (as before); files use `part_ops.file_stem`. Face names go through the same cleaning. A file without names falls back to the file name instead of "COMPOUND".
+- Measured: the untrimmed export reads as Fuselage_0, Ala_0, Ala_1, HTail_0, HTail_1, VTail_0; the trimmed export has no component names (empty solid names, one product) and keeps Trimmed_Plane_1 to _4. Tests: a hand-written synthetic STEP surface model with named GEOMETRIC_SETs (tests/cad_corpus.surface_model_step).
+- Alternatives considered: parsing the STEP text for GEOMETRIC_SET names (bypasses OpenCASCADE's mapping from entity to shape); keeping the identifier token (names like "ZUXSFJQWRT_Fuselage_0").
+- Consequences: re-importing such a file gives new part names (existing projects keep theirs); the identifier rule is a heuristic (docs/QUESTIONS.md).
 

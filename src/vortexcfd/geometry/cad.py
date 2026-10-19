@@ -7,6 +7,7 @@ STEP and IGES are converted by OpenCASCADE to millimetres; BREP files have no un
 """
 
 import hashlib
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -75,15 +76,57 @@ def _ext(path: Path) -> str:
     return Path(path).suffix.lower()
 
 
+# Names OpenCASCADE gives a shape that has none of its own (its type): not a component name.
+GENERIC_NAMES = frozenset({"COMPOUND", "COMPSOLID", "SOLID", "SHELL", "FACE", "WIRE", "EDGE", "VERTEX", "SHAPE",
+                           "NONE", "OPEN_SHELL", "CLOSED_SHELL", "MANIFOLD_SOLID_BREP"})
+# A leading token like "ZUXSFJQWRT" (upper-case letters and digits, 8 or more) in a comma-separated
+# entity name is an identifier, not part of the name.
+_ID_TOKEN = re.compile(r"^[A-Z0-9]{8,}$")
+
+
+def clean_name(text: str | None) -> str | None:
+    """A component name from a STEP name: None when empty, XCAF's generated "=>[0:1:1:2]" form or a
+    generic type name; a comma-separated name ("<id>, Fuselage, 0") loses a leading identifier token
+    and joins the rest with "_" ("Fuselage_0"); characters outside letters, digits, space, "_", "."
+    and "-" become "_" (D-098)."""
+    if text is None:
+        return None
+    text = " ".join(str(text).split())
+    if not text or text.startswith("=>[") or text.upper() in GENERIC_NAMES:
+        return None
+    tokens = [t.strip() for t in text.split(",") if t.strip()]
+    if len(tokens) > 1 and _ID_TOKEN.match(tokens[0]):
+        tokens = tokens[1:]
+    name = "_".join(tokens) if len(tokens) > 1 else tokens[0]
+    name = re.sub(r"[^A-Za-z0-9 _.-]", "_", name).strip(" ._")
+    return name or None
+
+
 def _name(label) -> str | None:
-    """The label's name; None when it has none or only XCAF's generated "=>[0:1:1:2]" form."""
+    """The label's name (cleaned, ``clean_name``); None when it has none."""
     from OCP.TDataStd import TDataStd_Name
 
     attr = TDataStd_Name()
     if label.FindAttribute(TDataStd_Name.GetID_s(), attr):
-        text = attr.Get().ToExtString().strip()
-        return text if text and not text.startswith("=>[") else None
+        return clean_name(attr.Get().ToExtString())
     return None
+
+
+def _entity_name(transfer_reader, shape) -> str | None:
+    """The name of the STEP entity a shape was transferred from (e.g. a GEOMETRIC_SET of a surface
+    model, whose components carry no product), cleaned; None when there is none."""
+    if transfer_reader is None:
+        return None
+    try:
+        entity = transfer_reader.EntityFromShapeResult(shape, 1)
+    except Exception:  # an unmapped shape
+        return None
+    if entity is None or not hasattr(entity, "Name"):
+        return None
+    try:
+        return clean_name(entity.Name().ToCString())
+    except Exception:
+        return None
 
 
 def _color(color_tool, label, shape) -> str | None:
@@ -181,6 +224,10 @@ def _read_xcaf(path: Path, step: bool) -> tuple[list[CadBody], list[CadFace]]:
         raise CadImportError(f"Cannot read {Path(path).name}: not a valid {'STEP' if step else 'IGES'} file")
     if not reader.Transfer(doc):
         raise CadImportError(f"Cannot transfer the shapes of {Path(path).name}")
+    try:  # traces a shape back to its STEP entity (component names of surface models)
+        transfer = reader.ChangeReader().WS().TransferReader() if step else None
+    except Exception:
+        transfer = None
     shapes = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
     colors = XCAFDoc_DocumentTool.ColorTool_s(doc.Main())
     out = _Collector()
@@ -196,7 +243,8 @@ def _read_xcaf(path: Path, step: bool) -> tuple[list[CadBody], list[CadFace]]:
     def visit(label, location, inherited: str | None) -> None:
         ref = TDF_Label()
         proto = ref if shapes.IsReference_s(label) and shapes.GetReferredShape_s(label, ref) else label
-        name = _name(proto) or _name(label) or inherited or Path(path).stem
+        name = (_name(proto) or _name(label) or _entity_name(transfer, shapes.GetShape_s(proto)) or inherited
+                or Path(path).stem)
         if shapes.IsAssembly_s(proto):
             comps = Sequence_TDF_Label()
             shapes.GetComponents_s(proto, comps, False)
@@ -211,7 +259,7 @@ def _read_xcaf(path: Path, step: bool) -> tuple[list[CadBody], list[CadFace]]:
             sub = TDF_Label()
             body_name = name
             if len(solids) > 1:
-                named = _name(sub) if shapes.FindSubShape(proto, body, sub) else None
+                named = (_name(sub) if shapes.FindSubShape(proto, body, sub) else None) or _entity_name(transfer, body)
                 body_name = named or f"{name}_{k + 1}"
             body_located = body.Moved(location) if not location.IsIdentity() else body
             # Face names are found on the prototype (un-located) faces, in the same order.
