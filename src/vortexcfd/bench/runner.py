@@ -14,20 +14,24 @@ non-orthogonality field (it does not change the mesh).
 import resource
 import shutil
 import time
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import numpy as np
 import pyvista as pv
 
 from vortexcfd.bench import metrics
+from vortexcfd.bench import reference as reference_module
 from vortexcfd.bench.cases import BenchCase
 from vortexcfd.bench.geometries import ensure_geometry, sphere_reference
 from vortexcfd.core.model import Simulation, StoppingCriteria
 from vortexcfd.core.presets import BUILTIN_PRESETS, apply_preset
 from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_run import MeshRun
+from vortexcfd.foam.mesh_case import part_patch_names, safe_part_names
 from vortexcfd.foam.parallel import physical_cores, recommended_cores
+from vortexcfd.foam.physics_case import control_dict
+from vortexcfd.foam.postprocessing import patch_face_counts
 from vortexcfd.foam.runner import run_foam
 from vortexcfd.foam.solver_run import SolverRun
 from vortexcfd.geometry.cad import CAD_EXTENSIONS, read_cad, tessellate
@@ -42,6 +46,21 @@ STEP_TIMEOUT_S = 1800.0
 # (the app's default import uses 1e-3).
 REFERENCE_DEFLECTION_FRACTION = 1e-5
 REFERENCE_ANGLE_DEG = 2.0
+
+
+def import_summary(project: Project) -> dict:
+    """What the import gave, per part: triangles, open and non-manifold edges, duplicate faces (the
+    surface checks, without the self-intersection pass)."""
+    from vortexcfd.geometry.checks import check_surface
+
+    out = {}
+    for part in project.sim.geometry.parts:
+        mesh = part_ops.part_mesh(project, part)
+        rep = check_surface(mesh, intersections=False)
+        out[part.name] = {"triangles": rep.n_triangles, "open_edges": rep.open_edges,
+                          "non_manifold_edges": rep.non_manifold_edges, "duplicate_faces": rep.duplicate_faces,
+                          "watertight": rep.watertight, "bodies": part.cad.bodies if part.cad else None}
+    return out
 
 
 def _log(msg: str) -> None:
@@ -70,13 +89,14 @@ def new_project(case: BenchCase, work_root: Path) -> Project:
     return Project.create(work_root, case.name, Simulation.model_validate(data))
 
 
-def import_geometry(project: Project, source: Path, units: str) -> None:
-    """Copy ``source`` into the project's geometry folder and add its part(s), as File > Import."""
+def import_geometry(project: Project, source: Path, units: str, mode: str = "regions") -> None:
+    """Copy ``source`` into the project's geometry folder and add its part(s), as File > Import
+    (``mode``: the answer to its question for a file with several bodies, "regions" or "parts")."""
     folder = project.folder / "geometry"
     dest = folder / source.name
     shutil.copy2(source, dest)
     if source.suffix.lower() in CAD_EXTENSIONS:
-        parts = part_ops.cad_parts(project.folder, dest, None, "regions", set())
+        parts = part_ops.cad_parts(project.folder, dest, None, mode, set())
     else:
         from vortexcfd.core.model import Part
 
@@ -129,8 +149,9 @@ def _distance_to_surface(surface: pv.PolyData, points: np.ndarray) -> np.ndarray
 
 
 def wall_measurements(case: BenchCase, case_dir: Path, patches: tuple[str, ...], target_layers: int,
-                      source: Path) -> dict:
-    """Layer coverage per patch and zone, and surface fidelity, from the layer fields at time 0."""
+                      source: Path, fidelity: bool = True) -> dict:
+    """Layer coverage per patch and zone, and surface fidelity (unless ``fidelity`` is False: local
+    cases measure it against their reference instead), from the layer fields at time 0."""
     blocks = _read_patches(case_dir, patches, 0.0, LAYER_FIELDS)
     per_patch, areas, centres, n, th, fr, points = {}, [], [], [], [], [], []
     for name, block in blocks.items():
@@ -152,6 +173,8 @@ def wall_measurements(case: BenchCase, case_dir: Path, patches: tuple[str, ...],
             out["zones"][zone.name] = {**metrics.layer_stats(a[mask], nl[mask], t[mask], f[mask], target_layers),
                                        "description": zone.description}
         out["low_coverage"] = metrics.low_coverage({**per_patch, **out["zones"]})
+    if not fidelity:
+        return out
     wall_points = np.unique(np.concatenate(points), axis=0) if points else np.zeros((0, 3))
     if not points:  # no layer fields: the geometry is still there
         blocks = _read_patches(case_dir, patches, 0.0, ())
@@ -164,6 +187,91 @@ def wall_measurements(case: BenchCase, case_dir: Path, patches: tuple[str, ...],
         distances = _distance_to_surface(_cad_reference(source), wall_points)
     out["fidelity"] = metrics.fidelity(distances, case.reference_length)
     return out
+
+
+def _faces_padded(mesh: pv.PolyData) -> np.ndarray:
+    """(n, k) point ids of every polygon of ``mesh``, -1 padded."""
+    stream = np.asarray(mesh.faces)
+    rows, i = [], 0
+    while i < len(stream):
+        n = int(stream[i])
+        rows.append(stream[i + 1:i + 1 + n])
+        i += n + 1
+    width = max((len(r) for r in rows), default=3)
+    out = np.full((len(rows), width), -1, dtype=np.int64)
+    for k, r in enumerate(rows):
+        out[k, :len(r)] = r
+    return out
+
+
+def reference_measurements(ref: "reference_module.ReferenceSurface", case_dir: Path, patches: tuple[str, ...],
+                           zones) -> dict:
+    """Fidelity against the reference's outer skin (D-094), overall and per zone: mesh wall points to
+    the skin and skin points to the mesh walls (max and RMS in mm, share further than half the local
+    surface cell size), and the wall surface left inside a component (points further than half a
+    cell inside a reference solid; count and area)."""
+    blocks = _read_patches(case_dir, patches, 0.0, ())
+    if not blocks:
+        return {"error": "no wall faces"}
+    walls = pv.merge(list(blocks.values()), merge_points=True)
+    points = np.asarray(walls.points, dtype=float)
+    area = np.asarray(walls.cell_data["Area"], dtype=float)
+    size = metrics.point_sizes(points, _faces_padded(walls), area)
+    tri_walls = walls.triangulate()
+    # mesh -> reference
+    d_mesh = _distance_to_surface(ref.skin, points)
+    # reference -> mesh: the skin's points; the local size is that of the nearest wall face
+    skin_pts = np.asarray(ref.skin.points, dtype=float)
+    cells, closest = tri_walls.find_closest_cell(skin_pts, return_closest_point=True)
+    d_ref = np.linalg.norm(skin_pts - closest, axis=1)
+    face_size = np.sqrt(np.asarray(tri_walls.cell_data["Area"], dtype=float))
+    # the triangulated walls keep the polygon's area per triangle (cell data is copied)
+    size_ref = face_size[np.asarray(cells, dtype=np.int64)]
+    out = {"mesh_to_reference": metrics.reference_fidelity(d_mesh, size),
+           "reference_to_mesh": metrics.reference_fidelity(d_ref, size_ref),
+           "far_fraction_of_cell": metrics.FAR_FRACTION, "zones": {}}
+    # wall surface left inside a component
+    deep = d_mesh > metrics.FAR_FRACTION * size
+    inside_pts = deep & ref.inside_any(points)
+    centres = np.asarray(walls.cell_centers().points, dtype=float)
+    d_centre = _distance_to_surface(ref.skin, centres)
+    face_sizes = np.sqrt(area)
+    inside_faces = (d_centre > metrics.FAR_FRACTION * face_sizes) & ref.inside_any(centres)
+    out["internal"] = {"points": int(inside_pts.sum()), "faces": int(inside_faces.sum()),
+                       "area_m2": float(area[inside_faces].sum()),
+                       "area_percent": 100.0 * float(area[inside_faces].sum() / area.sum()) if area.sum() > 0 else None}
+    for zone in zones:
+        m_mesh = metrics.zone_mask(points, zone.boxes, zone.segments, zone.width)
+        m_ref = metrics.zone_mask(skin_pts, zone.boxes, zone.segments, zone.width)
+        m_face = metrics.zone_mask(centres, zone.boxes, zone.segments, zone.width)
+        out["zones"][zone.name] = {
+            "mesh_to_reference": metrics.reference_fidelity(d_mesh[m_mesh], size[m_mesh]),
+            "reference_to_mesh": metrics.reference_fidelity(d_ref[m_ref], size_ref[m_ref]),
+            "internal_area_m2": float(area[m_face & inside_faces].sum()),
+        }
+    return out
+
+
+def force_partition_check(project: Project, case_dir: Path, patches: tuple[str, ...]) -> dict:
+    """Per-part forces sum to the total, checked on the geometry (no solve): the app's own force
+    function objects (physics_case.control_dict) per part against the all-walls object and the mesh's
+    wall patches (metrics.force_partition)."""
+    functions = control_dict(solving.solver_input(project)).content["functions"]
+    total = tuple(functions["forces1"]["patches"])
+    per_part = {}
+    parts = project.sim.geometry.parts
+    for part, key, names in zip(parts, safe_part_names([p.name for p in parts]), part_patch_names(parts)):
+        key = f"forces_{key}"
+        if len(names) > 1 and key in functions:
+            per_part[part.name] = tuple(functions[key]["patches"])
+        elif len(names) == 1 and f"forces_{names[0]}" in functions:
+            per_part[part.name] = tuple(functions[f"forces_{names[0]}"]["patches"])
+        else:  # a single wall patch: forces1 is the part's object
+            per_part[part.name] = total if len(project.sim.geometry.parts) == 1 else tuple(names)
+    counts = patch_face_counts(case_dir)
+    blocks = _read_patches(case_dir, patches, 0.0, ())
+    areas = {name: float(np.asarray(b.cell_data["Area"]).sum()) for name, b in blocks.items()}
+    return metrics.force_partition(per_part, total, counts, areas)
 
 
 def face_quality(case_dir: Path) -> dict:
@@ -257,13 +365,48 @@ def run_yplus(project: Project, case: BenchCase, cells: int, patches: tuple[str,
     return out
 
 
+def local_reference(case: BenchCase, cache: Path | None = None) -> tuple[BenchCase, "reference_module.ReferenceSurface", dict]:
+    """The reference of a local case (D-094) and the case with its l_ref and zones set from it."""
+    spec = case.reference_spec
+    ref = reference_module.cached_reference(Path(case.reference), spec.get("components") or {}, spec.get("zones"),
+                                            spec.get("l_ref"), cache)
+    lref = ref.l_ref if ref.l_ref > 0 else None
+    changed = replace(case, zones=ref.zones, reference_length=lref or 0.0,
+                      reports={**case.reports, **({"reference_length": lref} if lref else {})})
+    summary = {"file": Path(case.reference).name, "l_ref_m": lref, "l_ref_method": ref.l_ref_method,
+               "skin_area_m2": float(ref.skin.area),
+               "curves_m": {f"{_name(ref, i)}/{_name(ref, j)}": float(np.linalg.norm(s[:, 1] - s[:, 0], axis=1).sum())
+                            for (i, j), s in ref.curves.items()},
+               "zones": {z.name: z.description for z in ref.zones}, "notes": ref.notes}
+    return changed, ref, summary
+
+
+def _name(ref: "reference_module.ReferenceSurface", index: int) -> str:
+    return next((n for n, k in ref.components.items() if k == index), str(index))
+
+
 def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool = True) -> dict:
     """Mesh (and, with ``solve``, the y+ run) one case; every result is a plain dict for the JSON."""
     t0 = time.monotonic()
-    source = ensure_geometry(case.geometry, geometry_dir)
+    ref = None
+    out: dict = {"case": case.name, "description": case.description}
+    if case.local:
+        _log(f"{case.name}: reference analysis")
+        case, ref, out["reference"] = local_reference(case, work_root / ".reference_cache")
+        source = Path(case.source)
+        solve = solve and case.solve
+    else:
+        source = ensure_geometry(case.geometry, geometry_dir)
+    out["reference_length"] = case.reference_length
     project = new_project(case, work_root)
-    import_geometry(project, source, case.units)
-    out: dict = {"case": case.name, "description": case.description, "reference_length": case.reference_length}
+    t_import = time.monotonic()
+    import_geometry(project, source, case.units, case.import_mode)
+    out["import_time_s"] = time.monotonic() - t_import
+    if case.local:
+        out["import"] = import_summary(project)
+        if case.surface_prep:
+            out.update(failed=True, failure=f"surface preparation '{case.surface_prep}' is not available")
+            return out
     reason = meshing.readiness(project)
     if reason is not None:
         out.update(failed=True, failure=f"not ready: {reason}")
@@ -299,7 +442,14 @@ def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool =
     out["snappy_layer_table"] = [asdict(c) for c in report.layers]
     out["extruded_percent"] = report.extruded_percent
     _log(f"{case.name}: {report.summary()}")
-    out["layers"] = wall_measurements(case, job.case_dir, job.inputs.patches, target_layers, source)
+    out["layers"] = wall_measurements(case, job.case_dir, job.inputs.patches, target_layers, source,
+                                      fidelity=ref is None)
+    if ref is not None:
+        _log(f"{case.name}: fidelity against the reference")
+        out["reference_fidelity"] = reference_measurements(ref, job.case_dir, job.inputs.patches, case.zones)
+        counts = patch_face_counts(job.case_dir)
+        out["patch_faces"] = {p: counts.get(p, 0) for p in job.inputs.patches}
+        out["force_partition"] = force_partition_check(project, job.case_dir, job.inputs.patches)
     if snappy_log.is_file():  # what the layer phase did (D-091); the snap and layer run's log
         out["layers"]["log"] = metrics.layer_log_diagnostics(snappy_log.read_text(errors="replace"))
     out["failed"] = not report.valid

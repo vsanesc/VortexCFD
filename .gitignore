@@ -27,3 +27,5 @@ run/
 benchmarks/geometries/*.stl
 benchmarks/geometries/*.step
 benchmarks/results/
+# Local-only benchmark cases (D-094): the owner's geometry is never committed
+benchmarks/local_cases.json

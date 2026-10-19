@@ -49,6 +49,18 @@ class BenchCase:
     domain: dict = field(default_factory=dict)  # Domain fields changed from the preset
     zones: tuple[Zone, ...] = ()
     iterations: int = YPLUS_ITERATIONS
+    # Local-only cases (D-094, bench/local.py): the geometry file itself (never copied into the
+    # repository), the import mode ("regions": one Part, "parts": one Part per body, as File >
+    # Import's question), the reference the fidelity is measured against, the surface preparation
+    # strategy (None: the geometry as imported), whether the y+ run follows, and the reference's
+    # analysis settings (components, zones, l_ref).
+    local: bool = False
+    source: str | None = None
+    import_mode: str = "regions"
+    reference: str | None = None
+    reference_spec: dict = field(default_factory=dict)
+    surface_prep: str | None = None
+    solve: bool = True
 
 
 def _wing_zones() -> tuple[Zone, ...]:

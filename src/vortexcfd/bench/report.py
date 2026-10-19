@@ -128,8 +128,71 @@ def _checks(errors: dict | None) -> str:
     return ", ".join(f"{k}: {v}" for k, v in (errors or {}).items()) or "none"
 
 
+# -- local cases (D-094) ---------------------------------------------------------------------------------
+
+LOCAL_COLUMNS = (
+    ("case", "Case"), ("status", "Status"), ("cells", "Cells"), ("failed_checks", "Failed checks"),
+    ("max_non_ortho", "Max non-ortho"), ("faces_gt70", "Faces >70"), ("coverage", "Strict coverage %"),
+    ("target_layers", "Target layers"), ("m2r_rms", "Mesh->ref RMS mm"), ("m2r_max", "Mesh->ref max mm"),
+    ("m2r_far", "Mesh->ref far %"), ("r2m_rms", "Ref->mesh RMS mm"), ("r2m_max", "Ref->mesh max mm"),
+    ("r2m_far", "Ref->mesh far %"), ("internal_points", "Internal points"), ("internal_area", "Internal area m2"),
+    ("patches_with_faces", "Patches with faces"), ("force_sum", "Force sum check"),
+    ("prep_time", "Prep s"), ("mesh_time", "Mesh s"),
+)
+
+
+def local_row(case: dict) -> dict:
+    rf = case.get("reference_fidelity") or {}
+    m2r, r2m, internal = rf.get("mesh_to_reference") or {}, rf.get("reference_to_mesh") or {}, rf.get("internal") or {}
+    faces = case.get("patch_faces") or {}
+    row = case_row(case)
+    return {
+        **row,
+        "m2r_rms": m2r.get("rms_mm"), "m2r_max": m2r.get("max_mm"), "m2r_far": m2r.get("far_percent"),
+        "r2m_rms": r2m.get("rms_mm"), "r2m_max": r2m.get("max_mm"), "r2m_far": r2m.get("far_percent"),
+        "internal_points": internal.get("points"), "internal_area": internal.get("area_m2"),
+        "patches_with_faces": f"{sum(1 for v in faces.values() if v > 0)}/{len(faces)}" if faces else None,
+        "force_sum": None if not case.get("force_partition") else ("ok" if case["force_partition"]["ok"] else "FAILED"),
+        "prep_time": _get(case, "surface_prep", "time_s"),
+    }
+
+
+def _cell(v) -> str:
+    if isinstance(v, float):
+        return _fmt(v, ".3g") if abs(v) < 1000 else _fmt(v, ".0f")
+    return _fmt(v)
+
+
+def local_table(result: dict) -> str:
+    """The summary table of local cases: quality, layers and the fidelity against the reference."""
+    lines = ["| " + " | ".join(t for _, t in LOCAL_COLUMNS) + " |", "|" + "|".join("---" for _ in LOCAL_COLUMNS) + "|"]
+    for case in result.get("cases", []):
+        row = local_row(case)
+        lines.append("| " + " | ".join(_cell(row.get(k)) for k, _ in LOCAL_COLUMNS) + " |")
+    return "\n".join(lines)
+
+
+def local_zone_table(result: dict) -> str:
+    """Per case and zone: strict layer coverage and the fidelity in both directions."""
+    lines = ["| Case | Zone | Strict coverage % | Mesh->ref RMS mm | Mesh->ref max mm | Mesh->ref far % | "
+             "Ref->mesh RMS mm | Ref->mesh max mm | Ref->mesh far % | Internal area m2 |",
+             "|---|---|---|---|---|---|---|---|---|---|"]
+    for case in result.get("cases", []):
+        zones = _get(case, "reference_fidelity", "zones") or {}
+        layer_zones = _get(case, "layers", "zones") or {}
+        for name, z in zones.items():
+            m2r, r2m = z.get("mesh_to_reference") or {}, z.get("reference_to_mesh") or {}
+            lines.append("| " + " | ".join(_cell(v) for v in (
+                case.get("case"), name, (layer_zones.get(name) or {}).get("coverage_percent"), m2r.get("rms_mm"),
+                m2r.get("max_mm"), m2r.get("far_percent"), r2m.get("rms_mm"), r2m.get("max_mm"), r2m.get("far_percent"),
+                z.get("internal_area_m2"))) + " |")
+    return "\n".join(lines)
+
+
 def markdown_report(result: dict) -> str:
     meta = result.get("meta", {})
+    if meta.get("local"):
+        return local_report(result)
     out = [f"# Meshing benchmark {meta.get('stamp', '')}", "",
            f"git {meta.get('git_sha', '?')}, {meta.get('utc', '?')} UTC, wall-clock {_fmt(meta.get('wall_s'), '.0f')} s, "
            f"{meta.get('physical_cores', '?')} physical cores.", "",
@@ -187,6 +250,50 @@ def markdown_report(result: dict) -> str:
         r = case.get("robustness") or {}
         out.append(f"- lost parts: {', '.join(r.get('lost_parts') or []) or 'none'}; domain errors: "
                    f"{'; '.join(r.get('domain_errors') or []) or 'none'}")
+        out.append("")
+    return "\n".join(out)
+
+
+def local_report(result: dict) -> str:
+    meta = result.get("meta", {})
+    out = [f"# Local benchmark cases {meta.get('stamp', '')}", "",
+           f"git {meta.get('git_sha', '?')}, {meta.get('utc', '?')} UTC, wall-clock {_fmt(meta.get('wall_s'), '.0f')} s, "
+           f"{meta.get('physical_cores', '?')} physical cores. Local cases (D-094): numbers only, never committed.", "",
+           local_table(result), "", local_zone_table(result), ""]
+    for case in result.get("cases", []):
+        out += [f"## {case.get('case')}", "", f"- {case.get('description')}"]
+        if case.get("failure"):
+            out.append(f"- failure: {case['failure']}")
+        for line in case.get("deviations", []):
+            out.append(f"- deviation: {line}")
+        ref = case.get("reference") or {}
+        if ref:
+            out.append(f"- reference {ref.get('file')}: l_ref {_fmt(ref.get('l_ref_m'), '.4g')} m ({ref.get('l_ref_method')}); "
+                       "intersection curves " + ", ".join(f"{k} {_fmt(v, '.3g')} m" for k, v in (ref.get('curves_m') or {}).items()))
+            for name, text in (ref.get("zones") or {}).items():
+                out.append(f"- zone {name}: {text}")
+        fb = _get(case, "quality", "failed_by_type") or {}
+        if fb:
+            out.append("- failed checks: " + ", ".join(f"{k} ({v})" for k, v in fb.items()))
+        prep = case.get("surface_prep") or {}
+        for label, value in prep.get("report") or []:
+            out.append(f"- preparation: {label}: {value}")
+        fp = case.get("force_partition") or {}
+        if fp:
+            out.append(f"- force sum check: {'ok' if fp.get('ok') else 'FAILED'} (parts {_fmt(fp.get('parts_area_m2'), '.4g')} m2, "
+                       f"total {_fmt(fp.get('total_area_m2'), '.4g')} m2){'; ' + '; '.join(fp['problems']) if fp.get('problems') else ''}")
+        if case.get("patch_faces"):
+            out.append("- patch faces: " + ", ".join(f"{k} {v}" for k, v in case["patch_faces"].items()))
+        r = case.get("robustness") or {}
+        out.append(f"- lost parts: {', '.join(r.get('lost_parts') or []) or 'none'}")
+        y = case.get("yplus") or {}
+        if y:
+            out.append(f"- y+ ({y.get('label')}, {y.get('iterations')} iterations on {y.get('cores')} cores): mean "
+                       f"{_fmt(y.get('mean'), '.3g')}, in band {_fmt(y.get('in_band_percent'), '.1f')} %, state {y.get('state')}")
+        t = case.get("time_s") or {}
+        out.append(f"- time s: import {_fmt(case.get('import_time_s'), '.1f')}, preparation "
+                   f"{_fmt(prep.get('time_s'), '.1f')}, mesh total {_fmt(t.get('mesh_total'), '.1f')}, case total "
+                   f"{_fmt(t.get('case_total'), '.1f')}")
         out.append("")
     return "\n".join(out)
 
