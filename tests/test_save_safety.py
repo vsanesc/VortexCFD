@@ -289,3 +289,31 @@ def test_save_as_warns_in_a_dialog_about_missing_geometry(make_window, tmp_path:
     w.project.remove_part(0)  # nothing missing any more: no dialog
     w.dialogs.duplicate_target = ("Copy2", tmp_path / "copies")
     assert w.save_as() and len(w.dialogs.warnings) == 1
+
+
+def test_a_project_writes_only_inside_its_own_folder(tmp_path: Path, monkeypatch) -> None:
+    """Regression (D-095): on 2026-10-18 the save-first import flow put a project file in the home
+    folder, so geometry/ and case/ landed there. A project now lives in <parent>/<name>/: importing a
+    CAD file, preparing the surfaces and writing the meshing case touch nothing in <parent> or in the
+    current working directory besides that folder."""
+    import shutil
+
+    from vortexcfd.bench.geometries import ensure_geometry
+    from vortexcfd.workflow import meshing, part_ops, surface_prep
+
+    parent, cwd = tmp_path / "parent", tmp_path / "cwd"
+    parent.mkdir()
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    source = ensure_geometry("ahmed", tmp_path / "src")
+    project = Project.create(parent, "Demo")
+    dest = project.folder / "geometry" / source.name
+    shutil.copy2(source, dest)
+    for part in part_ops.cad_parts(project.folder, dest, None, "regions", set()):
+        project.add_part(part)
+    project.set_surface_prep(surface_prep.prepare(project, "cad_union"))
+    project.save()
+    meshing.prepare_job(project)
+    assert [p.name for p in parent.iterdir()] == ["Demo"]
+    assert list(cwd.iterdir()) == []
+    assert (parent / "Demo" / "case" / "system" / "snappyHexMeshDict").is_file()
