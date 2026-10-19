@@ -15,12 +15,13 @@ from vortexcfd.core.presets import (
     PresetError,
     PresetStore,
     apply_preset,
+    migrate_preset,
     preset_from_simulation,
 )
 from vortexcfd.core.project_io import load_simulation
 
 # Every field a preset may carry; anything about physics, turbulence, inflow or solvers is forbidden.
-PRESET_KEYS = {"format_version", "name", "analysis_type", "domain", "boundary_types", "mesh"}
+PRESET_KEYS = {"format_version", "schema_version", "name", "analysis_type", "domain", "boundary_types", "mesh"}
 FORBIDDEN = ("physics", "inflow", "solvers", "turbulence", "nu", "speed", "alpha", "iterations", "cores",
              "stopping", "relaxation", "reports")
 
@@ -158,3 +159,42 @@ def test_internal_is_reserved_not_selectable() -> None:
         Simulation(name="x", analysis_type="internal")
     with pytest.raises(ValueError):
         Preset(name="x", analysis_type="internal")
+
+
+PRESET_V1 = Path(__file__).parent / "data" / "preset_v1.json"
+
+
+def test_a_preset_written_before_v10_keeps_the_v9_mesh_behaviour(tmp_path: Path) -> None:
+    """D-090: a hand-written format 1 preset (no schema_version, so written before schema v10) is
+    migrated like a v9 project: relative layers with target y+ 1, surface size from the largest
+    extent, no curvature refinement; its stored mesh values are kept."""
+    raw = json.loads(PRESET_V1.read_text())
+    assert raw["format_version"] == 1 and "schema_version" not in raw and "layer_sizing" not in raw["mesh"]
+    folder = tmp_path / "presets"
+    folder.mkdir()
+    (folder / "old.json").write_text(PRESET_V1.read_text())
+    (preset,) = PresetStore(folder).presets()
+    assert preset.schema_version == CURRENT_SCHEMA_VERSION and preset.format_version == PRESET_FORMAT_VERSION
+    mesh = preset.mesh
+    assert (mesh.layer_sizing, mesh.target_yplus) == ("relative", 1.0)
+    assert (mesh.surface_size_reference, mesh.curvature_levels) == ("largest_extent", 0)
+    for key, value in raw["mesh"].items():
+        assert getattr(mesh, key) == value, key
+    sim = apply_preset(Simulation(name="n"), preset)  # a new simulation from it has the v9 mesh
+    assert sim.mesh == mesh and sim.domain.symmetry == "y_min"
+    # an explicit value in an old preset wins over the v9 behaviour
+    explicit = {**raw, "mesh": {**raw["mesh"], "layer_sizing": "absolute_yplus", "target_yplus": 30.0}}
+    assert migrate_preset(explicit)["mesh"]["layer_sizing"] == "absolute_yplus"
+
+
+def test_a_current_preset_round_trips_with_the_new_defaults_and_a_newer_schema_is_broken(tmp_path: Path) -> None:
+    store = PresetStore(tmp_path)
+    path = store.save(Preset(name="New"))
+    data = json.loads(path.read_text())
+    assert data["schema_version"] == CURRENT_SCHEMA_VERSION == 10
+    mesh = store.find("New").preset.mesh
+    assert (mesh.layer_sizing, mesh.surface_size_reference, mesh.curvature_levels) == ("absolute_yplus", "l_ref", 2)
+    (tmp_path / "newer.json").write_text(json.dumps({**data, "name": "Newer", "schema_version": 11}))
+    good, broken = store.scan()
+    assert [s.preset.name for s in good] == ["New"]
+    assert len(broken) == 1 and "schema version 11" in broken[0].error

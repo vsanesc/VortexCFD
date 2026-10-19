@@ -6,7 +6,9 @@ solver settings (owner decision): those always start from the model defaults.
 
 Built-in presets are defined here and are read-only. User presets are versioned JSON files in a
 folder the caller passes (the GUI uses the user config directory); a file that does not validate
-is listed as broken and never raises.
+is listed as broken and never raises. A preset carries the project schema version it was written with
+and is migrated like a project: a preset written before schema v10 keeps the v9 mesh behaviour
+(``migrate_preset``, D-090).
 """
 
 import json
@@ -19,9 +21,11 @@ from typing import Literal
 
 from pydantic import Field, ValidationError, field_validator
 
-from vortexcfd.core.model import Mesh, Simulation, StrictModel
+from vortexcfd.core.model import CURRENT_SCHEMA_VERSION, Mesh, Simulation, StrictModel
+from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR
 
-PRESET_FORMAT_VERSION = 1
+# 1: no schema_version (every such file was written before schema v10); 2: schema_version (D-090).
+PRESET_FORMAT_VERSION = 2
 PRESET_SUFFIX = ".json"
 
 # Boundary roles of the domain shapes (geometry/domain.py) and the one boundary type each role has
@@ -61,6 +65,8 @@ class Preset(StrictModel):
     """One preset (file format version PRESET_FORMAT_VERSION)."""
 
     format_version: int = Field(default=PRESET_FORMAT_VERSION, ge=1, le=PRESET_FORMAT_VERSION)
+    # The project schema version the preset's settings follow (D-090).
+    schema_version: int = Field(default=CURRENT_SCHEMA_VERSION, ge=1, le=CURRENT_SCHEMA_VERSION)
     name: str
     analysis_type: Literal["external", "empty"] = "external"
     domain: PresetDomain = Field(default_factory=PresetDomain)
@@ -82,6 +88,27 @@ class Preset(StrictModel):
                 raise ValueError(f"boundary type {kind!r} is not available for {role} "
                                  f"(available: {', '.join(ALLOWED_BOUNDARY_TYPES[role])})")
         return {**DEFAULT_BOUNDARY_TYPES, **value}
+
+
+def migrate_preset(data: dict) -> dict:
+    """Preset file data migrated to the current schema, as projects are (core/project_io.migrate): a
+    file without ``schema_version`` (format 1) was written before schema v10 and is read as v9; below
+    v10 its mesh keeps the v9 behaviour where it does not set the keys (V9_MESH_BEHAVIOUR: relative
+    layers with target y+ 1, surface size from the largest extent, no curvature refinement)."""
+    data = dict(data)
+    version = data.get("schema_version", 9)
+    if isinstance(version, int) and version > CURRENT_SCHEMA_VERSION:
+        raise ValueError(f"schema version {version} is newer than this app ({CURRENT_SCHEMA_VERSION})")
+    if isinstance(version, int) and version < 10:
+        mesh = data.get("mesh")
+        mesh = dict(mesh) if isinstance(mesh, dict) else {}
+        for key, value in V9_MESH_BEHAVIOUR.items():
+            mesh.setdefault(key, value)
+        data["mesh"] = mesh
+        version = 10
+    data["schema_version"] = version
+    data["format_version"] = PRESET_FORMAT_VERSION
+    return data
 
 
 def validate_preset_name(name: str) -> str:
@@ -167,7 +194,7 @@ class PresetStore:
                 version = data.get("format_version")
                 if isinstance(version, int) and version > PRESET_FORMAT_VERSION:
                     raise ValueError(f"format version {version} is newer than this app ({PRESET_FORMAT_VERSION})")
-                preset = Preset.model_validate(data)
+                preset = Preset.model_validate(migrate_preset(data))
                 key = preset.name.casefold()
                 if is_builtin_name(preset.name):
                     raise ValueError(f"the name {preset.name!r} belongs to a built-in preset")
