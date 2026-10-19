@@ -28,12 +28,14 @@ when missing and are git-ignored.
 
 ## Files
 
-- `baseline.json`, `BASELINE.md`: the committed baseline of the current mesher.
+- `baseline.json`, `BASELINE.md`: the committed baseline of the current mesher (the 5.1b run).
+- `baseline_0.json`: the previous baseline, the pre-5.1 mesher (full-span wing: not comparable for the wing).
 - `geometries/generate.py`: regenerates the geometries (generators in `src/vortexcfd/bench/geometries.py`).
 - Case definitions: `src/vortexcfd/bench/cases.py`; metrics: `src/vortexcfd/bench/metrics.py`.
-- `RESULT_5.1.md`: the benchmark after the 5.1 sizing changes (l_ref surface size, curvature refinement,
-  absolute y+ 50 layers, seed lines out of snapping) against the baseline; `baseline.json` is unchanged
-  until the owner decides.
+- `RESULT_5.1.md`, `result_5.1.json`: the benchmark after the 5.1 sizing changes (l_ref surface size,
+  curvature refinement, absolute y+ 50 layers, seed lines out of snapping) against `baseline_0.json`.
+- `RESULT_5.1b.md`: the run after the 5.1 review (half wing, y+ cores, layer diagnostics) that became
+  `baseline.json`.
 
 ## Metrics (D-082)
 
