@@ -1177,9 +1177,12 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             "points": (num(report.points), False),
             "non_ortho": (num(report.max_non_orthogonality, "{:.4g}\u00b0"), False),
             "skewness": (num(report.max_skewness, "{:.4g}"), False),
-            "failed": (str(report.failed_checks) + "".join(f"\n{line}" for line in report.failed_check_lines)
-                       + ("\nRun Solver is blocked until the mesh passes checkMesh" if not report.mesh_ok else ""),
-                       report.failed_checks > 0),
+            "failed": (str(report.failed_checks)
+                       + "".join(f"\nhard: {line}" for line in report.hard_failures)
+                       + "".join(f"\nwarning: {line}" for line in report.soft_warnings)
+                       + ("\nRun Solver is blocked: the mesh has hard checkMesh failures" if report.hard_failures
+                          else "\nWarnings only: the solver can run" if report.soft_warnings else ""),
+                       bool(report.hard_failures or report.soft_warnings)),
             "ok": ("yes" if report.mesh_ok else "no", not report.mesh_ok),
             "lost": (", ".join(report.lost_parts), False),
             "extruded": (num(report.extruded_percent, "{:g} %"), False),
@@ -1191,6 +1194,7 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         self._rows["mesh_extruded"].setVisible(show and report.extruded_percent is not None)
         self._rows["mesh_lost"].setVisible(show and bool(report.lost_parts))
         self._set_error(self.mesh_values["lost"], bool(report.lost_parts))
+        self._set_error(self.mesh_values["failed"], bool(report.hard_failures))
         self.mesh_values["lost"].setToolTip("\n".join(report.lost_messages()))
         self._fill_layer_rows(report)
 

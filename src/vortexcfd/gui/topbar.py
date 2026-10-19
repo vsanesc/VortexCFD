@@ -49,6 +49,7 @@ class TopBar(QWidget):
         self.mesh_badge.hide()
         self._mesh_stale = False
         self._mesh_error: str | None = None
+        self._mesh_warning: str | None = None
         self.results_badge = Badge("Results out of date", with_dot=True)
         self.results_badge.set_state("warning")
         self.results_badge.hide()
@@ -128,6 +129,12 @@ class TopBar(QWidget):
         self._mesh_stale = stale
         self._update_mesh_badge()
 
+    def set_mesh_warning(self, text: str | None) -> None:
+        """A usable mesh with checkMesh quality warnings (D-100): the badge shows ``text`` in the warning
+        colour unless an error or "Mesh out of date" takes precedence."""
+        self._mesh_warning = text
+        self._update_mesh_badge()
+
     def set_mesh_error(self, text: str | None) -> None:
         """An invalid mesh (e.g. a part was lost, D-052): the mesh badge shows ``text`` in the error
         colour; it takes precedence over "Mesh out of date"."""
@@ -139,18 +146,22 @@ class TopBar(QWidget):
         if error:
             self.mesh_badge.setText(error)
             self.mesh_badge.set_state("error")
-        else:
+        elif self._mesh_stale or not self._mesh_warning:
             self.mesh_badge.setText("Mesh out of date")
             self.mesh_badge.set_state("warning")
-        self.mesh_badge.setHidden(not (error or self._mesh_stale))
+        else:
+            self.mesh_badge.setText(self._mesh_warning)
+            self.mesh_badge.set_state("warning")
+        self.mesh_badge.setHidden(not (error or self._mesh_stale or self._mesh_warning))
 
     def set_results_stale(self, stale: bool) -> None:
         """Show the "Results out of date" badge (the saved results no longer match the inputs)."""
         self.results_badge.setHidden(not stale)
 
-    def set_solver_state(self, reason: str | None, running: bool) -> None:
+    def set_solver_state(self, reason: str | None, running: bool, warning: str | None = None) -> None:
         """Run Solver: "Stop" while running, enabled when ``reason`` is None, else disabled with
-        the reason as tooltip."""
+        the reason as tooltip; ``warning`` (checkMesh quality warnings, D-100) is added to the tooltip of
+        an enabled button."""
         button = self.run_button
         if running:
             button.setText("Stop")
@@ -159,7 +170,8 @@ class TopBar(QWidget):
         else:
             button.setText("Run Solver")
             button.setEnabled(reason is None)
-            button.setToolTip("Run simpleFoam on the mesh" if reason is None else reason)
+            button.setToolTip(reason if reason is not None else "Run simpleFoam on the mesh"
+                              + (f"\nThe mesh has warnings ({warning}); the solver can run." if warning else ""))
         button.setCursor(Qt.CursorShape.PointingHandCursor if running or reason is None
                          else Qt.CursorShape.ForbiddenCursor)
 

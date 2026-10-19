@@ -114,6 +114,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-097 | 2026-10-19 | Junction curves refine to the finest surface level | Proposed |
 | D-098 | 2026-10-19 | Component names from the STEP entities | Proposed |
 | D-099 | 2026-10-19 | The import checks report parts that cross each other | Proposed |
+| D-100 | 2026-10-19 | checkMesh failures: hard ones block the solver, soft ones warn | Proposed |
 
 ---
 
@@ -941,4 +942,37 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Decision: `workflow/surface_prep.crossing_parts` finds, for every part, the other parts its surface crosses (the surface-preparation intersection curves, the parts inside a third part included), cached by the parts' geometry hash and skipped above 2,000,000 triangles in total (as the self-intersection check). The GUI runs it on a background thread (`gui/geometry_worker.OverlapChecker`). A part's Checks group gains the row "Other parts crossed": "checking...", "none", "<parts>: the parts overlap; snappyHexMesh needs their junctions prepared. Run Surface Preparation (Edit > Prepare Surfaces)." (a warning), or "<parts> (resolved by the surface preparation, <strategy>)" while a preparation is current; the "Self-intersections" row of such a part reads "0 within the part; it crosses other parts (below)", as a warning. After an import into a project with several parts the console warns "Parts cross each other: A / B; ...: run Surface Preparation (Edit > Prepare Surfaces)." unless a current preparation covers them.
 - Alternatives considered: folding the crossings into the self-intersection count (it would mix a defect of a part with a property of the assembly).
 - Consequences: one more background check after imports and part edits (0.1 s on the aircraft); tests/test_surface_prep.py.
+
+## D-100 checkMesh failures: hard ones block the solver, soft ones warn
+- Status: Proposed (owner review of 5.2, docs/QUESTIONS.md item 120). [NUMERICS-REVIEW] Changes D-096: only hard failures block.
+- Context: D-096 blocked Run Solver and the polar sweep for every failed checkMesh check, so a mesh failing only the skewness check (4.23 on the as-imported aircraft) could not be solved. The owner asked for two classes.
+- Decision: `foam/mesh_report.py` classifies every line checkMesh prints with "***" (a failed check) by the start of its text (`HARD_CHECKS`, `SOFT_CHECKS`, `check_class`); the mapping comes from the v2606 sources (src/OpenFOAM/meshes/primitiveMesh/primitiveMeshCheck/primitiveMeshCheck.C, src/OpenFOAM/meshes/polyMesh/polyMeshCheck/polyMeshCheck.C, applications/utilities/mesh/manipulation/checkMesh/checkTopology.C and checkGeometry.C):
+  - HARD (block Run Solver and the polar sweep; the badge reads "Mesh invalid: checkMesh failed"):
+    - "Zero or negative cell volume detected" (checkCellVolumes);
+    - "Zero or negative face area detected" (checkFaceAreas);
+    - "Error in face pyramids: N faces are incorrectly oriented" (checkFacePyramids);
+    - "Number of non-orthogonality errors" (checkFaceOrthogonality: faces above 90 degrees);
+    - "Open cells found, max cell openness ..." (checkClosedCells) and "Open cells found, number of cells" (checkCellsZipUp);
+    - "Cells with invalid face labels found" (checkClosedCells) and "Illegal cells (less than 4 faces or out of range faces)" (checkTopology, printed without "***");
+    - "Faces not in upper triangular order" (checkUpperTriangular);
+    - "Boundary openness ... possible hole in boundary description" (checkClosedBoundary);
+    - "Total number of faces on empty patches ..." (checkTopology, 2D set-up);
+    - "Cannot find opposite wedge", "Wedges do not have the same axis", "Wedge patch ... not planar" (checkGeometry, axisymmetric set-up);
+    - any other "***" line, and any failure checkMesh counts ("Failed N mesh checks") beyond its "***" lines (checks that report without one, such as illegal cells, invalid face vertices, face-face connectivity, zones out of sync between processors), shown as "N failed checks without a description"; a mesh record written before D-096 keeps no lines, so its failures count as hard.
+    - Lost parts and the domain guard keep blocking (D-052, D-078).
+  - SOFT (the solver can run; the badge reads "Mesh: warnings", the Run Solver tooltip adds "The mesh has warnings (...); the solver can run.", the Mesh report lists each line as "warning:" and says "Warnings only: the solver can run"):
+    - "Max skewness = ..., N highly skew faces detected" (checkFaceSkewness, above 4);
+    - "High aspect ratio cells found" (checkClosedCells, above 1000);
+    - "Concave cells (using face planes) found" (checkConcaveCells);
+    - "Faces with small interpolation weight" (checkFaceWeight);
+    - "Faces with small volume ratio" (checkVolRatio);
+    - "Cells with small determinant" (checkCellDeterminant);
+    - "Number of edges not aligned with or perpendicular to non-empty directions" (checkEdgeAlignment, 2D meshes);
+    - "Unused points found in the mesh" (checkPoints);
+    - and the single-"*" lines checkMesh prints without failing the mesh: "*Number of severely non-orthogonal faces" (70 to 90 degrees), "*There are N faces with concave angles", "*There are N warped faces", "*Number of regions". They are kept in `MeshReport.warning_lines` (also in the mesh record).
+  - `MeshReport.valid` is now: no hard failure, no lost part, no domain error (soft warnings allowed). The mesh study and the benchmark use it, so a level or case with soft warnings only counts as valid (the benchmark then runs its y+ run).
+- Measured on the 5.2 aircraft logs: as imported (skewness 4.23 only): valid, not blocked; trimmed export and CAD union: hard (negative volumes, non-orthogonality errors, face pyramids) plus soft (aspect ratio, skewness, severe non-orthogonality).
+- Tests: tests/test_solver_gui.py (the captured hard log tests/data/bench/checkMesh_failed.log, a captured soft-only log tests/data/bench/checkMesh_soft.log, the as-imported aircraft's lines, every class mapping, a failure without a "***" line).
+- Alternatives considered: blocking on skewness above a higher limit (a number the source does not use); treating "*" lines as nothing (severe non-orthogonality would go unseen when checkMesh says "Mesh OK").
+- Consequences: a mesh with only quality warnings can be solved, with the warning visible in three places; a status message after meshing is an error for hard failures and a warning for soft ones.
 

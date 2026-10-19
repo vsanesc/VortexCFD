@@ -1211,8 +1211,11 @@ class MainWindow(StudyControlMixin, QMainWindow):
         report = self.mesh_report
         lost = report.lost_parts if report is not None else ()
         domain = report.domain_errors if report is not None else ()
+        hard = report.hard_failures if report is not None else ()
         self.top_bar.set_mesh_error(f"Mesh invalid: Part {lost[0]} lost" if lost
-                                    else f"Mesh invalid: {domain[0]}" if domain else None)
+                                    else f"Mesh invalid: {domain[0]}" if domain
+                                    else "Mesh invalid: checkMesh failed" if hard else None)
+        self.top_bar.set_mesh_warning("Mesh: warnings" if report is not None and report.soft_warnings else None)
         stale = (
             self.mesh_report is not None and self._mesh_hash is not None
             and not self.mesh_worker.is_running() and inputs_hash(self._project) != self._mesh_hash
@@ -1261,7 +1264,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             if report.lost_messages():
                 self.show_message(f"Mesh invalid: {report.lost_messages()[0]}", "error", log_it=False)
             else:
-                level = "success" if report.mesh_ok else "warning"
+                level = "error" if report.hard_failures else "warning" if report.soft_warnings else "success"
                 self.show_message(f"Mesh generated: {report.summary()}", level, log_it=False)
             self._load_mesh_view()
         self._update_mesh_stale()
@@ -1289,7 +1292,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
 
     def _update_run_button(self) -> None:
         running = self.solver_worker.is_running()
-        self.top_bar.set_solver_state(None if running else self.solve_readiness(), running)
+        report = self.mesh_report
+        warning = report.warnings_message() if report is not None and not self.mesh_stale else None
+        self.top_bar.set_solver_state(None if running else self.solve_readiness(), running, warning)
         self._update_study_state()
 
     def run_solver(self) -> None:

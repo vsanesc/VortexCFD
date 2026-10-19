@@ -259,37 +259,114 @@ def test_results_hash_tracks_the_inputs(make_window) -> None:
     assert solving.results_hash(w.project) == base
 
 
-def test_a_mesh_that_failed_checkmesh_blocks_run_solver(make_window) -> None:
-    """D-096: a mesh with failed checkMesh checks (negative volumes here, as the 5.2 aircraft meshes)
-    disables Run Solver with the failed checks in its tooltip and in the Mesh report; run_solver does
-    nothing. Before D-096 only lost parts and the domain guard blocked it."""
+def test_a_mesh_with_hard_checkmesh_failures_blocks_run_solver(make_window) -> None:
+    """D-096, D-100: hard checkMesh failures (negative volumes here, as the 5.2 aircraft meshes) disable
+    Run Solver with the failures in its tooltip, the Mesh report and the badge; run_solver does nothing.
+    The soft ones of the same log (aspect ratio, skewness, severe non-orthogonality) are listed as
+    warnings."""
     from vortexcfd.foam.mesh_report import parse_check_mesh
 
     log = (Path(__file__).parent / "data" / "bench" / "checkMesh_failed.log").read_text()
     report = parse_check_mesh(log)
     assert not report.mesh_ok and report.failed_checks == 5 and len(report.failed_check_lines) == 5
-    assert any(line.startswith("Zero or negative cell volume detected") for line in report.failed_check_lines)
+    assert [line.split(".")[0].split(":")[0] for line in report.hard_failures] == [
+        "Zero or negative cell volume detected", "Number of non-orthogonality errors", "Error in face pyramids"]
+    assert [line.split(",")[0] for line in report.soft_warnings] == [
+        "High aspect ratio cells found", "Max skewness = 4.7046", "Number of severely non-orthogonal (> 70 degrees) faces: 159."]
+    assert not report.valid
     w = make_window(mesh=False)
     case = fake_mesh(w.project)
     write_mesh_record(case, MeshRecord(report, inputs_hash(w.project), ("Ball",)))
     w._load_mesh_record(w.project)
+    w._refresh()  # as after opening the project
     assert w.mesh_report == report and not w.mesh_stale
     w._update_run_button()
     button = w.top_bar.run_button
     assert not button.isEnabled()
-    assert button.toolTip().startswith("The mesh failed checkMesh (checkMesh failed 5 checks: ")
-    assert "Zero or negative cell volume detected" in button.toolTip()
+    assert button.toolTip().startswith("The mesh failed checkMesh (3 hard failures: Zero or negative cell volume")
+    assert w.top_bar.mesh_badge.text() == "Mesh invalid: checkMesh failed" and not w.top_bar.mesh_badge.isHidden()
     w.run_solver()
     assert not w.solver_worker.is_running() and w.run_record is None
     assert not (case / "0").exists()  # no solver files were written
-    # the Mesh report lists the failed checks
     w.properties.show_node("mesh", None)
     text = w.properties.mesh_values["failed"].text()
-    assert text.startswith("5\n") and "Run Solver is blocked" in text and "negative cell volume" in text
-    # the polar sweep refuses it too
+    assert text.startswith("5\nhard: Zero or negative cell volume") and "warning: Max skewness" in text
+    assert text.endswith("Run Solver is blocked: the mesh has hard checkMesh failures")
     from vortexcfd.workflow import polar_sweep
 
     assert polar_sweep.sweep_readiness(w.project, has_mesh=True, mesh_stale=False,
                                        failed_checks=report.failed_checks_message()).startswith("The mesh failed checkMesh")
     assert solving.readiness(w.project, has_mesh=True, mesh_stale=False, meshing=False,
                              failed_checks=REPORT.failed_checks_message()) is None  # a passing mesh: no block
+
+
+def test_soft_checkmesh_failures_warn_without_blocking(make_window) -> None:
+    """D-100: a mesh whose only failed check is soft (high aspect ratio, captured log) can be solved;
+    the warning shows in the Run Solver tooltip, the Mesh report and the badge ("Mesh: warnings")."""
+    from vortexcfd.foam.mesh_report import parse_check_mesh
+
+    report = parse_check_mesh((Path(__file__).parent / "data" / "bench" / "checkMesh_soft.log").read_text())
+    assert not report.mesh_ok and report.failed_checks == 1 and report.hard_failures == ()
+    assert report.soft_warnings == ("High aspect ratio cells found, Max aspect ratio: 50000, number of cells 4",)
+    assert report.valid and report.failed_checks_message() is None
+    w = make_window(mesh=False)
+    case = fake_mesh(w.project)
+    write_mesh_record(case, MeshRecord(report, inputs_hash(w.project), ("Ball",)))
+    w._load_mesh_record(w.project)
+    w._refresh()  # as after opening the project
+    w._update_run_button()
+    button = w.top_bar.run_button
+    assert button.isEnabled()
+    assert button.toolTip() == ("Run simpleFoam on the mesh\nThe mesh has warnings (checkMesh warnings: High aspect "
+                                "ratio cells found, Max aspect ratio: 50000, number of cells 4); the solver can run.")
+    assert w.top_bar.mesh_badge.text() == "Mesh: warnings" and not w.top_bar.mesh_badge.isHidden()
+    w.properties.show_node("mesh", None)
+    assert w.properties.mesh_values["failed"].text().endswith("Warnings only: the solver can run")
+
+
+def test_the_as_imported_aircraft_mesh_is_not_blocked() -> None:
+    """D-100: the 5.2 as-imported aircraft mesh failed only the skewness check (4.23 > 4): a soft
+    failure. The checkMesh lines of that run (numbers only, no geometry) are not blocking."""
+    from vortexcfd.foam.mesh_report import MeshReport
+
+    report = MeshReport(points=1, faces=1, cells=270758, max_non_orthogonality=64.87, avg_non_orthogonality=7.0,
+                        max_skewness=4.2344278, failed_checks=1, mesh_ok=False,
+                        failed_check_lines=("Max skewness = 4.2344278, 2 highly skew faces detected which may impair "
+                                            "the quality of the results",))
+    assert report.valid and report.hard_failures == () and report.failed_checks_message() is None
+    assert len(report.soft_warnings) == 1
+
+
+@pytest.mark.parametrize("line, kind", [
+    ("Zero or negative cell volume detected. Minimum negative volume: -1", "hard"),
+    ("Zero or negative face area detected. Minimum face area: 0", "hard"),
+    ("Error in face pyramids: 4 faces are incorrectly oriented.", "hard"),
+    ("Number of non-orthogonality errors: 3.", "hard"),
+    ("Open cells found, max cell openness: 1, number of open cells 2", "hard"),
+    ("Open cells found, number of cells: 2", "hard"),
+    ("Cells with invalid face labels found, number of cells 1", "hard"),
+    ("Faces not in upper triangular order.", "hard"),
+    ("Boundary openness (1 0 0) possible hole in boundary description.", "hard"),
+    ("Total number of faces on empty patches is not divisible by the number of cells", "hard"),
+    ("Something checkMesh may print one day", "hard"),
+    ("Max skewness = 5, 2 highly skew faces detected which may impair the quality of the results", "soft"),
+    ("High aspect ratio cells found, Max aspect ratio: 2000, number of cells 3", "soft"),
+    ("Concave cells (using face planes) found, number of cells: 2", "soft"),
+    ("Faces with small interpolation weight (< 0.05) found, number of faces: 1", "soft"),
+    ("Faces with small volume ratio (< 0.01) found, number of faces: 1", "soft"),
+    ("Cells with small determinant (< 0.001) found, number of cells: 1", "soft"),
+    ("Number of edges not aligned with or perpendicular to non-empty directions: 3", "soft"),
+    ("Unused points found in the mesh, number unused by faces: 1 number unused by cells: 1", "soft"),
+])
+def test_checkmesh_failure_classes(line: str, kind: str) -> None:
+    from vortexcfd.foam.mesh_report import check_class
+
+    assert check_class(line) == kind
+
+
+def test_a_failure_without_a_description_is_hard() -> None:
+    from vortexcfd.foam.mesh_report import parse_check_mesh
+
+    report = parse_check_mesh("    Illegal cells (less than 4 faces or out of range faces) found,  number of cells: 1\n"
+                              "Failed 1 mesh checks.\n")
+    assert report.hard_failures == ("1 failed check without a description",) and not report.valid

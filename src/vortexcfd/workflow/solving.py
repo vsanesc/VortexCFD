@@ -68,7 +68,8 @@ FAILED_CHECKS_ADVICE = ("the solver must not run on invalid cells: change the me
 
 
 def failed_checks_reason(failed_checks: str | None) -> str | None:
-    """The Run Solver reason for a mesh that failed checkMesh (MeshReport.failed_checks_message, D-096)."""
+    """The Run Solver reason for a mesh with hard checkMesh failures (MeshReport.failed_checks_message,
+    D-096, D-100); soft quality warnings do not block."""
     return None if failed_checks is None else f"The mesh failed checkMesh ({failed_checks}): {FAILED_CHECKS_ADVICE}."
 
 

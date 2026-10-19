@@ -231,7 +231,7 @@ def test_failed_checks_are_warned(make_window, fake_run) -> None:
     fake_run.instances[-1].finish(MeshRunResult(True, False, exit_codes={}, report=bad))
     assert w.properties.mesh_values["failed"].property("warn") == "true"
     assert w.properties.mesh_values["ok"].text() == "no"
-    assert w.statusBar().property("level") == "warning"
+    assert w.statusBar().property("level") == "error"  # failures without a description are hard (D-100)
 
 
 def test_scene_tabs_switch_between_geometry_and_mesh(make_window) -> None:
