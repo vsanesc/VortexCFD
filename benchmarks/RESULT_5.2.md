@@ -137,6 +137,39 @@ against 1.33 mm), and at the cost of the wing junction's layers (0.4 % extruded)
 fallback of the CAD union. The CAD union was not re-run: its junctions are its parts' open edges,
 refined at the parts' surface level (5), so it might gain from the same rule (docs/QUESTIONS.md).
 
+## CAD union junction edges at the junction level (owner review, QUESTIONS 121)
+
+The CAD union's junctions (the open edges of the parts' shares of the union, 13.32 m in 130 edges)
+now go to the junction feature file at the junction level (D-101: level 7 instead of the parts'
+level 5). Re-run of aircraft_untrimmed_cad_union, mesh only, at git `1b96112`, clean tree
+(benchmarks/results/local/20261019T204540Z_1b96112.json; the part names now come from the file,
+D-098: Fuselage_0, Ala_0, ...). Junction numbers against the item 2 table:
+
+| Junction | Metric | As imported | Intersection features (level 7) | CAD union, level 5 (before) | CAD union, level 7 (now) |
+|---|---|---|---|---|---|
+| wing | ref->mesh RMS / max mm | 4.87 / 27.7 | 2.13 / 11.2 | 1.33 / 12.4 | 1.29 / 12.2 |
+| wing | mesh->ref RMS / max mm | 4.80 / 11.9 | 3.61 / 11.2 | 3.14 / 11.2 | 3.82 / 10.6 |
+| wing | extruded % | 59.4 | 0.4 | 57.3 | 3.5 |
+| horizontal tail | ref->mesh RMS / max mm | 5.10 / 22.0 | 2.07 / 7.7 | 2.03 / 11.1 | 1.69 / 7.42 |
+| horizontal tail | mesh->ref RMS / max mm | 3.20 / 28.7 | 2.92 / 7.9 | 2.52 / 7.45 | 2.56 / 7.45 |
+| horizontal tail | extruded % | 16.0 | 7.0 | 26.8 | 6.8 |
+| vertical tail | ref->mesh RMS / max mm | 2.60 / 10.7 | 2.32 / 8.5 | 1.68 / 8.52 | 1.41 / 6.40 |
+| vertical tail | mesh->ref RMS / max mm | 2.51 / 17.9 | 2.59 / 8.7 | 2.48 / 6.38 | 2.23 / 6.38 |
+| vertical tail | extruded % | 20.0 | 19.6 | 52.9 | 19.6 |
+
+Overall, CAD union now (before): 290,885 cells (281,113); checkMesh fails only the skewness check,
+4.22, a soft warning (D-100) (before: five checks with negative-volume cells on the wing surface, so
+this mesh is now valid); mesh -> reference RMS / max 3.66 / 20.9 mm (3.54 / 18.4); reference -> mesh
+RMS 4.35 mm (4.43); wall left inside a component 0.064 m2 (0.030); extruded 44.6 % (50.8 %);
+preparation 4.5 s, meshing 161 s (142).
+
+So the change is not neutral: the reference -> mesh distance at the three junctions improves (RMS
+-0.04 / -0.34 / -0.27 mm, the tail maxima from 11.1 and 8.5 to 7.4 and 6.4 mm) and the mesh loses
+its hard checkMesh failures, while the junction layers collapse as they did with intersection
+features (wing junction 57.3 -> 3.5 % extruded) and twice as much wall is left inside a component.
+Whether the valid mesh is a consequence of the finer junction cells or a chance change of the layer
+phase elsewhere on the wing (where the negative volumes were) was not separated.
+
 ## Proposed default
 
 **CAD union**, falling back per part to intersection features (automatic, reported). Accepted by the owner (review of 2026-10-19); the fallback was confirmed by the investigation above (D-097). Reason, from
