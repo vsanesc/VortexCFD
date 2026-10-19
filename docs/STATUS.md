@@ -37,9 +37,19 @@ QUESTIONS 108-110, 112, 113, 115-118 accepted). Follow-up done:
 - D-098: CAD component names from the STEP entities (the aircraft: Fuselage_0, Ala_0, ...).
 - D-099: the import checks report parts that cross each other and point to Surface Preparation.
 
-Next candidates: 5.4 prism layers (items 87, 106, 111, 122); the CAD union's junction level (item
-121); a dirty-STL set for 5.2. Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75, 82, 87,
-89 to 94, 96, 97, 106, 111 and 119 to 124.
+Second owner review (same branch): D-095 to D-099 accepted (D-096 changed by D-100). Follow-up done:
+- D-100 ([NUMERICS-REVIEW]): checkMesh failures split from the v2606 sources into hard (negative or
+  zero volumes and areas, face pyramids, non-orthogonality above 90 degrees, open or illegal cells,
+  boundary holes, unexplained failures: block Run Solver and the sweep) and soft (skewness, aspect
+  ratio, concave cells, weights, volume ratio, determinant, severe non-orthogonality 70-90 and the
+  other "*" lines: "Mesh: warnings" badge, tooltip, Mesh report). The as-imported aircraft mesh is
+  no longer blocked.
+- D-101 ([NUMERICS-REVIEW]): the CAD union's junction edges refine at the junction level: junction
+  fidelity improves a little, the CAD union mesh loses its hard failures, the junction layers collapse
+  (benchmarks/RESULT_5.2.md).
+
+Next candidates: 5.4 prism layers (items 87, 106, 111, 122, 124); a dirty-STL set for 5.2. Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75, 82, 87,
+89 to 94, 96, 97, 106, 111, 122 and 124.
 
 ## Phases
 
