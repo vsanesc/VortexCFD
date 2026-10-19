@@ -133,8 +133,9 @@ class SurfaceLength:
         return f"l_ref = {self.value:.4g} m" + (f" ({LENGTH_AUTO_LABEL})" if self.source == "l_ref_auto" else "")
 
 
-SURFACE_LENGTH_AUTO_WARNING = ("l_ref is not set: the surface cell size uses its automatic value ({auto}). "
-                               "Set the reference length under Reports & Monitors > Reference Values.")
+SURFACE_LENGTH_AUTO_WARNING = ("l_ref is not set: the surface cell size and the y+ first layer use its automatic "
+                               "value ({auto}). Set the reference length under Reports & Monitors > "
+                               "Reference Values.")
 
 
 def surface_length(project: Project, box: DomainBox, parts_bounds=None) -> SurfaceLength:
@@ -157,7 +158,8 @@ def surface_length(project: Project, box: DomainBox, parts_bounds=None) -> Surfa
 
 
 def surface_length_warning(length: SurfaceLength) -> str | None:
-    """The Mesh properties warning when the surface size follows an l_ref that was never set."""
+    """The Mesh properties warning when the surface size (and the y+ Reynolds number, D-088) follow an
+    l_ref that was never set."""
     if length.source != "l_ref_auto":
         return None
     return SURFACE_LENGTH_AUTO_WARNING.format(auto=LENGTH_AUTO_LABEL)
@@ -206,12 +208,14 @@ def fluid_location(project: Project) -> tuple[float, float, float] | None:
 
 
 def plan_layers_for(project: Project, box: DomainBox) -> LayerPlan:
-    """The y+ layer stack for ``project``: first layer from the estimator, count from the surface
-    cell size at the maximum refinement level (see foam/yplus.plan_layers)."""
+    """The y+ layer stack for ``project``: first layer from the estimator with Re on the surface size
+    length (l_ref, or L for projects made before schema v10; D-088), count from the surface cell size
+    at the maximum refinement level (see foam/yplus.plan_layers). [NUMERICS-REVIEW]"""
     mesh = project.sim.mesh
+    length = surface_length(project, box)
     first = first_layer_thickness(mesh.target_yplus, project.sim.inflow.speed, project.sim.physics.nu,
-                                  box.reference_length)
-    est = project_estimate(project, box)
+                                  length.value)
+    est = estimate_for(box, mesh, length.value)
     return plan_layers(first, mesh.expansion_ratio, est.surface_size)
 
 

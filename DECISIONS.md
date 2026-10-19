@@ -98,10 +98,11 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-081 | 2026-10-19 | Meshing benchmark: generated geometries and case definitions | Proposed |
 | D-082 | 2026-10-19 | Meshing benchmark: runner, metrics, result files and regression rules | Proposed |
 | D-083 | 2026-10-19 | Qt-free orchestration in the workflow package | Accepted |
-| D-084 | 2026-10-19 | Seed lines refine in a castellation-only run, never as snap features | Proposed |
-| D-085 | 2026-10-19 | Surface cell size from l_ref; curvature refinement (schema v10) | Proposed |
+| D-084 | 2026-10-19 | Seed lines refine in a castellation-only run, never as snap features | Accepted |
+| D-085 | 2026-10-19 | Surface cell size from l_ref; curvature refinement (schema v10) | Accepted |
 | D-086 | 2026-10-19 | Absolute layer sizing from a default target y+ of 50 | Proposed |
 | D-087 | 2026-10-19 | Benchmark headline layer metric: strict coverage | Accepted |
+| D-088 | 2026-10-19 | y+ estimator: Reynolds number on l_ref | Proposed |
 
 ---
 
@@ -790,7 +791,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: pure move; no behaviour change.
 
 ## D-084 Seed lines refine in a castellation-only run, never as snap features
-- Status: Proposed (task 5.1, Part B; [NUMERICS-REVIEW], awaiting owner review).
+- Status: Accepted (owner review of task 5.1, 2026-10-19: the two-pass seeded run is accepted; [NUMERICS-REVIEW] reviewed).
 - Context: docs/QUESTIONS.md item 86. The automatic seed lines (D-052) were listed in snappyHexMesh's `features` with `explicitFeatureSnap true`, so snapping could pull wall points onto them. Confirmed on the benchmark wing (default settings, mesh only): with the seed lines the largest surface deviation is 2.664 mm at (0.990, 1.5, 0) m and the next 2.582 mm at (-0.003, 1.5, 0) m, both on the seed line through the wing's centre; with seeding disabled (a benchmark-only override, not a default) the largest is 1.849 mm at the leading-edge tip corner (-0.002, 3.0, -0.001) m, RMS 0.133 -> 0.127 mm, and the wing is kept (200,856 cells). Checked in the v2606 sources: a feature entry has no option to take part in refinement but not in snapping (refinementFeatures.C reads only `file`, `level` / `levels`; snappySnapDriverFeature.C snaps to every entry); `searchableExtrudedCircle` "can not be used with snappyHexMesh since only implements nearest searching" (its header); and a refinementRegion (shell) is refined only after surface refinement (snappyRefineDriver::doRefine: featureEdgeRefine, surfaceOnlyRefine, ..., shellRefine, then baffleAndSplitMesh with no further surface refinement), so it cannot do the seed lines' job of refining before the surface is searched (D-052 measured 40 faces with a distance region).
 - Decision: when at least one part is seeded, the meshing case gets system/snappyHexMeshDict.castellate (the same settings, `snap false; addLayers false;`, the seed lines in `features` at their parts' maximum levels) and system/snappyHexMeshDict (the same settings, `castellatedMesh false;`, the seed lines left out of `features`). MeshRun runs `snappyHexMesh -overwrite -dict system/snappyHexMeshDict.castellate` (step and log "snappyHexMesh.castellate") before the usual `snappyHexMesh -overwrite`; the step is skipped when its dictionary is absent, and a regenerated case without seeded parts removes the file. snappyHexMesh recomputes the surface intersections of the castellated mesh before snapping (snappyHexMesh.C). Without seeded parts nothing changes: one run, the same dictionary as before. The benchmark reads the castellation time from the first log and adds both runs' totals.
 - Measured (development runs, default settings): benchmark wing 200,117 cells, the same 10,998 wall points as the single seeded run, max deviation 1.849 mm (the leading-edge tip corner), RMS 0.127 mm, checkMesh OK, both snappyHexMesh runs 44 s together; the D-052 reproduction (ball and pod) 135,265 cells, Ball 1,952 and Pod 1,304 faces, Mesh OK: identical to the D-052 record, the pod is kept.
@@ -798,7 +799,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: seeded cases pay a second snappyHexMesh start-up (reading the surfaces and recomputing intersections, a few seconds on the benchmark wing); the layer table still comes from log.snappyHexMesh.
 
 ## D-085 Surface cell size from l_ref; curvature refinement (schema v10)
-- Status: Proposed (task 5.1, Part C; owner decisions, [NUMERICS-REVIEW]: the defaults and the snappyHexMesh entries await owner review).
+- Status: Accepted (owner review of task 5.1, 2026-10-19: the surface size from l_ref and the curvature refinement are accepted; [NUMERICS-REVIEW] reviewed).
 - Context: docs/QUESTIONS.md item 85. The target surface size was 0.01 L with L the parts' largest extent, so the 3 m benchmark wing got 24.1 mm surface cells (2.4 % of its 1 m chord). Owner decisions: the surface cell size is derived from the reference length l_ref (Reference Values, D-047), not from the largest dimension; add curvature-based surface refinement, conservative (at most 2 levels above a part's surface level).
 - Decision:
   - `Mesh.surface_size_reference` ("l_ref", the default, or "largest_extent"; the value is short so the Mesh properties combo shows it whole): the target surface size (still 0.01, the same factor) multiplies l_ref, or L as before. l_ref is the Reference Values one: the user's value, or its automatic value (the x extent of the union of the parts' boxes, as the force coefficients use) when it was never set. The domain stays sized from L. The Mesh properties' Estimate shows "Surface size from" with the length and its value ("l_ref = 1 m", "l_ref = 1 m (auto: bounding-box length, x extent)", "L = 3 m (largest extent of the parts)") and, when l_ref is automatic, the warning "l_ref is not set: the surface cell size uses its automatic value (auto: bounding-box length, x extent). Set the reference length under Reports & Monitors > Reference Values." The target surface size field's suffix is "x length"; "Surface size length" picks the basis. When l_ref sizes the surface, its override is a meshing input (mesh hash).
@@ -822,3 +823,10 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Decision: the headline is the strict coverage. The summary table labels it "Strict coverage %" and shows the target layer count next to it; "Extruded %" stays a separate column; the regression rules use the strict coverage (wall and zones, as in D-082). `--compare` also flags a changed target layer count (strict coverage of a 10-layer stack is not the same measure as of a 3-layer one); the coverage drop is still reported as a regression.
 - Alternatives considered: extruded as the headline (hides partly collapsed stacks).
 - Consequences: comparisons across a change of the layer count (D-086: absolute y+ sizing) carry a flag.
+
+## D-088 y+ estimator: Reynolds number on l_ref
+- Status: Proposed (owner request in the review of task 5.1, docs/QUESTIONS.md item 95; [NUMERICS-REVIEW]).
+- Context: the first-layer thickness for the target y+ (D-024) took its Reynolds number from L, the parts' largest extent: the benchmark's 3 m span wing was sized for Re on 3 m while its surface cells follow its 1 m chord (D-085), and its mean y+ came out at 33.9 for a target of 50.
+- Decision: the Reynolds length of the y+ estimator is the surface size length of D-085 (`workflow/meshing.surface_length`): l_ref (the user's value, or its automatic value with the same Mesh-properties warning, which now names the y+ first layer too), or L for a project made before schema v10 (`surface_size_reference "largest_extent"`), so an existing project's layers do not change. Used by the Mesh properties, Generate Mesh and the mesh study's shared layer stack. The estimator itself (Cf = 0.026 / Re^(1/7)) is unchanged.
+- Alternatives considered: always l_ref (would change the layers of existing absolute-sizing projects behind an up-to-date mesh hash).
+- Consequences: for a slender part sized on its chord, Re is lower, Cf and u* higher, so the first layer is thinner: at 20 m/s the y+ 50 first layer on a 1 m l_ref is 7.5 % thinner than on 3 m. The l_ref override is already a meshing input when it sizes the surface (D-085), so the hash covers it.

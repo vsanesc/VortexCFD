@@ -135,6 +135,7 @@ def test_warning_when_l_ref_is_automatic(tmp_path: Path) -> None:
     box = prepare_job(project).box
     auto = surface_length(project, box)
     assert "l_ref is not set" in surface_length_warning(auto) and "bounding-box length" in surface_length_warning(auto)
+    assert "y+ first layer" in surface_length_warning(auto)  # the same l_ref sizes the y+ layers (D-088)
     assert auto.describe() == "l_ref = 1 m (auto: bounding-box length, x extent)"
     project.update_reports(reference_length=1.0)
     chosen = surface_length(project, box)

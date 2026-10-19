@@ -179,7 +179,9 @@ def test_mesh_properties_show_the_computed_first_layer_thickness(qtbot: QtBot, t
     try:
         w.tree.setCurrentItem(w._items[("mesh", None)])
         p = w.properties
-        length = domain_box_for(project).reference_length
+        box = domain_box_for(project)
+        length = box.parts_bounds[1] - box.parts_bounds[0]  # Re on l_ref, here its automatic x extent (D-088)
+        assert length != pytest.approx(box.reference_length, abs=1e-6)  # not L
         h50 = first_layer_thickness(50.0, 20.0, 1.5e-5, length)
         assert p.mesh_first_layer.text() == f"{h50:.4g} m (for y+ 50)"  # the default (D-086)
         project.update_mesh(layer_sizing="relative")
@@ -189,6 +191,11 @@ def test_mesh_properties_show_the_computed_first_layer_thickness(qtbot: QtBot, t
         assert p.mesh_first_layer.text() == f"{h:.4g} m (for y+ 30)"
         project.update_inflow(speed=40.0)  # the computed value follows the flow
         assert p.mesh_first_layer.text() == f"{first_layer_thickness(30.0, 40.0, 1.5e-5, length):.4g} m (for y+ 30)"
+        project.update_reports(reference_length=0.25)  # ... and the reference length
+        assert p.mesh_first_layer.text() == f"{first_layer_thickness(30.0, 40.0, 1.5e-5, 0.25):.4g} m (for y+ 30)"
+        project.update_mesh(surface_size_reference="largest_extent")  # a project made before v10: L
+        assert p.mesh_first_layer.text() == (
+            f"{first_layer_thickness(30.0, 40.0, 1.5e-5, box.reference_length):.4g} m (for y+ 30)")
     finally:
         w.project.save = lambda *a, **k: None
         w.close()
@@ -227,7 +234,7 @@ def test_layer_count_rows_and_the_y_plus_warning(qtbot: QtBot, tmp_path) -> None
         box = domain_box_for(project)
         surface = project_estimate(project, box).surface_size
         project.update_mesh(layer_sizing="absolute_yplus", target_yplus=30.0)
-        plan = plan_layers(first_layer_thickness(30.0, 20.0, 1.5e-5, box.reference_length),
+        plan = plan_layers(first_layer_thickness(30.0, 20.0, 1.5e-5, box.parts_bounds[1] - box.parts_bounds[0]),
                            project.sim.mesh.expansion_ratio, surface)
         assert plan.warning is None
         assert p.mesh_layer_count.text() == str(plan.count)
