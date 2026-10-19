@@ -44,9 +44,9 @@ Second owner review (same branch): D-095 to D-099 accepted (D-096 changed by D-1
   ratio, concave cells, weights, volume ratio, determinant, severe non-orthogonality 70-90 and the
   other "*" lines: "Mesh: warnings" badge, tooltip, Mesh report). The as-imported aircraft mesh is
   no longer blocked.
-- D-101 ([NUMERICS-REVIEW]): the CAD union's junction edges refine at the junction level: junction
-  fidelity improves a little, the CAD union mesh loses its hard failures, the junction layers collapse
-  (benchmarks/RESULT_5.2.md).
+- D-101 ([NUMERICS-REVIEW]): the CAD union's junction edges at the junction level were tried and
+  measured (junction fidelity a little better, junction layers collapsed: wing 57.3 -> 3.5 % extruded)
+  and rejected by the owner; the code is reverted (benchmarks/RESULT_5.2.md keeps the numbers).
 
 Next candidates: 5.4 prism layers (items 87, 106, 111, 122, 124); a dirty-STL set for 5.2. Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75, 82, 87,
 89 to 94, 96, 97, 106, 111, 122 and 124.

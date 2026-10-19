@@ -139,6 +139,10 @@ refined at the parts' surface level (5), so it might gain from the same rule (do
 
 ## CAD union junction edges at the junction level (owner review, QUESTIONS 121)
 
+Rejected by the owner (D-101): the small junction gain does not justify losing the junction layers;
+the code was reverted, the CAD union keeps its junctions at the parts' surface level. The numbers
+below stay as the evidence.
+
 The CAD union's junctions (the open edges of the parts' shares of the union, 13.32 m in 130 edges)
 now go to the junction feature file at the junction level (D-101: level 7 instead of the parts'
 level 5). Re-run of aircraft_untrimmed_cad_union, mesh only, at git `1b96112`, clean tree

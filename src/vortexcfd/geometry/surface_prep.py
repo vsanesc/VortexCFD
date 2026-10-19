@@ -123,18 +123,6 @@ def intersection_curves(meshes: list[pv.PolyData], subset: list[int] | None = No
     return Curves(segments, pairs)
 
 
-def open_edge_segments(meshes: list[pv.PolyData]) -> np.ndarray:
-    """The open edges (used by one triangle) of each surface as segments (n, 2, 3); an edge shared by
-    two surfaces (a junction of the CAD union's shares) appears twice and is merged by ``edge_mesh``."""
-    out = []
-    for mesh in meshes:
-        edges, counts = _edges(triangles(mesh))
-        open_edges = edges[counts == 1]
-        if len(open_edges):
-            out.append(np.asarray(mesh.points, dtype=float)[open_edges])
-    return np.concatenate(out) if out else np.zeros((0, 2, 3))
-
-
 def edge_mesh(segments: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """(points, edges) of segments, with coincident end points merged."""
     if not len(segments):

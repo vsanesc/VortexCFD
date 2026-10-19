@@ -115,7 +115,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-098 | 2026-10-19 | Component names from the STEP entities | Accepted |
 | D-099 | 2026-10-19 | The import checks report parts that cross each other | Accepted |
 | D-100 | 2026-10-19 | checkMesh failures: hard ones block the solver, soft ones warn | Proposed |
-| D-101 | 2026-10-19 | The CAD union's junction edges refine at the junction level | Proposed |
+| D-101 | 2026-10-19 | The CAD union's junction edges refine at the junction level | Rejected |
 
 ---
 
@@ -978,7 +978,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: a mesh with only quality warnings can be solved, with the warning visible in three places; a status message after meshing is an error for hard failures and a warning for soft ones.
 
 ## D-101 The CAD union's junction edges refine at the junction level
-- Status: Proposed (owner review of 5.2, docs/QUESTIONS.md item 121). [NUMERICS-REVIEW]
+- Status: Rejected (owner review, 2026-10-19): the small junction gain (wing junction reference -> mesh RMS 1.33 -> 1.29 mm) does not justify losing the junction prism layers (wing junction extruded area 57.3 -> 3.5 %). The code was reverted (commit "Geometry: revert the CAD union junction level (D-101 rejected)"): the CAD union's junctions are again only its parts' open edges in their own feature files, at the parts' surface level, and no junction-level feature file is written for it (tests/test_surface_prep.py). The intersection-features junction level (D-097) stays. The measurements below remain as the evidence (benchmarks/RESULT_5.2.md). [NUMERICS-REVIEW] reviewed.
 - Context: D-097 refines the intersection curves to the junction level (the maximum surface level plus the curvature levels), but the CAD union's junctions were only its parts' open edges inside the parts' own feature files, refined at the parts' surface level (5 on the aircraft).
 - Decision: the CAD union strategy also writes its junctions to the preparation's feature file (`geometry/surface_prep.open_edge_segments`: the open edges of every part's share of the union, merged where two shares meet; plus the fallback parts' intersection curves, as before), which meshing adds at the junction level (D-097). The report gains "Union junction edges" (length, edge count).
 - Measured (aircraft_untrimmed_cad_union re-run, mesh only, git 1b96112; benchmarks/RESULT_5.2.md): junction edges 13.32 m in 130 edges at level 7; reference -> mesh RMS at the wing / horizontal / vertical tail junction 1.29 / 1.69 / 1.41 mm (before 1.33 / 2.03 / 1.68), max 12.2 / 7.4 / 6.4 mm (12.4 / 11.1 / 8.5); checkMesh now fails only the skewness check (4.22, soft) where it failed five checks before with negative volumes on the wing surface; but the wall left inside a component rises from 0.030 to 0.064 m2, the extruded area falls from 50.8 to 44.6 % (wing junction 57.3 -> 3.5 %), and the cells rise from 281,113 to 290,885.
