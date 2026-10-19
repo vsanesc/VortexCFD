@@ -206,8 +206,12 @@ def test_intersection_features_mesh_case_and_hash(tmp_path: Path, shapes) -> Non
     assert all(p.strategy == "intersection_features" and p.surface_file is None for p in prep.parts)
     assert meshing.inputs_hash(project) != before
     job = meshing.prepare_job(project)
-    assert job.inputs.extra_features == ((surface_prep.JUNCTION_FILE, meshing.junction_level(
-        project, job.box, meshing.surface_length(project, job.box).value)),)
+    level = meshing.junction_level(project, job.box, meshing.surface_length(project, job.box).value)
+    assert job.inputs.extra_features == ((surface_prep.JUNCTION_FILE, level),)
+    # the finest level the surfaces reach: the maximum surface level plus the curvature levels (D-097)
+    est = meshing.project_estimate(project, job.box)
+    assert level == est.level_max + project.sim.mesh.curvature_levels == est.curvature_level
+    assert f'{{file "{surface_prep.JUNCTION_FILE}"; level {level};}}' in (job.case_dir / "system" / "snappyHexMeshDict").read_text()
     copied = job.case_dir / "constant" / "triSurface" / surface_prep.JUNCTION_FILE
     assert copied.read_bytes() == (project.folder / prep.features_file).read_bytes()
     # OpenFOAM reads the header's object entry as a word: the name the file has in the case

@@ -313,11 +313,14 @@ def prepare_job(project: Project) -> MeshJob:
 
 
 def junction_level(project: Project, box: DomainBox, length: float) -> int:
-    """The refinement level of the intersection curves (D-093): the highest maximum surface level of
-    the parts (their overrides, else the mesh's), so a junction is resolved as finely as the finer of
-    the two surfaces that meet there. [NUMERICS-REVIEW]"""
+    """The refinement level of the intersection curves (D-093, corrected in D-097): the finest level
+    the parts' surfaces can reach, their highest maximum surface level (overrides, else the mesh's)
+    plus the curvature refinement levels (D-085). The parts' maximum surface level alone is often below
+    what curvature refinement already gives the cells at a junction, and then the curves refine
+    nothing (the 5.2 aircraft: level 5 against cells at level 7). [NUMERICS-REVIEW]"""
     est = estimate_for(box, project.sim.mesh, length)
-    return max(part_level_range(est.level_min, est.level_max, o)[1] for o in _part_overrides(project))
+    top = max(part_level_range(est.level_min, est.level_max, o)[1] for o in _part_overrides(project))
+    return top + project.sim.mesh.curvature_levels
 
 
 def _junction_features(project: Project, box: DomainBox, length: float) -> tuple[tuple[str, int], ...]:
