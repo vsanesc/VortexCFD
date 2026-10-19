@@ -64,6 +64,7 @@ def new_project(case: BenchCase, work_root: Path) -> Project:
     sim = apply_preset(Simulation(name=case.name), EXTERNAL_FLOW)
     data = sim.model_dump()
     data["mesh"].update(case.mesh)
+    data["reports"].update(case.reports)
     data["inflow"].update(case.inflow)
     data["domain"].update(case.domain)
     return Project.create(work_root, case.name, Simulation.model_validate(data))
@@ -256,11 +257,14 @@ def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool =
     if reason is not None:
         out.update(failed=True, failure=f"not ready: {reason}")
         return out
-    box, _names, _bounds = meshing.parts_layout(project)
-    est = meshing.estimate_for(box, project.sim.mesh)
+    box, _names, bounds = meshing.parts_layout(project)
+    length = meshing.surface_length(project, box, bounds)
+    est = meshing.estimate_for(box, project.sim.mesh, length.value)
     out["app_reference_length"] = box.reference_length
     out["estimate"] = {"base_size": est.base_size, "level_min": est.level_min, "level_max": est.level_max,
-                       "surface_size": est.surface_size, "background_cells": est.total_cells}
+                       "surface_size": est.surface_size, "background_cells": est.total_cells,
+                       "surface_length": length.value, "surface_length_source": length.source,
+                       "curvature_level": est.curvature_level}
     _log(f"{case.name}: meshing")
     job, result, steps = run_mesh(project)
     out["mesh_peak_mb"] = _peak_child_mb()

@@ -140,7 +140,7 @@ def test_v8_project_migrates_to_external(tmp_path: Path) -> None:
     path = Path(__file__).parent / "data" / "project_v8.json"
     assert json.loads(path.read_text())["schema_version"] == 8
     sim = load_simulation(path)
-    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 9
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 10
     assert (sim.analysis_type, sim.preset_name) == ("external", None)
     assert sim.domain == Domain(upstream=3.0, downstream=8.0, lateral=4.0, vertical=4.0, symmetry="y_min")
     assert sim.domain.shape == "box" and sim.domain.parts is None

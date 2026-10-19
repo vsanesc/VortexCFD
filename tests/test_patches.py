@@ -135,18 +135,23 @@ def test_case_surfaces_bcs_and_hash_follow_the_patches(tmp_path: Path) -> None:
 
 
 def test_an_unassigned_project_hashes_as_before(tmp_path: Path) -> None:
-    """Parts without regions keep the pre-v8 inputs hash, so existing meshes stay up to date."""
+    """Parts without regions keep the pre-v8 inputs hash, and a project with the v9 mesh behaviour the
+    pre-v10 hash, so existing meshes stay up to date."""
     import hashlib
     import json
 
     from vortexcfd.workflow.meshing import _hash_file
 
+    from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR
+
     project = _project(tmp_path)
     _box_part(project)
+    project.update_mesh(**V9_MESH_BEHAVIOUR, layer_sizing="relative")  # a project made before v10 (D-085)
     part = project.sim.geometry.parts[0]
+    mesh = {k: v for k, v in project.sim.mesh.model_dump().items() if k not in V9_MESH_BEHAVIOUR}  # the v9 fields
     payload = {
         "parts": [[part.name, part.units, _hash_file(project.resolve_part_path(part)), None, None]],
-        "domain": project.sim.domain.model_dump(), "mesh": project.sim.mesh.model_dump(), "yplus_inputs": None,
+        "domain": project.sim.domain.model_dump(), "mesh": mesh, "yplus_inputs": None,
     }
     assert inputs_hash(project) == hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 

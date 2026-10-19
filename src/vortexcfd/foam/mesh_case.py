@@ -82,7 +82,7 @@ class MeshCaseInput:
     symmetric: bool  # a symmetry plane at y_min
     parts: tuple[str, ...]  # safe, unique patch names (see ``safe_part_names``)
     parts_bounds: Bounds  # union of the parts' bounding boxes
-    reference_length: float
+    reference_length: float  # L, the largest extent of the parts (domain sizes)
     mesh: Mesh
     # First prism-layer thickness (m) for layer_sizing "absolute_yplus" (see foam/yplus.py).
     first_layer_thickness: float | None = None
@@ -109,6 +109,9 @@ class MeshCaseInput:
     domain_volume: float | None = None
     domain_patches: tuple[str, ...] = ()
     inlet_x: float | None = None
+    # The length target_surface_size multiplies (l_ref or L, Mesh.surface_size_reference, resolved by
+    # the caller; D-085). None: reference_length.
+    surface_length: float | None = None
 
     @property
     def rounded(self) -> bool:
@@ -116,7 +119,8 @@ class MeshCaseInput:
 
     def estimate(self, mesh: Mesh | None = None):
         """The mesh estimate of this domain (mesh_estimate.estimate_mesh)."""
-        return estimate_mesh(self.domain_bounds, self.reference_length, mesh or self.mesh, volume=self.domain_volume,
+        length = self.surface_length if self.surface_length is not None else self.reference_length
+        return estimate_mesh(self.domain_bounds, length, mesh or self.mesh, volume=self.domain_volume,
                              rounded=self.rounded, symmetric=self.symmetric)
 
     def expected_domain_patches(self) -> tuple[str, ...]:
@@ -203,6 +207,24 @@ def force_report_keys(parts: Sequence) -> tuple[str, ...]:
 # check uses the part's second-largest bounding-box extent as that diameter (D-052).
 SEED_BACKGROUND_CELLS = math.sqrt(2.0)
 SEED_EXTENSION = 0.2  # seed lines reach this fraction of the extent beyond the part's box
+
+
+# Curvature refinement (refinementSurfaces curvatureLevel, v2606: refinementSurfaces.C
+# setCurvatureMinLevelFields; tutorial mesh/snappyHexMesh/block_with_curvature): (cells per radius of
+# curvature, start level (not used by v2606), maximum level, ignore level (-1: none)). A surface
+# triangle gets level round(log2(cells * base / radius)) when that is above its surface level and at
+# most the maximum; a radius that would need more than the maximum gets no curvature refinement, and
+# points on sharp edges (beyond resolveFeatureAngle) are skipped. 4 cells per radius: about 14 degrees
+# of arc per cell. [NUMERICS-REVIEW]
+CURVATURE_CELLS_PER_RADIUS = 4
+
+
+def curvature_level(part_max_level: int, extra_levels: int) -> list[int] | None:
+    """The curvatureLevel entry of a part at maximum surface level ``part_max_level``; None when
+    curvature refinement is off (D-085)."""
+    if extra_levels <= 0:
+        return None
+    return [CURVATURE_CELLS_PER_RADIUS, 0, part_max_level + extra_levels, -1]
 
 
 def part_level_range(level_min: int, level_max: int, override: tuple[int | None, int | None]) -> tuple[int, int]:
@@ -476,6 +498,9 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
         for i, n in enumerate(inp.parts)
     }
     for i, n in enumerate(inp.parts):
+        curvature = curvature_level(levels[i][1], m.curvature_levels)
+        if curvature is not None:  # read per surface; its regions inherit it
+            refinement_surfaces[n]["curvatureLevel"] = curvature
         if inp.has_regions(i):
             refinement_surfaces[n]["regions"] = {
                 p: {"level": list(levels[i]), "patchInfo": {"type": "wall", "inGroups": [f"{n}Group"]}}

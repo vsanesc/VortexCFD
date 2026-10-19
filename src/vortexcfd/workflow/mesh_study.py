@@ -45,6 +45,7 @@ from vortexcfd.workflow.meshing import (
     domain_fields,
     estimate_for,
     readiness,
+    surface_length,
     write_domain_surface,
     write_part_surfaces,
 )
@@ -102,9 +103,10 @@ def plan_study(project: Project) -> StudyPlan:
     if reason is not None and "background mesh would have" not in reason:
         raise MeshingNotReady(reason)
     settings = project.sim.studies.mesh
-    box, _names, _meshes = _loaded_parts(project)
+    box, _names, meshes = _loaded_parts(project)
     mesh = project.sim.mesh
-    current = estimate_for(box, mesh)
+    length = surface_length(project, box, union_bounds([tuple(float(b) for b in m.bounds) for m in meshes])).value
+    current = estimate_for(box, mesh, length)
     yplus_first = None
     if mesh.layer_sizing == "absolute_yplus":
         yplus_first = first_layer_thickness(mesh.target_yplus, project.sim.inflow.speed, project.sim.physics.nu,
@@ -119,7 +121,7 @@ def plan_study(project: Project) -> StudyPlan:
     per_cell_it, last_cores = _seconds_per_cell_iteration(project)
     plans, warning = [], None
     for level in study_levels(mesh, settings.ratio, settings.current_as):
-        est = estimate_for(box, level.mesh)
+        est = estimate_for(box, level.mesh, length)
         cells = round(est.total_cells * ratio)
         seconds = estimate_seconds(per_cell_it, cells, project.sim.solvers.iterations, last_cores, settings.cores)
         plans.append(LevelPlan(level, est, cells, seconds))
@@ -175,6 +177,7 @@ def prepare_study(project: Project) -> tuple[Path, StudyRecord, MeshCaseInput]:
             part_bounds=tuple(bounds), part_levels=_part_overrides(project),
             part_patches=tuple(part_patch_names(project.sim.geometry.parts)),
             fixed_layers=fixed if fixed is not None else (1.0, 0),
+            surface_length=surface_length(project, box, union_bounds(bounds)).value,
             **domain_fields(box),
         )
         case = level_dir(study, lp.level.index)

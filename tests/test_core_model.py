@@ -16,6 +16,7 @@ from vortexcfd.core.model import (
     Solvers,
 )
 from vortexcfd.core.project_io import (
+    V9_MESH_BEHAVIOUR,
     ProjectFileError,
     load_simulation,
     migrate,
@@ -230,17 +231,20 @@ DEFAULT_STOPPING = {"criteria": [{"kind": "residual", "field": "p", "threshold":
 
 
 def test_migrate_v1_to_v2_and_current_unchanged() -> None:
-    """v1 gains the default domain and version 2; current data is returned unchanged."""
+    """v1 gains the default domain and version 2; current data is returned unchanged. Every older file
+    keeps the v9 mesh behaviour that the v10 defaults changed (D-085)."""
+    legacy = dict(V9_MESH_BEHAVIOUR)
     assert migrate({"schema_version": 1, "custom": "data"}) == {
-        "schema_version": 9, "custom": "data", "domain": {}, "mesh": {}, "analysis_type": "external",
+        "schema_version": 10, "custom": "data", "domain": {}, "mesh": legacy, "analysis_type": "external",
         "physics": {}, "inflow": {}, "solvers": {"stopping": DEFAULT_STOPPING}, "reports": {},
     }
     assert migrate({"schema_version": 2, "x": 1}) == {
-        "schema_version": 9, "x": 1, "physics": {}, "inflow": {}, "solvers": {"stopping": DEFAULT_STOPPING},
-        "reports": {}, "analysis_type": "external",
+        "schema_version": 10, "x": 1, "physics": {}, "inflow": {}, "solvers": {"stopping": DEFAULT_STOPPING},
+        "reports": {}, "analysis_type": "external", "mesh": legacy,
     }
-    assert migrate({"schema_version": 3, "reports": {}}) == {"schema_version": 9, "reports": {}, "analysis_type": "external"}
-    current = {"schema_version": 9, "custom": "data"}
+    assert migrate({"schema_version": 3, "reports": {}}) == {"schema_version": 10, "reports": {},
+                                                             "analysis_type": "external", "mesh": legacy}
+    current = {"schema_version": 10, "custom": "data"}
     assert migrate(current) == current
 
 
@@ -266,7 +270,7 @@ def test_domain_defaults() -> None:
         True, 5.0, 10.0, 5.0, 5.0, "none",
     )
     assert Simulation(name="x").domain == d
-    assert CURRENT_SCHEMA_VERSION == 9
+    assert CURRENT_SCHEMA_VERSION == 10
 
 
 @pytest.mark.parametrize("field", ["upstream", "downstream", "lateral", "vertical"])
@@ -364,7 +368,7 @@ def test_mesh_rejects_invalid_values(fields: dict) -> None:
 
 def test_v1_fixture_gets_default_mesh_and_round_trips(tmp_path: Path) -> None:
     sim = load_simulation(V1_FIXTURE)
-    assert sim.mesh == Mesh()
+    assert sim.mesh == Mesh(**V9_MESH_BEHAVIOUR)  # the defaults it had (D-085)
     sim = sim.model_copy(update={"mesh": Mesh(base_size=0.25, layers=0)})
     path = tmp_path / "m.json"
     save_simulation(sim, path)
@@ -537,7 +541,8 @@ def test_v4_fixture_migrates_to_v5_with_unset_part_levels_and_keeps_its_data() -
         ("Ball", "m", None, None), ("Pod", "mm", None, None)]
     assert sim.mesh.surface_level_max == 5 and sim.solvers.iterations == 500
     assert sim.reports.reference_area_basis == "frontal" and sim.reports.slots == ["Cd", None, "yplus_avg"]
-    assert migrate({"schema_version": 4, "x": 1}) == {"schema_version": 9, "x": 1, "analysis_type": "external"}  # no solvers: nothing to convert
+    assert migrate({"schema_version": 4, "x": 1}) == {"schema_version": 10, "x": 1, "analysis_type": "external",
+                                                     "mesh": dict(V9_MESH_BEHAVIOUR)}  # no solvers: nothing to convert
 
 
 def test_part_levels_validation_and_update() -> None:
@@ -584,3 +589,36 @@ def test_mesh_study_settings_validation() -> None:
     with pytest.raises(ValueError):
         MeshStudySettings(quantities=["Cd", "Cd"])
     assert MeshStudySettings(quantities=["Cd@Ball", "probe:wake:p"]).quantities == ["Cd@Ball", "probe:wake:p"]
+
+
+V9_FIXTURE = Path(__file__).parent / "data" / "project_v9.json"
+
+
+def test_v9_fixture_keeps_its_mesh_behaviour() -> None:
+    """Hand-written v9 project as the app saved it (tests/data/project_v9.json): its stored mesh values
+    are kept and the settings the v10 defaults changed take the values it had (D-085)."""
+    stored = json.loads(V9_FIXTURE.read_text())
+    assert stored["schema_version"] == 9 and "curvature_levels" not in stored["mesh"]
+    sim = load_simulation(V9_FIXTURE)
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 10
+    for key, value in stored["mesh"].items():
+        assert getattr(sim.mesh, key) == value, key
+    assert sim.mesh.surface_size_reference == "largest_extent" and sim.mesh.curvature_levels == 0
+    assert sim.reports.reference_length is None and sim.inflow.speed == 20.0
+
+
+def test_new_simulation_sizes_the_surface_from_l_ref_with_curvature() -> None:
+    mesh = Simulation(name="x").mesh
+    assert mesh.surface_size_reference == "reference_length" and mesh.target_surface_size == 0.01
+    assert mesh.curvature_levels == 2
+    with pytest.raises(ValidationError):
+        Mesh(curvature_levels=3)  # at most 2 levels above the part's surface level (D-085)
+
+
+def test_v10_file_keeps_explicit_values(tmp_path: Path) -> None:
+    """A v10 project that chose the older behaviour keeps it on load (no migration at the current version)."""
+    sim = Simulation(name="x", mesh=Mesh(surface_size_reference="largest_extent", curvature_levels=0))
+    path = tmp_path / "p.vcfd"
+    save_simulation(sim, path)
+    again = load_simulation(path)
+    assert again.mesh == sim.mesh

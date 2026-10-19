@@ -35,7 +35,7 @@ from vortexcfd.core.model import (
     Part,
     ResidualCriterion,
 )
-from vortexcfd.core.model import Probe, SurfaceRegion
+from vortexcfd.core.model import MAX_CURVATURE_LEVELS, Probe, SurfaceRegion
 from vortexcfd.core.reports import (PROBE_NAME_RE, criterion_quantities, default_floor, missing_reference,
                                     report_label)
 from vortexcfd.foam.forces import MASS_WARNING
@@ -65,6 +65,8 @@ from vortexcfd.workflow.meshing import (
     fluid_location,
     parts_layout,
     plan_layers_for,
+    surface_length,
+    surface_length_warning,
     thin_part_warnings,
 )
 from vortexcfd.geometry.domain import SHAPE_LABELS
@@ -161,10 +163,12 @@ def _connect_commit(widget, slot) -> None:
 # value of the optional fields (stored as None).
 MESH_SETTINGS = (
     ("background_cells_target", "Background cells target", lambda: _spin(1000, 100_000_000, " cells")),
-    ("target_surface_size", "Target surface size", lambda: _dspin(0.0001, 1.0, 4, " L")),
+    ("target_surface_size", "Target surface size", lambda: _dspin(0.0001, 1.0, 4, " \u00d7 length")),
+    ("surface_size_reference", "Surface size length", lambda: _combo(("reference_length", "largest_extent"))),
     ("base_size", "Base size override", lambda: _dspin(0.0, 1000.0, 5, " m", "auto")),
     ("surface_level_min", "Min surface level", lambda: _spin(-1, 30, "", "auto")),
     ("surface_level_max", "Max surface level", lambda: _spin(-1, 30, "", "auto")),
+    ("curvature_levels", "Curvature refinement", lambda: _spin(0, MAX_CURVATURE_LEVELS, " levels", "off")),
     ("feature_angle", "Feature angle", lambda: _dspin(1.0, 180.0, 1, "\u00b0")),
     ("layers", "Layers", lambda: _spin(0, 20)),
     ("expansion_ratio", "Expansion ratio", lambda: _dspin(1.0, 3.0, 3)),
@@ -551,7 +555,13 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
                 self._layout.addWidget(self.mesh_yplus_note)
         self._section("mesh_estimate", "Estimate")
         self.mesh_bg_cells = self._ro_row("mset_bg_cells", "Background cells")
+        self.mesh_surface_length = self._ro_row("mset_surface_length", "Surface size from")
         self.mesh_surface_cells = self._ro_row("mset_surface_cells", "Surface cell size")
+        self.mesh_curvature = self._ro_row("mset_curvature", "Curvature up to")
+        self.mesh_length_warning = QLabel()
+        self.mesh_length_warning.setObjectName("checkValue")
+        _wrap(self.mesh_length_warning)
+        self._layout.addWidget(self.mesh_length_warning)
         self.mesh_first_layer = self._ro_row("mset_first_layer", "First layer thickness")
         self.mesh_layer_count = self._ro_row("mset_layer_count", "Layers (computed)")
         self.mesh_layer_stack = self._ro_row("mset_layer_stack", "Stack / final layer")
@@ -964,8 +974,9 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
 
     def _mesh_setting_rows(self) -> list[str]:
         keys = [f"mset_{k}" for k, _, _ in MESH_SETTINGS]
-        return keys + ["mset_base_used", "mset_levels_used", "mset_bg_cells", "mset_surface_cells",
-                       "mset_first_layer", "mset_layer_count", "mset_layer_stack"]
+        return keys + ["mset_base_used", "mset_levels_used", "mset_bg_cells", "mset_surface_length",
+                       "mset_surface_cells", "mset_curvature", "mset_first_layer", "mset_layer_count",
+                       "mset_layer_stack"]
 
     def _refresh_mesh_settings(self, show: bool) -> None:
         for key in self._mesh_setting_rows():
@@ -976,6 +987,7 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         if not show:
             self.mesh_yplus_note.setVisible(False)
             self.mesh_thin_warning.setVisible(False)
+            self.mesh_length_warning.setVisible(False)
             return
         thin = thin_part_warnings(self._project)
         self.mesh_thin_warning.setText("\n".join(thin))
@@ -1016,11 +1028,20 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             label.setToolTip(plan.warning if warn else "")
         if box.bounds is None:
             for label in (self.mesh_base_used, self.mesh_levels_used, self.mesh_bg_cells,
-                          self.mesh_surface_cells):
+                          self.mesh_surface_length, self.mesh_surface_cells, self.mesh_curvature):
                 label.setText("\u2014")
             self._set_warn(self.mesh_bg_cells, False)
+            self.mesh_length_warning.setVisible(False)
             return
-        est = estimate_for(box, mesh)
+        length = surface_length(self._project, box)
+        est = estimate_for(box, mesh, length.value)
+        self.mesh_surface_length.setText(length.describe())
+        warning = surface_length_warning(length)
+        self.mesh_length_warning.setText(warning or "")
+        self._set_warn(self.mesh_length_warning, True)
+        self.mesh_length_warning.setVisible(warning is not None)
+        self.mesh_curvature.setText(
+            f"level {est.curvature_level} ({est.curvature_size:.4g} m)" if mesh.curvature_levels else "off")
         auto = "" if est.base_size_overridden else " (computed)"
         self.mesh_base_used.setText(f"{est.base_size:.4g} m{auto}")
         self.mesh_levels_used.setText(

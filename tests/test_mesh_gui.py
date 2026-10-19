@@ -319,7 +319,7 @@ def test_mesh_editor_shows_values_suffixes_and_computed_sizes(make_window) -> No
     assert p._rows["mset_background_cells_target"].isVisible()
     f = p.mesh_fields
     assert f["background_cells_target"].value() == 100_000 and f["background_cells_target"].suffix() == " cells"
-    assert f["target_surface_size"].value() == 0.01 and f["target_surface_size"].suffix() == " L"
+    assert f["target_surface_size"].value() == 0.01 and f["target_surface_size"].suffix() == " \u00d7 length"
     assert f["base_size"].suffix() == " m" and f["base_size"].specialValueText() == "auto"
     assert f["base_size"].value() == 0.0  # None shows as "auto"
     assert f["surface_level_max"].value() == -1 and f["surface_level_max"].specialValueText() == "auto"
@@ -527,3 +527,24 @@ def test_failed_mesh_keeps_the_previous_results(make_window, fake_run) -> None:
     (case / "60").mkdir()
     fake_run.instances[-1].finish(MeshRunResult(False, False, "snappyHexMesh", {"snappyHexMesh": 1}))
     assert (case / "60").is_dir() and "Removed the previous results" not in w.console.text()
+
+
+def test_mesh_properties_state_the_surface_length_and_warn_when_l_ref_is_auto(make_window) -> None:
+    """D-085: the Estimate says which length the surface size comes from and its value; an automatic
+    l_ref is flagged; curvature refinement shows its finest level."""
+    w = make_window(with_viewer=False)
+    w.project.update_reports(reference_length=None)
+    _mesh_node(w)
+    p = w.properties
+    assert p._rows["mset_surface_length"].isVisible() and p.mesh_surface_length.text().startswith("l_ref = ")
+    assert "auto: bounding-box length" in p.mesh_surface_length.text()
+    assert p.mesh_length_warning.isVisible() and "l_ref is not set" in p.mesh_length_warning.text()
+    assert p.mesh_curvature.text().startswith("level ") and p.mesh_fields["curvature_levels"].value() == 2
+    w.project.update_reports(reference_length=0.5)
+    p.refresh()
+    assert p.mesh_surface_length.text() == "l_ref = 0.5 m" and not p.mesh_length_warning.isVisible()
+    w.project.update_mesh(surface_size_reference="largest_extent", curvature_levels=0)
+    p.refresh()
+    assert p.mesh_surface_length.text().startswith("L = ") and p.mesh_curvature.text() == "off"
+    assert p.mesh_fields["curvature_levels"].specialValueText() == "off"
+    assert p.mesh_fields["surface_size_reference"].currentText() == "largest_extent"
