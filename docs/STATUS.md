@@ -1,6 +1,6 @@
 # Status
 
-Updated 2026-10-19 (task/5.1-sizing: sizing defaults after the meshing baseline). Phases and sub-phases
+Updated 2026-10-19 (task/5.1-sizing: sizing defaults after the meshing baseline, and the owner review follow-up). Phases and sub-phases
 are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
@@ -21,9 +21,21 @@ are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
   benchmarks/RESULT_5.1.md: all meshes valid, y+ means 27.0 / 33.9 / 67.8 against the target 50, wing
   964,710 cells (over 500k) and the full run 1,477 s (over 12 min), not tuned; baseline.json unchanged.
 
-Next candidates: owner review of D-084 to D-086 and of the new result as baseline; 5.4 prism layers
+Owner review of 5.1 (same branch): D-084, D-085 and D-086 accepted. Follow-up done:
+- D-088 ([NUMERICS-REVIEW]): the y+ first layer takes Re on l_ref (L for projects made before schema v10).
+- D-089: the Layers field is disabled with absolute sizing and shows the computed count.
+- D-090: presets carry schema_version (file format 2); a preset written before v10 keeps the v9 mesh.
+- D-091: fidelity in mm with its reference (the 5.1 comparison was like-for-like); layer diagnostics
+  (mean / target, >= 80 % of target, no layer, area per count, the layer phase from the log).
+- D-092: the benchmark wing is a 1.5 m half wing on a y_min symmetry plane; y+ runs on cells / 50,000
+  cores (at most 10). One full run: 632 s, every mesh under 340k cells (benchmarks/RESULT_5.1b.md,
+  benchmarks/baseline_candidate.json; baseline.json unchanged). Ahmed layers: half the wall within two
+  layers of the 10-layer target, a third collapsed to 1-5 layers at the sharp edges (item 106).
+- The slow and long tests touched in 5.1 were re-run and pass.
+
+Next candidates: promoting baseline_candidate.json; 5.4 prism layers
 (item 87); 5.2 surface preparation. Open: docs/QUESTIONS.md items 67, 69, 70, 71, 72, 73, 75, 82, 87,
-89 to 92 and 93 to 102.
+89 to 92, 93, 94, 96, 97, 98 and 103 to 107.
 
 ## Phases
 
