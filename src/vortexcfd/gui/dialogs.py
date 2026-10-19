@@ -51,6 +51,9 @@ class Dialogs:
     def show_error(self, title: str, text: str) -> None:
         QMessageBox.critical(self.parent, title, text)
 
+    def show_warning(self, title: str, text: str) -> None:
+        QMessageBox.warning(self.parent, title, text)
+
     def ask_csv_path(self, suggested: Path | None) -> Path | None:
         name, _ = QFileDialog.getSaveFileName(
             self.parent, "Export sections", str(suggested) if suggested else "", "CSV files (*.csv)"

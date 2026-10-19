@@ -26,6 +26,7 @@ src/vortexcfd/
 ├── core/   # Simulation data model
 ├── foam/   # OpenFOAM integration
 ├── geometry/  # Surface loading and checks (pyvista, no Qt)
+├── bench/  # Meshing benchmark (no Qt)
 └── gui/    # Presentation and 3D viewer
 ```
 
@@ -83,6 +84,9 @@ src/vortexcfd/
   - `geometry/repair.py`: `repair_surface`: pymeshfix with a fidelity check, the pytetwild envelope as the fallback, before / after reports (D-072).
   - `geometry/domain.py`: `compute_domain(parts_bounds, domain)` returns the far-field `DomainBox` (shape box / bullet / c_type, reference length L, boundary roles, exact volume, warnings; D-019, D-078).
   - `geometry/domain_surface.py`: the closed triangulated domain surface with a `role` cell array (viewer, volume checks) and `meshing_surface` (the snappyHexMesh copy of a rounded shape: no symmetry region, its edge continued through the plane) (D-078).
+- **`bench/`** (D-081, D-082):
+  - The meshing benchmark, `python -m vortexcfd.bench`: `geometries.py` (sphere STL, NACA 0012 wing and Ahmed-type body STEP built with OCP, byte-identical, generated into benchmarks/geometries/), `cases.py` (case definitions: the app's defaults plus listed deviations, layer-coverage zones), `runner.py` (one case through the app's pipeline: Project, import, `gui/meshing.prepare_job`, `MeshRun`, layer fields, face non-orthogonality, fidelity, the indicative y+ run through `gui/solving.prepare_solver_case` and `SolverRun`), `metrics.py` (pure metric functions), `report.py` (result JSON / Markdown, `--compare` rules), `cli.py` (one process per case). Results in benchmarks/results/ (git-ignored); the baseline is benchmarks/baseline.json.
+  - May import core, foam, geometry and, from gui/, only the Qt-free meshing, solving and part_ops (tests/test_layers.py); must **NOT** import Qt or pyvistaqt. gui/__init__.py imports MainWindow and main lazily so those modules load without Qt.
 - **`gui/`**:
   - Implements UI components, main window, and 3D visualization using PySide6 and PyVista/pyvistaqt.
   - `gui/theme.py`: design tokens (`Theme`), Fusion palette/stylesheet and font zoom; `gui/icons.py` draws tree icons in code.

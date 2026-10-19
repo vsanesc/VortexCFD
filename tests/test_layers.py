@@ -18,11 +18,20 @@ CORE_FORBIDDEN = FORBIDDEN_MODULES + ("vortexcfd.geometry",)
 FOAM_FORBIDDEN = FORBIDDEN_MODULES + ("vortexcfd.geometry",)
 GEOMETRY_FORBIDDEN = ("PySide6", "pyvistaqt", "vortexcfd.gui", "vortexcfd.foam")
 
+# The Qt-free orchestration modules of gui/ (they join core, geometry and foam); the benchmark may
+# import only these from gui/ (D-082), and they must never import Qt.
+GUI_QT_FREE = ("meshing", "solving", "part_ops")
+_GUI_DIR = Path(__file__).resolve().parent.parent / "src" / "vortexcfd" / "gui"
+BENCH_FORBIDDEN = ("PySide6", "pyvistaqt", "vortexcfd.gui.MainWindow", "vortexcfd.gui.main") + tuple(
+    f"vortexcfd.gui.{p.stem}" for p in sorted(_GUI_DIR.glob("*.py"))
+    if p.stem not in GUI_QT_FREE and p.stem != "__init__")
+
 # Every module under src/vortexcfd/ lives in one of these layers; gui/ is unrestricted.
 LAYER_RULES: dict[str, tuple[str, ...]] = {
     "core": CORE_FORBIDDEN,
     "foam": FOAM_FORBIDDEN,
     "geometry": GEOMETRY_FORBIDDEN,
+    "bench": BENCH_FORBIDDEN,
     "gui": (),
 }
 
@@ -158,6 +167,19 @@ def test_every_module_belongs_to_a_known_layer_and_follows_its_rules() -> None:
         violations.extend(check_file_imports(py_file, src_root, rules))
     assert not unknown, f"modules outside the known layers {sorted(LAYER_RULES)}: {unknown}"
     assert not violations, "\n".join(violations)
+
+
+def test_bench_uses_only_the_qt_free_gui_modules() -> None:
+    """The benchmark imports no Qt and, from gui/, only the Qt-free orchestration modules, which
+    themselves import no Qt and no other gui module that would (D-082)."""
+    src_root = Path(__file__).resolve().parent.parent / "src"
+    violations: list[str] = []
+    for py_file in sorted((src_root / "vortexcfd" / "bench").rglob("*.py")):
+        violations.extend(check_file_imports(py_file, src_root, BENCH_FORBIDDEN))
+    for name in GUI_QT_FREE:
+        violations.extend(check_file_imports(_GUI_DIR / f"{name}.py", src_root, BENCH_FORBIDDEN))
+    assert not violations, "\n".join(violations)
+    assert "vortexcfd.gui.main_window" in BENCH_FORBIDDEN and "vortexcfd.gui.meshing" not in BENCH_FORBIDDEN
 
 
 def test_checker_detects_violations_and_unknown_layers(tmp_path: Path) -> None:

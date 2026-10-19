@@ -275,3 +275,17 @@ def test_duplicate_keeps_unsaved_edits_and_never_lands_in_its_own_folder(tmp_pat
     with pytest.raises(ProjectFolderError, match="outside the project folder"):
         project.duplicate(tmp_path, "Dup3")
     assert not (tmp_path / "Dup3").exists()
+
+
+def test_save_as_warns_in_a_dialog_about_missing_geometry(make_window, tmp_path: Path) -> None:
+    w = make_window()
+    w.project.add_part(Part(name="gone", source_file="geometry/gone.stl"))
+    w.dialogs.duplicate_target = ("Copy", tmp_path / "copies")
+    assert w.save_as()
+    assert w.project.path == tmp_path / "copies" / "Copy" / "Copy.vcfd"
+    assert len(w.dialogs.warnings) == 1
+    title, text = w.dialogs.warnings[0]
+    assert title == "Save As" and "geometry/gone.stl" in text and "were not copied" in text
+    w.project.remove_part(0)  # nothing missing any more: no dialog
+    w.dialogs.duplicate_target = ("Copy2", tmp_path / "copies")
+    assert w.save_as() and len(w.dialogs.warnings) == 1

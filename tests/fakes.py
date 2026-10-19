@@ -13,6 +13,7 @@ class FakeDialogs:
         self.overwrite = True  # confirm_overwrite's answer
         self.overwrite_asked: list = []
         self.errors: list = []
+        self.warnings: list = []
         self.save_asked: list = []
         self.paraview_path = paraview_path
         self.import_path = import_path
@@ -48,6 +49,9 @@ class FakeDialogs:
 
     def show_error(self, title, text):
         self.errors.append((title, text))
+
+    def show_warning(self, title, text):
+        self.warnings.append((title, text))
 
     def ask_csv_path(self, suggested):
         return self.csv_path
