@@ -91,6 +91,10 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-074 | 2026-10-18 | Keep pymeshfix (AGPL-3), third-party licence list, fidelity metrics in the repair report | Accepted |
 | D-075 | 2026-10-18 | No third-party product names in the repository; design mockup kept local | Accepted |
 | D-076 | 2026-10-18 | Import without saving first; .vcfd project files; save targets never overwrite non-project files | Proposed |
+| D-077 | 2026-10-18 | Start screen, New simulation dialog, presets, project folders; no untitled projects (schema v9) | Proposed |
+| D-078 | 2026-10-18 | The domain as an operation; bullet and C-type domain shapes | Accepted |
+| D-079 | 2026-10-18 | Save As duplicates the project folder with its geometry | Accepted |
+| D-080 | 2026-10-19 | Save As warns in a dialog about missing geometry files | Proposed |
 
 ---
 
@@ -731,3 +735,10 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Decision: File > Save As (Duplicate Project) asks for a new project name and parent folder (the New simulation rules: valid name, an existing non-empty folder is refused, an existing empty one is used; the duplicate cannot lie inside the project's own folder) and `Project.duplicate` creates <parent>/<name>/ with <name>.vcfd (the current state, unsaved edits included, renamed <name>), geometry/ and an empty case/, then copies every file the parts reference (surface or CAD tessellation, region ids, CAD source) to the same relative path. Files the history references but the current state does not are not copied; a referenced file that is missing is reported in the console and skipped; a referenced path outside the project folder refuses the duplicate; a failed copy removes what was created. case/ is not copied, so the duplicate opens without mesh and results. The window continues with the duplicate (the recent list gets it); the original project file and folder are not touched. The save target rules of D-076 still apply (`Project.save` checks the new file). An in-memory project without a folder (scripts, tests) keeps the save-file dialog flow.
 - Alternatives considered: copying case/ too (meshes and results can be large and are rebuilt from the inputs); copying the whole geometry/ folder (it may hold earlier file versions nothing references).
 - Consequences: the undo history does not follow into the duplicate (it starts clean).
+
+## D-080 Save As warns in a dialog about missing geometry files
+- Status: Proposed (task 5.0, Part A; requested in the review of D-079).
+- Context: D-079 reports a referenced geometry file that is missing only in the console and the status bar; the duplicate is created without it, so a part of the new project has no surface and the user may not notice.
+- Decision: after a duplicate that skipped missing files, a warning dialog (`Dialogs.show_warning`) titled "Save As" lists every missing file (path relative to the project folder) and says that the parts using them have no surface in the duplicate. The console message per file stays. The duplicate itself is unchanged.
+- Alternatives considered: refusing the duplicate when a file is missing (the user may want to duplicate exactly to repair the project); a status bar message only (the D-079 behaviour, easy to miss).
+- Consequences: one more modal dialog, only in that case; the tests use the fake dialog's `warnings` list.

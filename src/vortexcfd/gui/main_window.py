@@ -2275,6 +2275,12 @@ class MainWindow(StudyControlMixin, QMainWindow):
         log.info("Saved %s as the new project %s (geometry copied; mesh and results not copied)", original,
                  duplicate.path)
         self.show_message(f"Saved as {duplicate.path}", "warning" if missing else "success", log_it=False)
+        if missing:
+            listed = "\n".join(f"  {rel}" for rel in missing)
+            self.dialogs.show_warning(
+                "Save As",
+                f"These geometry files are missing in {original.parent} and were not copied:\n{listed}\n\n"
+                "The parts that use them have no surface in the duplicate.")
         return True
 
     def _save_file_as(self) -> bool:
