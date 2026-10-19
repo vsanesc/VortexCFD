@@ -164,7 +164,7 @@ def _connect_commit(widget, slot) -> None:
 MESH_SETTINGS = (
     ("background_cells_target", "Background cells target", lambda: _spin(1000, 100_000_000, " cells")),
     ("target_surface_size", "Target surface size", lambda: _dspin(0.0001, 1.0, 4, " \u00d7 length")),
-    ("surface_size_reference", "Surface size length", lambda: _combo(("reference_length", "largest_extent"))),
+    ("surface_size_reference", "Surface size length", lambda: _combo(("l_ref", "largest_extent"))),
     ("base_size", "Base size override", lambda: _dspin(0.0, 1000.0, 5, " m", "auto")),
     ("surface_level_min", "Min surface level", lambda: _spin(-1, 30, "", "auto")),
     ("surface_level_max", "Max surface level", lambda: _spin(-1, 30, "", "auto")),

@@ -134,7 +134,7 @@ class Mesh(StrictModel):
     ``background_cells_target`` cells (so ``base_size`` = (domain volume / target)^(1/3)), and
     the surface cells aim at ``target_surface_size`` times a length, which fixes the refinement
     levels: the reference length l_ref of the Reference Values (``surface_size_reference``
-    "reference_length", the default since schema v10, D-085) or L, the largest extent of the parts
+    "l_ref", the default since schema v10, D-085) or L, the largest extent of the parts
     ("largest_extent", every project made before v10). ``base_size`` (metres) and the two surface
     levels are optional explicit overrides (None = computed). ``curvature_levels``: surface
     curvature refinement up to this many levels above a part's maximum surface level (0 = off,
@@ -143,7 +143,7 @@ class Mesh(StrictModel):
 
     background_cells_target: int = Field(default=100_000, gt=0)
     target_surface_size: float = Field(default=0.01, gt=0)  # relative to surface_size_reference
-    surface_size_reference: Literal["reference_length", "largest_extent"] = "reference_length"
+    surface_size_reference: Literal["l_ref", "largest_extent"] = "l_ref"
     curvature_levels: int = Field(default=2, ge=0, le=MAX_CURVATURE_LEVELS)
     base_size: float | None = Field(default=None, gt=0)
     surface_level_min: int | None = Field(default=None, ge=0)

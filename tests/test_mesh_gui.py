@@ -36,7 +36,8 @@ def make_window(qtbot: QtBot, tmp_path: Path):
             pv.Sphere(radius=0.5, theta_resolution=24, phi_resolution=24).save(str(folder / "geometry" / "ball.stl"))
             project.add_part(Part(name="Ball", source_file="geometry/ball.stl", units="m"))
         project.update_domain(upstream=2, downstream=4, lateral=2, vertical=2, enabled=domain_enabled)
-        project.update_mesh(base_size=0.5, surface_level_min=1, surface_level_max=2, layers=1)
+        project.update_mesh(base_size=0.5, surface_level_min=1, surface_level_max=2, layers=1,
+                            layer_sizing="relative")  # one relative layer on a coarse sphere (D-086)
         if save:
             project.save(folder / "p.json")
         w = MainWindow(project, FakeDialogs(), with_viewer=with_viewer)

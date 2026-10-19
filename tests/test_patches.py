@@ -219,7 +219,8 @@ def two_patch_mesh(tmp_path_factory):
     sphere = pv.Sphere(radius=0.3, center=(2.0, 0, 0), theta_resolution=24, phi_resolution=24)
     sphere.save(str(project.path.parent / "geometry" / "Ball.stl"))
     project.add_part(Part(name="Ball", source_file="geometry/Ball.stl"))
-    project.update_mesh(background_cells_target=20_000, target_surface_size=0.05, layers=0)
+    project.update_mesh(background_cells_target=20_000, target_surface_size=0.05, layers=0,
+                        layer_sizing="relative")  # no layers (D-086: absolute sizing ignores the count)
     project.update_part(0, **part_ops.split_region(project, 0, None, 30.0))
     part = project.sim.geometry.parts[0]
     mesh = load_surface(project.path.parent / part.source_file, "m")

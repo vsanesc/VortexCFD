@@ -618,7 +618,7 @@ def test_v9_fixture_keeps_its_mesh_behaviour() -> None:
 def test_new_simulation_sizes_the_surface_from_l_ref_with_curvature() -> None:
     mesh = Simulation(name="x").mesh
     assert (mesh.layer_sizing, mesh.target_yplus) == ("absolute_yplus", 50.0)  # D-086
-    assert mesh.surface_size_reference == "reference_length" and mesh.target_surface_size == 0.01
+    assert mesh.surface_size_reference == "l_ref" and mesh.target_surface_size == 0.01
     assert mesh.curvature_levels == 2
     with pytest.raises(ValidationError):
         Mesh(curvature_levels=3)  # at most 2 levels above the part's surface level (D-085)

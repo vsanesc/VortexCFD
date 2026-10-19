@@ -251,6 +251,9 @@ def test_real_mesh_study_on_the_coarse_sphere_at_re_200(tmp_path: Path) -> None:
     project = Project.new("study")
     project.add_part(Part(name="Sphere", source_file="geometry/sphere.stl", units="m"))
     project.save(folder / "p.json")
+    from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR
+
+    project.update_mesh(**V9_MESH_BEHAVIOUR)  # the set-up this study was designed with (D-085, D-086)
     project.update_inflow(speed=0.003, alpha_deg=4.0)
     stopping = StoppingCriteria(criteria=[AsymptoticCriterion(quantity="Cd", window=50, tolerance=1e-4),
                                           AsymptoticCriterion(quantity="Cl", window=50, tolerance=1e-4)])

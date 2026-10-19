@@ -365,6 +365,6 @@ def inputs_hash(project: Project) -> str:
             if project.sim.mesh.layer_sizing == "absolute_yplus" else None
         ),
     }
-    if project.sim.mesh.surface_size_reference == "reference_length":  # l_ref sizes the surface (D-085)
+    if project.sim.mesh.surface_size_reference == "l_ref":  # l_ref sizes the surface (D-085)
         payload["surface_l_ref"] = project.sim.reports.reference_length
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
