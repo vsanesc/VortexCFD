@@ -23,9 +23,23 @@ sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.m
   aircraft mesh fails checkMesh at the 24-layer stack (QUESTIONS 111, input for 5.4). Public benchmark
   re-run against baseline.json: no regressions, identical meshes (599 s).
 
-Next candidates: owner review of D-093 / D-094 and QUESTIONS 108-118; 5.4 prism layers (items 87, 106,
-111); a dirty-STL set for 5.2. Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75, 82, 87,
-89 to 94, 96, 97, 106 and 108 to 118.
+Owner review of 5.2 (same branch): CAD union accepted as the default (D-093 and D-094 Accepted;
+QUESTIONS 108-110, 112, 113, 115-118 accepted). Follow-up done:
+- D-095: the ~/case and ~/geometry folders of 2026-10-18 came from the old save-first import (the
+  project file was saved in the home folder); no path is built from the working directory; regression
+  test.
+- D-096 ([NUMERICS-REVIEW]): a mesh that fails checkMesh blocks Run Solver and the polar sweep (it did
+  not before), with the failed checks in the tooltip and the Mesh report.
+- D-097 ([NUMERICS-REVIEW]): intersection features did nothing because the junction curves refined to
+  level 5 where the cells were already at level 7; the junction level is now the maximum surface level
+  plus the curvature levels. Re-measured: the junctions' reference -> mesh RMS about halves against no
+  preparation (benchmarks/RESULT_5.2.md); intersection features stay the CAD union's fallback.
+- D-098: CAD component names from the STEP entities (the aircraft: Fuselage_0, Ala_0, ...).
+- D-099: the import checks report parts that cross each other and point to Surface Preparation.
+
+Next candidates: 5.4 prism layers (items 87, 106, 111, 122); the CAD union's junction level (item
+121); a dirty-STL set for 5.2. Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75, 82, 87,
+89 to 94, 96, 97, 106, 111 and 119 to 124.
 
 ## Phases
 

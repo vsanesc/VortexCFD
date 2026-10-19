@@ -139,7 +139,7 @@ refined at the parts' surface level (5), so it might gain from the same rule (do
 
 ## Proposed default
 
-**CAD union**, falling back per part to intersection features (automatic, reported). Accepted by the owner (review of 2026-10-19); the fallback was confirmed after the investigation below the table (D-097). Reason, from
+**CAD union**, falling back per part to intersection features (automatic, reported). Accepted by the owner (review of 2026-10-19); the fallback was confirmed by the investigation above (D-097). Reason, from
 the numbers above: it is the only strategy that moves the junctions towards the reference (reference
 -> mesh RMS at the three junctions 1.3-2.0 mm against 2.6-5.2 mm), it removes the internal surface at
 the junctions (0 m2 against up to 0.0016 m2) and overall (0.030 against 0.080 m2), and it has the

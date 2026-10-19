@@ -107,8 +107,8 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-090 | 2026-10-19 | Preset files versioned with the project schema | Accepted |
 | D-091 | 2026-10-19 | Benchmark: fidelity in metres, layer diagnostics | Accepted |
 | D-092 | 2026-10-19 | Benchmark: half wing on a symmetry plane; y+ run cores | Accepted |
-| D-093 | 2026-10-19 | Surface preparation: diagnostics, intersection features, CAD union (schema v11) | Proposed |
-| D-094 | 2026-10-19 | Benchmark: optional local cases, fidelity against a reference surface | Proposed |
+| D-093 | 2026-10-19 | Surface preparation: diagnostics, intersection features, CAD union (schema v11) | Accepted |
+| D-094 | 2026-10-19 | Benchmark: optional local cases, fidelity against a reference surface | Accepted |
 | D-095 | 2026-10-19 | The case/ and geometry/ folders found in the home folder | Proposed |
 | D-096 | 2026-10-19 | A mesh that fails checkMesh blocks the solver | Proposed |
 | D-097 | 2026-10-19 | Junction curves refine to the finest surface level | Proposed |
@@ -875,7 +875,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: the wing is no longer comparable with benchmarks/baseline.json (accepted by the owner); benchmarks/baseline_candidate.json is the new reference candidate. The y+ run times are not comparable either (more ranks, beyond the efficient range measured in D-064).
 
 ## D-094 Benchmark: optional local cases, fidelity against a reference surface
-- Status: Proposed (task 5.2, Part A).
+- Status: Accepted (owner review, 2026-10-19: the reference reading, the surface-size deviation, the local work folder, the mean chord and the tessellation note are accepted; docs/QUESTIONS.md items 108, 112, 113, 115, 116).
 - Context: Phase 5.2 (surface preparation) is measured on the owner's multi-component aircraft (two exports of the same model from a conceptual design tool: separate untrimmed surfaces, and a trimmed export as the reference). That geometry must never enter the repository, and the committed baseline must stay the three public cases. Checked while setting the cases up: the trimmed export is not one outer skin but four closed solids (fuselage 8 faces, wing 8, horizontal tail 8, vertical tail 6) that still overlap (fuselage and wing share 0.257 m3, fuselage and horizontal tail 0.020 m3, fuselage and vertical tail 0.009 m3, the two tails 0.003 m3); docs/QUESTIONS.md.
 - Decision:
   - Local cases are read from benchmarks/local_cases.json (git-ignored); benchmarks/local_cases.example.json (committed) documents the format: a `reference` block (the reference CAD file, its components by body index, l_ref, the zones), `defaults` (import mode, inflow, mesh, domain; merged key by key into every case) and `cases` (name, geometry file, description, `solve`, `surface_prep` null / "intersection_features" / "cad_union"). `python -m vortexcfd.bench --local [--cases ...]` runs them; a missing config or geometry file skips the cases with a message (`bench/local.load_local_cases`); a case name may not reuse a public one. Their results go to benchmarks/results/local/ (git-ignored, numbers only), never into baseline.json; their projects and the reference cache go to <XDG cache>/vortexcfd/bench_local/ (~/.cache by default), outside the repository, because they hold copies of the owner's geometry and its tessellations.
@@ -889,7 +889,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: a local run analyses the reference once (about 160 s for the aircraft, then cached). Local numbers depend on the owner's files, which only the owner has.
 
 ## D-093 Surface preparation: diagnostics, intersection features, CAD union (schema v11)
-- Status: Proposed (task 5.2, Part C). [NUMERICS-REVIEW] for the sewing tolerance, the junction refinement level, the hidden-curve rule and the default strategy.
+- Status: Accepted (owner review, 2026-10-19: CAD union is the default, docs/QUESTIONS.md item 109; the parameters of item 110 are accepted; the fallback to intersection features was confirmed after its junction level was corrected, D-097). [NUMERICS-REVIEW] reviewed.
 - Context: PLAN 5.2. A multi-component model whose components interpenetrate and are not sewn (the owner's untrimmed aircraft export: six compounds of loose faces, every overlapping pair crossing; benchmarks/RESULT_5.2_before.md) reached snappyHexMesh as separate surfaces with nothing at the junctions: no feature line where a wing enters the fuselage, and nothing in the app looked across parts (the self-intersection check is per part, the repair is per part and lost the wings on a one-part import).
 - Decision:
   - Model (schema v11): `Simulation.surface_prep` (None = not run: the parts mesh as imported, as before) holds the operation's result: the strategy, the hash of the parts' geometry when it ran (`inputs_hash`), per Part a `PreparedPart` (the strategy applied to it, its prepared surface and region ids or None, a note when it fell back), the intersection-curve file (`features_file`), the report rows and the run time. v10 files migrate with nothing to fill (fixture tests/data/project_v10.json); presets hold no geometry, so a v10 preset reads as v11 unchanged.
