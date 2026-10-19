@@ -243,7 +243,7 @@ def test_real_mesh_study_on_the_coarse_sphere_at_re_200(tmp_path: Path) -> None:
 
     from vortexcfd.core.model import AsymptoticCriterion, Part, StoppingCriteria
     from vortexcfd.core.project import Project
-    from vortexcfd.gui.mesh_study import prepare_study, solver_writer
+    from vortexcfd.workflow.mesh_study import prepare_study, solver_writer
 
     folder = tmp_path / "proj"
     (folder / "geometry").mkdir(parents=True)

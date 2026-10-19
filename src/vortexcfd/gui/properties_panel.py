@@ -51,7 +51,7 @@ from vortexcfd.foam.mesh_case import force_report_keys, part_patch_names, wall_p
 from vortexcfd.geometry.cad import CadImportError
 from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.geometry.regions import RegionError
-from vortexcfd.gui import part_ops
+from vortexcfd.workflow import part_ops
 from vortexcfd.foam.physics_case import (
     AREA_BASIS_LABELS,
     CENTRE_AUTO_LABEL,
@@ -59,7 +59,7 @@ from vortexcfd.foam.physics_case import (
     inlet_turbulence,
     reference_values,
 )
-from vortexcfd.gui.meshing import (
+from vortexcfd.workflow.meshing import (
     MeshingNotReady,
     estimate_for,
     fluid_location,

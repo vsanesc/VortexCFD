@@ -29,7 +29,7 @@ from vortexcfd.foam.mesh_record import MeshRecord, read_mesh_record, write_mesh_
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.foam.mesh_run import MeshRunResult, lost_parts
 from vortexcfd.geometry.loader import clear_cache
-from vortexcfd.gui.meshing import thin_part_warnings
+from vortexcfd.workflow.meshing import thin_part_warnings
 
 TWO = Path(__file__).parent / "data" / "two_walls"
 BALL_BOUNDS = (-0.5, 0.5, -0.5, 0.5, -0.5, 0.5)
@@ -238,7 +238,7 @@ def test_gui_lost_part_fails_the_mesh_and_blocks_the_solver(qtbot: QtBot, tmp_pa
 
 
 def _real_mesh(tmp_path: Path, pod_levels) -> MeshRunResult:
-    from vortexcfd.gui.meshing import prepare_job
+    from vortexcfd.workflow.meshing import prepare_job
 
     project = _two_part_project(tmp_path)
     if pod_levels is not None:

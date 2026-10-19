@@ -97,6 +97,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-080 | 2026-10-19 | Save As warns in a dialog about missing geometry files | Proposed |
 | D-081 | 2026-10-19 | Meshing benchmark: generated geometries and case definitions | Proposed |
 | D-082 | 2026-10-19 | Meshing benchmark: runner, metrics, result files and regression rules | Proposed |
+| D-083 | 2026-10-19 | Qt-free orchestration in the workflow package | Accepted |
 
 ---
 
@@ -773,6 +774,13 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   - Result files: benchmarks/results/<UTC date and time, YYYYMMDDTHHMMSSZ>_<short git sha, "-dirty" with uncommitted tracked changes>.json and a .md with the summary table and per-case details; git-ignored. The committed baseline is benchmarks/baseline.json (plus BASELINE.md).
   - `--compare <file>` prints per-case deltas and flags as regressions: wall or zone coverage down more than 2 points; max non-orthogonality up more than 2 degrees; more faces above 70 degrees; cells up more than 10 %; surface fidelity RMS worse by more than 10 %; a failed mesh, a lost part or a case missing from the new result. A total time up more than 25 % is only flagged. The exit code is 1 when there is a regression.
   - Tests: fast tests of the metric code on small fixtures (a captured failing checkMesh log, the existing sphere logs, a one-cell case with layer fields, distances to a sphere, the comparison rules); a real run carries the new marker `bench`, which is skipped unless selected (`pytest -m bench`) and excluded from scripts/ship.sh.
-  - Layers: gui/__init__.py imports MainWindow and main on first access, so `import vortexcfd.gui.meshing` loads no Qt. The new package bench/ may import core, foam, geometry and, from gui/, only meshing, solving and part_ops; tests/test_layers.py enforces it, and a test checks that importing the benchmark loads neither PySide6 nor pyvistaqt.
+  - Layers (superseded in this point by D-083: the modules moved to workflow/, bench/ imports nothing from gui/ and gui/__init__.py imports MainWindow eagerly again): gui/__init__.py imports MainWindow and main on first access, so `import vortexcfd.gui.meshing` loads no Qt. The new package bench/ may import core, foam, geometry and, from gui/, only meshing, solving and part_ops; tests/test_layers.py enforces it, and a test checks that importing the benchmark loads neither PySide6 nor pyvistaqt.
 - Alternatives considered: hand-written dictionaries (would not measure what the user gets); moving the Qt-free orchestration modules out of gui/ into a layer of their own (cleaner, but a larger move; docs/QUESTIONS.md); computing face non-orthogonality in Python from the polyMesh files (OpenFOAM's own cell centres are needed to match checkMesh); coverage as the share with any layer (reported as "extruded": it hides partly collapsed stacks, e.g. 99.5 % extruded but 1.5 of 3 layers at the wing's trailing edge in a development run); snappyHexMesh's final layer table only (one row per patch, no zones).
 - Consequences: the numbers describe the meshes the app writes with its defaults. Time and memory depend on the machine and on its load; time is only flagged. A result made with a dirty tree says so in its name.
+
+## D-083 Qt-free orchestration in the workflow package
+- Status: Accepted (owner decision, task 5.1, docs/QUESTIONS.md item 83).
+- Context: the Qt-free orchestration joining core, geometry and foam lived in gui/ (meshing, solving, part_ops, mesh_study, polar_sweep), so the benchmark had to import gui/ modules and gui/__init__.py imported MainWindow lazily (D-082).
+- Decision: the five modules move unchanged to the new package src/vortexcfd/workflow/. workflow/ may import core, foam and geometry (so numpy and pyvista), never PySide6, pyvistaqt, vortexcfd.gui or vortexcfd.bench; gui/ and bench/ import workflow/; bench/ imports nothing from gui/. tests/test_layers.py enforces it; the test that importing the benchmark loads neither PySide6 nor pyvistaqt stays. gui/__init__.py imports MainWindow and main eagerly again (the lazy import is no longer needed). gui/sections.py (Qt-free, pyvista cuts for the Sections window) is post-processing, not orchestration, and stays in gui/.
+- Alternatives considered: keeping the modules in gui/ with an allow-list (the D-082 state).
+- Consequences: pure move; no behaviour change.

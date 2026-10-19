@@ -15,7 +15,7 @@ from vortexcfd.core.project import Project
 from vortexcfd.geometry import regions, repair
 from vortexcfd.geometry.checks import check_surface, surface_report
 from vortexcfd.geometry.loader import load_surface
-from vortexcfd.gui import part_ops
+from vortexcfd.workflow import part_ops
 
 EXPECTED_METHOD = {"holes": "pymeshfix", "flipped patch": "pymeshfix", "duplicated faces": "pymeshfix",
                    "self-intersection": "pytetwild envelope"}

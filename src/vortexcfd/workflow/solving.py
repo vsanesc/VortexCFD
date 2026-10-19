@@ -1,6 +1,6 @@
 """Solver orchestration: project -> solver case files in <project dir>/case (Qt-free).
 
-Lives in gui/ for the same reason as gui/meshing.py: it joins core, geometry (part bounds) and
+Lives in workflow/ for the same reason as workflow/meshing.py: it joins core, geometry (part bounds) and
 foam (solver files).
 """
 
@@ -20,7 +20,7 @@ from vortexcfd.foam.mesh_case import MARKER_NAME, part_force_groups, remove_resu
 from vortexcfd.foam.mesh_report import lost_part_message
 from vortexcfd.foam.parallel import physical_cores
 from vortexcfd.foam.physics_case import FAR_FIELD_BY_SHAPE, SolverCaseInput, build_solver_files, reference_values
-from vortexcfd.gui.meshing import MeshingNotReady, case_dir_for, inputs_hash, parts_layout
+from vortexcfd.workflow.meshing import MeshingNotReady, case_dir_for, inputs_hash, parts_layout
 
 
 class SolvingNotReady(Exception):

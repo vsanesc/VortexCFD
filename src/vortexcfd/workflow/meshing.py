@@ -1,6 +1,6 @@
 """Meshing orchestration: project -> meshing case directory (Qt-free).
 
-Lives in gui/ although it needs no Qt: it joins core (project), geometry (surfaces, domain) and
+Lives in workflow/: it joins core (project), geometry (surfaces, domain) and
 foam (case files), and foam/ must not depend on geometry/ (which imports pyvista).
 """
 

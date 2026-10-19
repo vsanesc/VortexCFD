@@ -11,7 +11,8 @@ from PySide6.QtCore import QTimer
 from tests import cad_corpus
 from tests.geometry_corpus import sphere_with_holes, two_spheres
 from tests.test_import import _fresh_cache, make_window, wait_geometry  # noqa: F401 (fixtures)
-from vortexcfd.gui import geometry_worker, part_ops
+from vortexcfd.gui import geometry_worker
+from vortexcfd.workflow import part_ops
 from vortexcfd.gui.geometry_worker import GeometryWorker
 
 

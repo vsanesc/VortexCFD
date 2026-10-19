@@ -29,7 +29,7 @@ from vortexcfd.foam.postprocessing import patch_face_counts
 from vortexcfd.geometry.checks import check_surface
 from vortexcfd.geometry.domain import compute_domain
 from vortexcfd.geometry.domain_surface import ROLE_ARRAY, domain_surface, meshing_surface, role_names
-from vortexcfd.gui.meshing import domain_fields, estimate_for, write_domain_surface
+from vortexcfd.workflow.meshing import domain_fields, estimate_for, write_domain_surface
 
 PART = (-0.5, 0.5, -0.5, 0.5, -0.5, 0.5)  # L = 1 m, centred on the origin
 SHAPES = ("box", "bullet", "c_type")

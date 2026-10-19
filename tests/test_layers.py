@@ -7,6 +7,9 @@ Layer constraints:
   or vortexcfd.gui.
 - vortexcfd.geometry (surface loading and checks) may import numpy and pyvista but must NOT
   import PySide6, pyvistaqt or vortexcfd.gui; core must not import vortexcfd.geometry.
+- vortexcfd.workflow (Qt-free orchestration) may import core, foam and geometry but must NOT import
+  PySide6, pyvistaqt or vortexcfd.gui; gui may import workflow.
+- vortexcfd.bench (the meshing benchmark) follows the workflow rules.
 """
 
 import ast
@@ -18,19 +21,16 @@ CORE_FORBIDDEN = FORBIDDEN_MODULES + ("vortexcfd.geometry",)
 FOAM_FORBIDDEN = FORBIDDEN_MODULES + ("vortexcfd.geometry",)
 GEOMETRY_FORBIDDEN = ("PySide6", "pyvistaqt", "vortexcfd.gui", "vortexcfd.foam")
 
-# The Qt-free orchestration modules of gui/ (they join core, geometry and foam); the benchmark may
-# import only these from gui/ (D-082), and they must never import Qt.
-GUI_QT_FREE = ("meshing", "solving", "part_ops")
-_GUI_DIR = Path(__file__).resolve().parent.parent / "src" / "vortexcfd" / "gui"
-BENCH_FORBIDDEN = ("PySide6", "pyvistaqt", "vortexcfd.gui.MainWindow", "vortexcfd.gui.main") + tuple(
-    f"vortexcfd.gui.{p.stem}" for p in sorted(_GUI_DIR.glob("*.py"))
-    if p.stem not in GUI_QT_FREE and p.stem != "__init__")
+# The Qt-free orchestration (it joins core, geometry and foam) and the benchmark that drives it.
+WORKFLOW_FORBIDDEN = ("PySide6", "pyvistaqt", "vortexcfd.gui", "vortexcfd.bench")
+BENCH_FORBIDDEN = ("PySide6", "pyvistaqt", "vortexcfd.gui")
 
 # Every module under src/vortexcfd/ lives in one of these layers; gui/ is unrestricted.
 LAYER_RULES: dict[str, tuple[str, ...]] = {
     "core": CORE_FORBIDDEN,
     "foam": FOAM_FORBIDDEN,
     "geometry": GEOMETRY_FORBIDDEN,
+    "workflow": WORKFLOW_FORBIDDEN,
     "bench": BENCH_FORBIDDEN,
     "gui": (),
 }
@@ -146,7 +146,7 @@ def test_geometry_layer_has_no_qt_or_gui_imports() -> None:
 
 
 def test_every_module_belongs_to_a_known_layer_and_follows_its_rules() -> None:
-    """No module may live outside core/, foam/, geometry/ or gui/ (except the package __init__,
+    """No module may live outside the known layers (except the package __init__,
     which gets the strictest rules); an unknown location fails the test."""
     src_root = Path(__file__).resolve().parent.parent / "src"
     package = src_root / "vortexcfd"
@@ -169,17 +169,16 @@ def test_every_module_belongs_to_a_known_layer_and_follows_its_rules() -> None:
     assert not violations, "\n".join(violations)
 
 
-def test_bench_uses_only_the_qt_free_gui_modules() -> None:
-    """The benchmark imports no Qt and, from gui/, only the Qt-free orchestration modules, which
-    themselves import no Qt and no other gui module that would (D-082)."""
+def test_workflow_and_bench_import_no_qt_and_no_gui() -> None:
+    """workflow/ and bench/ import no Qt and nothing from gui/ (D-082, D-083)."""
     src_root = Path(__file__).resolve().parent.parent / "src"
     violations: list[str] = []
-    for py_file in sorted((src_root / "vortexcfd" / "bench").rglob("*.py")):
-        violations.extend(check_file_imports(py_file, src_root, BENCH_FORBIDDEN))
-    for name in GUI_QT_FREE:
-        violations.extend(check_file_imports(_GUI_DIR / f"{name}.py", src_root, BENCH_FORBIDDEN))
+    for layer, forbidden in (("workflow", WORKFLOW_FORBIDDEN), ("bench", BENCH_FORBIDDEN)):
+        files = sorted((src_root / "vortexcfd" / layer).rglob("*.py"))
+        assert files, layer
+        for py_file in files:
+            violations.extend(check_file_imports(py_file, src_root, forbidden))
     assert not violations, "\n".join(violations)
-    assert "vortexcfd.gui.main_window" in BENCH_FORBIDDEN and "vortexcfd.gui.meshing" not in BENCH_FORBIDDEN
 
 
 def test_checker_detects_violations_and_unknown_layers(tmp_path: Path) -> None:
@@ -196,3 +195,9 @@ def test_checker_detects_violations_and_unknown_layers(tmp_path: Path) -> None:
     geo.mkdir()
     (geo / "bad.py").write_text("from vortexcfd.foam import mesh_case\n")
     assert check_file_imports(geo / "bad.py", root, GEOMETRY_FORBIDDEN)
+    wf = root / "vortexcfd" / "workflow"
+    wf.mkdir()
+    (wf / "bad.py").write_text("from vortexcfd.gui.scene import MeshView\nimport pyvistaqt\n")
+    assert len(check_file_imports(wf / "bad.py", root, WORKFLOW_FORBIDDEN)) == 2
+    (wf / "ok.py").write_text("from vortexcfd.geometry import loader\nfrom vortexcfd.foam import mesh_case\n")
+    assert check_file_imports(wf / "ok.py", root, WORKFLOW_FORBIDDEN) == []

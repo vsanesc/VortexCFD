@@ -101,7 +101,7 @@ def test_cores_field_is_limited_to_the_physical_cores(window: MainWindow) -> Non
     """D-063: the Cores row says how many physical cores the machine has and cannot exceed them;
     a project asking for more (edited elsewhere) cannot run."""
     from vortexcfd.foam.parallel import physical_cores
-    from vortexcfd.gui import solving
+    from vortexcfd.workflow import solving
 
     _select(window, "solvers")
     box = window.properties.group_fields["solvers"]["cores"]
@@ -182,7 +182,7 @@ def test_mesh_properties_show_the_computed_first_layer_thickness(qtbot: QtBot, t
 
 
 def test_absolute_layers_make_the_mesh_depend_on_the_flow(tmp_path) -> None:
-    from vortexcfd.gui.meshing import inputs_hash
+    from vortexcfd.workflow.meshing import inputs_hash
 
     project = _project_with_sphere(tmp_path)
     base = inputs_hash(project)

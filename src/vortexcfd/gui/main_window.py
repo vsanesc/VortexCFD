@@ -66,7 +66,7 @@ from vortexcfd.geometry.checks import basic_report, cached_report
 from vortexcfd.geometry.cad import BREP_EXTENSIONS, CAD_EXTENSIONS, CadImportError, read_cad
 from vortexcfd.geometry.loader import stl_solid_names
 from vortexcfd.geometry.regions import RegionError
-from vortexcfd.gui import part_ops
+from vortexcfd.workflow import part_ops
 from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.gui.properties_panel import PropertiesPanel
 from vortexcfd.gui.recent import RecentProjects
@@ -84,7 +84,7 @@ from vortexcfd.gui.mesh_worker import MeshWorker
 from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam.run_record import RunRecord, read_run_record, write_run_record
 from vortexcfd.foam.solver_run import CRITERIA_MET
-from vortexcfd.gui import solving
+from vortexcfd.workflow import solving
 from vortexcfd.gui.solver_worker import SolverWorker
 from vortexcfd.gui.study_control import StudyControlMixin
 from vortexcfd.foam.results import latest_result_time
@@ -93,7 +93,7 @@ from vortexcfd.gui.colormaps import COLORMAPS, DEFAULT_COLORMAP
 from vortexcfd.gui.results_scene import DISPLAY_MODES, RANGE_MODES, ResultsLoader, ResultsView
 from vortexcfd.gui.section_tool import SectionTool
 from vortexcfd.foam.mesh_record import MeshRecord, read_mesh_record, write_mesh_record
-from vortexcfd.gui.meshing import (
+from vortexcfd.workflow.meshing import (
     MeshingNotReady,
     case_dir_for,
     inputs_hash,

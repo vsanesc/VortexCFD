@@ -1,10 +1,10 @@
 """Run one benchmark case through the app's own pipeline (D-082). No Qt.
 
 Project (New simulation defaults, "External flow" preset) -> geometry import (the STL import or
-part_ops.cad_parts, as File > Import Geometry) -> the preset's box domain -> gui/meshing.prepare_job
+part_ops.cad_parts, as File > Import Geometry) -> the preset's box domain -> workflow/meshing.prepare_job
 (the dictionaries the user gets) -> MeshRun (blockMesh, surfaceFeatureExtract, snappyHexMesh,
 createPatch, checkMesh, the lost-part and domain guards) -> MeshReport; then the benchmark's own
-read-only measurements and the indicative y+ run (gui/solving.prepare_solver_case + SolverRun).
+read-only measurements and the indicative y+ run (workflow/solving.prepare_solver_case + SolverRun).
 
 The only change to the generated case is output: ``writeFlags (layerFields)`` is appended to
 system/snappyHexMeshDict so snappyHexMesh writes its layer fields. A second checkMesh writes the face
@@ -31,7 +31,7 @@ from vortexcfd.foam.parallel import physical_cores, recommended_cores
 from vortexcfd.foam.runner import run_foam
 from vortexcfd.foam.solver_run import SolverRun
 from vortexcfd.geometry.cad import CAD_EXTENSIONS, read_cad, tessellate
-from vortexcfd.gui import meshing, part_ops, solving
+from vortexcfd.workflow import meshing, part_ops, solving
 
 EXTERNAL_FLOW = BUILTIN_PRESETS[0]
 LAYER_FIELDS = ("nSurfaceLayers", "thickness", "thicknessFraction")

@@ -20,9 +20,9 @@ from vortexcfd.foam.mesh_case import (
 from vortexcfd.foam.physics_case import initial_fields
 from vortexcfd.geometry import regions
 from vortexcfd.geometry.loader import load_surface, stl_solid_names
-from vortexcfd.gui import part_ops
-from vortexcfd.gui.meshing import inputs_hash, prepare_job
-from vortexcfd.gui.solving import solver_input
+from vortexcfd.workflow import part_ops
+from vortexcfd.workflow.meshing import inputs_hash, prepare_job
+from vortexcfd.workflow.solving import solver_input
 
 
 def _project(tmp_path: Path) -> Project:
@@ -139,7 +139,7 @@ def test_an_unassigned_project_hashes_as_before(tmp_path: Path) -> None:
     import hashlib
     import json
 
-    from vortexcfd.gui.meshing import _hash_file
+    from vortexcfd.workflow.meshing import _hash_file
 
     project = _project(tmp_path)
     _box_part(project)
@@ -259,7 +259,7 @@ def test_real_per_part_forces_cover_all_patches(two_patch_mesh) -> None:
     from tests.real_cases import run_solver
     from vortexcfd.foam.forces import parse_vector_row
     from vortexcfd.foam.postprocessing import output_file
-    from vortexcfd.gui.solving import prepare_solver_case
+    from vortexcfd.workflow.solving import prepare_solver_case
 
     project, job, _result = two_patch_mesh
     project.update_solver(iterations=5)

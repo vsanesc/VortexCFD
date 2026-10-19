@@ -19,7 +19,7 @@ from vortexcfd.geometry.domain_surface import ROLE_ARRAY
 from vortexcfd.geometry.loader import clear_cache
 from vortexcfd.gui.domain_dialog import GenerateDomainDialog
 from vortexcfd.gui.main_window import MainWindow
-from vortexcfd.gui.meshing import case_dir_for, inputs_hash, readiness
+from vortexcfd.workflow.meshing import case_dir_for, inputs_hash, readiness
 from tests.test_import import wait_geometry
 
 

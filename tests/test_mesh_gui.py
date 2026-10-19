@@ -435,7 +435,7 @@ def test_good_layer_coverage_is_not_a_warning(make_window, fake_run) -> None:
 
 def test_record_written_and_staleness_follows_the_inputs(make_window, fake_run) -> None:
     from vortexcfd.foam.mesh_record import read_mesh_record
-    from vortexcfd.gui.meshing import inputs_hash
+    from vortexcfd.workflow.meshing import inputs_hash
 
     w = make_window(with_viewer=False)
     w.top_bar.mesh_button.click()

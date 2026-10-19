@@ -166,7 +166,7 @@ def test_criteria_on_part_coefficients_and_probes_are_evaluated_by_the_app(tmp_p
 def test_readiness_flags_a_criterion_on_a_missing_probe(tmp_path: Path) -> None:
     from vortexcfd.core.model import Part
     from vortexcfd.core.project import Project
-    from vortexcfd.gui.solving import physics_problem
+    from vortexcfd.workflow.solving import physics_problem
 
     (tmp_path / "geometry").mkdir()
     pv.Sphere(radius=0.5).save(str(tmp_path / "geometry" / "b.stl"))

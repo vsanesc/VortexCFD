@@ -217,8 +217,8 @@ def test_real_sweep_on_the_flattened_ellipsoid(tmp_path: Path) -> None:
     from vortexcfd.core.project import Project
     from vortexcfd.foam.mesh_run import MeshRun
     from vortexcfd.foam.polar_sweep import SweepRun
-    from vortexcfd.gui.meshing import prepare_job
-    from vortexcfd.gui.polar_sweep import point_writer, prepare_sweep
+    from vortexcfd.workflow.meshing import prepare_job
+    from vortexcfd.workflow.polar_sweep import point_writer, prepare_sweep
 
     folder = tmp_path / "proj"
     (folder / "geometry").mkdir(parents=True)

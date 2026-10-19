@@ -1,6 +1,6 @@
 """Mesh study orchestration: project -> level cases in <project dir>/case_study (Qt-free). (D-066)
 
-Lives in gui/ for the same reason as gui/meshing.py: it joins core, geometry (surfaces, domain) and
+Lives in workflow/ for the same reason as workflow/meshing.py: it joins core, geometry (surfaces, domain) and
 foam (case files). case/ is never touched: every level is a marker-protected case directory of its
 own, <project dir>/case_study/level_<n>/.
 """
@@ -37,7 +37,7 @@ from vortexcfd.foam.mesh_study import (
 from vortexcfd.foam.run_record import read_run_record
 from vortexcfd.foam.yplus import first_layer_thickness
 from vortexcfd.geometry.domain import union_bounds
-from vortexcfd.gui.meshing import (
+from vortexcfd.workflow.meshing import (
     MeshingNotReady,
     _loaded_parts,
     _part_overrides,
@@ -48,7 +48,7 @@ from vortexcfd.gui.meshing import (
     write_domain_surface,
     write_part_surfaces,
 )
-from vortexcfd.gui.solving import clear_results, physics_problem, solver_input
+from vortexcfd.workflow.solving import clear_results, physics_problem, solver_input
 from vortexcfd.foam.physics_case import build_solver_files
 
 # Background cells per total cell of a meshed case, used for the estimate when the current case
