@@ -80,6 +80,7 @@ from vortexcfd.foam.mesh_case import (
 )
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.gui.geometry_worker import GeometryWorker, IntersectionChecker, snapshot
+from vortexcfd.workflow import surface_prep
 from vortexcfd.gui.mesh_worker import MeshWorker
 from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam.run_record import RunRecord, read_run_record, write_run_record
@@ -379,6 +380,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.properties.request_intersections = self.intersections.request
         self.properties.pending_changed.connect(self._update_actions)
         self.properties.generate_domain_requested.connect(self.generate_domain)
+        self.properties.prepare_surfaces_requested.connect(self.prepare_surfaces)
+        self.properties.remove_surface_prep_requested.connect(self.remove_surface_prep)
         self._build_actions()
 
         self.tree_header = SectionHeader("Simulation Tree")
@@ -897,6 +900,11 @@ class MainWindow(StudyControlMixin, QMainWindow):
             root = add(self.tree, "root", None, name, "dot", "text")
             geometry = add(root, "geometry", None, "Geometry", "folder", "text")
             parts_item = add(geometry, "parts", None, "Parts", "folder", "text")
+            prep_state = surface_prep.state(self._project)
+            prep = self._project.sim.surface_prep
+            prep_text = ("Surface Preparation (not run)" if prep is None else
+                         f"Surface Preparation: {surface_prep.STRATEGY_LABELS[prep.strategy]}"
+                         + (" (out of date)" if prep_state == "stale" else ""))
             for i, part in enumerate(parts):
                 status = part_status(self._project, part)
                 broken = status == MISSING or (status != "none" and not self._loadable(part))
@@ -905,6 +913,11 @@ class MainWindow(StudyControlMixin, QMainWindow):
                            eye=self.part_visibility.get(part.name, True))
                 if broken:
                     item.setToolTip(0, "File not found" if status == MISSING else "Cannot load file")
+            # Between the geometry and the domain / mesh (D-093): the surface preparation operation.
+            prep_item = add(root, "surface_prep", None, prep_text, "dot",
+                            "warning" if prep_state == "stale" else ("accent" if prep is not None else "accent_secondary"))
+            if prep is None:
+                add(prep_item, "prepare_surfaces", None, "Prepare surfaces\u2026", "dot", "accent_secondary")
             continua = add(root, "continua", None, "Continua", "folder", "text")
             add(continua, "mesh", None, "Mesh", "dot", "accent_secondary")
             physics_item = add(continua, "physics", None, "Physics", "dot", "accent")
@@ -1968,6 +1981,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.tree.addAction(self.act_remove_part)
         self.act_repair_part = action("Re&pair part", self.repair_selected_part)
         self.act_generate_domain = action("&Generate Domain...", lambda: self.generate_domain())
+        self.act_prepare_surfaces = action("Prepare &Surfaces...", lambda: self.prepare_surfaces())
 
         self.act_zoom_in = action("Zoom &In", lambda: self.set_point_size(self._point_size + 1))
         self.act_zoom_in.setShortcuts([QKeySequence("Ctrl+="), QKeySequence("Ctrl++")])
@@ -1999,7 +2013,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         edit_menu.addActions([self.act_undo, self.act_redo])
         edit_menu.addSeparator()
         edit_menu.addActions([self.act_add_part, self.act_remove_part, self.act_repair_part])
-        edit_menu.addAction(self.act_generate_domain)
+        edit_menu.addActions([self.act_prepare_surfaces, self.act_generate_domain])
         edit_menu.addSeparator()
         self.act_preferences = action("&Preferences...", self.edit_preferences)
         edit_menu.addAction(self.act_preferences)
@@ -2047,11 +2061,15 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.act_remove_part.setEnabled(self._selected_part_index() is not None)
         self.act_repair_part.setEnabled(self._selected_part_file() is not None and not self.geometry_busy)
         self.act_import.setEnabled(loaded and not self.geometry_busy)
+        self.act_prepare_surfaces.setEnabled(loaded and not self.geometry_busy
+                                             and bool(self._project.sim.geometry.parts))
 
     def _on_item_activated(self, item: QTreeWidgetItem, _column: int = 0) -> None:
         kind, _index = item.data(0, ROLE_NODE)
         if kind == "generate_domain":
             self.generate_domain()
+        elif kind == "prepare_surfaces":
+            self.prepare_surfaces()
 
     def generate_domain(self) -> None:
         """Edit > Generate Domain (D-078): the parts it is sized around (the selected part, else all),
@@ -2073,6 +2091,55 @@ class MainWindow(StudyControlMixin, QMainWindow):
             label=f"Generate domain ({SHAPE_LABELS[fields['shape']]})", **fields))
         log.info("Generated a %s domain around %s", SHAPE_LABELS[fields["shape"]],
                  ", ".join(fields["parts"]) if fields.get("parts") else "every part")
+
+    def prepare_surfaces(self) -> None:
+        """Edit > Prepare Surfaces (D-093): the strategy, then the preparation on the geometry worker;
+        its result is applied as one undoable step if the parts did not change meanwhile."""
+        if not self.has_project:
+            return
+        self._flush_edits()
+        if not self._project.sim.geometry.parts:
+            self.show_message("Import the parts first: the preparation works on them.", "warning")
+            return
+        if self._project.folder is None:
+            self.show_message("Save the project first.", "warning")
+            return
+        current = self._project.sim.surface_prep
+        strategy = self.dialogs.ask_surface_prep(
+            list(surface_prep.STRATEGY_LABELS.items()),
+            current.strategy if current is not None else surface_prep.DEFAULT_STRATEGY)
+        if not strategy:
+            return
+        snap = snapshot(self._project)
+        before = surface_prep.geometry_hash(snap)
+        label = f"Preparing surfaces ({surface_prep.STRATEGY_LABELS[strategy]})"
+        self._start_geometry_job(label, lambda: surface_prep.prepare(snap, strategy),
+                                 lambda result: self._surface_prep_done(result, before))
+
+    def _surface_prep_done(self, result, before: str) -> None:
+        if surface_prep.geometry_hash(self._project) != before:
+            self.show_message("The parts changed during the surface preparation: the result was discarded", "warning")
+            return
+        self._run_edit(lambda: self._project.set_surface_prep(result))
+        for label, value in result.report:
+            log.info("Surface preparation: %s: %s", label, value)
+        fallbacks = [p.part for p in result.parts if p.note]
+        text = f"Surface preparation ({surface_prep.STRATEGY_LABELS[result.strategy]}) done in {result.time_s:.1f} s"
+        if fallbacks:
+            text += "; fell back to intersection features: " + ", ".join(fallbacks)
+        self.show_message(text, "warning" if fallbacks else "success", log_it=False)
+        self._select_node("surface_prep", None)
+
+    def remove_surface_prep(self) -> None:
+        """Remove the surface preparation (one undoable step): the parts mesh as imported."""
+        if self.has_project and self._project.sim.surface_prep is not None:
+            self._flush_edits()
+            self._run_edit(lambda: self._project.set_surface_prep(None))
+
+    def _select_node(self, kind: str, index) -> None:
+        item = self._items.get((kind, index))
+        if item is not None:
+            self.tree.setCurrentItem(item)
 
     def _selected_part_index(self) -> int | None:
         if self._selection and self._selection[0] == "part":

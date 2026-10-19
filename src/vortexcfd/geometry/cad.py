@@ -288,12 +288,8 @@ def tessellate(model: CadModel, linear_deflection: float, angular_deflection_deg
     id of every triangle in cell array FACE_ARRAY; reversed faces are flipped so the normals follow
     the CAD orientation.
     """
-    from OCP.BRep import BRep_Tool
     from OCP.BRepMesh import BRepMesh_IncrementalMesh
     from OCP.BRepTools import BRepTools
-    from OCP.TopAbs import TopAbs_REVERSED
-    from OCP.TopLoc import TopLoc_Location
-    from OCP.TopoDS import TopoDS
 
     if linear_deflection <= 0 or angular_deflection_deg <= 0:
         raise ValueError("deflections must be positive")
@@ -305,30 +301,52 @@ def tessellate(model: CadModel, linear_deflection: float, angular_deflection_deg
         BRepTools.Clean_s(body.shape)  # BRepMesh keeps an existing finer triangulation otherwise
         BRepMesh_IncrementalMesh(body.shape, linear_deflection, False, np.radians(angular_deflection_deg), True)
         for fid, face_shape in zip(body.faces, _unique_faces(body.shape)):
-            face = TopoDS.Face(face_shape)
-            loc = TopLoc_Location()
-            tri = BRep_Tool.Triangulation_s(face, loc)
-            if tri is None:
+            got = face_triangulation(face_shape)
+            if got is None:
                 continue
-            trsf = loc.Transformation()
-            identity = loc.IsIdentity()
-            n_nodes = tri.NbNodes()
-            nodes = np.empty((n_nodes, 3))
-            for i in range(1, n_nodes + 1):
-                p = tri.Node(i) if identity else tri.Node(i).Transformed(trsf)
-                nodes[i - 1] = (p.X(), p.Y(), p.Z())
-            faces = np.empty((tri.NbTriangles(), 3), dtype=np.int64)
-            for i in range(1, tri.NbTriangles() + 1):
-                faces[i - 1] = tri.Triangle(i).Get()
-            faces -= 1
-            if face.Orientation() == TopAbs_REVERSED:
-                faces = faces[:, ::-1]
+            nodes, faces = got
             points.append(nodes)
             tris.append(faces + offset)
             face_ids.append(np.full(len(faces), fid, dtype=np.int32))
-            offset += n_nodes
+            offset += len(nodes)
     if not tris:
         raise CadImportError(f"{model.path.name}: tessellation produced no triangles")
+    return merged_surface(points, tris, face_ids)
+
+
+def face_triangulation(face_shape) -> tuple[np.ndarray, np.ndarray] | None:
+    """(nodes (n, 3), triangles (m, 3), 0-based) of a meshed face, in model units, the triangles
+    flipped for a reversed face so the normals follow the CAD orientation; None when the face has no
+    triangulation."""
+    from OCP.BRep import BRep_Tool
+    from OCP.TopAbs import TopAbs_REVERSED
+    from OCP.TopLoc import TopLoc_Location
+    from OCP.TopoDS import TopoDS
+
+    face = TopoDS.Face(face_shape)
+    loc = TopLoc_Location()
+    tri = BRep_Tool.Triangulation_s(face, loc)
+    if tri is None:
+        return None
+    trsf = loc.Transformation()
+    identity = loc.IsIdentity()
+    n_nodes = tri.NbNodes()
+    nodes = np.empty((n_nodes, 3))
+    for i in range(1, n_nodes + 1):
+        p = tri.Node(i) if identity else tri.Node(i).Transformed(trsf)
+        nodes[i - 1] = (p.X(), p.Y(), p.Z())
+    faces = np.empty((tri.NbTriangles(), 3), dtype=np.int64)
+    for i in range(1, tri.NbTriangles() + 1):
+        faces[i - 1] = tri.Triangle(i).Get()
+    faces -= 1
+    if face.Orientation() == TopAbs_REVERSED:
+        faces = faces[:, ::-1]
+    return nodes, faces
+
+
+def merged_surface(points: list, tris: list, face_ids: list) -> pv.PolyData:
+    """One surface from per-face nodes and triangles (``tris`` already offset into the concatenated
+    ``points``), with the CAD face id of every triangle in FACE_ARRAY."""
     pts, cells, ids = np.concatenate(points), np.concatenate(tris), np.concatenate(face_ids)
     # Merge coincident points (faces share their edge nodes) at the float32 precision of binary STL,
     # so the written tessellation reads back with the same triangles, and drop collapsed triangles.

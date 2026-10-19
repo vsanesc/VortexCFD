@@ -106,6 +106,8 @@ def migrate_preset(data: dict) -> dict:
             mesh.setdefault(key, value)
         data["mesh"] = mesh
         version = 10
+    if isinstance(version, int) and version < CURRENT_SCHEMA_VERSION:
+        version = CURRENT_SCHEMA_VERSION  # v11 added nothing a preset holds (the surface preparation, D-093)
     data["schema_version"] = version
     data["format_version"] = PRESET_FORMAT_VERSION
     return data

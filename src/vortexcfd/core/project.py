@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from vortexcfd.core import save_rules
-from vortexcfd.core.model import Part, Simulation
+from vortexcfd.core.model import Part, Simulation, SurfacePrep
 from vortexcfd.core.project_io import load_simulation, save_simulation
 
 MAX_OBSERVER_ERRORS = 20
@@ -119,14 +119,24 @@ class Project:
         project.save(folder / f"{name}{save_rules.PROJECT_EXTENSION}")
         return project
 
+    def _geometry_files(self) -> list[str]:
+        """Every project-relative file the geometry reads: per part its surface or CAD tessellation,
+        region ids and CAD source, then the surface preparation's files (D-093)."""
+        out: list[str | None] = []
+        for part in self._sim.geometry.parts:
+            out += [part.source_file, part.region_ids, part.cad.file if part.cad else None]
+        prep = self._sim.surface_prep
+        if prep is not None:
+            out += [f for p in prep.parts for f in (p.surface_file, p.region_ids)] + [prep.features_file]
+        return [rel for rel in out if rel]
+
     def referenced_files(self) -> list[str]:
         """The project-relative paths of every file the parts read (surface or CAD tessellation,
-        region ids, CAD source), each once, in part order."""
+        region ids, CAD source) and of the surface preparation's result, each once, in part order."""
         out: list[str] = []
-        for part in self._sim.geometry.parts:
-            for rel in (part.source_file, part.region_ids, part.cad.file if part.cad else None):
-                if rel and rel not in out:
-                    out.append(rel)
+        for rel in self._geometry_files():
+            if rel not in out:
+                out.append(rel)
         return out
 
     def duplicate(self, parent: Path, name: str, *, max_depth: int = 100) -> tuple["Project", list[str]]:
@@ -205,16 +215,12 @@ class Project:
         return self._path.parent if self._path is not None else None
 
     def geometry_sources(self) -> list[Path]:
-        """Every file the parts read (surface, region ids, CAD source), resolved."""
+        """Every file the parts read (surface, region ids, CAD source) and the surface preparation's
+        files, resolved."""
         folder = self.folder
         if folder is None:
             return []
-        out = []
-        for part in self._sim.geometry.parts:
-            for rel in (part.source_file, part.region_ids, part.cad.file if part.cad else None):
-                if rel:
-                    out.append(folder / rel)
-        return out
+        return [folder / rel for rel in self._geometry_files()]
 
     def save(self, path: Path | None = None) -> None:
         """Save atomically to ``path`` (or to ``self.path``) and clear the dirty state.
@@ -304,6 +310,16 @@ class Project:
 
         changed = ", ".join(fields) or "no fields"
         self._edit(label or f"Edit domain ({changed})", mutate)
+
+    def set_surface_prep(self, prep: SurfacePrep | None, label: str | None = None) -> None:
+        """Apply (or, with None, remove) the surface preparation result as one undoable step (D-093)."""
+        value = prep.model_dump() if prep is not None else None
+        default = (f"Surface preparation ({prep.strategy})" if prep is not None else "Remove surface preparation")
+
+        def mutate(data: dict[str, Any]) -> None:
+            data["surface_prep"] = value
+
+        self._edit(label or default, mutate)
 
     def replace_simulation(self, sim: Simulation, label: str) -> None:
         """Make ``sim`` the current state as one undoable step (a preset applied, for example)."""

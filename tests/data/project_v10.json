@@ -1,0 +1,14 @@
+{
+  "schema_version": 10,
+  "name": "v10 project",
+  "analysis_type": "external",
+  "preset_name": "External flow",
+  "geometry": {"parts": [{"name": "Fuselage", "source_file": "geometry/fuselage.stl", "units": "m"},
+                         {"name": "Wing", "source_file": "geometry/wing.stl", "units": "m"}]},
+  "domain": {"enabled": true, "shape": "box", "upstream": 5.0, "downstream": 10.0, "lateral": 5.0,
+             "vertical": 5.0, "symmetry": "none"},
+  "mesh": {"background_cells_target": 100000, "target_surface_size": 0.01, "surface_size_reference": "l_ref",
+           "curvature_levels": 2, "layer_sizing": "absolute_yplus", "target_yplus": 50.0},
+  "inflow": {"speed": 30.0},
+  "reports": {"reference_length": 1.5}
+}

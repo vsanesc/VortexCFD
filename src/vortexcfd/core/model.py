@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 10
+CURRENT_SCHEMA_VERSION: int = 11
 
 
 class StrictModel(BaseModel):
@@ -121,6 +121,43 @@ class Geometry(StrictModel):
     """Geometry container holding simulation parts."""
 
     parts: list[Part] = Field(default_factory=list)
+
+
+# Surface preparation strategies (schema v11, D-093): "intersection_features" keeps the components
+# separate and adds their intersection curves as snapping features; "cad_union" sews each CAD
+# component into a solid, fuses them and gives every Part its share of the outer skin.
+SURFACE_PREP_STRATEGIES = ("intersection_features", "cad_union")
+
+
+class PreparedPart(StrictModel):
+    """One Part's result of the surface preparation. ``strategy`` is what was applied to it (a
+    cad_union part that could not be sewn or fused falls back to intersection_features, ``note``
+    says why). ``surface_file`` (metres, relative to the project folder) and ``region_ids`` replace
+    the Part's own surface and region ids for meshing; None keeps them."""
+
+    part: str
+    strategy: Literal["intersection_features", "cad_union"]
+    surface_file: str | None = None
+    region_ids: str | None = None
+    note: str | None = None
+
+
+class SurfacePrep(StrictModel):
+    """The surface preparation operation (schema v11, D-093): its result, applied as one undoable
+    step and used by meshing while ``inputs_hash`` (the parts' geometry when it ran) still matches.
+    ``features_file``: the components' intersection curves (featureEdgeMesh, metres, relative to the
+    project folder), added to snappyHexMesh's features at the junction level. ``report``: the
+    diagnostics and results as (label, value) rows. ``time_s``: the preparation's run time."""
+
+    strategy: Literal["intersection_features", "cad_union"]
+    inputs_hash: str
+    parts: list[PreparedPart] = Field(default_factory=list)
+    features_file: str | None = None
+    report: list[tuple[str, str]] = Field(default_factory=list)
+    time_s: float = Field(default=0.0, ge=0)
+
+    def prepared(self, part_name: str) -> PreparedPart | None:
+        return next((p for p in self.parts if p.part == part_name), None)
 
 
 # Curvature refinement goes at most this many levels above a part's maximum surface level (D-085).
@@ -483,3 +520,4 @@ class Simulation(StrictModel):
     solvers: Solvers = Field(default_factory=Solvers)
     reports: Reports = Field(default_factory=Reports)
     studies: Studies = Field(default_factory=Studies)
+    surface_prep: SurfacePrep | None = None

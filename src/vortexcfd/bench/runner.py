@@ -35,7 +35,7 @@ from vortexcfd.foam.postprocessing import patch_face_counts
 from vortexcfd.foam.runner import run_foam
 from vortexcfd.foam.solver_run import SolverRun
 from vortexcfd.geometry.cad import CAD_EXTENSIONS, read_cad, tessellate
-from vortexcfd.workflow import meshing, part_ops, solving
+from vortexcfd.workflow import meshing, part_ops, solving, surface_prep
 
 EXTERNAL_FLOW = BUILTIN_PRESETS[0]
 LAYER_FIELDS = ("nSurfaceLayers", "thickness", "thicknessFraction")
@@ -404,9 +404,18 @@ def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool =
     out["import_time_s"] = time.monotonic() - t_import
     if case.local:
         out["import"] = import_summary(project)
-        if case.surface_prep:
-            out.update(failed=True, failure=f"surface preparation '{case.surface_prep}' is not available")
-            return out
+        if case.surface_prep:  # Edit > Prepare Surfaces, as the GUI runs it (D-093)
+            _log(f"{case.name}: surface preparation ({case.surface_prep})")
+            try:
+                prep = surface_prep.prepare(project, case.surface_prep)
+            except Exception as exc:  # a failed preparation is a result
+                out.update(failed=True, failure=f"surface preparation failed: {type(exc).__name__}: {exc}",
+                           time_s={"case_total": time.monotonic() - t0})
+                return out
+            project.set_surface_prep(prep)
+            project.save()
+            out["surface_prep"] = {"strategy": prep.strategy, "time_s": prep.time_s, "report": prep.report,
+                                   "parts": {p.part: {"strategy": p.strategy, "note": p.note} for p in prep.parts}}
     reason = meshing.readiness(project)
     if reason is not None:
         out.update(failed=True, failure=f"not ready: {reason}")

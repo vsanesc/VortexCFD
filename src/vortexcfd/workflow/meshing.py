@@ -36,6 +36,7 @@ from vortexcfd.geometry import regions
 from vortexcfd.geometry.domain import DomainBox, compute_domain, union_bounds
 from vortexcfd.geometry.domain_surface import ROLE_ARRAY, meshing_surface
 from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
+from vortexcfd.workflow import surface_prep
 
 CASE_DIR_NAME = "case"
 
@@ -69,17 +70,28 @@ def _part_files(project: Project) -> list[tuple[str, Path | None, str]]:
     return out
 
 
-def _loaded_parts(project: Project):
-    """(domain box, part names, loaded meshes in metres) for the project's parts."""
+def _loaded_parts(project: Project, prepared: bool = True):
+    """(domain box, part names, loaded meshes in metres) for the project's parts: the surfaces the
+    current surface preparation made (D-093), else the parts' own (``prepared`` False: always the
+    parts' own)."""
+    prep = surface_prep.current(project) if prepared else None
     names, meshes = [], []
-    for name, path, units in _part_files(project):
+    for part, (name, path, units) in zip(project.sim.geometry.parts, _part_files(project)):
         try:
-            meshes.append(load_surface(path, units))
+            if prep is not None:
+                meshes.append(surface_prep.prepared_surface(project, part, prep)[0])
+            else:
+                meshes.append(load_surface(path, units))
         except (OSError, SurfaceLoadError) as exc:
             raise MeshingNotReady(f"Cannot load part '{name}': {exc}") from exc
         names.append(name)
     bounds = [tuple(float(b) for b in m.bounds) for m in meshes]
     return compute_domain(bounds, project.sim.domain, names), names, meshes
+
+
+def loaded_original_parts(project: Project):
+    """(domain box, part names, meshes in metres) of the parts' own surfaces (no preparation)."""
+    return _loaded_parts(project, prepared=False)
 
 
 def parts_layout(project: Project) -> tuple[DomainBox, tuple[str, ...], tuple[float, ...]]:
@@ -96,6 +108,7 @@ def parts_layout(project: Project) -> tuple[DomainBox, tuple[str, ...], tuple[fl
 def write_part_surfaces(case_dir: Path, project: Project, inputs: MeshCaseInput, meshes) -> None:
     """The part STLs of a meshing case (metres): a part with several patches (or one renamed patch)
     gets one solid per patch, named after it (D-071); other parts are written as loaded."""
+    prep = surface_prep.current(project)
     for i, (name, mesh) in enumerate(zip(inputs.parts, meshes)):
         path = case_dir / TRI_SURFACE / f"{name}.stl"
         if not inputs.has_regions(i):
@@ -103,7 +116,7 @@ def write_part_surfaces(case_dir: Path, project: Project, inputs: MeshCaseInput,
             continue
         part = project.sim.geometry.parts[i]
         try:
-            ids = regions.base_ids(part, mesh, project.folder)
+            ids = surface_prep.base_ids(project, part, mesh, prep)
         except regions.RegionError as exc:
             raise MeshingNotReady(f"Part '{part.name}': {exc}") from exc
         labels = regions.patch_labels(part, ids, part.patch_names())
@@ -242,6 +255,8 @@ def readiness(project: Project) -> str | None:
     missing = [name for name, path, _ in files if path is None]
     if missing:
         return f"The file of part '{missing[0]}' is missing."
+    if surface_prep.state(project) == "stale":
+        return surface_prep.STALE_MESSAGE
     if not project.sim.domain.enabled:
         if project.sim.analysis_type == "empty":
             return "Generate the domain first (Regions > Domain)."
@@ -284,15 +299,43 @@ def prepare_job(project: Project) -> MeshJob:
         part_levels=_part_overrides(project),
         part_patches=tuple(part_patch_names(project.sim.geometry.parts)),
         surface_length=length.value,
+        extra_features=_junction_features(project, box, length.value),
         **domain_fields(box),
     )
     case_dir = case_dir_for(project)
     prepare_case_dir(case_dir, build_mesh_files(inputs))
+    write_junction_features(case_dir, project, inputs)
     write_part_surfaces(case_dir, project, inputs, meshes)
     write_domain_surface(case_dir, box, inputs)
     write_domain_guard(case_dir, inputs)
     write_seed_edge_meshes(case_dir, inputs)
     return MeshJob(case_dir, inputs, box)
+
+
+def junction_level(project: Project, box: DomainBox, length: float) -> int:
+    """The refinement level of the intersection curves (D-093): the highest maximum surface level of
+    the parts (their overrides, else the mesh's), so a junction is resolved as finely as the finer of
+    the two surfaces that meet there. [NUMERICS-REVIEW]"""
+    est = estimate_for(box, project.sim.mesh, length)
+    return max(part_level_range(est.level_min, est.level_max, o)[1] for o in _part_overrides(project))
+
+
+def _junction_features(project: Project, box: DomainBox, length: float) -> tuple[tuple[str, int], ...]:
+    prep = surface_prep.current(project)
+    if prep is None or prep.features_file is None or not project.sim.geometry.parts:
+        return ()
+    return ((surface_prep.JUNCTION_FILE, junction_level(project, box, length)),)
+
+
+def write_junction_features(case_dir: Path, project: Project, inputs: MeshCaseInput) -> None:
+    """Copy the surface preparation's intersection curves into constant/triSurface (D-093); an earlier
+    copy is removed when the case has none."""
+    target = case_dir / TRI_SURFACE / surface_prep.JUNCTION_FILE
+    prep = surface_prep.current(project)
+    if not inputs.extra_features or prep is None or prep.features_file is None:
+        target.unlink(missing_ok=True)
+        return
+    target.write_bytes((project.folder / prep.features_file).read_bytes())
 
 
 def _part_overrides(project: Project) -> tuple[tuple[int | None, int | None], ...]:
@@ -371,4 +414,10 @@ def inputs_hash(project: Project) -> str:
     }
     if project.sim.mesh.surface_size_reference == "l_ref":  # l_ref sizes the surface (D-085)
         payload["surface_l_ref"] = project.sim.reports.reference_length
+    prep = project.sim.surface_prep
+    if prep is not None:  # the prepared surfaces and curves are meshing inputs (D-093)
+        folder = project.path.parent if project.path else None
+        files = [f for p in prep.parts for f in (p.surface_file, p.region_ids)] + [prep.features_file]
+        payload["surface_prep"] = [prep.strategy, prep.inputs_hash] + [
+            _hash_file(folder / f) if folder is not None and f and (folder / f).is_file() else None for f in files]
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
