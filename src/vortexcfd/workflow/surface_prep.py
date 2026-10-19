@@ -34,8 +34,9 @@ STRATEGY_LABELS = {
     "intersection_features": "Intersection features",
     "cad_union": "CAD union",
 }
-# The strategy the dialog proposes (D-093: set from the 5.2 comparison, benchmarks/RESULT_5.2.md).
-DEFAULT_STRATEGY = "intersection_features"
+# The strategy the dialog proposes (D-093, a proposal from the 5.2 comparison, benchmarks/RESULT_5.2.md:
+# the CAD union, which falls back per part to intersection features). [NUMERICS-REVIEW]
+DEFAULT_STRATEGY = "cad_union"
 STALE_MESSAGE = ("The surface preparation is out of date: the parts changed after it ran. "
                  "Run Prepare Surfaces again, or remove it.")
 
@@ -202,7 +203,10 @@ def prepare(project: Project, strategy: str, cell_size: float | None = None) -> 
         prepared = [PreparedPart(part=n, strategy="intersection_features") for n in names]
         report.append(("Intersection curves", f"{curves.length():.4g} m in {len(curves.segments)} segments"))
     else:
-        cad_parts = [p for p in parts if p.cad is not None]
+        # Only parts that cross another part take part in the union; the others (a single-part
+        # project, say) keep their own surface unchanged.
+        crossing = {i for pair in all_curves.pair_lengths() for i in pair}
+        cad_parts = [p for k, p in enumerate(parts) if p.cad is not None and k in crossing]
         components = [ComponentSource(p.name, project.folder / p.cad.file, p.cad.bodies, UNIT_TO_METRE[p.units])
                       for p in cad_parts]
         linear = min((p.cad.linear_deflection for p in cad_parts), default=0.0)
@@ -211,6 +215,10 @@ def prepare(project: Project, strategy: str, cell_size: float | None = None) -> 
         surfaces = list(meshes)
         fallback = []
         for k, part in enumerate(parts):
+            if k not in crossing:
+                prepared.append(PreparedPart(part=part.name, strategy="cad_union",
+                                             note="crosses no other part: its own surface, unchanged"))
+                continue
             piece = union.meshes.get(part.name) if union is not None else None
             if piece is None:
                 note = ("not a CAD part" if part.cad is None else

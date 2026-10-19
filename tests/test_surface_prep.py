@@ -241,6 +241,22 @@ def test_undo_redo_and_a_stale_result_blocks_meshing(tmp_path: Path, shapes) -> 
     assert project.undo_label == "Remove surface preparation"
 
 
+@pytest.mark.parametrize("strategy", ["intersection_features", "cad_union"])
+def test_a_single_part_is_not_changed_by_either_strategy(tmp_path: Path, shapes, strategy: str) -> None:
+    """Surface preparation must not change single-component geometry: the meshing case of a prepared
+    one-part project is the unprepared one."""
+    project = _project(tmp_path, shapes, ("body",))
+    job = meshing.prepare_job(project)
+    files = {f: (job.case_dir / f).read_bytes() for f in ("system/snappyHexMeshDict", "constant/triSurface/body.stl")}
+    prep = surface_prep.prepare(project, strategy)
+    assert prep.features_file is None and all(p.surface_file is None for p in prep.parts)
+    project.set_surface_prep(prep)
+    job = meshing.prepare_job(project)
+    assert {f: (job.case_dir / f).read_bytes() for f in files} == files
+    if strategy == "cad_union":
+        assert prep.parts[0].note == "crosses no other part: its own surface, unchanged"
+
+
 # -- schema v11 -----------------------------------------------------------------------------------
 
 
@@ -281,7 +297,7 @@ def test_gui_prepares_shows_the_report_and_removes(qtbot, tmp_path: Path, shapes
         assert ("prepare_surfaces", None) in window._items
         dialogs.surface_prep_strategy = None  # cancelled: nothing runs
         window.act_prepare_surfaces.trigger()
-        assert dialogs.surface_prep_asked[-1][1] == surface_prep.DEFAULT_STRATEGY and not window.geometry_busy
+        assert dialogs.surface_prep_asked[-1][1] == surface_prep.DEFAULT_STRATEGY == "cad_union" and not window.geometry_busy
         dialogs.surface_prep_strategy = "cad_union"
         window.act_prepare_surfaces.trigger()
         qtbot.waitUntil(lambda: not window.geometry_busy and not window.geometry_worker.is_running(), timeout=60000)
