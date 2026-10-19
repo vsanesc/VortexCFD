@@ -257,3 +257,39 @@ def test_results_hash_tracks_the_inputs(make_window) -> None:
     assert solving.results_hash(w.project) == base
     w.project.rename("other name")  # not an input
     assert solving.results_hash(w.project) == base
+
+
+def test_a_mesh_that_failed_checkmesh_blocks_run_solver(make_window) -> None:
+    """D-096: a mesh with failed checkMesh checks (negative volumes here, as the 5.2 aircraft meshes)
+    disables Run Solver with the failed checks in its tooltip and in the Mesh report; run_solver does
+    nothing. Before D-096 only lost parts and the domain guard blocked it."""
+    from vortexcfd.foam.mesh_report import parse_check_mesh
+
+    log = (Path(__file__).parent / "data" / "bench" / "checkMesh_failed.log").read_text()
+    report = parse_check_mesh(log)
+    assert not report.mesh_ok and report.failed_checks == 5 and len(report.failed_check_lines) == 5
+    assert any(line.startswith("Zero or negative cell volume detected") for line in report.failed_check_lines)
+    w = make_window(mesh=False)
+    case = fake_mesh(w.project)
+    write_mesh_record(case, MeshRecord(report, inputs_hash(w.project), ("Ball",)))
+    w._load_mesh_record(w.project)
+    assert w.mesh_report == report and not w.mesh_stale
+    w._update_run_button()
+    button = w.top_bar.run_button
+    assert not button.isEnabled()
+    assert button.toolTip().startswith("The mesh failed checkMesh (checkMesh failed 5 checks: ")
+    assert "Zero or negative cell volume detected" in button.toolTip()
+    w.run_solver()
+    assert not w.solver_worker.is_running() and w.run_record is None
+    assert not (case / "0").exists()  # no solver files were written
+    # the Mesh report lists the failed checks
+    w.properties.show_node("mesh", None)
+    text = w.properties.mesh_values["failed"].text()
+    assert text.startswith("5\n") and "Run Solver is blocked" in text and "negative cell volume" in text
+    # the polar sweep refuses it too
+    from vortexcfd.workflow import polar_sweep
+
+    assert polar_sweep.sweep_readiness(w.project, has_mesh=True, mesh_stale=False,
+                                       failed_checks=report.failed_checks_message()).startswith("The mesh failed checkMesh")
+    assert solving.readiness(w.project, has_mesh=True, mesh_stale=False, meshing=False,
+                             failed_checks=REPORT.failed_checks_message()) is None  # a passing mesh: no block

@@ -1280,6 +1280,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self._project, has_mesh=self.mesh_report is not None, mesh_stale=self.mesh_stale,
             meshing=self.mesh_worker.is_running(),
             lost_parts=self.mesh_report.lost_parts if self.mesh_report is not None else (),
+            failed_checks=self.mesh_report.failed_checks_message() if self.mesh_report is not None else None,
         )
 
     def _update_run_button(self) -> None:

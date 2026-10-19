@@ -65,6 +65,19 @@ class MeshReport:
     lost_parts: tuple[str, ...] = ()
     # The domain guard (D-078): a background-box patch left with faces or a domain patch without any.
     domain_errors: tuple[str, ...] = ()
+    # checkMesh's "***" lines of the failed checks (D-096), e.g. "Zero or negative cell volume detected.
+    # Minimum negative volume: -6e-06, Number of negative volume cells: 6".
+    failed_check_lines: tuple[str, ...] = ()
+
+    def failed_checks_message(self) -> str | None:
+        """Why the solver must not run on this mesh because checkMesh failed (None: it passed)."""
+        if self.mesh_ok:
+            return None
+        n = self.failed_checks
+        text = f"checkMesh failed {n} check{'s' if n != 1 else ''}"
+        if self.failed_check_lines:
+            text += ": " + "; ".join(self.failed_check_lines)
+        return text
 
     @property
     def valid(self) -> bool:
@@ -132,6 +145,7 @@ def parse_check_mesh(text: str) -> MeshReport:
         max_skewness=_find(rf"Max skewness = {_NUM}", text, float),
         failed_checks=failed,
         mesh_ok=mesh_ok,
+        failed_check_lines=tuple(" ".join(m.split()) for m in re.findall(r"^\s*\*{3}\s*(.+?)\s*$", text, re.MULTILINE)),
     )
 
 

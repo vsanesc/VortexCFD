@@ -152,7 +152,8 @@ class StudyControlMixin:
             report = self.mesh_report
             reason = self._busy_for_study("polar") or polar_sweep.sweep_readiness(
                 self._project, has_mesh=report is not None, mesh_stale=self.mesh_stale,
-                lost_parts=report.lost_parts if report is not None else ())
+                lost_parts=report.lost_parts if report is not None else (),
+                failed_checks=report.failed_checks_message() if report is not None else None)
         record = self.sweep_record
         status, warn = ("Running" if running else "Not run"), False
         if record is not None:
@@ -206,7 +207,8 @@ class StudyControlMixin:
         report = self.mesh_report
         reason = self._busy_for_study("polar") or polar_sweep.sweep_readiness(
             self._project, has_mesh=report is not None, mesh_stale=self.mesh_stale,
-            lost_parts=report.lost_parts if report is not None else ())
+            lost_parts=report.lost_parts if report is not None else (),
+                failed_checks=report.failed_checks_message() if report is not None else None)
         if reason is not None:
             self.show_message(reason, "error")
             return

@@ -1175,7 +1175,9 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             "points": (num(report.points), False),
             "non_ortho": (num(report.max_non_orthogonality, "{:.4g}\u00b0"), False),
             "skewness": (num(report.max_skewness, "{:.4g}"), False),
-            "failed": (str(report.failed_checks), report.failed_checks > 0),
+            "failed": (str(report.failed_checks) + "".join(f"\n{line}" for line in report.failed_check_lines)
+                       + ("\nRun Solver is blocked until the mesh passes checkMesh" if not report.mesh_ok else ""),
+                       report.failed_checks > 0),
             "ok": ("yes" if report.mesh_ok else "no", not report.mesh_ok),
             "lost": (", ".join(report.lost_parts), False),
             "extruded": (num(report.extruded_percent, "{:g} %"), False),

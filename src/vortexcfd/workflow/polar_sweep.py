@@ -22,7 +22,7 @@ def sweep_dir_for(project: Project) -> Path | None:
 
 
 def sweep_readiness(project: Project, *, has_mesh: bool, mesh_stale: bool, lost_parts: tuple[str, ...] = (),
-                    busy: str | None = None) -> str | None:
+                    busy: str | None = None, failed_checks: str | None = None) -> str | None:
     """Why the polar sweep cannot start, or None."""
     if project.path is None:
         return "Save the project first."
@@ -34,6 +34,10 @@ def sweep_readiness(project: Project, *, has_mesh: bool, mesh_stale: bool, lost_
         return "The mesh lost a part: generate it again."
     if mesh_stale:
         return "The mesh is out of date: generate it again."
+    if failed_checks is not None:  # D-096
+        from vortexcfd.workflow.solving import failed_checks_reason
+
+        return failed_checks_reason(failed_checks)
     if not project.sim.studies.polar.alphas():
         return "The sweep has no angle of attack."
     return physics_problem(project)
