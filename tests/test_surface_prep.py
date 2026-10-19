@@ -169,9 +169,17 @@ def test_prepare_cad_union_writes_per_part_surfaces_and_regions(tmp_path: Path, 
     project = _project(tmp_path, shapes)
     prep = surface_prep.prepare(project, "cad_union", cell_size=0.05)
     assert [(p.part, p.strategy, p.note) for p in prep.parts] == [("body", "cad_union", None), ("wing", "cad_union", None)]
-    assert prep.features_file is None
+    # the union's junctions (the shares' open edges, D-101): two 0.6 x 0.2 m rectangles where the wing
+    # meets the body's sides, merged across the two shares
+    points, edges = geo.read_edge_mesh(project.folder / prep.features_file)
+    assert np.linalg.norm(points[edges[:, 1]] - points[edges[:, 0]], axis=1).sum() == pytest.approx(2 * 1.6)
+    assert (np.abs(np.abs(points[:, 1]) - 0.5) < 1e-6).all()
     project.set_surface_prep(prep)
     assert surface_prep.state(project) == "current"
+    job = meshing.prepare_job(project)
+    level = meshing.junction_level(project, job.box, meshing.surface_length(project, job.box).value)
+    assert job.inputs.extra_features == ((surface_prep.JUNCTION_FILE, level),)
+    assert level == meshing.project_estimate(project, job.box).curvature_level  # max level + curvature levels
     for entry in prep.parts:
         mesh, ids_file = surface_prep.prepared_surface(project, next(p for p in project.sim.geometry.parts
                                                                        if p.name == entry.part), prep)
@@ -179,7 +187,7 @@ def test_prepare_cad_union_writes_per_part_surfaces_and_regions(tmp_path: Path, 
         assert ids_file == entry.region_ids and len(ids) == mesh.n_cells
     rows = dict(prep.report)
     assert rows["Union"].startswith("2 of 2 parts") and "closed" in rows["Union"] and "not closed" not in rows["Union"]
-    assert rows["wing: strategy"] == "CAD union"
+    assert rows["wing: strategy"] == "CAD union" and rows["Union junction edges"].startswith("3.2 m")
 
 
 def test_fallback_for_a_part_that_cannot_be_sewn_or_is_not_cad(tmp_path: Path, shapes) -> None:

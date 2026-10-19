@@ -285,11 +285,21 @@ def prepare(project: Project, strategy: str, cell_size: float | None = None) -> 
             surfaces[k] = load_surface(stl, "m")
             prepared.append(PreparedPart(part=part.name, strategy="cad_union", surface_file=_relative(project, stl),
                                          region_ids=_relative(project, ids)))
+        # The union's junctions are the open boundaries of the parts' shares; they go to the junction
+        # feature file like the intersection curves, so they refine at the junction level (D-101).
+        shares = [union.meshes[p.name] for p in parts if union is not None and p.name in union.meshes]
+        junctions = prep_geometry.open_edge_segments(shares)
+        segments = [junctions]
+        if len(junctions):
+            pts, edges = prep_geometry.edge_mesh(junctions)  # merged: each junction edge once
+            length = float(np.linalg.norm(pts[edges[:, 1]] - pts[edges[:, 0]], axis=1).sum())
+            report.append(("Union junction edges", f"{length:.4g} m in {len(edges)} edges"))
         if fallback:  # the fallback parts against everything else (the union's shares included)
             fallback_curves = prep_geometry.intersection_curves(surfaces, subset=fallback)
-            features = _write_features(folder, fallback_curves.segments)
+            segments.append(fallback_curves.segments)
             report.append(("Intersection curves (fallback parts)",
                            f"{fallback_curves.length():.4g} m in {len(fallback_curves.segments)} segments"))
+        features = _write_features(folder, np.concatenate(segments))
         if union is not None:
             if union.sew_tolerance:
                 report.append(("Sewing tolerance", ", ".join(sorted({f"{t * 1000:.3g} mm" for t in union.sew_tolerance.values()}))))
