@@ -90,9 +90,56 @@ fail only skewness (4.23, one face).
 8. Cost: preparation 1.2 s (intersection features) and 4.5 s (CAD union: sewing 0.2 s, fuse about
    3.3 s); meshing 132-142 s, cells 270,507-281,113 (+3.8 % for the CAD union, all under 500,000).
 
+## Intersection features, investigated (owner review, item 2)
+
+The first comparison showed no benefit from intersection features. Checked on its meshing case:
+
+- Read: yes. log.snappyHexMesh.castellate and log.snappyHexMesh: "Read edgeMesh
+  surface_prep_junctions.eMesh, points 262, edges 262", "level 5 for all cells within 0 metre".
+- Snapped to: yes. "Feature analysis": 1,534 boundary points attracted to feature edges, against
+  1,131 without the junction file (as imported) and 1,404 for the CAD union.
+- Curves: complete. 13.32 m in 262 segments, the same lengths as the reference's own intersection
+  curves (wing 7.71 m, horizontal tail 3.69 m, vertical tail 1.92 m). The rule that drops segments
+  inside a third part removes only the tails' mutual curves (4.16 m), which lie entirely inside the
+  fuselage.
+- Refinement: none. Within 0.05 m of the curves the cells were already at level 7 (6 cells at 5, 124
+  at 6, 1,200 at 7) from curvature refinement, so a level-5 feature entry added nothing.
+- Normals: not the cause. snappyHexMesh reads a plain .eMesh as "external" edges without normals.
+  The curves rebuilt with OpenFOAM's surfaceBooleanFeatures (concave "internal" edges with normals,
+  trimmed by the other parts) at level 7 gave the same numbers as plain curves at level 7 to 0.02 mm.
+
+Cause: the junction level (the parts' maximum surface level, 5) was below the level the surfaces
+already reach at the junctions. Fix (D-097): the junction level is the maximum surface level plus the
+curvature levels (7). Re-run of aircraft_untrimmed_intersection_features, mesh only, at git `e762e69`
+(benchmarks/results/local/20261019T202225Z_e762e69-dirty.json; "dirty" because the item 3 name
+changes to geometry/cad.py were edited while it ran, after the run had imported it: the part names in
+this run are still COMPOUND, ...):
+
+| Junction | Metric | As imported | Intersection features, level 5 | Intersection features, level 7 (fixed) | CAD union |
+|---|---|---|---|---|---|
+| wing | ref->mesh RMS / max mm | 4.87 / 27.7 | 5.17 / 20.9 | 2.13 / 11.2 | 1.33 / 12.4 |
+| wing | mesh->ref RMS / max mm | 4.80 / 11.9 | 4.99 / 11.2 | 3.61 / 11.2 | 3.14 / 11.2 |
+| wing | extruded % | 59.4 | 59.1 | 0.4 | 57.3 |
+| horizontal tail | ref->mesh RMS / max mm | 5.10 / 22.0 | 3.06 / 16.7 | 2.07 / 7.7 | 2.03 / 11.1 |
+| horizontal tail | mesh->ref RMS / max mm | 3.20 / 28.7 | 2.89 / 18.5 | 2.92 / 7.9 | 2.52 / 7.45 |
+| horizontal tail | extruded % | 16.0 | 8.4 | 7.0 | 26.8 |
+| vertical tail | ref->mesh RMS / max mm | 2.60 / 10.7 | 2.19 / 11.2 | 2.32 / 8.5 | 1.68 / 8.52 |
+| vertical tail | mesh->ref RMS / max mm | 2.51 / 17.9 | 3.12 / 40.5 | 2.59 / 8.7 | 2.48 / 6.38 |
+| vertical tail | extruded % | 20.0 | 14.6 | 19.6 | 52.9 |
+
+Overall with the fix: 281,235 cells, checkMesh fails only skewness (4.23), as imported; mesh -> reference
+RMS / max 3.74 / 21.0 mm (as imported 3.80 / 28.7), reference -> mesh RMS 3.81 mm (4.47), wall left inside
+a component 0.081 m2 (0.079), extruded 52.4 % (58.4 %); preparation 1.3 s, meshing 149 s.
+
+Intersection features now improve every junction against no preparation (reference -> mesh RMS about
+halved, worst junction miss 27.7 -> 11.2 mm), close to the CAD union except at the wing junction (2.13
+against 1.33 mm), and at the cost of the wing junction's layers (0.4 % extruded). It stays the
+fallback of the CAD union. The CAD union was not re-run: its junctions are its parts' open edges,
+refined at the parts' surface level (5), so it might gain from the same rule (docs/QUESTIONS.md).
+
 ## Proposed default
 
-**CAD union**, falling back per part to intersection features (automatic, reported). Reason, from
+**CAD union**, falling back per part to intersection features (automatic, reported). Accepted by the owner (review of 2026-10-19); the fallback was confirmed after the investigation below the table (D-097). Reason, from
 the numbers above: it is the only strategy that moves the junctions towards the reference (reference
 -> mesh RMS at the three junctions 1.3-2.0 mm against 2.6-5.2 mm), it removes the internal surface at
 the junctions (0 m2 against up to 0.0016 m2) and overall (0.030 against 0.080 m2), and it has the
