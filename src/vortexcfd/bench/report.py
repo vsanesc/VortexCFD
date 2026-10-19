@@ -33,6 +33,14 @@ def worst_zone(case: dict) -> tuple[str | None, float | None]:
     return min(rows, key=lambda r: r[1]) if rows else (None, None)
 
 
+def _metres(case: dict, kind: str) -> float | None:
+    fid = _get(case, "layers", "fidelity") or {}
+    if fid.get(f"{kind}_m") is not None:
+        return fid[f"{kind}_m"]
+    rel, ref = fid.get(f"{kind}_rel"), fid.get("reference_m") or case.get("reference_length")
+    return None if rel is None or ref is None else rel * ref
+
+
 def case_row(case: dict) -> dict:
     """The values of the summary table for one case."""
     zone, zone_cov = worst_zone(case)
@@ -52,6 +60,11 @@ def case_row(case: dict) -> dict:
         "max_aspect": _get(case, "quality", "max_aspect_ratio"),
         "failed_checks": _get(case, "quality", "failed_checks"),
         "coverage": walls.get("coverage_percent"),
+        "mean_over_target": walls.get("mean_over_target_percent"),
+        "near_full": walls.get("near_full_percent"),
+        "zero_layers": walls.get("zero_layers_percent"),
+        "removed_by_quality": _get(case, "layers", "log", "removed_by_quality"),
+        "yplus_cores": _get(case, "yplus", "cores"),
         "extruded": walls.get("extruded_percent"),
         "mean_layers": walls.get("mean_layers"),
         "target_layers": walls.get("target_layers"),
@@ -61,6 +74,10 @@ def case_row(case: dict) -> dict:
         "thickness_percent": frac,
         "fidelity_max": _get(case, "layers", "fidelity", "max_rel"),
         "fidelity_rms": _get(case, "layers", "fidelity", "rms_rel"),
+        # metres (D-091): stored since 5.1b, otherwise the relative value times the case's reference
+        "fidelity_max_m": _metres(case, "max"),
+        "fidelity_rms_m": _metres(case, "rms"),
+        "fidelity_reference_m": _get(case, "layers", "fidelity", "reference_m") or case.get("reference_length"),
         "yplus_mean": _get(case, "yplus", "mean"),
         "yplus_in_band": _get(case, "yplus", "in_band_percent"),
         "mesh_time": _get(case, "time_s", "mesh_total"),
@@ -78,10 +95,14 @@ TABLE_COLUMNS = (
     # headline layer metric: strict coverage, the wall area with the full target layer count (D-087)
     ("coverage", "Strict coverage %", ".1f"), ("target_layers", "Target layers", "d"),
     ("extruded", "Extruded %", ".1f"), ("mean_layers", "Mean layers", ".2f"),
+    ("mean_over_target", "Mean / target %", ".1f"), ("near_full", ">=80 % of target %", ".1f"),
+    ("zero_layers", "No layer %", ".1f"), ("removed_by_quality", "Layer faces removed by checks", "d"),
     ("worst_zone", "Worst zone", "s"), ("worst_zone_coverage", "Worst zone %", ".1f"),
     ("thickness_percent", "Thickness % of target", ".1f"),
-    ("fidelity_rms", "Fidelity RMS/L", ".2e"), ("fidelity_max", "Fidelity max/L", ".2e"),
-    ("yplus_mean", "y+ mean", ".1f"), ("yplus_in_band", "y+ in band %", ".1f"),
+    ("fidelity_rms_m", "Fidelity RMS mm", "mm"), ("fidelity_max_m", "Fidelity max mm", "mm"),
+    ("fidelity_rms", "Fidelity RMS/ref", ".2e"), ("fidelity_max", "Fidelity max/ref", ".2e"),
+    ("fidelity_reference_m", "ref m", ".4g"),
+    ("yplus_mean", "y+ mean", ".1f"), ("yplus_in_band", "y+ in band %", ".1f"), ("yplus_cores", "y+ cores", "d"),
     ("mesh_time", "Mesh s", ".0f"), ("total_time", "Total s", ".0f"),
 )
 
@@ -95,9 +116,16 @@ def markdown_table(result: dict) -> str:
         cells = []
         for key, _, spec in TABLE_COLUMNS:
             v = r[key]
-            cells.append(_fmt(float(v), spec) if isinstance(v, (int, float)) and spec not in ("s", "d") else _fmt(v))
+            if spec == "mm":
+                cells.append(_fmt(None if v is None else 1000.0 * float(v), ".3f"))
+            else:
+                cells.append(_fmt(float(v), spec) if isinstance(v, (int, float)) and spec not in ("s", "d") else _fmt(v))
         lines.append("| " + " | ".join(cells) + " |")
     return "\n".join(lines)
+
+
+def _checks(errors: dict | None) -> str:
+    return ", ".join(f"{k}: {v}" for k, v in (errors or {}).items()) or "none"
 
 
 def markdown_report(result: dict) -> str:
@@ -120,7 +148,23 @@ def markdown_report(result: dict) -> str:
         for name, z in (_get(case, "layers", "zones") or {}).items():
             out.append(f"- zone {name} ({z.get('description')}): coverage {_fmt(z.get('coverage_percent'), '.1f')} %, "
                        f"extruded {_fmt(z.get('extruded_percent'), '.1f')} %, "
-                       f"mean layers {_fmt(z.get('mean_layers'), '.2f')}, thickness {_fmt(z.get('thickness_percent'), '.1f')} %")
+                       f"mean layers {_fmt(z.get('mean_layers'), '.2f')} / {z.get('target_layers')} "
+                       f"({_fmt(z.get('mean_over_target_percent'), '.1f')} %), "
+                       f">= 80 % of target {_fmt(z.get('near_full_percent'), '.1f')} %, "
+                       f"no layer {_fmt(z.get('zero_layers_percent'), '.1f')} %, "
+                       f"thickness {_fmt(z.get('thickness_percent'), '.1f')} %")
+        walls = _get(case, "layers", "walls") or {}
+        if walls.get("layers_area_percent"):
+            out.append("- wall area by layer count: " + ", ".join(
+                f"{k}: {_fmt(v, '.1f')} %" for k, v in sorted(walls["layers_area_percent"].items(), key=lambda kv: int(kv[0]))))
+        log = _get(case, "layers", "log")
+        if log:
+            out.append(f"- layer phase (log): {log.get('layer_iterations')} iteration(s), layer faces removed by the "
+                       f"quality checks {log.get('removed_by_quality')} ({_checks(log.get('layer_check_errors'))}); "
+                       f"faces in error while shrinking (displacement scaled down, {log.get('shrink_scaling_steps')} "
+                       f"steps): {_checks(log.get('shrink_errors'))}; feature-edge points with no layer "
+                       f"{log.get('feature_edges_zero_displacement')}; isolated points stopped "
+                       f"{log.get('isolated_points_stopped')}; medial-axis reductions {log.get('medial_axis_reduced_nodes')}")
         for name, p in (_get(case, "layers", "patches") or {}).items():
             out.append(f"- patch {name}: coverage {_fmt(p.get('coverage_percent'), '.1f')} %, extruded "
                        f"{_fmt(p.get('extruded_percent'), '.1f')} %, mean layers "
@@ -176,9 +220,15 @@ def compare(old: dict, new: dict) -> tuple[list[str], list[str], list[str]]:
             continue
         parts = []
         for key in ("cells", "max_non_ortho", "faces_gt70", "coverage", "target_layers", "worst_zone_coverage",
-                    "fidelity_rms", "yplus_mean", "total_time"):
+                    "yplus_mean", "total_time"):
             delta = d(a[key], b[key])
             parts.append(f"{key} {_fmt(a[key], '.4g')} -> {_fmt(b[key], '.4g')} ({_fmt(delta, '+.4g')})")
+        for key in ("fidelity_rms_m", "fidelity_max_m"):  # metres, then relative with its reference (D-091)
+            mm_a, mm_b = (None if v is None else 1000.0 * v for v in (a[key], b[key]))
+            parts.append(f"{key[:-2]}_mm {_fmt(mm_a, '.4g')} -> {_fmt(mm_b, '.4g')} ({_fmt(d(mm_a, mm_b), '+.4f')})")
+        for key in ("fidelity_rms", "fidelity_max"):
+            parts.append(f"{key}/ref {_fmt(a[key], '.4g')} (ref {_fmt(a['fidelity_reference_m'], '.4g')} m) -> "
+                         f"{_fmt(b[key], '.4g')} (ref {_fmt(b['fidelity_reference_m'], '.4g')} m)")
         deltas.append(f"{name}: " + "; ".join(parts))
         cov = d(a["coverage"], b["coverage"])
         if cov is not None and cov < -COVERAGE_DROP_POINTS:
@@ -199,8 +249,10 @@ def compare(old: dict, new: dict) -> tuple[list[str], list[str], list[str]]:
             regressions.append(f"{name}: {f70} more faces above 70 degrees")
         if a["cells"] and b["cells"] and b["cells"] > a["cells"] * (1 + CELLS_RISE):
             regressions.append(f"{name}: cells up {100 * (b['cells'] / a['cells'] - 1):.1f} %")
-        if a["fidelity_rms"] and b["fidelity_rms"] and b["fidelity_rms"] > a["fidelity_rms"] * (1 + FIDELITY_RMS_RISE):
-            regressions.append(f"{name}: surface fidelity RMS worse by {100 * (b['fidelity_rms'] / a['fidelity_rms'] - 1):.1f} %")
+        # like-for-like in metres: the relative values may use different reference lengths (D-091)
+        if a["fidelity_rms_m"] and b["fidelity_rms_m"] and b["fidelity_rms_m"] > a["fidelity_rms_m"] * (1 + FIDELITY_RMS_RISE):
+            regressions.append(f"{name}: surface fidelity RMS worse by "
+                               f"{100 * (b['fidelity_rms_m'] / a['fidelity_rms_m'] - 1):.1f} % (in metres)")
         if a["total_time"] and b["total_time"] and b["total_time"] > a["total_time"] * (1 + TIME_RISE):
             flags.append(f"{name}: total time up {100 * (b['total_time'] / a['total_time'] - 1):.0f} % (time is noisy: flag only)")
     new_names = {c["case"] for c in new.get("cases", [])}

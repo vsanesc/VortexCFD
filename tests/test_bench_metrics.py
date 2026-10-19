@@ -173,7 +173,7 @@ def test_yplus_stats() -> None:
 # -- result files and comparison ---------------------------------------------------------------------
 
 def _result(**over) -> dict:
-    case = {"case": "wing", "cells": 100_000, "failed": False,
+    case = {"case": "wing", "cells": 100_000, "failed": False, "reference_length": 1.0,
             "quality": {"max_non_ortho": 60.0, "avg_non_ortho": 5.0, "faces_non_ortho_gt70": 2},
             "layers": {"walls": {"coverage_percent": 90.0}, "fidelity": {"rms_rel": 1e-4},
                        "zones": {"tips": {"coverage_percent": 70.0, "description": "tips"}}},
@@ -255,3 +255,79 @@ def test_the_benchmark_never_loads_qt() -> None:
             "print(any(m.split('.')[0] in ('PySide6', 'pyvistaqt') for m in sys.modules))")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "False"
+
+
+def test_layer_diagnostics_per_area() -> None:
+    """D-091: mean / target, the share with at least 80 % of the target count, the share with none and
+    the area per layer count."""
+    area = np.array([1.0, 1.0, 1.0, 1.0])
+    n = np.array([10, 8, 5, 0])
+    s = metrics.layer_stats(area, n, np.ones(4), np.ones(4), 10)
+    assert s["mean_over_target_percent"] == pytest.approx(57.5)
+    assert s["near_full_percent"] == pytest.approx(50.0)  # 10 and 8 layers of 10
+    assert s["zero_layers_percent"] == pytest.approx(25.0)
+    assert s["layers_area_percent"] == {"0": 25.0, "5": 25.0, "8": 25.0, "10": 25.0}
+
+
+LAYER_LOG = """Snapping
+Moving mesh using displacement scaling : min:1 max:1
+Checking faces in error :
+    non-orthogonality > 65  degrees                        : 7
+Shrinking and layer addition phase
+----------------------------------
+Handling feature edges (angle < 60) ...
+Set displacement to zero for points on 668 feature edges
+Layer addition iteration 0
+--------------------------
+displacementMedialAxis : Reducing layer thickness at 3 nodes where thickness to medial axis distance is large
+displacementMedialAxis : Number of isolated points extrusion stopped : 8
+Moving mesh using displacement scaling : min:1 max:1
+Checking faces in error :
+    non-orthogonality > 65  degrees                        : 441
+    faces with face twist < 0.02                           : 0
+    faces on cells with determinant < 0.001                : 5
+Moving mesh using displacement scaling : min:0.75 max:1
+Checking faces in error :
+    non-orthogonality > 65  degrees                        : 12
+Checking mesh with layer ...
+Checking faces in error :
+    non-orthogonality > 65  degrees                        : 0
+    faces with face twist < 0.02                           : 2
+Detected 0 illegal faces (concave, zero area or negative cell pyramid volume)
+Extruding 11540 out of 11560 faces (99.82699%). Removed extrusion at 2 faces.
+Layer addition iteration 1
+Checking mesh with layer ...
+Detected 0 illegal faces (concave, zero area or negative cell pyramid volume)
+Extruding 11538 out of 11560 faces (99.8%). Removed extrusion at 0 faces.
+"""
+
+
+def test_layer_log_diagnostics() -> None:
+    d = metrics.layer_log_diagnostics(LAYER_LOG)
+    assert (d["layer_iterations"], d["removed_by_quality"]) == (2, 2)
+    assert d["layer_check_errors"] == {"faces with face twist < 0.02": 2}
+    # the snapping phase's errors (before the layer phase) are not counted
+    assert d["shrink_errors"] == {"non-orthogonality > 65 degrees": 441, "faces on cells with determinant < 0.001": 5}
+    assert d["shrink_scaling_steps"] == 2
+    assert (d["feature_edges_zero_displacement"], d["isolated_points_stopped"], d["medial_axis_reduced_nodes"]) == (668, 8, 3)
+    assert (d["extruded_faces"], d["total_faces"]) == (11538, 11560)
+    assert metrics.layer_log_diagnostics("nothing")["removed_by_quality"] == 0
+
+
+def test_fidelity_in_metres_and_like_for_like_comparison() -> None:
+    f = metrics.fidelity(np.array([0.001, 0.002]), 2.0)
+    assert (f["max_m"], f["reference_m"], f["max_rel"]) == (0.002, 2.0, 0.001)
+    assert f["rms_m"] == pytest.approx(np.sqrt(2.5e-6))
+    # an old result without metres: relative value times its reference length
+    old, new = _result(), _result()
+    old["cases"][0]["reference_length"] = 3.0  # relative to 3 m: 3e-4 m RMS
+    new["cases"][0]["layers"]["fidelity"] = {"rms_rel": 3e-4, "max_rel": 1e-3, "rms_m": 3e-4, "max_m": 1e-3,
+                                             "reference_m": 1.0}
+    assert report.case_row(old["cases"][0])["fidelity_rms_m"] == pytest.approx(3e-4)
+    deltas, regressions, _flags = report.compare(old, new)
+    assert not any("fidelity" in r for r in regressions)  # the same RMS in metres despite a 3x relative rise
+    assert "fidelity_rms_mm 0.3 -> 0.3" in deltas[0] and "(ref 3 m)" in deltas[0] and "(ref 1 m)" in deltas[0]
+    head = report.markdown_table(new).splitlines()[0]
+    for col in ("Mean / target %", ">=80 % of target %", "No layer %", "Layer faces removed by checks",
+                "Fidelity RMS mm", "ref m", "y+ cores"):
+        assert col in head

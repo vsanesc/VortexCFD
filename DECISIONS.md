@@ -100,11 +100,12 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-083 | 2026-10-19 | Qt-free orchestration in the workflow package | Accepted |
 | D-084 | 2026-10-19 | Seed lines refine in a castellation-only run, never as snap features | Accepted |
 | D-085 | 2026-10-19 | Surface cell size from l_ref; curvature refinement (schema v10) | Accepted |
-| D-086 | 2026-10-19 | Absolute layer sizing from a default target y+ of 50 | Proposed |
+| D-086 | 2026-10-19 | Absolute layer sizing from a default target y+ of 50 | Accepted |
 | D-087 | 2026-10-19 | Benchmark headline layer metric: strict coverage | Accepted |
 | D-088 | 2026-10-19 | y+ estimator: Reynolds number on l_ref | Proposed |
 | D-089 | 2026-10-19 | Layers field disabled with absolute sizing | Accepted |
 | D-090 | 2026-10-19 | Preset files versioned with the project schema | Accepted |
+| D-091 | 2026-10-19 | Benchmark: fidelity in metres, layer diagnostics | Accepted |
 
 ---
 
@@ -813,7 +814,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: slender parts (wings, blades) get much finer surfaces by default and more cells: the benchmark wing goes from 199,947 to 673,628 cells (mesh only, development run). Mesh study levels keep curvature refinement relative to each level's surface level while its cells per radius stay fixed, so the levels are not exactly geometrically similar where curvature refinement acts (docs/QUESTIONS.md).
 
 ## D-086 Absolute layer sizing from a default target y+ of 50
-- Status: Proposed (task 5.1, Part D; owner decision, [NUMERICS-REVIEW]: the default awaits owner review).
+- Status: Accepted (owner review of task 5.1, 2026-10-19: accepted pending the fidelity comparison check of D-091, which found the 5.1 comparison like-for-like; [NUMERICS-REVIEW] reviewed).
 - Context: docs/QUESTIONS.md item 88. New simulations used relative layer sizing, so the default target y+ of 1 sized nothing: after the benchmark's 400 iterations the area-weighted mean y+ was 169 (sphere), 231 (wing) and 108 (Ahmed body), with 0.0 % of the wall within [0.5, 2] times the target. Owner decision: absolute layer sizing by default from a target y+ of 50 (wall-function range); relative sizing stays selectable, and in relative mode the target y+ field is disabled with a tooltip saying that the layer thickness then follows the surface cell size and y+ is not targeted.
 - Decision: `Mesh.layer_sizing` defaults to "absolute_yplus" and `Mesh.target_yplus` to 50. The first-layer thickness and the layer count come from the existing estimator (D-024, D-026: flat-plate Cf with Re on L, count clamped to [1, 30] with the existing warning when 30 layers do not reach half the surface cell); the relaxed quality controls of absolute sizing apply (D-044, D-045). With relative sizing the Mesh properties disable the Target y+ field, with the tooltip "Relative layer sizing: the layer thickness follows the surface cell size, so y+ is not targeted. Choose absolute_yplus to size the layers for this y+." Existing projects keep their stored layer settings: the app always saved them, and the v9 -> v10 migration (D-085) also fills `layer_sizing "relative"` and `target_yplus 1` where an older file does not set them; tests/data/project_v9.json is the fixture. The built-in presets take the new default.
 - Alternatives considered: keeping relative sizing and greying out the target y+ only (the other option in item 88); y+ 30 (the lower edge of the log layer: more layers on coarse surfaces; 50 is the owner's value).
@@ -846,3 +847,12 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Decision: a preset carries `schema_version`, the project schema its settings follow (preset file format 2; format 1 files have none and were all written before schema v10, so they read as v9). `core/presets.migrate_preset` runs before validation, like the project migration: below v10 the mesh gets the v9 behaviour where the file does not set the keys (V9_MESH_BEHAVIOUR: relative layers with target y+ 1, surface size from the largest extent, no curvature refinement). A preset with a schema newer than the app is listed as broken. A migrated preset is written in the current format when it is next saved or renamed. Hand-written fixture tests/data/preset_v1.json.
 - Alternatives considered: migrating presets to the new defaults (the D-085 reading this replaces).
 - Consequences: an old preset starts new simulations exactly as it did before; an older app lists a format 2 preset as broken ("format version 2 is newer than this app").
+
+## D-091 Benchmark: fidelity in metres, layer diagnostics
+- Status: Accepted (owner requests in the review of task 5.1, docs/QUESTIONS.md item 99).
+- Context: the owner asked whether the 5.1 fidelity deltas mixed normalisations (L in the baseline, l_ref in 5.1), and for layer diagnostics that tell a near-miss stack from a collapse and show whether the quality checks remove layers. Checked: both results divide by the case's own reference length (sphere 1 m, wing 1 m, Ahmed 1.044 m; `BenchCase.reference_length`, D-081), never by the app's L, so the 5.1 deltas were like-for-like.
+- Decision:
+  - Fidelity is stored in metres too (`max_m`, `rms_m`) with the reference used (`reference_m`); the table shows mm, the relative values and the reference; `--compare` prints both, the relative ones with their reference, and applies the RMS rule (+10 %) to the metres (an older result's metres are its relative value times its reference length).
+  - Layers, per wall, patch and zone: mean layers as a percentage of the target, the share of the area with at least 80 % of the target count, the share with no layer, the area per layer count.
+  - From log.snappyHexMesh (the snap and layer run): faces whose extrusion the layer-mesh check removed ("Removed extrusion at N faces", summed over the iterations) and the checks that failed there; the checks that failed while the mesh was moved for the layers, where snappyHexMesh scales the displacement down locally (to zero at worst) instead of removing faces, and the number of scaling steps; feature-edge points given no layer (layer featureAngle); isolated points stopped; medial-axis thickness reductions.
+- Consequences: diagnostics only; no meshing change.

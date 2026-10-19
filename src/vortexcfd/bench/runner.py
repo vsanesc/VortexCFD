@@ -270,6 +270,7 @@ def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool =
     out["mesh_peak_mb"] = _peak_child_mb()
     report = result.report if result else None
     stages = snappy_stages(job.case_dir / "logs")
+    snappy_log = job.case_dir / "logs" / "log.snappyHexMesh"
     out["time_s"] = {**{k: v for k, v in stages.items()}, "steps": steps, "mesh_total": steps.get("mesh_total")}
     out["mesh_success"] = bool(result and result.success)
     out["failed_step"] = result.failed_step if result else "not run"
@@ -288,6 +289,8 @@ def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool =
     out["extruded_percent"] = report.extruded_percent
     _log(f"{case.name}: {report.summary()}")
     out["layers"] = wall_measurements(case, job.case_dir, job.inputs.patches, target_layers, source)
+    if snappy_log.is_file():  # what the layer phase did (D-091); the snap and layer run's log
+        out["layers"]["log"] = metrics.layer_log_diagnostics(snappy_log.read_text(errors="replace"))
     out["failed"] = not report.valid
     if solve and report.valid:
         _log(f"{case.name}: indicative y+ run ({case.iterations} iterations)")

@@ -11,6 +11,7 @@ import numpy as np
 NON_ORTHO_THRESHOLDS = (65.0, 70.0)  # degrees: faces above each are counted
 SKEW_THRESHOLD = 4.0  # checkMesh's "highly skew" threshold
 LOW_COVERAGE_PERCENT = 80.0  # zones and patches below this are listed
+NEAR_FULL_FRACTION = 0.8  # "near full": at least this fraction of the target layer count (D-091)
 YPLUS_BAND = (0.5, 2.0)  # times the target y+
 
 _NUM = r"([-+]?\d+(?:\.\d*)?(?:[eE][-+]?\d+)?)"
@@ -117,20 +118,31 @@ def layer_stats(area: np.ndarray, n_layers: np.ndarray, thickness: np.ndarray,
     ``n_layers``, ``thickness`` (m) and ``fraction`` (achieved / wanted thickness) are
     snappyHexMesh's layer fields (nSurfaceLayers, thickness, thicknessFraction). Coverage is the
     share of the area whose faces have the full target layer count; ``extruded_percent`` the share
-    with at least one layer; the thickness ratio is the area-weighted mean of thicknessFraction."""
+    with at least one layer; the thickness ratio is the area-weighted mean of thicknessFraction.
+    Diagnostics (D-091): mean layers as a percentage of the target, the share with at least
+    NEAR_FULL_FRACTION of the target count, the share with no layer, and the area share per layer
+    count (``layers_area_percent``, keys are counts as text)."""
     a = np.asarray(area, dtype=float)
     total = float(a.sum())
     if a.size == 0 or total <= 0:
         return {"faces": int(a.size), "area": total, "coverage_percent": None, "extruded_percent": None,
                 "mean_layers": None,
-                "target_layers": target_layers, "mean_thickness_m": None, "thickness_percent": None}
+                "target_layers": target_layers, "mean_thickness_m": None, "thickness_percent": None,
+                "mean_over_target_percent": None, "near_full_percent": None, "zero_layers_percent": None,
+                "layers_area_percent": {}}
     n = np.asarray(n_layers, dtype=float)
+    counts = np.rint(n).astype(int)
+    mean = float((a * n).sum() / total)
     return {
+        "mean_over_target_percent": 100.0 * mean / target_layers if target_layers else None,
+        "near_full_percent": 100.0 * float(a[n >= NEAR_FULL_FRACTION * target_layers - 1e-9].sum()) / total,
+        "zero_layers_percent": 100.0 * float(a[n < 0.5].sum()) / total,
+        "layers_area_percent": {str(k): 100.0 * float(a[counts == k].sum()) / total for k in np.unique(counts)},
         "faces": int(a.size),
         "area": total,
         "coverage_percent": 100.0 * float(a[n >= target_layers - 0.5].sum()) / total,
         "extruded_percent": 100.0 * float(a[n >= 0.5].sum()) / total,
-        "mean_layers": float((a * n).sum() / total),
+        "mean_layers": mean,
         "target_layers": target_layers,
         "mean_thickness_m": float((a * np.asarray(thickness, dtype=float)).sum() / total),
         "thickness_percent": 100.0 * float((a * np.asarray(fraction, dtype=float)).sum() / total),
@@ -173,12 +185,104 @@ def sphere_distance(centre: Sequence[float], radius: float) -> Callable[[np.ndar
 
 
 def fidelity(distances: np.ndarray, reference_length: float) -> dict:
-    """Max and RMS of the wall-point distances to the original surface, divided by the reference length."""
+    """Max and RMS of the wall-point distances to the original surface in metres, and divided by the
+    reference length (stated as ``reference_m``, D-091)."""
     d = np.asarray(distances, dtype=float)
     if d.size == 0:
-        return {"points": 0, "max_rel": None, "rms_rel": None}
-    return {"points": int(d.size), "max_rel": float(d.max() / reference_length),
-            "rms_rel": float(np.sqrt(np.mean(d * d)) / reference_length)}
+        return {"points": 0, "max_rel": None, "rms_rel": None, "max_m": None, "rms_m": None,
+                "reference_m": reference_length}
+    rms = float(np.sqrt(np.mean(d * d)))
+    return {"points": int(d.size), "max_rel": float(d.max() / reference_length), "rms_rel": rms / reference_length,
+            "max_m": float(d.max()), "rms_m": rms, "reference_m": reference_length}
+
+
+# -- snappyHexMesh layer log -----------------------------------------------------------------------------
+
+_CHECK_LINE = re.compile(r"^\s+(.*?)\s*:\s*(\d+)\s*$")
+
+
+def _check_counts(lines: list[str]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for line in lines:
+        m = _CHECK_LINE.match(line)
+        if m and int(m.group(2)) > 0:
+            key = re.sub(r"\s+", " ", m.group(1))
+            out[key] = out.get(key, 0) + int(m.group(2))
+    return out
+
+
+def layer_log_diagnostics(text: str) -> dict:
+    """What snappyHexMesh's layer phase did to the stacks, from its log (D-091).
+
+    - ``removed_by_quality``: faces whose extrusion the layer mesh check removed, summed over the
+      layer iterations ("Removed extrusion at N faces"), and ``layer_check_errors``: the checks that
+      failed in those "Checking mesh with layer" blocks (faces in error, summed);
+    - ``shrink_errors``: checks that failed while the mesh was moved (shrunk) for the layers, where
+      snappyHexMesh scales the displacement down locally instead of removing layers, and
+      ``shrink_scaling_steps``: how many such scaling steps it took;
+    - ``feature_edges_zero_displacement``: points on feature edges sharper than the layer featureAngle
+      that get no layer ("Set displacement to zero for points on N feature edges");
+    - ``isolated_points_stopped`` and ``medial_axis_reduced_nodes``: other local stops;
+    - ``extruded_faces`` / ``total_faces`` of the last iteration and the iteration count.
+    """
+    lines = text.splitlines()
+    removed, iterations = 0, 0
+    layer_errors: dict[str, int] = {}
+    shrink_errors: dict[str, int] = {}
+    shrink_steps = 0
+    out = {"extruded_faces": None, "total_faces": None}
+    feature = isolated = medial = 0
+    in_layers = False  # after "Shrinking and layer addition phase"
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith("Shrinking and layer addition phase"):
+            in_layers = True
+        if not in_layers:
+            i += 1
+            continue
+        if line.startswith("Layer addition iteration"):
+            iterations += 1
+        m = re.search(r"Set displacement to zero for points on (\d+) feature edges", line)
+        if m:
+            feature += int(m.group(1))
+        m = re.search(r"Number of isolated points extrusion stopped : (\d+)", line)
+        if m:
+            isolated += int(m.group(1))
+        m = re.search(r"Reducing layer thickness at (\d+) nodes", line)
+        if m:
+            medial += int(m.group(1))
+        if line.startswith("Moving mesh using displacement scaling"):
+            block = []
+            j = i + 1
+            if j < len(lines) and lines[j].startswith("Checking faces in error"):
+                j += 1
+            while j < len(lines) and _CHECK_LINE.match(lines[j]):
+                block.append(lines[j])
+                j += 1
+            errors = _check_counts(block)
+            if errors:
+                shrink_steps += 1
+                for k, v in errors.items():
+                    shrink_errors[k] = max(shrink_errors.get(k, 0), v)
+        if line.startswith("Checking mesh with layer"):
+            block = []
+            j = i + 1
+            while j < len(lines) and not lines[j].startswith("Detected "):
+                block.append(lines[j])
+                j += 1
+            for k, v in _check_counts(block).items():
+                layer_errors[k] = layer_errors.get(k, 0) + v
+        m = re.search(r"Extruding (\d+) out of (\d+) faces .*Removed extrusion at (\d+) faces", line)
+        if m:
+            out["extruded_faces"], out["total_faces"] = int(m.group(1)), int(m.group(2))
+            removed += int(m.group(3))
+        i += 1
+    out.update(layer_iterations=iterations, removed_by_quality=removed, layer_check_errors=layer_errors,
+               shrink_errors=shrink_errors, shrink_scaling_steps=shrink_steps,
+               feature_edges_zero_displacement=feature, isolated_points_stopped=isolated,
+               medial_axis_reduced_nodes=medial)
+    return out
 
 
 # -- y+ ----------------------------------------------------------------------------------------------
