@@ -162,7 +162,7 @@ Reality check: "as powerful as a commercial mesher" is not a deliverable that ca
 - Evaluate and, if better on the benchmarks, wrap: cfMesh (Cartesian/polyhedral/tetra), Gmsh, others from 0.2. Mesher selectable per project.
 - Acceptance: written comparison on the benchmark suite; adopt only on measurable improvement.
 
-### 5.4 Level M4 — Prism layer robustness
+### 5.4 Level M4 — Prism layer robustness — *first step done (task 5.4-layers, D-105, D-106, benchmarks/RESULT_5.4.md): diagnosis of the collapse mechanisms, a one-factor study and new defaults for y+ layers (layer cap 12 with the expansion ratio up to 1.3, layer featureAngle 130, nOuterIter 3): strict coverage half wing 77 -> 96 %, Ahmed body 31 -> 97 %, the aircraft valid but far from its target; no independent layer module (snappyHexMesh controls only)*
 - Goal: better layer generation in concave corners, thin trailing edges and wing-body junctions (layer collapse handling, quality-driven retraction, local layer controls, y+ driven sizing).
 - Treat as research: start with the failure-case catalogue from M1/M3, then prototype improvements as an independent module operating on an existing mesh.
 - Validation: flat plate (y+, Cf) and NACA 0012; layer coverage % on benchmark. `[NUMERICS-REVIEW]`

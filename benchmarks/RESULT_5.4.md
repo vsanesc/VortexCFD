@@ -373,8 +373,9 @@ Observations:
 2. The aircraft's y+ is far off: mean 618.6, 30.5 % in band. The planned first layer is unchanged (0.64 mm),
    but 28.8 % of the wall has no layer on 84 mm surface cells and where stacks are partial the outer passes
    are the ones that stayed (walk mean first layer 3.7 mm). The y+ the plan asks for is not reached there.
-3. Mesh time: +18 % / +0 % / -22 % (sphere unchanged, wing 51 -> 60 s, Ahmed 54 -> 42 s, single runs, noisy);
-   the aircraft 168 -> 793 s (nOuterIter 3 with each pass running its 50 layer iterations).
+3. Mesh time on the public cases is within the noise: 51 / 60 / 42 s (sphere / wing / Ahmed) against 59 / 62 /
+   44 s at the start (Part A ran its four cases at the same time; under the study's load nOuterIter 3 cost the
+   wing about +30 %); the aircraft 168 -> 793 s (nOuterIter 3, each pass running its 50 layer iterations).
 
 ### D1 verdict
 
