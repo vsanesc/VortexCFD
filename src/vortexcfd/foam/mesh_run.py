@@ -11,8 +11,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+import numpy as np
+
+from vortexcfd.foam import layer_walk
 from vortexcfd.foam.mesh_case import DOMAIN_GUARD_FILE, MESH_COMMANDS, STEP_DICTS
-from vortexcfd.foam.mesh_report import MeshReport, parse_check_mesh, parse_layer_table
+from vortexcfd.foam.mesh_report import FirstCell, MeshReport, parse_check_mesh, parse_layer_table
+from vortexcfd.foam.polymesh import PolyMesh
 from vortexcfd.foam.postprocessing import patch_face_counts
 from vortexcfd.foam.runner import FoamRun
 
@@ -54,6 +58,22 @@ def domain_problems(case_dir: Path) -> tuple[str, ...]:
     return tuple(out)
 
 
+def measure_first_cell(case_dir: Path, patches: tuple[str, ...], first_layer: float, layer_count: int) -> FirstCell:
+    """The achieved first cell on ``patches`` of the final mesh (D-109): the layer walk of the benchmark
+    (foam/layer_walk) from every wall face; the area-weighted mean and 95th percentile of the
+    wall-adjacent cell height. Any failure is recorded as ``error``, never raised: a measurement must
+    not fail the mesh step."""
+    try:
+        walked = layer_walk.walk_layers(PolyMesh.read(case_dir), patches, max(1, layer_count) + 5)
+        if not walked:
+            return FirstCell(planned_m=first_layer, error="no wall patch in the mesh")
+        area, cell, layers = (np.concatenate([d[k] for d in walked.values()]) for k in ("area", "first_cell", "layers"))
+        stats = layer_walk.first_cell_stats(area, cell, layers)
+        return FirstCell(mean_m=stats["mean_m"], p95_m=stats["p95_m"], planned_m=first_layer)
+    except Exception as exc:  # noqa: BLE001 - recorded, see the docstring
+        return FirstCell(planned_m=first_layer, error=f"{type(exc).__name__}: {exc}")
+
+
 class MeshRun:
     """Runs the meshing steps one after another on a background thread."""
 
@@ -67,11 +87,15 @@ class MeshRun:
         steps: tuple[tuple[str, list[str]], ...] = MESH_COMMANDS,
         step_timeout_s: float | None = 3600.0,
         parts: tuple[str, ...] = (),
+        first_layer: tuple[float, int] | None = None,
     ) -> None:
         self.case_dir = Path(case_dir)
         self._on_line, self._on_step, self._on_done = on_line, on_step, on_done
         self._steps = steps
         self._parts = tuple(parts)  # part patches that must be in the final mesh (lost-part guard)
+        # (planned first layer in metres, layer count) of absolute (y+) layers: the achieved first cell is
+        # measured on the part patches after checkMesh (D-109); None: not measured
+        self._first_layer = first_layer
         self._timeout = step_timeout_s
         self._lock = threading.Lock()
         self._stop = False
@@ -137,6 +161,11 @@ class MeshRun:
                 report = replace(report, layers=layers, extruded_percent=extruded,
                                  lost_parts=lost_parts(self.case_dir, self._parts),
                                  domain_errors=domain_problems(self.case_dir))
+                if self._first_layer is not None and self._parts:
+                    if self._on_step is not None:
+                        self._on_step("first cell")
+                    report = replace(report, first_cell=measure_first_cell(self.case_dir, self._parts,
+                                                                           *self._first_layer))
             elif res.exit_code != 0:
                 failed = name
                 break

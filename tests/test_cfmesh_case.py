@@ -28,7 +28,7 @@ def test_a_missing_executable_is_none():
 import numpy as np  # noqa: E402
 import pyvista as pv  # noqa: E402
 
-from vortexcfd.bench.layer_walk import walk_layers  # noqa: E402
+from vortexcfd.foam.layer_walk import walk_layers  # noqa: E402
 from vortexcfd.core.model import Part  # noqa: E402
 from vortexcfd.core.project import Project  # noqa: E402
 from vortexcfd.foam.cfmesh_case import (  # noqa: E402

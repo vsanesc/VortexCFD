@@ -46,6 +46,47 @@ class LayerCoverage:
                 f"thickness {self.thickness_percent:g} %")
 
 
+# The achieved first cell (D-109): a mean wall-adjacent cell height above this many times the planned first
+# layer is reported as collapsed layers (a warning, never a block). [NUMERICS-REVIEW]
+FIRST_CELL_DRIFT = 1.5
+
+
+@dataclass(frozen=True)
+class FirstCell:
+    """The wall-adjacent cell height on the part patches after meshing (foam/layer_walk, D-109): the
+    area-weighted mean and 95th percentile over every wall face, layered or not, against the planned
+    first layer; ``error`` when the measurement failed (the mesh step is not failed for it)."""
+
+    mean_m: float | None = None
+    p95_m: float | None = None
+    planned_m: float | None = None
+    error: str | None = None
+
+    @property
+    def ratio(self) -> float | None:
+        """mean / planned: about the factor between the y+ the solver reports and the target."""
+        if self.mean_m is None or not self.planned_m:
+            return None
+        return self.mean_m / self.planned_m
+
+    def warning(self) -> str | None:
+        """The y+ drift warning when the mean is above FIRST_CELL_DRIFT x the planned first layer."""
+        ratio = self.ratio
+        if ratio is None or ratio <= FIRST_CELL_DRIFT:
+            return None
+        return (f"Layers collapsed near the wall: first cell {1e3 * self.mean_m:.3g} mm vs "
+                f"{1e3 * self.planned_m:.3g} mm planned; y+ will be about {ratio:.1f} times the target.")
+
+    def description(self) -> str:
+        """E.g. "0.91 mm mean, 0.95 mm 95th percentile (planned 0.90 mm)"."""
+        if self.error:
+            return f"not measured ({self.error})"
+        if self.mean_m is None:
+            return "\u2014"
+        planned = f" (planned {1e3 * self.planned_m:.3g} mm)" if self.planned_m else ""
+        return f"{1e3 * self.mean_m:.3g} mm mean, {1e3 * self.p95_m:.3g} mm 95th percentile{planned}"
+
+
 # checkMesh failure classes (D-100, from the v2606 sources: primitiveMeshCheck.C, polyMeshCheck.C,
 # checkTopology.C, checkGeometry.C). A "***" line starts with one of these texts. HARD failures make
 # the mesh unusable for the solver and block it; SOFT ones are quality warnings. A "***" line matching
@@ -111,6 +152,12 @@ class MeshReport:
     failed_check_lines: tuple[str, ...] = ()
     # checkMesh's single-"*" lines, printed without failing the mesh (severe non-orthogonality, ...).
     warning_lines: tuple[str, ...] = ()
+    # The achieved first cell on the part patches (D-109; None: not measured, e.g. relative sizing).
+    first_cell: FirstCell | None = None
+
+    def first_cell_warning(self) -> str | None:
+        """"Layers collapsed near the wall: ..." when the achieved first cell drifts from the plan (D-109)."""
+        return self.first_cell.warning() if self.first_cell is not None else None
 
     @property
     def hard_failures(self) -> tuple[str, ...]:

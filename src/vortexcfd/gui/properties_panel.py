@@ -283,6 +283,7 @@ MESH_ROWS = (
     ("ok", "Mesh OK"),
     ("lost", "Lost parts"),
     ("extruded", "Surface faces with layers"),
+    ("first_cell", "First cell at the wall"),
     ("status", "Status"),
 )
 
@@ -1232,12 +1233,16 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
             "ok": ("yes" if report.mesh_ok else "no", not report.mesh_ok),
             "lost": (", ".join(report.lost_parts), False),
             "extruded": (num(report.extruded_percent, "{:g} %"), False),
+            "first_cell": ((report.first_cell.description() if report.first_cell is not None else "")
+                           + (f"\n{report.first_cell_warning()}" if report.first_cell_warning() else ""),
+                           bool(report.first_cell_warning())),  # the achieved first cell (D-109)
             "status": (("Mesh out of date", True) if self._mesh_stale else ("Up to date", False)),
         }
         for key, (text, warn) in values.items():
             self.mesh_values[key].setText(text)
             self._set_warn(self.mesh_values[key], warn)
         self._rows["mesh_extruded"].setVisible(show and report.extruded_percent is not None)
+        self._rows["mesh_first_cell"].setVisible(show and report.first_cell is not None)
         self._rows["mesh_lost"].setVisible(show and bool(report.lost_parts))
         self._set_error(self.mesh_values["lost"], bool(report.lost_parts))
         self._set_error(self.mesh_values["failed"], bool(report.hard_failures))
