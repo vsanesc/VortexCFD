@@ -120,8 +120,8 @@ def test_tree_structure_and_node_count(make_window) -> None:
     # Geometry, Parts, 3 parts, Continua, Mesh, Physics, Regions, Fluid Domain, 5 boundaries,
     # 3 walls, Inflow, Solvers, Reports = 21
     # + Stopping Criteria, Probes, Mesh Study, Polar Sweep, Fluid Region (D-078)
-    # + Surface Preparation and its "Prepare surfaces..." entry (D-093)
-    assert w.node_count() == 29 and w.node_badge.text() == "29 Nodes"
+    # + Surface Preparation and its "Prepare surfaces..." entry (D-093) + Refinement volumes (D-103)
+    assert w.node_count() == 30 and w.node_badge.text() == "30 Nodes"
     region = w._items[("fluid_region", None)]
     assert region.text(0) == "Fluid Region (domain minus parts)" and region.parent() is w._items[("regions", None)]
     reports = w._items[("reports", None)]
@@ -130,7 +130,7 @@ def test_tree_structure_and_node_count(make_window) -> None:
     stopping = w._items[("stopping", None)]
     assert stopping.text(0) == "Stopping Criteria" and stopping.parent() is w._items[("solvers", None)]
     w.act_add_part.trigger()
-    assert w.node_badge.text() == "31 Nodes"  # a part and its wall
+    assert w.node_badge.text() == "32 Nodes"  # a part and its wall
 
 
 def test_header_name_selects_root(make_window) -> None:

@@ -1,29 +1,40 @@
 # Status
 
-Updated 2026-10-20 (task/5.3-cfmesh: cfMesh evaluation). Phases and sub-phases are those of
-docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
+Updated 2026-10-20 (task/5.x-refinement-volumes: user refinement volumes, GPU selection under WSL).
+Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
 
-**task/5.3-cfmesh** (not yet published; task/5.2-surface-prep was merged in PR #21). An evaluation
-only: no GUI work, no default changes; the app keeps snappyHexMesh. Done on it:
-- Part A: cfMesh is in the v2606 installation (cartesianMesh, tetMesh, pMesh and the utilities; OpenMP
-  and MPI; ESI's module of cfMesh v1.1, version not printed; threads follow the CPU affinity;
-  QUESTIONS 125).
-- Part B (D-102, [NUMERICS-REVIEW]): `foam/cfmesh_case.py` writes a cartesianMesh case from the same
-  MeshCaseInput (`workflow/meshing.mesh_inputs`); `workflow/cfmesh.py` builds the closed combined surface
-  (domain + parts, one solid per snappyHexMesh patch, the symmetry plane cut around the parts); the
-  benchmark's evaluation switch `--mesher cfmesh`; layers counted from the mesh for both meshers
-  (`bench/layer_walk.py`, `foam/polymesh.py`). Settings mapping table in D-102.
-- Part C (benchmarks/RESULT_5.3.md): cfMesh gives full layer coverage at the trailing edge, tips and
-  sharp edges (100 % against 0-15 %), but its stack is one boundary cell thick (31-33 % of the y+
-  stack, first layer 0.29 mm against 0.90 mm), 4 of its 5 layered meshes fail checkMesh with hard
-  failures (all but the sphere), its fidelity is worse on the wing and the aircraft and the aircraft
-  took 21-28 minutes on 10 cores. Recommendation: keep snappyHexMesh and move to 5.4 (QUESTIONS 130).
+**task/5.x-refinement-volumes** (not yet published; it starts from task/5.3-cfmesh, which is not
+published either). No OpenFOAM command was run in this task (another heavy process was running).
+Done on it:
+- Part A (D-103, [NUMERICS-REVIEW], schema v12): user refinement volumes (box with pitch and yaw,
+  cylinder, sphere, cone) with a target cell size mapped to a refinement level (rounded towards the finer
+  level; achieved size and level shown; warning when finer than the finest part surface level);
+  snappyHexMeshDict geometry entries as v2606 searchable shapes (searchableBox / searchableRotatedBox,
+  searchableCylinder, searchableSphere, searchableCone) and inside-mode refinementRegions; extra cells in
+  the estimate and the cell budget; volumes wholly outside the domain are not written (error), partly
+  outside ones warn; Edit > Add Wake Volume (a box aligned with the free stream behind the parts); the
+  "Refinement volumes" tree node under Mesh, numeric editing with units, a live translucent outline in the
+  viewer; one undo step per edit, every edit puts the mesh out of date; not in presets. The real-mesh test
+  (`slow`) was written but not run.
+- Owner review of D-103 (accepted with changes, same branch): box pitch (about y) and yaw (about z)
+  through searchableRotatedBox (schema v12 changed in place, unpublished); the wake default is a box
+  aligned with the free stream (pitch = angle of attack; 2 L long, 1.1 x the y extent wide, 2 x the z
+  extent high); a volume wholly outside the domain is "Ignored: outside the domain" (warning, not
+  blocking); the estimate grows each volume by nCellsBetweenLevels cells per level step; only enabled
+  volumes enter the mesh hash. QUESTIONS 132-136 closed; 137 stays open until the owner checks the
+  renderer line.
+- Part B (D-104): under WSL with a display, GALLIUM_DRIVER=d3d12 and MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
+  are set before Qt or VTK load unless the user set them; the OpenGL renderer string is written to the
+  console once the viewer exists (D-104 Proposed).
 
-Next candidates: 5.4 prism layers (items 87, 106, 111, 122, 124, and what 5.3 showed: extrude-then-
-untangle fails, remove-and-shrink collapses). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72,
-73, 75, 82, 87, 89 to 94, 96, 97, 106, 111, 122, 124 and 125 to 131.
+Earlier on task/5.3-cfmesh (D-102, benchmarks/RESULT_5.3.md): the cfMesh evaluation; recommendation keep
+snappyHexMesh and move to 5.4 (QUESTIONS 130, owner decision pending).
+
+Next candidates: 5.4 prism layers (items 87, 106, 111, 122, 124); drag handles for the refinement volumes
+(item 132). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75, 82, 87, 89 to 94, 96, 97, 106,
+111, 122, 124, 125 to 131 and 137.
 
 ## Phases
 
@@ -49,7 +60,7 @@ untangle fails, remove-and-shrink collapses). Open: docs/QUESTIONS.md items 30, 
 | 4.3 | Turbulence module | done for kOmegaSST (y+ estimator, flat plate verified against TMR: PASS WITH NOTE); docs/reference/turbulence_mapping.md not written |
 | 4.4 | Numerics presets | preset "robust" only (merged in PR #13) |
 | 5.0 | Meshing benchmark suite | done (D-081, D-082): sphere, wing, Ahmed-type body; baseline in benchmarks/BASELINE.md; the dirty-STL set and solver convergence are not in it |
-| 5.1 | M1: GUI over snappyHexMesh | done (published in PR #11 and #12); y+ layer sizing done (D-024, D-026, D-045); sizing defaults revised after the baseline (D-084 to D-086, task 5.1-sizing) |
+| 5.1 | M1: GUI over snappyHexMesh | done (published in PR #11 and #12); y+ layer sizing done (D-024, D-026, D-045); sizing defaults revised after the baseline (D-084 to D-086, task 5.1-sizing); user refinement volumes and the wake helper (D-103, task 5.x-refinement-volumes; no viewer drag handles) |
 | 5.2 | M2: surface preparation | first step done (D-093, D-094): Surface Preparation operation (diagnostics, intersection features, CAD union), local benchmark cases with fidelity against a reference; no shell wrapper; dirty-STL set not in the benchmark |
 | 5.3 | M3: alternative volume mesher | cfMesh evaluated (D-102, benchmarks/RESULT_5.3.md): recommendation keep snappyHexMesh, owner decision pending (QUESTIONS 130); benchmark-only `--mesher cfmesh`; Gmsh not evaluated |
 | 5.4 | M4: prism layer robustness | not started |

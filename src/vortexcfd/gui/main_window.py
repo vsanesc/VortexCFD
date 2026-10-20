@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QButtonGroup,
     QMainWindow,
+    QMenu,
     QPushButton,
     QSlider,
     QSizePolicy,
@@ -44,7 +45,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from vortexcfd.core.model import Part, Simulation, StoppingCriteria
+from vortexcfd.core.model import VOLUME_SHAPES, Part, Simulation, StoppingCriteria
 from vortexcfd.core.presets import PresetError, PresetStore, apply_preset, preset_from_simulation
 from vortexcfd.core.reports import available_reports
 from vortexcfd.foam import convergence
@@ -80,7 +81,9 @@ from vortexcfd.foam.mesh_case import (
 )
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.gui.geometry_worker import GeometryWorker, IntersectionChecker, OverlapChecker, snapshot
-from vortexcfd.workflow import surface_prep
+from vortexcfd.workflow import meshing, refinement, surface_prep
+from vortexcfd.workflow.refinement import OUTSIDE_IGNORED
+from vortexcfd.geometry.refinement_volumes import domain_fraction
 from vortexcfd.gui.mesh_worker import MeshWorker
 from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam.run_record import RunRecord, read_run_record, write_run_record
@@ -107,6 +110,7 @@ from vortexcfd.gui.scene import (
     ERROR,
     MISSING,
     DomainView,
+    VolumeView,
     MeshView,
     PartScene,
     domain_box_for,
@@ -360,6 +364,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.solver_worker.step.connect(self._on_solver_step)
         self.solver_worker.finished.connect(self._on_solver_done)
         self.domain_view: DomainView | None = None
+        self.volume_view: VolumeView | None = None
+        self._volume_preview = None  # a RefinementVolume being edited, drawn uncommitted (D-103)
         self._domain_box = None
         self._framed_visibility = False
         self.dialogs = dialogs if dialogs is not None else Dialogs(self)
@@ -385,6 +391,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.properties.pending_changed.connect(self._update_actions)
         self.properties.generate_domain_requested.connect(self.generate_domain)
         self.properties.prepare_surfaces_requested.connect(self.prepare_surfaces)
+        self.properties.volume_action.connect(self._on_volume_action)
+        self.properties.volume_preview.connect(self._on_volume_preview)
         self.properties.remove_surface_prep_requested.connect(self.remove_surface_prep)
         self._build_actions()
 
@@ -519,6 +527,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self.scene = PartScene(self.viewer, self._theme, self._on_viewer_pick)
             self.scene.on_cell_pick = self._on_triangle_pick
             self.domain_view = DomainView(self.viewer, self._theme)
+            QTimer.singleShot(0, self._log_renderer)  # once the viewer has a GL context (D-104)
+            self.volume_view = VolumeView(self.viewer, self._theme)
             self.mesh_view = MeshView(self.viewer, self._theme)
             self.results_view = ResultsView(self.viewer, self._theme)
             try:
@@ -591,6 +601,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.top_bar.set_active_view(self.current_view)
         self._apply_appearance()
         self.tree.currentItemChanged.connect(self._on_current_item_changed)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._tree_context_menu)
         self._init_studies()  # mesh study and polar sweep workers (gui/study_control.py)
         self.set_project(project, placeholder=not self.has_project)
         log.info("VortexCFD started")
@@ -923,7 +935,20 @@ class MainWindow(StudyControlMixin, QMainWindow):
             if prep is None:
                 add(prep_item, "prepare_surfaces", None, "Prepare surfaces\u2026", "dot", "accent_secondary")
             continua = add(root, "continua", None, "Continua", "folder", "text")
-            add(continua, "mesh", None, "Mesh", "dot", "accent_secondary")
+            mesh_item = add(continua, "mesh", None, "Mesh", "dot", "accent_secondary")
+            volumes = self._project.sim.refinement_volumes
+            volumes_item = add(mesh_item, "refinement_volumes", None, f"Refinement volumes ({len(volumes)})",
+                               "folder", "text")
+            for i, volume in enumerate(volumes):  # D-103
+                item = add(volumes_item, "refinement_volume", i, f"{volume.name} ({volume.shape.kind})", "dot",
+                           "accent" if volume.enabled else "muted_text")
+                if not volume.enabled:
+                    item.setForeground(0, QColor(t.muted_text))
+                    item.setToolTip(0, "Disabled: not written to the mesh")
+                elif self._domain_box is not None and self._domain_box.bounds is not None and \
+                        domain_fraction(volume.shape, self._domain_box) <= 0.0:
+                    item.setIcon(0, self._node_icon("dot", "warning"))
+                    item.setToolTip(0, OUTSIDE_IGNORED)
             physics_item = add(continua, "physics", None, "Physics", "dot", "accent")
             add(physics_item, "inflow", None, "Inflow", "dot", "accent")
             regions = add(root, "regions", None, "Regions", "folder", "text")
@@ -1072,6 +1097,44 @@ class MainWindow(StudyControlMixin, QMainWindow):
         visible = (self.act_toggle_domain.isChecked() and self._project.sim.domain.enabled
                    and self._scene_mode == "geometry")
         self.domain_view.update(self._domain_box, visible, self._selected_boundary())
+        self._sync_volumes()
+        self.viewer.render()
+
+    def _selected_volume_id(self) -> str | None:
+        if self._selection and self._selection[0] == "refinement_volume":
+            volumes = self._project.sim.refinement_volumes
+            index = self._selection[1]
+            if index is not None and 0 <= index < len(volumes):
+                return volumes[index].id
+        return None
+
+    def _sync_volumes(self) -> None:
+        """Draw the enabled refinement volumes (geometry scene), the selected one highlighted (D-103)."""
+        if self.volume_view is None:
+            return
+        preview = self._volume_preview if self._volume_preview is not None and \
+            self._volume_preview.id == self._selected_volume_id() else None
+        self.volume_view.update(self._project.sim.refinement_volumes, self._selected_volume_id(),
+                                self._scene_mode == "geometry", preview)
+
+    def _log_renderer(self) -> None:
+        """Write the OpenGL renderer string (and the GPU variables set at start-up) to the console log."""
+        if self.viewer is None:
+            return
+        from vortexcfd.core.gpu_select import renderer_string
+        from vortexcfd.gui import GPU_SELECTION
+
+        try:
+            self.viewer.render()
+            renderer = renderer_string(self.viewer.ren_win.ReportCapabilities())
+        except Exception:  # pragma: no cover - a render window without a context
+            renderer = None
+        selected = ", ".join(f"{k}={v}" for k, v in GPU_SELECTION.items())
+        log.info("OpenGL renderer: %s%s", renderer or "unknown", f" (set at start-up: {selected})" if selected else "")
+
+    def _on_volume_preview(self, volume) -> None:
+        self._volume_preview = volume
+        self._sync_volumes()
         self.viewer.render()
 
     def _update_selection_views(self) -> None:
@@ -1992,6 +2055,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.act_repair_part = action("Re&pair part", self.repair_selected_part)
         self.act_generate_domain = action("&Generate Domain...", lambda: self.generate_domain())
         self.act_prepare_surfaces = action("Prepare &Surfaces...", lambda: self.prepare_surfaces())
+        self.act_add_wake = action("Add &Wake Volume", self.add_wake_volume)
+        self.act_add_wake.setToolTip("A refinement box behind the selected part (all parts when none is selected), "
+                                     "aligned with the free stream")
 
         self.act_zoom_in = action("Zoom &In", lambda: self.set_point_size(self._point_size + 1))
         self.act_zoom_in.setShortcuts([QKeySequence("Ctrl+="), QKeySequence("Ctrl++")])
@@ -2024,6 +2090,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         edit_menu.addSeparator()
         edit_menu.addActions([self.act_add_part, self.act_remove_part, self.act_repair_part])
         edit_menu.addActions([self.act_prepare_surfaces, self.act_generate_domain])
+        edit_menu.addAction(self.act_add_wake)
         edit_menu.addSeparator()
         self.act_preferences = action("&Preferences...", self.edit_preferences)
         edit_menu.addAction(self.act_preferences)
@@ -2073,6 +2140,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.act_import.setEnabled(loaded and not self.geometry_busy)
         self.act_prepare_surfaces.setEnabled(loaded and not self.geometry_busy
                                              and bool(self._project.sim.geometry.parts))
+        self.act_add_wake.setEnabled(loaded and bool(self._project.sim.geometry.parts)
+                                     and self._project.sim.domain.enabled)
 
     def _on_item_activated(self, item: QTreeWidgetItem, _column: int = 0) -> None:
         kind, _index = item.data(0, ROLE_NODE)
@@ -2080,6 +2149,124 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self.generate_domain()
         elif kind == "prepare_surfaces":
             self.prepare_surfaces()
+
+    # -- refinement volumes (D-103) ------------------------------------------------------------------
+
+    def _on_volume_action(self, action: str) -> None:
+        if action.startswith("add:"):
+            self.add_refinement_volume(action.removeprefix("add:"))
+        elif action == "wake":
+            self.add_wake_volume()
+        elif action == "duplicate":
+            self.duplicate_selected_volume()
+        elif action == "delete":
+            self.delete_selected_volume()
+
+    def _volume_context(self):
+        """(domain box, estimate, every part's bounds in metres), or None with a message."""
+        if not self.has_project or not self._project.sim.geometry.parts:
+            self.show_message("Import a part first: a refinement volume is placed and sized from the parts.", "warning")
+            return None
+        if not self._project.sim.domain.enabled:
+            self.show_message("Generate the domain first: the volume levels follow its background cells.", "warning")
+            return None
+        try:
+            box, _names, meshes = meshing.loaded_parts(self._project)
+        except meshing.MeshingNotReady as exc:
+            self.show_message(str(exc), "warning")
+            return None
+        bounds = [tuple(float(b) for b in m.bounds) for m in meshes]
+        return box, meshing.project_estimate(self._project, box), bounds
+
+    def _select_volume(self, volume_id: str) -> None:
+        for i, v in enumerate(self._project.sim.refinement_volumes):
+            item = self._items.get(("refinement_volume", i))
+            if v.id == volume_id and item is not None:
+                self.tree.setCurrentItem(item)
+                return
+
+    def _add_volume(self, volume, label: str) -> None:
+        added: list[str] = []
+        self._run_edit(lambda: added.append(self._project.add_refinement_volume(volume, label)))
+        if added:
+            self._select_volume(added[0])
+
+    def add_refinement_volume(self, kind: str) -> None:
+        """Add a volume of shape ``kind`` over the parts (editable defaults; one undo step)."""
+        self._flush_edits()
+        context = self._volume_context()
+        if context is None:
+            return
+        box, est, _bounds = context
+        volume = refinement.new_volume(self._project, kind, box, est)
+        self._add_volume(volume, f"Add refinement volume '{volume.name}'")
+
+    def add_wake_volume(self) -> None:
+        """Edit > Add Wake Volume: a box behind the selected part (all parts when no part is selected) aligned with
+        the free stream (D-103); every value stays editable."""
+        self._flush_edits()
+        context = self._volume_context()
+        if context is None:
+            return
+        _box, est, bounds = context
+        index = self._selected_part_index()
+        volume = refinement.wake_volume(self._project, [index] if index is not None else [], bounds, est)
+        self._add_volume(volume, f"Add wake volume '{volume.name}'")
+
+    def duplicate_selected_volume(self) -> None:
+        vid = self._selected_volume_id()
+        if vid is None:
+            return
+        self._flush_edits()
+        added: list[str] = []
+        self._run_edit(lambda: added.append(self._project.duplicate_refinement_volume(vid)))
+        if added:
+            self._select_volume(added[0])
+
+    def delete_selected_volume(self) -> None:
+        vid = self._selected_volume_id()
+        if vid is None:
+            return
+        self._flush_edits()
+        self._selection = ("refinement_volumes", None)
+        self._run_edit(lambda: self._project.remove_refinement_volume(vid))
+
+    def toggle_selected_volume(self) -> None:
+        vid = self._selected_volume_id()
+        if vid is None:
+            return
+        self._flush_edits()
+        enabled = self._project.volume(vid).enabled
+        self._run_edit(lambda: self._project.update_refinement_volume(vid, enabled=not enabled))
+
+    def rename_selected_volume(self) -> None:
+        """Rename: focus the volume's name field in the properties panel."""
+        if self._selected_volume_id() is not None:
+            self.properties.vol_name.setFocus()
+            self.properties.vol_name.selectAll()
+
+    def _tree_context_menu(self, position) -> None:
+        item = self.tree.itemAt(position)
+        if item is None or not self.has_project:
+            return
+        kind, _index = item.data(0, ROLE_NODE)
+        if kind not in ("mesh", "refinement_volumes", "refinement_volume", "part"):
+            return
+        self.tree.setCurrentItem(item)
+        menu = QMenu(self.tree)
+        add_menu = menu.addMenu("Add refinement volume")
+        for shape in VOLUME_SHAPES:
+            add_menu.addAction(shape.capitalize(), lambda s=shape: self.add_refinement_volume(s))
+        menu.addAction(self.act_add_wake)
+        if kind == "refinement_volume":
+            menu.addSeparator()
+            vid = self._selected_volume_id()
+            enabled = vid is not None and self._project.volume(vid).enabled
+            menu.addAction("Disable" if enabled else "Enable", self.toggle_selected_volume)
+            menu.addAction("Rename", self.rename_selected_volume)
+            menu.addAction("Duplicate", self.duplicate_selected_volume)
+            menu.addAction("Delete", self.delete_selected_volume)
+        menu.popup(self.tree.viewport().mapToGlobal(position))
 
     def generate_domain(self) -> None:
         """Edit > Generate Domain (D-078): the parts it is sized around (the selected part, else all),

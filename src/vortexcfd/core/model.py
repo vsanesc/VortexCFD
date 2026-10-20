@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 11
+CURRENT_SCHEMA_VERSION: int = 12
 
 
 class StrictModel(BaseModel):
@@ -492,6 +492,107 @@ class Studies(StrictModel):
     polar: PolarSweepSettings = Field(default_factory=PolarSweepSettings)
 
 
+# -- user refinement volumes (schema v12, D-103) -------------------------------------------------
+
+Vector = tuple[float, float, float]
+# A volume name is part of the snappyHexMesh geometry and refinementRegions entries.
+VOLUME_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
+VOLUME_SHAPES = ("box", "cylinder", "sphere", "cone")
+
+
+class BoxShape(StrictModel):
+    """A box: its centre, its edge lengths along its own axes (e1, e2, e3) and its orientation: ``pitch_deg``
+    tilts e1 from +x towards +z (nose-up positive, as the angle of attack), then ``yaw_deg`` turns it
+    about z (counter-clockwise seen from +z). Both 0: the box is aligned with x, y, z."""
+
+    kind: Literal["box"] = "box"
+    centre: Vector = (0.0, 0.0, 0.0)
+    size: Vector = (1.0, 1.0, 1.0)
+    pitch_deg: float = Field(default=0.0, ge=-90.0, le=90.0)
+    yaw_deg: float = Field(default=0.0, ge=-360.0, le=360.0)
+
+    @property
+    def rotated(self) -> bool:
+        return self.pitch_deg != 0.0 or self.yaw_deg % 360.0 != 0.0
+
+    def axes(self) -> tuple[Vector, Vector, Vector]:
+        """The box's unit axes: e1 = (cos p cos y, cos p sin y, sin p), e2 = (-sin y, cos y, 0),
+        e3 = e1 x e2 = (-sin p cos y, -sin p sin y, cos p)."""
+        p, y = math.radians(self.pitch_deg), math.radians(self.yaw_deg)
+        cp, sp, cy, sy = math.cos(p), math.sin(p), math.cos(y), math.sin(y)
+        return (cp * cy, cp * sy, sp), (-sy, cy, 0.0), (-sp * cy, -sp * sy, cp)
+
+    @field_validator("size")
+    @classmethod
+    def _positive(cls, value: Vector) -> Vector:
+        if any(v <= 0 for v in value):
+            raise ValueError("every box edge must be longer than zero")
+        return value
+
+
+class CylinderShape(StrictModel):
+    """A cylinder between two end points."""
+
+    kind: Literal["cylinder"] = "cylinder"
+    point1: Vector = (0.0, 0.0, 0.0)
+    point2: Vector = (1.0, 0.0, 0.0)
+    radius: float = Field(default=0.5, gt=0)
+
+    @model_validator(mode="after")
+    def _distinct(self) -> "CylinderShape":
+        if self.point1 == self.point2:
+            raise ValueError("the two end points of a cylinder must differ")
+        return self
+
+
+class SphereShape(StrictModel):
+    kind: Literal["sphere"] = "sphere"
+    centre: Vector = (0.0, 0.0, 0.0)
+    radius: float = Field(default=0.5, gt=0)
+
+
+class ConeShape(StrictModel):
+    """A cone (or truncated cone) between two end points with a radius at each: wake regions."""
+
+    kind: Literal["cone"] = "cone"
+    point1: Vector = (0.0, 0.0, 0.0)
+    point2: Vector = (1.0, 0.0, 0.0)
+    radius1: float = Field(default=0.25, ge=0)
+    radius2: float = Field(default=0.5, ge=0)
+
+    @model_validator(mode="after")
+    def _valid(self) -> "ConeShape":
+        if self.point1 == self.point2:
+            raise ValueError("the two end points of a cone must differ")
+        if self.radius1 <= 0 and self.radius2 <= 0:
+            raise ValueError("at least one cone radius must be larger than zero")
+        return self
+
+
+VolumeShape = Annotated[Union[BoxShape, CylinderShape, SphereShape, ConeShape], Field(discriminator="kind")]
+
+
+class RefinementVolume(StrictModel):
+    """A user refinement volume (D-103): every cell inside it is refined to the level whose cell size is
+    the first at or below ``target_size`` (metres). ``id`` is stable across renames; ``name`` is unique
+    and file-safe (it names the snappyHexMesh entries). Volumes belong to the project's geometry and are
+    not part of presets."""
+
+    id: str = Field(min_length=1, max_length=32)
+    name: str
+    shape: VolumeShape
+    target_size: float = Field(gt=0)
+    enabled: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def _valid_name(cls, value: str) -> str:
+        if not VOLUME_NAME_RE.match(value):
+            raise ValueError("a volume name starts with a letter and has only letters, digits and _ "
+                             "(at most 64 characters)")
+        return value
+
+
 # Analysis types (schema v9, D-077): "external" (a far-field domain generated around the parts on the
 # first import) and "empty" (nothing created automatically: the domain is a "Generate domain"
 # operation). "internal" is reserved for internal flow and not selectable yet.
@@ -521,3 +622,15 @@ class Simulation(StrictModel):
     reports: Reports = Field(default_factory=Reports)
     studies: Studies = Field(default_factory=Studies)
     surface_prep: SurfacePrep | None = None
+    refinement_volumes: list[RefinementVolume] = Field(default_factory=list)
+
+    @field_validator("refinement_volumes")
+    @classmethod
+    def _unique_volumes(cls, values: list[RefinementVolume]) -> list[RefinementVolume]:
+        ids = [v.id for v in values]
+        names = [v.name.casefold() for v in values]
+        if len(set(ids)) != len(ids):
+            raise ValueError("two refinement volumes have the same id")
+        if len(set(names)) != len(names):
+            raise ValueError("two refinement volumes have the same name (names are compared ignoring case)")
+        return values

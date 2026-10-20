@@ -13,10 +13,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from vortexcfd.core.model import Mesh
+from vortexcfd.core.model import BoxShape, ConeShape, CylinderShape, Mesh, SphereShape
 from vortexcfd.foam.case_writer import FoamFileSpec
 from vortexcfd.foam.dictfile import write_foam_file
-from vortexcfd.foam.mesh_estimate import estimate_mesh
+from vortexcfd.foam.mesh_estimate import CELLS_BETWEEN_LEVELS, estimate_mesh
 
 Bounds = tuple[float, float, float, float, float, float]  # xmin, xmax, ymin, ymax, zmin, zmax
 
@@ -115,6 +115,9 @@ class MeshCaseInput:
     # Extra feature edge files in constant/triSurface with their refinement level: the intersection
     # curves of the surface preparation (D-093), snapped to like every feature.
     extra_features: tuple[tuple[str, int], ...] = ()
+    # The user refinement volumes to write (D-103): enabled and not wholly outside the domain (the
+    # workflow decides), each with its refinement level.
+    volumes: tuple["VolumeEntry", ...] = ()
 
     @property
     def rounded(self) -> bool:
@@ -146,6 +149,58 @@ class MeshCaseInput:
     def patches(self) -> tuple[str, ...]:
         """Every part wall patch of the mesh (the lost-part guard checks each one)."""
         return tuple(p for i in range(len(self.parts)) for p in self.patches_of(i))
+
+
+@dataclass(frozen=True)
+class VolumeEntry:
+    """A refinement volume as the meshing dictionaries need it: its name, shape (metres) and level."""
+
+    name: str
+    shape: BoxShape | CylinderShape | SphereShape | ConeShape
+    level: int
+
+
+# The snappyHexMesh geometry entry of a refinement volume is named VOLUME_PREFIX + its name, so it can
+# never clash with a part surface or the domain surface.
+VOLUME_PREFIX = "volume_"
+
+
+def _vec(v) -> list[float]:
+    return [float(x) for x in v]
+
+
+def searchable_geometry(shape) -> dict:
+    """The v2606 searchable shape of a refinement volume (src/meshTools/searchableSurfaces, D-103):
+    searchableBox (min, max); searchableRotatedBox (span; origin = the box's corner at its local
+    (0 0 0); e1, e3 = its local x and z axes after pitch and yaw, BoxShape.axes) when the box is pitched or
+    yawed; searchableCylinder (point1, point2, radius); searchableSphere (centre, radius); searchableCone
+    (point1, radius1, innerRadius1, point2, radius2, innerRadius2; solid: inner radii 0). [NUMERICS-REVIEW]"""
+    if isinstance(shape, BoxShape):
+        half = [s / 2 for s in shape.size]
+        c = shape.centre
+        if not shape.rotated:
+            return {"type": "searchableBox", "min": [c[i] - half[i] for i in range(3)],
+                    "max": [c[i] + half[i] for i in range(3)]}
+        e1, e2, e3 = shape.axes()
+        origin = [c[i] - half[0] * e1[i] - half[1] * e2[i] - half[2] * e3[i] for i in range(3)]
+        return {"type": "searchableRotatedBox", "span": _vec(shape.size), "origin": origin,
+                "e1": _vec(e1), "e3": _vec(e3)}
+    if isinstance(shape, CylinderShape):
+        return {"type": "searchableCylinder", "point1": _vec(shape.point1), "point2": _vec(shape.point2),
+                "radius": float(shape.radius)}
+    if isinstance(shape, SphereShape):
+        return {"type": "searchableSphere", "centre": _vec(shape.centre), "radius": float(shape.radius)}
+    if isinstance(shape, ConeShape):
+        return {"type": "searchableCone", "point1": _vec(shape.point1), "radius1": float(shape.radius1),
+                "innerRadius1": 0.0, "point2": _vec(shape.point2), "radius2": float(shape.radius2),
+                "innerRadius2": 0.0}
+    raise TypeError(f"unknown refinement volume shape {type(shape).__name__}")
+
+
+# A refinementRegions entry in "inside" mode refines every cell inside the shape to its level; the
+# distance in "levels" is not used in that mode (v2606 shellSurfaces.C, tutorial motorBike: levels
+# ((1E15 4))).
+INSIDE_DISTANCE = 1e15
 
 
 def safe_part_names(names: Sequence[str]) -> list[str]:
@@ -523,6 +578,8 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
         }
         features.append({"file": f'"{DOMAIN_SURFACE}.eMesh"', "level": 0})
     features += [{"file": f'"{name}"', "level": level} for name, level in inp.extra_features]
+    for v in inp.volumes:  # user refinement volumes (D-103)
+        geometry[f"{VOLUME_PREFIX}{v.name}"] = searchable_geometry(v.shape)
     if with_seeds:
         features += [{"file": f'"{seed_file_name(inp.parts[i])}"', "level": levels[i][1]}
                      for i in seeded_parts(inp, est.base_size, est.level_min, est.level_max)]
@@ -546,11 +603,14 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
             "maxGlobalCells": MAX_GLOBAL_CELLS,
             "minRefinementCells": 10,
             "maxLoadUnbalance": 0.10,
-            "nCellsBetweenLevels": 3,
+            "nCellsBetweenLevels": CELLS_BETWEEN_LEVELS,
             "features": features,
             "refinementSurfaces": refinement_surfaces,
             "resolveFeatureAngle": m.feature_angle,
-            "refinementRegions": {},
+            "refinementRegions": {
+                f"{VOLUME_PREFIX}{v.name}": {"mode": "inside", "levels": [[INSIDE_DISTANCE, v.level]]}
+                for v in inp.volumes
+            },
             "locationInMesh": list(location_in_mesh(est.background_bounds, inp.parts_bounds, cells, inp.inlet_x)),
             "allowFreeStandingZoneFaces": True,
         },

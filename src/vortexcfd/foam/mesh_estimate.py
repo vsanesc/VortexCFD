@@ -7,6 +7,10 @@ from vortexcfd.core.model import Mesh
 
 Bounds = tuple[float, float, float, float, float, float]  # xmin, xmax, ymin, ymax, zmin, zmax
 
+# snappyHexMesh's nCellsBetweenLevels (castellatedMeshControls, written by foam/mesh_case.py): the
+# buffer of cells at each level before the next coarser one; the refinement volume estimate builds its
+# staircase of levels from it (D-103).
+CELLS_BETWEEN_LEVELS = 3
 # The Generate Mesh button is disabled above this many background cells.
 MAX_BACKGROUND_CELLS = 2_000_000
 # A rounded domain (D-078) is cut out of a background box that encloses its surface with this many
@@ -32,20 +36,54 @@ class MeshEstimate:
     # (level_max + Mesh.curvature_levels; level_max when it is off) and that level's cell size.
     curvature_level: int = 0
     curvature_size: float = 0.0
+    # Extra cells of the user refinement volumes (D-103; workflow/refinement.staircase_cells, summed; overlapping volumes
+    # are counted twice). They count against the same limit as the background cells.
+    volume_cells: int = 0
+
+    @property
+    def budget_cells(self) -> int:
+        """The cells the limit applies to: the background cells plus the refinement volumes' extra cells."""
+        return self.total_cells + self.volume_cells
 
     @property
     def too_many_cells(self) -> bool:
-        return self.total_cells > MAX_BACKGROUND_CELLS
+        return self.budget_cells > MAX_BACKGROUND_CELLS
 
     def limit_message(self) -> str | None:
         """Why the mesh cannot be generated, or None when the background mesh is acceptable."""
         if not self.too_many_cells:
             return None
+        if self.volume_cells:
+            return (
+                f"The background mesh and the refinement volumes would have {self.budget_cells:,} cells "
+                f"({self.total_cells:,} background, {self.volume_cells:,} in the volumes; limit "
+                f"{MAX_BACKGROUND_CELLS:,}): coarsen or shrink the refinement volumes, increase the base size "
+                f"or lower the background cell target."
+            )
         return (
             f"The background mesh would have {self.total_cells:,} cells "
             f"(limit {MAX_BACKGROUND_CELLS:,}): increase the base size, lower the background "
             f"cell target or shrink the domain."
         )
+
+
+def volume_level(base_size: float, target_size: float) -> int:
+    """The refinement level of a volume with cell size ``target_size`` (D-103): the coarsest level whose
+    cell size base / 2^level is at or below the target (rounding towards the finer level); 0 when the
+    target is not finer than the background cell."""
+    if target_size >= base_size:
+        return 0
+    return max(0, math.ceil(math.log2(base_size / target_size) - 1e-9))
+
+
+def volume_staircase(level: int, base_size: float,
+                     cells_between_levels: int = CELLS_BETWEEN_LEVELS) -> list[tuple[int, float]]:
+    """The staircase of a refinement volume at ``level`` over the background (level 0), D-103 [NUMERICS-REVIEW]:
+    (level k, outward growth in metres of the region at k from the region inside it), from k = ``level``
+    (grown from the volume itself) down to k = 1. The region at level k is the next finer region (the
+    volume itself for k = level) grown by ``cells_between_levels`` cells of that level's size base / 2^k,
+    as snappyHexMesh keeps nCellsBetweenLevels cells at each level before the next coarser one."""
+    return [(k, cells_between_levels * base_size / 2 ** k) for k in range(level, 0, -1)]
 
 
 def estimate_mesh(domain_bounds: Bounds, surface_length: float, mesh: Mesh, volume: float | None = None,
