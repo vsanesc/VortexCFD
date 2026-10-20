@@ -25,7 +25,8 @@ class PlateSetup:
     """A flat-plate case: geometry, resolution and free stream (physical set-up, not app numerics).
 
     Defaults are Case A (low Re): U = 10 m/s, 2 m plate, Re_L = 1.3e6, free stream from the app's
-    defaults (I = 1 %, viscosity ratio 10), first cell from the y+ estimator with target 2 at L.
+    defaults (I = 1 %, viscosity ratio 10), first cell from the y+ estimator with target 1 at the first
+    cell centre at L (the wall-resolved requirement; D-107).
     """
 
     speed: float = 10.0
@@ -39,7 +40,10 @@ class PlateSetup:
     x_grading: float = 1.0  # last / first cell length along the plate (> 1 coarsens downstream)
     intensity: float = 0.01
     viscosity_ratio: float = 10.0
-    yplus_target: float = 2.0  # estimator target: the cell-CENTRE y+ is about half of it at yplus_length
+    # Estimator target at the first cell CENTRE at yplus_length (the app's convention since D-107). The recorded
+    # study used target 2 with the target distance as the cell height, which is the same first cell: the
+    # validation applies by equivalence (tests/test_flat_plate_grids.py).
+    yplus_target: float = 1.0
     yplus_length: float = 2.0  # the station (length) at which the estimator is evaluated
     max_iterations: int = MAX_ITERATIONS
     first_cell: float | None = None  # explicit first wall-normal cell height (overrides the estimator)
@@ -55,7 +59,7 @@ CASE_B = PlateSetup(
     # 1e-6 U^2; the case was always run with 8.4375e-3, written in 0/k).
     intensity=(1.5e-6 * 75.0**2 / 1.5) ** 0.5 / 75.0,
     viscosity_ratio=1.0,  # omega = k / nu = 562.5 1/s = 7.5 U / L, nut / nu = 1.0
-    yplus_target=2.0, yplus_length=1.0,  # cell-centre y+ about 1 at x = 1 m
+    yplus_target=1.0, yplus_length=1.0,  # cell-centre y+ about 1 at x = 1 m
     max_iterations=10000,  # the finest grid needs about 5000 iterations to reach the residual targets
 )
 
@@ -84,7 +88,7 @@ def growth_ratio(first: float, total: float, n: int) -> float:
 def first_cell_height(setup: PlateSetup) -> float:
     if setup.first_cell is not None:
         return setup.first_cell
-    return first_layer_thickness(setup.yplus_target, setup.speed, setup.nu, setup.yplus_length)
+    return first_layer_thickness(setup.yplus_target, setup.speed, setup.nu, setup.yplus_length, "cell_centre")
 
 
 def wall_normal_family(coarse: PlateSetup, levels: int = 3) -> list[PlateSetup]:

@@ -44,7 +44,8 @@ of the leading edge, no-slip plate from x = 0 to 2 m, top and leading section sl
 
 U = 10 m/s, nu = 1.5e-5 (Re_L = 1.3e6), 230 x 100 cells, domain height 0.5 m, slip section 0.3 m, free
 stream from the app's defaults (I = 1 %, nut/nu = 10: k = 0.015, omega = 100), first cell from the
-estimator with target 2 at L = 2 m (7.2e-5 m, cell-centre y+ about 1). Converged in 494 iterations
+estimator with target 2 at L = 2 m under the cell-height convention (7.2e-5 m, cell-centre y+ about 1;
+since D-107 the case asks for target 1 at the first cell centre, the same first cell). Converged in 494 iterations
 (26 s). y+ at mid-plate: measured 1.003, estimator 1.050 (ratio 0.955).
 
 | Re_x | Cf simulated | Cf 0.0592 Re^-0.2 | error | Cf 0.455/ln^2(0.06 Re) | error | max nut/nu in the BL |
@@ -96,7 +97,9 @@ SC/Tetra, GHOST) each extrapolated from its three finest grids (mean of their fi
 
 Three nested grids: same streamwise cells; each level splits every wall-normal cell of the previous one in
 two (twice the cells, growth ratio sqrt(r), first cell h1 / (1 + sqrt(r))), so the wall-normal refinement
-ratio is exactly 2. The first grid's first cell comes from the y+ estimator (target 2 at x = 1 m).
+ratio is exactly 2. The first grid's first cell comes from the y+ estimator (target 2 at x = 1 m under the cell-height
+convention the study was run with; since D-107 the case asks for target 1 at the first cell centre, the same
+first cell: see "Cell-centre y+ convention" below).
 y+ is OpenFOAM's first-cell-centre y+ at x = 0.97; delta99 is where Ux reaches 0.99 U at x = 0.97.
 
 <!-- BEGIN generated: grid study -->
@@ -130,6 +133,19 @@ first Case B showed 2.556e-3 vs 2.561e-3 with 2.1 times the streamwise cells). T
 not a discretisation error of this study.
 
 y+ estimator (grid 1, x = 1 m): measured 0.943 against 1.000 predicted (within 30 %).
+
+### Cell-centre y+ convention (D-107): validated by equivalence
+
+Since D-107 the app places the target y+ at the first cell centre (OpenFOAM evaluates y+ there) and sizes the
+first layer as twice the target wall distance. The study above was run with the earlier convention, which used
+the target distance as the cell height: its target 2 put y+ about 1 at the first cell centre, the
+wall-resolved requirement. Under the cell-centre convention the equivalent target is 1, and the case now asks
+for it (tests/validation/flat_plate_case.py, Cases A and B). The first-cell heights of the coarse, medium and
+fine grids are equal to the recorded ones (tests/test_flat_plate_grids.py, within 1e-9 relative; they are
+identical: 1.0558e-5, 5.1881e-6 and 2.5717e-6 m), so the meshes, the runs and the verdict above apply by
+construction; no rerun is needed. A run asking for y+ 2 at the cell centre (owner request, 5.4b review) gave
+y+ 1.87 and errors of -7.85 % (coarse) and -5.81 % (medium): a mis-specified target, not a convention fault;
+its files are kept in the git-ignored benchmarks/results/5.4b/flat_plate_cell_centre/.
 
 ### Wall BC sensitivity (diagnostic, finest grid)
 
