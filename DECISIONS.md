@@ -1086,6 +1086,6 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: a few seconds after checkMesh on the public cases (the walk took 4.4 s on the Ahmed mesh); the benchmark keeps its own walk measurements (its MeshRun gets no first layer, so the walk is not run twice).
 
 ## D-110 Benchmark baseline after task 5.4b
-- Status: Accepted (owner decision in the review of task 5.4b).
+- Status: Accepted (owner decision in the review of task 5.4b; the entry accepted in the following review).
 - Decision: the 5.4b public run (git `37b1281`, RESULT_5.4b.md Part F) is the committed baseline, benchmarks/baseline.json; the 5.1b baseline is kept as benchmarks/baseline_1.json (baseline_0.json stays the pre-5.1 one); the superseded 5.4 candidate (baseline_candidate.json) is removed. BASELINE.md describes the new baseline. Checked with `--result benchmarks/baseline.json --compare` against the run's own result file: no deltas.
 - Consequences: `--compare benchmarks/baseline.json` now measures against the D-106 / D-107 meshes (6-7 layers of a 1.80 mm first layer); comparisons with older runs flag the changed target layer count (D-087).

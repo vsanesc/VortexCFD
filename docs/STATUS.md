@@ -24,12 +24,16 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
 - Owner review: D-105 to D-110 accepted. **Phase 5.4 closed:** the public cases meet D1 (no hard failures,
   half wing 94.4 % and Ahmed body 96.5 % strict coverage, the hard zones above 0 %); the aircraft is valid with
   partial layers, and the achieved first cell and the y+ drift warning tell the user when the stacks collapse.
-- Flat plate (QUESTIONS 150): TMR Case B with the cell-centre convention at the same target y+ 2 is outside the
-  PASS WITH NOTE band (medium grid -5.81 %, y+ 0.93); not validated, the cell-height record is unchanged.
+- Flat plate (QUESTIONS 150, closed): the case asks for y+ 1 at the first cell centre, which gives the recorded
+  study's grids exactly (tests/test_flat_plate_grids.py), so the TMR verification (PASS WITH NOTE) applies to the
+  cell-centre convention by equivalence (D-107); the y+ 2 run (-5.81 % on the medium grid) was a mis-specified
+  target, kept as evidence outside git.
+- The Target y+ tooltip gives the usual targets (wall-resolved about 1 at the cell centre; wall functions
+  30-300, default 50). D-110 (the 5.4b baseline) accepted.
 
 Next: the aircraft's zones (QUESTIONS 147) as the next aircraft task; drag handles for the refinement volumes
 (item 132). The owner runs scripts/ship.sh (the slow tests, item 153). Open: docs/QUESTIONS.md items 30, 67, 69,
-70, 71, 72, 73, 75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147 and 150.
+70, 71, 72, 73, 75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131 and 147.
 
 ## Phases
 
