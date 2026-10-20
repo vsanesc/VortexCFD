@@ -7,7 +7,7 @@ from tests.fakes import FakeDialogs
 from vortexcfd.core.project import Project
 from vortexcfd.foam.physics_case import inlet_turbulence
 from vortexcfd.gui.main_window import MainWindow
-from vortexcfd.gui.properties_panel import LAYERS_ABSOLUTE_TIP, YPLUS_AT_TIPS, YPLUS_RELATIVE_TIP
+from vortexcfd.gui.properties_panel import LAYERS_ABSOLUTE_TIP, YPLUS_AT_TIPS, YPLUS_GUIDANCE, YPLUS_RELATIVE_TIP
 
 
 @pytest.fixture
@@ -125,10 +125,14 @@ def test_mesh_node_has_layer_sizing_rows(window: MainWindow) -> None:
     f = p.mesh_fields
     # a new simulation: absolute sizing for y+ 50 (D-086), the field in use
     assert f["layer_sizing"].currentText() == "absolute_yplus" and f["target_yplus"].value() == 50.0
-    assert f["target_yplus"].isEnabled() and f["target_yplus"].toolTip() == YPLUS_AT_TIPS["cell_centre"]
+    assert f["target_yplus"].isEnabled()
+    assert f["target_yplus"].toolTip() == f"{YPLUS_AT_TIPS['cell_centre']}\n{YPLUS_GUIDANCE}"
+    assert YPLUS_GUIDANCE == ("Wall-resolved (no wall functions): about 1 at the first cell centre. Wall functions: "
+                              "30-300; the default is 50.")
     assert "first cell centre" in YPLUS_AT_TIPS["cell_centre"]  # the y+ convention (D-107)
     window.project.update_mesh(yplus_at="cell_height")  # a project saved before v14
-    assert f["target_yplus"].toolTip() == YPLUS_AT_TIPS["cell_height"] and "half" in YPLUS_AT_TIPS["cell_height"]
+    assert f["target_yplus"].toolTip() == f"{YPLUS_AT_TIPS['cell_height']}\n{YPLUS_GUIDANCE}"
+    assert "half" in YPLUS_AT_TIPS["cell_height"]
     window.project.update_mesh(yplus_at="cell_centre")
     f["layer_sizing"].setCurrentText("relative")
     assert window.project.sim.mesh.layer_sizing == "relative"

@@ -213,7 +213,10 @@ YPLUS_NOTE = ("Flat-plate verification: Cf about 6% low at y+ 1, about 3.6% low 
 # Tooltip of the disabled Layers field with absolute layer sizing (D-089).
 LAYERS_ABSOLUTE_TIP = ("Absolute (y+) layer sizing: the layer count follows from the target y+ and the surface "
                        "cell size; it is shown here and cannot be set. Choose relative sizing to set it.")
-# Tooltip of the Target y+ field with absolute layer sizing, by Mesh.yplus_at (D-107).
+# Added to the Target y+ tooltip with absolute layer sizing: the usual targets (owner review of 5.4b).
+YPLUS_GUIDANCE = ("Wall-resolved (no wall functions): about 1 at the first cell centre. Wall functions: 30-300; "
+                  "the default is 50.")
+# Tooltip of the Target y+ field with absolute layer sizing, by Mesh.yplus_at (D-107), then YPLUS_GUIDANCE.
 YPLUS_AT_TIPS = {
     "cell_centre": ("The target y+ is placed at the first cell centre, where OpenFOAM evaluates y+: the first "
                     "layer is twice the target wall distance."),
@@ -1059,7 +1062,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         self.mesh_yplus_note.setVisible(mesh.layer_sizing == "absolute_yplus")
         yplus_used = mesh.layer_sizing == "absolute_yplus"
         self.mesh_fields["target_yplus"].setEnabled(yplus_used)
-        self.mesh_fields["target_yplus"].setToolTip(YPLUS_AT_TIPS[mesh.yplus_at] if yplus_used else YPLUS_RELATIVE_TIP)
+        self.mesh_fields["target_yplus"].setToolTip(f"{YPLUS_AT_TIPS[mesh.yplus_at]}\n{YPLUS_GUIDANCE}" if yplus_used
+                                                    else YPLUS_RELATIVE_TIP)
         widgets = list(self.mesh_fields.values())
         for w in widgets:
             w.blockSignals(True)
