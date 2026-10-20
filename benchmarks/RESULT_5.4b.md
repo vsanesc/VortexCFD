@@ -72,3 +72,40 @@ Findings:
 Ahmed body (96.5 %) above 85 %; (3) the tet check is on; (4) nOuterIter 2; (5) not needed. D-106 now writes
 nOuterIter 2 and `relaxed` minTetQuality 1e-15 for the robust controls. A robust project meshed before is
 out of date (the mesh hash carries the controls' revision); legacy projects are unchanged.
+
+## Part E: the aircraft at a realistic resolution (one-off, local)
+
+The local aircraft (CAD union, 30 m/s, as RESULT_5.4) with the defaults chosen in Part B (D-106 as updated,
+D-107), target surface size 0.05 x l_ref instead of the benchmark's 0.1 (l_ref 1.50 m, the wing's mean chord):
+surface cells 42 mm (level 6; curvature up to level 8) instead of 84 mm. Frozen copy of src/ at `0f027bb`;
+mesh on one core, then the indicative y+ run (400 iterations) on 10 cores. The committed benchmark definitions
+are unchanged; raw result in the git-ignored benchmarks/results/5.4b/partE/. For comparison, the same case at
+0.1 x l_ref with the same controls (Part B, outer2tet).
+
+| Aircraft | 0.05 x l_ref | 0.1 x l_ref (Part B) |
+|---|---|---|
+| Hard / soft checkMesh failures | 0 / 0 | 0 / 1 |
+| Cells (snapped, before layers) | 688,556 (459,304) | 407,157 |
+| Layers planned / written | 17 at 1.2 -> 12 at 1.3 (70 % of the planned 135 mm) | 21 at 1.2 -> 12 at 1.3 (33 % of 286 mm) |
+| Strict coverage % (snappyHexMesh fields) | 20.2 (21.5) | 2.4 |
+| Zones strict % / mean % | wing junction 0 / 10, htail junction 0 / 5, vtail junction 0 / 8, trailing edge 0 / 10, tips 0 / 6 | wj 0 / 1, hj 0 / 8, vj 0 / 20, TE 0 / 0, tip 0 / 0 |
+| Mean layers / target % | 43.9 | 30.1 |
+| Zero-layer area % | 32.3 | 32.4 |
+| Walked first cell, planned 1.27 mm: mean / 95th percentile | 5.38 mm / 20.0 mm (4.2 x the plan) | 8.88 mm / 29.2 mm |
+| Max non-orthogonality | 81.1 (1 face above 70) | 71.2 |
+| Fidelity RMS mm (mesh -> reference / reference -> mesh) | 3.36 / 3.12 | 3.54 / 4.55 |
+| y+ mean / % in [25, 100] | 232.2 / 38.6 % (min 11.3, max 4,170) | not run |
+| Mesh s / y+ run s | 798 (layers 483) / 619 on 10 cores | 579 / - |
+
+**Answer: full stacks become reachable on part of the aircraft, not in the hard zones.** Halving the surface
+cells makes the plan fit better (17 planned layers instead of 21; the 12-layer cap reaches 70 % of the planned
+stack instead of 33 %) and lifts the full-stack area from 2.4 to 20.2 % and the mean layers from 30 to 44 % of
+the target, with a valid mesh. A third of the wall still has no layer, every zone (junctions, trailing edge,
+tips) stays at 0 % strict coverage, and the wall cell is 4.2 times the planned first layer on average, so the
+indicative y+ mean is 232 for a target of 50 (4.6 times; the Part C warning would show "about 4.2 times"). By area,
+32.3 % of the wall has no layer, 47.5 % has 1 to 11 layers (spread over every count, not one outer pass's 6)
+and 20.2 % has all 12. Reaching the target in the zones needs more than resolution with these controls
+(QUESTIONS 147).
+
+Machine time: Part E 1,574 s wall-clock (16:21-16:47), with Part F's 619 s inside it (Part F's y+ runs used at
+most 6 cores while Part E meshed on one; Part E's y+ run started after Part F ended).
