@@ -690,12 +690,14 @@ def control_dict() -> FoamFileSpec:
 
 
 def fv_schemes() -> FoamFileSpec:
-    """Placeholder schemes: snappyHexMesh and checkMesh only need the file to exist."""
+    """Placeholder schemes: snappyHexMesh and checkMesh only need the file to exist. Scheme entries are
+    token streams (tuples: ``default Gauss linear;``), never lists (``default (Gauss linear);``), which a
+    solver that reads them (a displacement motion solver) cannot parse."""
     return FoamFileSpec(content={
         "ddtSchemes": {"default": "steadyState"},
-        "gradSchemes": {"default": ["Gauss", "linear"]},
+        "gradSchemes": {"default": ("Gauss", "linear")},
         "divSchemes": {"default": "none"},
-        "laplacianSchemes": {"default": ["Gauss", "linear", "corrected"]},
+        "laplacianSchemes": {"default": ("Gauss", "linear", "corrected")},
         "interpolationSchemes": {"default": "linear"},
         "snGradSchemes": {"default": "corrected"},
     })
