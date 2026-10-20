@@ -7,7 +7,7 @@ from tests.fakes import FakeDialogs
 from vortexcfd.core.project import Project
 from vortexcfd.foam.physics_case import inlet_turbulence
 from vortexcfd.gui.main_window import MainWindow
-from vortexcfd.gui.properties_panel import LAYERS_ABSOLUTE_TIP, YPLUS_RELATIVE_TIP
+from vortexcfd.gui.properties_panel import LAYERS_ABSOLUTE_TIP, YPLUS_AT_TIPS, YPLUS_RELATIVE_TIP
 
 
 @pytest.fixture
@@ -125,7 +125,11 @@ def test_mesh_node_has_layer_sizing_rows(window: MainWindow) -> None:
     f = p.mesh_fields
     # a new simulation: absolute sizing for y+ 50 (D-086), the field in use
     assert f["layer_sizing"].currentText() == "absolute_yplus" and f["target_yplus"].value() == 50.0
-    assert f["target_yplus"].isEnabled() and f["target_yplus"].toolTip() == ""
+    assert f["target_yplus"].isEnabled() and f["target_yplus"].toolTip() == YPLUS_AT_TIPS["cell_centre"]
+    assert "first cell centre" in YPLUS_AT_TIPS["cell_centre"]  # the y+ convention (D-107)
+    window.project.update_mesh(yplus_at="cell_height")  # a project saved before v14
+    assert f["target_yplus"].toolTip() == YPLUS_AT_TIPS["cell_height"] and "half" in YPLUS_AT_TIPS["cell_height"]
+    window.project.update_mesh(yplus_at="cell_centre")
     f["layer_sizing"].setCurrentText("relative")
     assert window.project.sim.mesh.layer_sizing == "relative"
     assert not p.mesh_yplus_note.isVisible()  # relative sizing: no y+ guidance
@@ -169,8 +173,11 @@ def _project_with_sphere(tmp_path):
 
 
 def test_mesh_properties_show_the_computed_first_layer_thickness(qtbot: QtBot, tmp_path) -> None:
-    from vortexcfd.foam.yplus import first_layer_thickness
+    from vortexcfd.foam.yplus import first_layer_thickness as height_rule
     from vortexcfd.gui.scene import domain_box_for
+
+    def first_layer_thickness(*args):  # a new project: the target at the first cell centre (D-107)
+        return height_rule(*args, "cell_centre")
 
     project = _project_with_sphere(tmp_path)
     w = MainWindow(project, FakeDialogs(), with_viewer=False)
@@ -196,6 +203,9 @@ def test_mesh_properties_show_the_computed_first_layer_thickness(qtbot: QtBot, t
         project.update_mesh(surface_size_reference="largest_extent")  # a project made before v10: L
         assert p.mesh_first_layer.text() == (
             f"{first_layer_thickness(30.0, 40.0, 1.5e-5, box.reference_length):.4g} m (for y+ 30)")
+        project.update_mesh(yplus_at="cell_height")  # a project saved before v14: half the first layer
+        assert p.mesh_first_layer.text() == (
+            f"{height_rule(30.0, 40.0, 1.5e-5, box.reference_length):.4g} m (for y+ 30)")
     finally:
         w.project.save = lambda *a, **k: None
         w.close()
@@ -237,7 +247,9 @@ def test_layer_count_rows_and_the_y_plus_warning(qtbot: QtBot, tmp_path) -> None
         assert layers_field.isEnabled() and layers_field.value() == 3 and layers_field.toolTip() == ""
         box = domain_box_for(project)
         surface = project_estimate(project, box).surface_size
-        project.update_mesh(layer_sizing="absolute_yplus", target_yplus=30.0)
+        # the target distance as the first-layer height (a project saved before v14, D-107): the stack this
+        # test was written for
+        project.update_mesh(layer_sizing="absolute_yplus", target_yplus=30.0, yplus_at="cell_height")
         plan = plan_layers(first_layer_thickness(30.0, 20.0, 1.5e-5, box.parts_bounds[1] - box.parts_bounds[0]),
                            project.sim.mesh.expansion_ratio, surface, **layer_cap("robust"))
         assert plan.warning is None and plan.planned_count == 13 and plan.count == LAYER_CAP  # capped (D-106)

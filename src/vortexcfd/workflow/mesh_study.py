@@ -110,7 +110,7 @@ def plan_study(project: Project) -> StudyPlan:
     yplus_first = None
     if mesh.layer_sizing == "absolute_yplus":
         yplus_first = first_layer_thickness(mesh.target_yplus, project.sim.inflow.speed, project.sim.physics.nu,
-                                            length)  # Re on the surface size length (D-088)
+                                            length, mesh.yplus_at)  # Re on the surface size length (D-088)
     layers = reference_layers(mesh, current.surface_size, yplus_first)
     volume = box.volume  # the actual domain volume (D-078)
     ratio, measured = DEFAULT_CELLS_PER_BACKGROUND_CELL, False

@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 13
+CURRENT_SCHEMA_VERSION: int = 14
 
 
 class StrictModel(BaseModel):
@@ -200,6 +200,11 @@ class Mesh(StrictModel):
     # writes the 5.4 layer controls; "legacy" keeps the controls and the uncapped count of every
     # project saved before v13. Relative sizing is the same in both.
     layer_controls: Literal["legacy", "robust"] = "robust"
+    # Where target_yplus is placed (schema v14, D-107): "cell_centre", the default, sizes the first layer
+    # so that the target falls at the first cell centre, where OpenFOAM evaluates y+ (first layer = twice
+    # the target wall distance); "cell_height" (every project saved before v14) uses the target distance
+    # as the first-layer height (OpenFOAM then reports about half the target).
+    yplus_at: Literal["cell_centre", "cell_height"] = "cell_centre"
 
     @model_validator(mode="after")
     def _levels_ordered(self) -> "Mesh":
