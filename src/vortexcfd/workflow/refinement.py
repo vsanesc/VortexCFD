@@ -5,13 +5,14 @@ from dataclasses import dataclass, replace
 from vortexcfd.core.model import ConeShape, RefinementVolume
 from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_case import VolumeEntry, part_level_range
-from vortexcfd.foam.mesh_estimate import MeshEstimate, volume_extra_cells, volume_level
+from vortexcfd.foam.mesh_estimate import MeshEstimate, volume_buffer, volume_extra_cells, volume_level
 from vortexcfd.geometry import refinement_volumes as rv
 from vortexcfd.geometry.domain import DomainBox, union_bounds
 
 # Shown with the estimate (the cell counts of overlapping volumes are added, not merged).
-OVERLAP_NOTE = ("Each volume's extra cells are estimated on its own, from the part of it inside the domain; "
-                "overlapping volumes are counted twice.")
+OVERLAP_NOTE = ("Each volume's extra cells are estimated on its own: the volume grown by the level buffer "
+                "(nCellsBetweenLevels cells per level step), the part of it inside the domain; overlapping "
+                "volumes are counted twice.")
 # A volume wholly outside the domain is a warning, never an error: it is left out and meshing goes on
 # (owner review of D-103, QUESTIONS 134).
 OUTSIDE_IGNORED = "Ignored: outside the domain"
@@ -23,7 +24,8 @@ FINER_WARNING = ("The target is finer than the finest part surface level (level 
 @dataclass(frozen=True)
 class VolumeInfo:
     """What meshing does with one volume: its level, the cell size that gives, the share inside the
-    domain, the extra cells it adds, and ``status`` "inside", "partial", "outside" or "disabled"."""
+    domain, the extra cells it adds (estimated on the volume grown by ``buffer`` metres, the level
+    buffer), and ``status`` "inside", "partial", "outside" or "disabled"."""
 
     volume: RefinementVolume
     level: int
@@ -32,6 +34,7 @@ class VolumeInfo:
     extra_cells: int
     status: str
     messages: tuple[str, ...]
+    buffer: float = 0.0
 
     @property
     def written(self) -> bool:
@@ -69,8 +72,12 @@ def volume_info(volume: RefinementVolume, box: DomainBox, est: MeshEstimate, fin
         status = "inside"
     if level > finest:
         messages.append(FINER_WARNING.format(level=finest, size=est.base_size / 2 ** finest))
-    extra = volume_extra_cells(fraction * rv.volume(volume.shape), est.base_size, level) if fraction > 0 else 0
-    return VolumeInfo(volume, level, achieved, fraction, extra, status, tuple(messages))
+    buffer = volume_buffer(level, achieved)
+    extra = 0
+    if fraction > 0:  # the cells of the volume grown by the level buffer (owner review, QUESTIONS 135)
+        grown = rv.grow(volume.shape, buffer)
+        extra = volume_extra_cells(rv.domain_fraction(grown, box) * rv.volume(grown), est.base_size, level)
+    return VolumeInfo(volume, level, achieved, fraction, extra, status, tuple(messages), buffer)
 
 
 def volume_infos(project: Project, box: DomainBox, est: MeshEstimate) -> list[VolumeInfo]:

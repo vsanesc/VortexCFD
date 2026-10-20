@@ -229,6 +229,9 @@ def test_snappy_dict_has_one_geometry_and_one_inside_region_per_volume(tmp_path:
         f"{VOLUME_PREFIX}ball": {"mode": "inside", "levels": [[INSIDE_DISTANCE, volume_level(est.base_size, 0.1)]]},
     }
     assert "Ball.stl" in geometry  # the part is still there
+    from vortexcfd.foam.mesh_estimate import CELLS_BETWEEN_LEVELS
+
+    assert d["castellatedMeshControls"]["nCellsBetweenLevels"] == CELLS_BETWEEN_LEVELS  # the estimate's buffer
 
 
 def test_dict_without_volumes_is_unchanged(tmp_path: Path) -> None:
@@ -248,8 +251,10 @@ def test_estimate_with_and_without_volumes(tmp_path: Path) -> None:
     assert plain.volume_cells == 0 and plain.budget_cells == plain.total_cells
     project.add_refinement_volume(box_volume(size=0.05))  # 1 m3, level 3
     est = meshing.estimate_with_volumes(project, box)
-    expected = volume_extra_cells(1.0, est.base_size, 3)
-    assert expected == round((8 ** 3 - 1) / est.base_size ** 3)
+    h = est.base_size / 8
+    edge = 1.0 + 2 * 3 * 3 * h  # grown by 3 cells per level step, 3 steps
+    expected = volume_extra_cells(edge ** 3, est.base_size, 3)
+    assert expected == round(edge ** 3 * (8 ** 3 - 1) / est.base_size ** 3)
     assert est.volume_cells == expected and est.budget_cells == est.total_cells + expected
     assert est.total_cells == plain.total_cells and meshing.readiness(project) is None
     project.add_refinement_volume(box_volume("huge", size=0.004))
@@ -258,6 +263,28 @@ def test_estimate_with_and_without_volumes(tmp_path: Path) -> None:
     reason = meshing.readiness(project)
     assert reason is not None and "refinement volumes" in reason
     assert "counted twice" in refinement.OVERLAP_NOTE
+
+
+def test_level_buffer_grows_the_volume_before_its_cells_are_counted() -> None:
+    """Hand calculation: base 1 m, a 1 m box with a 0.25 m target -> level 2 (0.25 m cells); grown by
+    nCellsBetweenLevels (3) cells x 2 level steps x 0.25 m = 1.5 m on every side -> a 4 m box, 64 m3;
+    extra cells = 64 x (8^2 - 1) / 1^3 = 4032 (the ungrown box would give 63)."""
+    from vortexcfd.core.model import Domain, Mesh
+    from vortexcfd.foam.mesh_estimate import CELLS_BETWEEN_LEVELS, estimate_mesh, volume_buffer
+
+    assert CELLS_BETWEEN_LEVELS == 3
+    domain = compute_domain([(0.0, 1.0, 0.0, 1.0, 0.0, 1.0)], Domain())  # x -5..11, y and z -5..6
+    est = estimate_mesh(domain.bounds, 1.0, Mesh(base_size=1.0))
+    volume = RefinementVolume(id="x", name="b", shape=BoxShape(centre=(5.0, 0.5, 0.5), size=(1, 1, 1)), target_size=0.25)
+    info = refinement.volume_info(volume, domain, est, finest=5)
+    assert (info.level, info.achieved_size, info.buffer) == (2, 0.25, 1.5) == (2, 0.25, volume_buffer(2, 0.25))
+    assert info.extra_cells == 4032
+    assert rv.grow(volume.shape, 1.5).size == (4.0, 4.0, 4.0)
+    sphere = rv.grow(SphereShape(radius=1.0), 0.5)
+    assert sphere.radius == 1.5
+    cone = rv.grow(ConeShape(point1=(0, 0, 0), point2=(2, 0, 0), radius1=0.5, radius2=1.0), 0.5)
+    assert (cone.point1, cone.point2, cone.radius1, cone.radius2) == ((-0.5, 0.0, 0.0), (2.5, 0.0, 0.0), 1.0, 1.5)
+    assert rv.grow(volume.shape, 0.0) is volume.shape
 
 
 def test_outside_and_partly_outside_volumes(tmp_path: Path) -> None:

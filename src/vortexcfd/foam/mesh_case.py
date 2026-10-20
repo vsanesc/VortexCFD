@@ -16,7 +16,7 @@ from pathlib import Path
 from vortexcfd.core.model import BoxShape, ConeShape, CylinderShape, Mesh, SphereShape
 from vortexcfd.foam.case_writer import FoamFileSpec
 from vortexcfd.foam.dictfile import write_foam_file
-from vortexcfd.foam.mesh_estimate import estimate_mesh
+from vortexcfd.foam.mesh_estimate import CELLS_BETWEEN_LEVELS, estimate_mesh
 
 Bounds = tuple[float, float, float, float, float, float]  # xmin, xmax, ymin, ymax, zmin, zmax
 
@@ -603,7 +603,7 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
             "maxGlobalCells": MAX_GLOBAL_CELLS,
             "minRefinementCells": 10,
             "maxLoadUnbalance": 0.10,
-            "nCellsBetweenLevels": 3,
+            "nCellsBetweenLevels": CELLS_BETWEEN_LEVELS,
             "features": features,
             "refinementSurfaces": refinement_surfaces,
             "resolveFeatureAngle": m.feature_angle,

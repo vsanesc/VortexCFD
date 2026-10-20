@@ -95,6 +95,24 @@ def volume(shape) -> float:
     return math.pi * h / 3.0 * (r1 * r1 + r1 * r2 + r2 * r2)
 
 
+def grow(shape, distance: float):
+    """The shape grown outwards by ``distance`` (m): a box's edges by 2 x distance (same orientation), a
+    sphere's radius by distance, a cylinder's or cone's radii by distance and its ends moved out by distance
+    along its axis (for the cell estimate's level buffer, D-103)."""
+    if distance <= 0:
+        return shape
+    if isinstance(shape, BoxShape):
+        return shape.model_copy(update={"size": tuple(s + 2 * distance for s in shape.size)})
+    if isinstance(shape, SphereShape):
+        return shape.model_copy(update={"radius": shape.radius + distance})
+    p1, p2 = _arr(shape.point1), _arr(shape.point2)
+    axis = (p2 - p1) / np.linalg.norm(p2 - p1)
+    ends = {"point1": tuple(float(x) for x in p1 - distance * axis), "point2": tuple(float(x) for x in p2 + distance * axis)}
+    if isinstance(shape, CylinderShape):
+        return shape.model_copy(update={**ends, "radius": shape.radius + distance})
+    return shape.model_copy(update={**ends, "radius1": shape.radius1 + distance, "radius2": shape.radius2 + distance})
+
+
 def inside_domain(box: DomainBox, points) -> np.ndarray:
     """Vectorised DomainBox.contains (box, bullet and C-type, D-078)."""
     p = np.atleast_2d(_arr(points))

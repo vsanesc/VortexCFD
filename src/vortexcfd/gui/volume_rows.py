@@ -208,7 +208,9 @@ class VolumeRowsMixin:
             return
         self.vol_achieved.setText(f"{info.achieved_size:.4g} m (level {info.level}; requested "
                                   f"{volume.target_size:.4g} m)")
-        self.vol_cells.setText(f"+{info.extra_cells:,} cells (estimate)" if volume.enabled else "— (disabled)")
+        self.vol_cells.setText(
+            f"+{info.extra_cells:,} cells (estimate; grown by {info.buffer:.4g} m for the level buffer)"
+            if volume.enabled else "\u2014 (disabled)")
         status = {"inside": ("inside the domain",), "partial": ("partly outside the domain",),
                   "outside": (), "disabled": ("disabled: not written",)}[info.status]  # outside: its message says it
         self.vol_status.setText("\n".join((*status, *info.messages)))

@@ -7,6 +7,10 @@ from vortexcfd.core.model import Mesh
 
 Bounds = tuple[float, float, float, float, float, float]  # xmin, xmax, ymin, ymax, zmin, zmax
 
+# snappyHexMesh's nCellsBetweenLevels (castellatedMeshControls, written by foam/mesh_case.py): the
+# buffer of cells at each level before the next coarser one; the refinement volume estimate grows
+# each volume by it (D-103).
+CELLS_BETWEEN_LEVELS = 3
 # The Generate Mesh button is disabled above this many background cells.
 MAX_BACKGROUND_CELLS = 2_000_000
 # A rounded domain (D-078) is cut out of a background box that encloses its surface with this many
@@ -70,6 +74,13 @@ def volume_level(base_size: float, target_size: float) -> int:
     if target_size >= base_size:
         return 0
     return max(0, math.ceil(math.log2(base_size / target_size) - 1e-9))
+
+
+def volume_buffer(level: int, cell_size: float, cells_between_levels: int = CELLS_BETWEEN_LEVELS) -> float:
+    """How far (m) a refinement volume is grown before its cells are estimated (D-103, owner review): the
+    buffer snappyHexMesh keeps between levels, ``cells_between_levels`` cells of the volume's cell size
+    per level step from the background (``level`` steps)."""
+    return cells_between_levels * level * cell_size
 
 
 def volume_extra_cells(inside_volume: float, base_size: float, level: int) -> int:
