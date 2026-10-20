@@ -22,7 +22,7 @@ from typing import Literal
 from pydantic import Field, ValidationError, field_validator
 
 from vortexcfd.core.model import CURRENT_SCHEMA_VERSION, Mesh, Simulation, StrictModel
-from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR
+from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR, V13_MESH_FIELDS
 
 # 1: no schema_version (every such file was written before schema v10); 2: schema_version (D-090).
 PRESET_FORMAT_VERSION = 2
@@ -106,6 +106,12 @@ def migrate_preset(data: dict) -> dict:
             mesh.setdefault(key, value)
         data["mesh"] = mesh
         version = 10
+    if isinstance(version, int) and version < 13:
+        mesh = data.get("mesh")
+        mesh = dict(mesh) if isinstance(mesh, dict) else {}
+        for key, value in V13_MESH_FIELDS.items():  # the layer controls the preset had (D-106)
+            mesh.setdefault(key, value)
+        data["mesh"] = mesh
     if isinstance(version, int) and version < CURRENT_SCHEMA_VERSION:
         version = CURRENT_SCHEMA_VERSION  # v11 and v12 added nothing a preset holds (the surface preparation, D-093; refinement volumes, D-103)
     data["schema_version"] = version

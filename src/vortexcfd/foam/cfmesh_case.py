@@ -89,11 +89,11 @@ def layer_spec(inp: MeshCaseInput) -> LayerSpec:
     that cell); it cannot grow a stack thicker than the cell as snappyHexMesh does. [NUMERICS-REVIEW]"""
     m = inp.mesh
     if inp.fixed_layers is not None:
-        return LayerSpec(inp.fixed_layers[1], m.expansion_ratio, inp.fixed_layers[0])
+        return LayerSpec(inp.fixed_layers[1], inp.layer_expansion or m.expansion_ratio, inp.fixed_layers[0])
     if m.layer_sizing == "absolute_yplus":
         if inp.first_layer_thickness is None or inp.layer_count is None:
             raise ValueError("layer_sizing 'absolute_yplus' needs first_layer_thickness and layer_count")
-        return LayerSpec(inp.layer_count, m.expansion_ratio, inp.first_layer_thickness)
+        return LayerSpec(inp.layer_count, inp.layer_expansion or m.expansion_ratio, inp.first_layer_thickness)
     return LayerSpec(m.layers, m.expansion_ratio, None)
 
 
