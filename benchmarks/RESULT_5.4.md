@@ -329,3 +329,71 @@ Notes on the runs:
    +58 % on the aircraft (C1 at cap 12), 0 % on the sphere. nOuterIter 3 costs mesh time: wing 67 -> 89 s,
    Ahmed 54 -> 57 s (contended runs), aircraft 237 s (cap 12) -> 927 s (C1 at cap 12); on the aircraft it
    adds no coverage over featureAngle 130 alone at cap 12 (mean 31.9 %, 184 s).
+
+## Verification (Part E)
+
+The full benchmark with the new defaults (D-106) at git `512f72b` (tagged "-dirty" only because
+ARCHITECTURE.md and docs/ were being edited while it ran; no code differed): `nice -n 15 .venv/bin/python
+-m vortexcfd.bench --compare benchmarks/baseline_5.4_start.json` (public cases with their indicative y+
+runs, wall-clock 648 s; benchmarks/baseline_candidate.json, a copy of
+benchmarks/results/20261020T130328Z_512f72b-dirty.json) and, at the same time, the local aircraft CAD union
+through the same runner with its y+ run (mesh valid; benchmarks/results/local/20261020T130328Z_512f72b-dirty.json,
+git-ignored; the local config does not enable the aircraft's y+ run, so the session script set it).
+Part E wall-clock: 1,257 s. baseline.json is unchanged: the owner decides.
+
+| Case | Hard / soft | Cells (vs start) | Strict cov. % (start) | Zones strict % (start) / mean % | Mean / target % | Thickness % of plan | Max non-ortho | Fidelity RMS mm | y+ mean | y+ in band % | Mesh s / total s |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| sphere | 0 / 0 | 276,078 (0 %) | 99.5 (99.5) | - | 100.2 | 100.9 | 46.7 | 0.089 | 26.8 | 60.9 | 51 / 209 |
+| half wing | 0 / 0 | 364,942 (+8.0 %) | 95.9 (76.8) | trailing edge 38.3 (0.0) / 73, tip 75.2 (0.0) / 87, root 96.0 (87.4) / 99 | 98.1 | 96.9 | 64.8 | 0.107 | 27.1 | 64.6 | 60 / 239 |
+| Ahmed body | 0 / 0 | 279,054 (+23.6 %) | 97.4 (31.1) | rear edges 100.0 (0.0) / 100, slant edges 99.7 (14.5) / 100 | 100.0 | 100.5 | 64.8 | 0.063 | 25.9 | 46.2 | 42 / 198 |
+| aircraft (CAD union) | 0 / 1 (3 / 2) | 444,586 (+58.2 %) | 0.0 (0.0) | wing junction 0.0 / 3, htail junction 0.0 / 21, vtail junction 0.0 / 43, trailing edge 0.0 / 0, tips 0.0 / 2 (start: all 0.0 / 0-1) | 31.8 (2.2) | 10.2 (8.4) | 80.3 (174.4) | 3.54 / 4.55 | 618.6 | 30.5 | 793 / 1,185 |
+
+Layer counts and thickness from the mesh (D-105); snappyHexMesh's own strict coverage: 100.0 / 96.0 /
+99.3 / 0.0 %. Target layers 10 / 11 / 10 as before; the aircraft 12 (capped from 24, ratio 1.3; the
+achievable stack is 47 mm of the planned 250 mm, 19 %, shown in its Mesh properties). Core cells (cells
+minus prism cells) are unchanged on every case: the cell growth is the planned stack's own prism cells.
+The aircraft's one soft failure is skewness 4.33 (2 faces); 42 faces are between 70 and 90 degrees (soft
+"*" warnings). y+ in band = area with y+ in [25, 100] (0.5 to 2 x the target 50); y+ values are indicative
+(400 iterations).
+
+`--compare` against benchmarks/baseline_5.4_start.json: coverage up 19.1 points (wing) and 66.3 points
+(Ahmed), worst zones 0 -> 38.3 / 99.7 %, max non-orthogonality and fidelity unchanged; REGRESSION Ahmed
+cells up 23.6 % (the 10 % rule of D-082; all prism cells); time flags (the start file was mesh only).
+The aircraft against its start result: hard failures 3 -> 0, max non-orthogonality 174.4 -> 80.3; REGRESSION
+24 more faces above 70 degrees and cells up 58.2 %; FLAG target layers 24 -> 12.
+
+Observations:
+
+1. y+ on the public cases is now close to what the y+ estimator delivers by its convention (the
+   first-layer height is used as the cell height, so the cell-centre y+ that OpenFOAM reports is about half
+   the target, foam/yplus.py): 26.8 / 27.1 / 25.9 against 26.8 / 43.3 / 67.8 in baseline.json. The wing and
+   the Ahmed body used to be higher because their squashed stacks put thicker cells at the wall (walk mean
+   first layer 1.29 / 1.87 mm, now 0.89 / 0.90 mm against 0.90 mm planned). Sitting at the lower edge of the
+   [25, 100] band, the Ahmed body's in-band share drops from 57.9 to 46.2 %.
+2. The aircraft's y+ is far off: mean 618.6, 30.5 % in band. The planned first layer is unchanged (0.64 mm),
+   but 28.8 % of the wall has no layer on 84 mm surface cells and where stacks are partial the outer passes
+   are the ones that stayed (walk mean first layer 3.7 mm). The y+ the plan asks for is not reached there.
+3. Mesh time: +18 % / +0 % / -22 % (sphere unchanged, wing 51 -> 60 s, Ahmed 54 -> 42 s, single runs, noisy);
+   the aircraft 168 -> 793 s (nOuterIter 3 with each pass running its 50 layer iterations).
+
+### D1 verdict
+
+- **Zero hard checkMesh failures on every case, the aircraft included: met** (0 / 0 / 0 / 0; the aircraft
+  had 3).
+- **Strict coverage of at least 85 %: met on the half wing (95.9 %) and the Ahmed body (97.4 %); not met on
+  the aircraft (0.0 %, 85 points short).** Why: its planned stack (24 layers, 250 mm on 21-84 mm cells) is
+  3 to 12 cells deep; capped at 12 layers with ratio 1.3 it is 47 mm, but on this surface no face keeps all
+  12 layers: the layer additions stop after one or two of the three outer passes (4 or 8 layers; mean 31.8 %
+  of the target), with quality removal, medial-axis reductions and the shrink scaling acting on the
+  21-84 mm cells around the junctions and the thin wing (Diagnosis 3). No combination of the allowed
+  controls in the study reached a full stack anywhere on it while staying valid; reaching it would need
+  finer surface cells (not allowed: no new surface refinement levels) or a higher target y+.
+- **Hard zones improve from 0 %: met on the public cases** (wing trailing edge 0 -> 38.3 %, tip 0 -> 75.2 %,
+  Ahmed rear edges 0 -> 100 %, slant edges 14.5 -> 99.7 %); **not met on the aircraft by the strict measure**
+  (every zone still 0.0 %), where only the mean layers rise (junctions 0-1 % -> 3-43 % of the target).
+- Cell growth (D3, 20 %): the half wing +8 %, the Ahmed body +24 %, the aircraft +58 %; in every case the
+  core mesh is unchanged and the extra cells are the prism layers the y+ plan asks for (read as allowed,
+  docs/QUESTIONS.md item 138).
+
+Total machine time of the session's runs: 4,549 s (75.8 min) wall-clock (Part A 262 s, study 1,485 + 1,545 s,
+Part E 1,257 s; benchmarks/results/5.4/machine_time.log).
