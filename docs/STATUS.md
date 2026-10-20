@@ -1,39 +1,27 @@
 # Status
 
-Updated 2026-10-20 (task/5.4b-yplus: y+ convention, tet check and outer passes; owner review applied).
+Updated 2026-10-20 (task/5.x-parallel-mesh: parallel snappyHexMesh).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
 
-**task/5.4b-yplus** (not yet published). Done on it (benchmarks/RESULT_5.4b.md):
-- Part A (D-107, [NUMERICS-REVIEW], schema v14): OpenFOAM v2606 evaluates y+ at the first cell centre
-  (nearWallDist); the first layer is now sized so the target falls there (twice the target distance;
-  `Mesh.yplus_at`, tooltip on Target y+). Projects and presets saved before keep "cell_height" (fixture
-  tests/data/project_v13.json); the estimator tested against a hand calculation.
-- Part B (D-106 updated, [NUMERICS-REVIEW]): study of the tet check and nOuterIter 2 on four cases; with the new
-  first layer only nOuterIter 2 with the tet check on is valid on the aircraft; it is the new robust set. Robust
-  projects meshed before are out of date (hash revision).
-- Part C (D-109): after meshing the app measures the achieved first cell (mean, 95th percentile) with the layer
-  walk (moved to foam/) and warns in the Mesh report and the Run Solver tooltip above 1.5 x the plan.
-- Part D (D-108): the placeholder fvSchemes as token streams; dictionary syntax tests.
-- Part E: the aircraft at 0.05 x l_ref: valid, 688,556 cells, strict coverage 20.2 % (zones 0 %), first cell
-  4.2 x the plan, indicative y+ mean 232 for 50.
-- Part F: public y+ means 49.6 / 52.2 / 51.2 for 50 (were about 26), strict coverage 99.6 / 94.4 / 96.5 %;
-  the run became benchmarks/baseline.json after the owner's review (D-110; the 5.1b baseline is now
-  baseline_1.json). Machine time 40.9 min of wall-clock with runs going.
-- Owner review: D-105 to D-110 accepted. **Phase 5.4 closed:** the public cases meet D1 (no hard failures,
-  half wing 94.4 % and Ahmed body 96.5 % strict coverage, the hard zones above 0 %); the aircraft is valid with
-  partial layers, and the achieved first cell and the y+ drift warning tell the user when the stacks collapse.
-- Flat plate (QUESTIONS 150, closed): the case asks for y+ 1 at the first cell centre, which gives the recorded
-  study's grids exactly (tests/test_flat_plate_grids.py), so the TMR verification (PASS WITH NOTE) applies to the
-  cell-centre convention by equivalence (D-107); the y+ 2 run (-5.81 % on the medium grid) was a mis-specified
-  target, kept as evidence outside git.
-- The Target y+ tooltip gives the usual targets (wall-resolved about 1 at the cell centre; wall functions
-  30-300, default 50). D-110 (the 5.4b baseline) accepted.
+**task/5.x-parallel-mesh** (not yet published). Done on it (D-111, benchmarks/RESULT_parallel_mesh.md):
+- Part A ([NUMERICS-REVIEW], schema v15): with Mesh cores N > 1 the pipeline is blockMesh, surfaceFeatureExtract,
+  decomposePar (scotch), every snappyHexMesh pass through mpirun on one decomposition, reconstructParMesh
+  -constant, then createPatch and checkMesh on the serial mesh; processor*/ removed after the reconstruction
+  and after a stop or failure; a new meshing case drops the old mesh record. Mesh properties: "Mesh cores"
+  (auto = the Solvers cores capped by the recommendation) and "Cores used"; the mesh record keeps the cores.
+  Benchmark `--mesh-cores` (default serial) and the summed memory of all ranks.
+- Part B: mesh only at 1 / 4 / 8 cores: speedup at 8 cores 2.13 sphere, 1.97 half wing, 1.85 Ahmed body,
+  4.13 aircraft (497 -> 120 s); validity, checks, strict coverage (overall and zones), first cell and
+  fidelity the same to the noise. Meshing cap rule: background cells / 12,500, at most 8. Machine time
+  about 29 min.
 
-Next: the aircraft's zones (QUESTIONS 147) as the next aircraft task; drag handles for the refinement volumes
-(item 132). The owner runs scripts/ship.sh (the slow tests, item 153). Open: docs/QUESTIONS.md items 30, 67, 69,
-70, 71, 72, 73, 75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131 and 147.
+Next: owner review of D-111 and QUESTIONS 154-161 (155: whether automatic meshing should ignore the Solvers
+cores; 156: the mesh study in parallel). Then the aircraft's zones (QUESTIONS 147); drag handles for the
+refinement volumes (item 132). The owner runs scripts/ship.sh (the slow tests, item 161). Open:
+docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131,
+147 and 154 to 161.
 
 ## Phases
 
@@ -69,7 +57,7 @@ Next: the aircraft's zones (QUESTIONS 147) as the next aircraft task; drag handl
 | 6.3 | Data export and reports | not started (section CSV export only, D-062) |
 | 6.4 | Mesh independence study (GCI) | done (D-066): Mesh Study node, three levels, Celik GCI, results window and CSV; flat plate Case B not reproduced through the workflow (item 72) |
 | 6.5 | Angle-of-attack sweep (polars) | done (D-067): Polar Sweep node, points on the current mesh initialised from the previous converged point, CL-alpha / drag polar / CM-alpha, CSV; NACA 0012 check waits for the wing case |
-| 6.6 | Parallel runs (mpirun) | done (D-063 Accepted): decomposePar / mpirun / reconstructPar, clean stop through mpirun; speedup study and recommended cores (D-064) |
+| 6.6 | Parallel runs (mpirun) | done (D-063 Accepted): decomposePar / mpirun / reconstructPar, clean stop through mpirun; speedup study and recommended cores (D-064); parallel snappyHexMesh reconstructed to a serial mesh (D-111, proposed) |
 | 7.1-7.3 | Coupled solver analysis | not started |
 | 8.1-8.5 | Moving meshes | not started |
 | 9.1 | Project management | partly done: save/load, undo/redo, start screen, recent projects, project folders, presets (D-077); cloning not started |

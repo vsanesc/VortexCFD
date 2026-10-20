@@ -200,7 +200,7 @@ Reality check: "as powerful as a commercial mesher" is not a deliverable that ca
 - Deliverables: a sweep definition (start, end, step or explicit list), one run per angle (sequential, then parallel with 6.6), Cl-alpha, Cd-Cl and Cm-alpha charts and a CSV export; runs that end at the iteration limit or oscillate are flagged in the polar.
 - Acceptance: the reference values and force directions follow alpha in every run (D-050 check per angle); a NACA 0012 polar against reference data once Phase 1.2's wing case exists.
 
-### 6.6 Parallel runs — *done (Task 6.6: decomposePar / mpirun / reconstructPar, clean stop through mpirun; serial and parallel compared on the converged low-Re sphere, D-063; speedup study and recommended cores, D-064)*
+### 6.6 Parallel runs — *done (Task 6.6: decomposePar / mpirun / reconstructPar, clean stop through mpirun; serial and parallel compared on the converged low-Re sphere, D-063; speedup study and recommended cores, D-064; parallel snappyHexMesh with reconstruction to a serial mesh, Mesh cores in the Mesh properties, task 5.x-parallel-mesh, D-111, benchmarks/RESULT_parallel_mesh.md)*
 - Goal: decomposePar / mpirun / reconstructPar from the runner with a clean stop for parallel solvers (today only single-process runs, D-010, D-046).
 - Acceptance: the same results (to solver tolerance) and the same stopping criteria behaviour in serial and in parallel on the coarse sphere.
 
