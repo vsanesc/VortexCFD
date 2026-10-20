@@ -41,15 +41,16 @@ def git_sha(root: Path) -> str:
         return "nogit"
 
 
-def _worker(name: str, out_file: Path, root: Path, solve: bool) -> int:
+def _worker(name: str, out_file: Path, root: Path, solve: bool, mesher: str = "snappy") -> int:
     from vortexcfd.bench.runner import run_case
 
     case = CASES.get(name) or load_local_cases(root)[0][name]
     work = local_work_root() if case.local else root / "run" / "bench"
     try:
-        result = run_case(case, work, root / "benchmarks" / "geometries", solve=solve)
+        result = run_case(case, work, root / "benchmarks" / "geometries", solve=solve, mesher=mesher)
     except Exception as exc:  # a crash is a benchmark result, not a reason to lose the others
-        result = {"case": name, "description": case.description, "failed": True,
+        result = {"case": name if mesher == "snappy" else f"{name}_{mesher}", "mesher": mesher,
+                  "description": case.description, "failed": True,
                   "failure": f"{type(exc).__name__}: {exc}"}
     cores = (result.get("yplus") or {}).get("cores")
     result["deviations"] = deviations(case, cores)
@@ -57,13 +58,13 @@ def _worker(name: str, out_file: Path, root: Path, solve: bool) -> int:
     return 0
 
 
-def run_cases(names: list[str], root: Path, solve: bool) -> list[dict]:
+def run_cases(names: list[str], root: Path, solve: bool, mesher: str = "snappy") -> list[dict]:
     results = []
     with tempfile.TemporaryDirectory() as tmp:
         for name in names:
             out = Path(tmp) / f"{name}.json"
             code = subprocess.run([sys.executable, "-m", "vortexcfd.bench", "--worker", name, "--worker-out", str(out)]
-                                  + ([] if solve else ["--no-solve"]), cwd=root).returncode
+                                  + ([] if solve else ["--no-solve"]) + ["--mesher", mesher], cwd=root).returncode
             if out.is_file():
                 results.append(json.loads(out.read_text(encoding="utf-8")))
             else:
@@ -95,12 +96,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-solve", action="store_true", help="mesh only (no indicative y+ run)")
     parser.add_argument("--out", type=Path, help="result folder (default benchmarks/results)")
     parser.add_argument("--generate", action="store_true", help="only (re)generate the geometries")
+    parser.add_argument("--mesher", choices=("snappy", "cfmesh"), default="snappy",
+                        help="evaluation only (phase 5.3, D-102): mesh with cfMesh's cartesianMesh instead of "
+                             "snappyHexMesh; the app always uses snappyHexMesh")
     parser.add_argument("--worker", help=argparse.SUPPRESS)
     parser.add_argument("--worker-out", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     root = repo_root()
     if args.worker:
-        return _worker(args.worker, args.worker_out, root, not args.no_solve)
+        return _worker(args.worker, args.worker_out, root, not args.no_solve, args.mesher)
     if args.generate:
         from vortexcfd.bench.geometries import GEOMETRIES, ensure_geometry
 
@@ -132,11 +136,11 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         now = datetime.now(timezone.utc)
         start = time.monotonic()
-        cases = run_cases(names, root, not args.no_solve)
+        cases = run_cases(names, root, not args.no_solve, args.mesher)
         new = {"meta": {"stamp": now.strftime("%Y%m%dT%H%M%SZ"), "utc": now.strftime("%Y-%m-%d %H:%M:%S"),
                         "git_sha": git_sha(root), "cases": names, "solve": not args.no_solve,
                         "physical_cores": physical_cores(), "wall_s": time.monotonic() - start,
-                        "local": bool(args.local)},
+                        "local": bool(args.local), "mesher": args.mesher},
                "cases": cases}
         # Local results never go next to the public ones (D-094): benchmarks/results/local/, git-ignored.
         folder = args.out or root / "benchmarks" / "results" / ("local" if args.local else "")

@@ -9,6 +9,11 @@ read-only measurements and the indicative y+ run (workflow/solving.prepare_solve
 The only change to the generated case is output: ``writeFlags (layerFields)`` is appended to
 system/snappyHexMeshDict so snappyHexMesh writes its layer fields. A second checkMesh writes the face
 non-orthogonality field (it does not change the mesh).
+
+Evaluation switch (phase 5.3, D-102): with ``mesher="cfmesh"`` the same project is meshed by cfMesh's
+cartesianMesh instead (workflow/cfmesh.prepare_cfmesh_job, the case the app would never write); every
+measurement is the same, and the layers are also counted from the mesh itself (bench/layer_walk), for
+both meshers, because cfMesh writes no layer fields.
 """
 
 import resource
@@ -20,22 +25,24 @@ from pathlib import Path
 import numpy as np
 import pyvista as pv
 
-from vortexcfd.bench import metrics
+from vortexcfd.bench import layer_walk, metrics
 from vortexcfd.bench import reference as reference_module
 from vortexcfd.bench.cases import BenchCase
 from vortexcfd.bench.geometries import ensure_geometry, sphere_reference
 from vortexcfd.core.model import Simulation, StoppingCriteria
 from vortexcfd.core.presets import BUILTIN_PRESETS, apply_preset
 from vortexcfd.core.project import Project
+from vortexcfd.foam.cfmesh_case import cfmesh_commands
 from vortexcfd.foam.mesh_run import MeshRun
 from vortexcfd.foam.mesh_case import part_patch_names, safe_part_names
+from vortexcfd.foam.polymesh import PolyMesh
 from vortexcfd.foam.parallel import physical_cores, recommended_cores
 from vortexcfd.foam.physics_case import control_dict
 from vortexcfd.foam.postprocessing import patch_face_counts
 from vortexcfd.foam.runner import run_foam
 from vortexcfd.foam.solver_run import SolverRun
 from vortexcfd.geometry.cad import CAD_EXTENSIONS, read_cad, tessellate
-from vortexcfd.workflow import meshing, part_ops, solving, surface_prep
+from vortexcfd.workflow import cfmesh, meshing, part_ops, solving, surface_prep
 
 EXTERNAL_FLOW = BUILTIN_PRESETS[0]
 LAYER_FIELDS = ("nSurfaceLayers", "thickness", "thicknessFraction")
@@ -300,11 +307,34 @@ def snappy_stages(log_dir: Path) -> dict:
     return stages
 
 
-def run_mesh(project: Project) -> tuple:
-    """Prepare and run the meshing case; returns (job, MeshRunResult, step durations)."""
-    job = meshing.prepare_job(project)
-    shm = job.case_dir / "system" / "snappyHexMeshDict"
-    shm.write_text(shm.read_text(encoding="utf-8") + WRITE_LAYER_FIELDS, encoding="utf-8")
+# cfMesh's OpenMP threads follow the CPU affinity (benchmarks/RESULT_5.3.md, Part A): the evaluation pins
+# cartesianMesh to one logical CPU of each of CFMESH_CORES physical cores (SMT siblings are adjacent on
+# the development PC: CPUs 2k and 2k + 1 are core k).
+CFMESH_CORES = 10
+
+
+def cfmesh_cpus(cores: int = CFMESH_CORES) -> tuple[int, ...]:
+    return tuple(range(0, 2 * cores, 2))
+
+
+def run_mesh(project: Project, mesher: str = "snappy") -> tuple:
+    """Prepare and run the meshing case; returns (job, MeshRunResult, step durations, notes). With
+    cfMesh and a symmetry plane the run stops before checkMesh, the symmetry patch is made exactly
+    planar (workflow/cfmesh.flatten_symmetry, its displacement in the notes) and checkMesh runs on that."""
+    stages: list[tuple] = []
+    notes: dict = {}
+    if mesher == "cfmesh":
+        job = cfmesh.prepare_cfmesh_job(project)
+        commands = cfmesh_commands(job.inputs, cfmesh_cpus())
+        if job.inputs.symmetric:
+            stages = [commands[:-1], commands[-1:]]
+        else:
+            stages = [commands]
+    else:
+        job = meshing.prepare_job(project)
+        shm = job.case_dir / "system" / "snappyHexMeshDict"
+        shm.write_text(shm.read_text(encoding="utf-8") + WRITE_LAYER_FIELDS, encoding="utf-8")
+        stages = [None]
     steps: dict[str, float] = {}
     current: list = [None, 0.0]
 
@@ -315,15 +345,68 @@ def run_mesh(project: Project) -> tuple:
         current[0], current[1] = name, now
         _log(f"  {name}")
 
-    run = MeshRun(job.case_dir, on_step=on_step, parts=job.inputs.patches, step_timeout_s=STEP_TIMEOUT_S)
     start = time.monotonic()
-    run.start()
-    result = run.wait()
+    result = None
+    for k, stage in enumerate(stages):
+        if k > 0:  # between the cfMesh run and checkMesh: the symmetry plane
+            if result is None or any(code != 0 for code in result.exit_codes.values()) or result.stopped:
+                break
+            on_step("flattenSymmetry")
+            notes["symmetry_flattened"] = cfmesh.flatten_symmetry(job.case_dir, "symmetry", job.box.bounds[2])
+        extra = {"steps": stage} if stage is not None else {}
+        run = MeshRun(job.case_dir, on_step=on_step, parts=job.inputs.patches, step_timeout_s=STEP_TIMEOUT_S, **extra)
+        run.start()
+        result = run.wait()
     end = time.monotonic()
     if current[0] is not None:
         steps[current[0]] = end - current[1]
     steps["mesh_total"] = end - start
-    return job, result, steps
+    return job, result, steps, notes
+
+
+def planned_stack(inputs) -> tuple[float | None, float | None]:
+    """(first layer, total stack thickness) in metres of the y+ stack both meshers are asked for; None
+    with relative sizing."""
+    if inputs.fixed_layers is not None:
+        first, count = inputs.fixed_layers
+    elif inputs.first_layer_thickness is not None and inputs.layer_count is not None:
+        first, count = inputs.first_layer_thickness, inputs.layer_count
+    else:
+        return None, None
+    r = inputs.mesh.expansion_ratio
+    return first, (first * (r ** count - 1) / (r - 1) if r != 1 else first * count)
+
+
+def walk_measurements(case: BenchCase, case_dir: Path, inputs, target_layers: int) -> dict:
+    """Layers counted from the mesh (bench/layer_walk), overall, per patch and per zone, in
+    metrics.layer_stats form: the thickness is the stack's, its percentage is of the planned stack
+    (planned_stack); plus the mean first-layer height of the faces with a layer against the planned
+    first layer."""
+    first_planned, total_planned = planned_stack(inputs)
+    t0 = time.monotonic()
+    walked = layer_walk.walk_layers(PolyMesh.read(case_dir), inputs.patches, target_layers + 5)
+
+    def stats(a, n, th, first):
+        frac = th / total_planned if total_planned else np.zeros_like(th)
+        row = metrics.layer_stats(a, n, th, frac, target_layers)
+        has = n > 0
+        row["mean_first_layer_m"] = float((a[has] * first[has]).sum() / a[has].sum()) if has.any() else None
+        return row
+
+    out: dict = {"method": "layer_walk", "max_aspect": layer_walk.MAX_ASPECT, "max_growth": layer_walk.MAX_GROWTH,
+                 "planned_first_m": first_planned, "planned_total_m": total_planned, "patches": {}, "zones": {}}
+    if not walked:
+        return out
+    for name, d in walked.items():
+        out["patches"][name] = stats(d["area"], d["layers"], d["thickness"], d["first"])
+    a, n, th, first, c = (np.concatenate([d[k] for d in walked.values()])
+                          for k in ("area", "layers", "thickness", "first", "centre"))
+    out["walls"] = stats(a, n, th, first)
+    for zone in case.zones:
+        mask = metrics.zone_mask(c, zone.boxes, zone.segments, zone.width)
+        out["zones"][zone.name] = {**stats(a[mask], n[mask], th[mask], first[mask]), "description": zone.description}
+    out["time_s"] = time.monotonic() - t0
+    return out
 
 
 # The y+ runs use the recommended count for each mesh (cells / CELLS_PER_CORE) with a cap of
@@ -385,11 +468,12 @@ def _name(ref: "reference_module.ReferenceSurface", index: int) -> str:
     return next((n for n, k in ref.components.items() if k == index), str(index))
 
 
-def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool = True) -> dict:
-    """Mesh (and, with ``solve``, the y+ run) one case; every result is a plain dict for the JSON."""
+def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool = True, mesher: str = "snappy") -> dict:
+    """Mesh (and, with ``solve``, the y+ run) one case; every result is a plain dict for the JSON.
+    ``mesher`` "cfmesh" is the 5.3 evaluation switch (the project folder is <case>_cfmesh)."""
     t0 = time.monotonic()
     ref = None
-    out: dict = {"case": case.name, "description": case.description}
+    out: dict = {"case": case.name, "description": case.description, "mesher": mesher}
     if case.local:
         _log(f"{case.name}: reference analysis")
         case, ref, out["reference"] = local_reference(case, work_root / ".reference_cache")
@@ -398,6 +482,10 @@ def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool =
     else:
         source = ensure_geometry(case.geometry, geometry_dir)
     out["reference_length"] = case.reference_length
+    if mesher == "cfmesh":
+        case = replace(case, name=f"{case.name}_cfmesh")
+        out["case"] = case.name
+        out["cfmesh_cores"] = CFMESH_CORES
     project = new_project(case, work_root)
     t_import = time.monotonic()
     import_geometry(project, source, case.units, case.import_mode)
@@ -429,7 +517,8 @@ def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool =
                        "surface_length": length.value, "surface_length_source": length.source,
                        "curvature_level": est.curvature_level}
     _log(f"{case.name}: meshing")
-    job, result, steps = run_mesh(project)
+    job, result, steps, notes = run_mesh(project, mesher)
+    out.update(notes)
     out["mesh_peak_mb"] = _peak_child_mb()
     report = result.report if result else None
     stages = snappy_stages(job.case_dir / "logs")
@@ -459,6 +548,8 @@ def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool =
         counts = patch_face_counts(job.case_dir)
         out["patch_faces"] = {p: counts.get(p, 0) for p in job.inputs.patches}
         out["force_partition"] = force_partition_check(project, job.case_dir, job.inputs.patches)
+    _log(f"{case.name}: layers counted from the mesh")
+    out["layers_walk"] = walk_measurements(case, job.case_dir, job.inputs, target_layers)
     if snappy_log.is_file():  # what the layer phase did (D-091); the snap and layer run's log
         out["layers"]["log"] = metrics.layer_log_diagnostics(snappy_log.read_text(errors="replace"))
     out["failed"] = not report.valid
