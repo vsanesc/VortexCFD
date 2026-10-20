@@ -210,6 +210,7 @@ def test_layer_walk_counts_the_thin_prisms_of_a_stack(tmp_path: Path) -> None:
     assert walked["layers"].tolist() == [5]
     assert walked["thickness"][0] == pytest.approx(sum(stack))
     assert walked["first"][0] == pytest.approx(0.01)
+    assert walked["first_cell"][0] == pytest.approx(0.01)  # the wall-adjacent cell's height
     assert walked["area"][0] == pytest.approx(1.0)
 
 
@@ -217,7 +218,8 @@ def test_layer_walk_stops_at_a_jump_in_height_and_at_the_limit(tmp_path: Path) -
     write_column(tmp_path / "jump", [0.01, 0.012, 0.1, 0.12])  # 0.1 is more than 3 x 0.012
     assert walk_layers(PolyMesh.read(tmp_path / "jump"), ("wall",), 10)["wall"]["layers"].tolist() == [2]
     write_column(tmp_path / "cube", [1.0, 1.0])  # no layer: the first cell is not thin
-    assert walk_layers(PolyMesh.read(tmp_path / "cube"), ("wall",), 10)["wall"]["layers"].tolist() == [0]
+    cube = walk_layers(PolyMesh.read(tmp_path / "cube"), ("wall",), 10)["wall"]
+    assert cube["layers"].tolist() == [0] and cube["first_cell"][0] == pytest.approx(1.0)  # its height all the same
     write_column(tmp_path / "many", [0.01] * 8)
     assert walk_layers(PolyMesh.read(tmp_path / "many"), ("wall",), 3)["wall"]["layers"].tolist() == [3]
 

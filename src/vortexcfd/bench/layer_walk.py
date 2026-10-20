@@ -28,7 +28,8 @@ MIN_TOP_COS = 0.7  # the top face's normal within about 45 degrees of the wall n
 def walk_layers(mesh: PolyMesh, patches: tuple[str, ...], max_layers: int,
                 max_aspect: float = MAX_ASPECT, max_growth: float = MAX_GROWTH) -> dict[str, dict[str, np.ndarray]]:
     """Per wall patch: the layer count, the stack thickness (m), the first layer's height (m; 0 without a
-    layer), the face area and centre of every face (in the patch's face order)."""
+    layer), the wall-adjacent cell's height (m, ``first_cell``, every face: see ``first_cell_height``),
+    the face area and centre of every face (in the patch's face order)."""
     n_faces = len(mesh.faces)
     n_internal = len(mesh.neighbour)
     n_cells = int(max(mesh.owner.max(initial=-1), mesh.neighbour.max(initial=-1))) + 1
@@ -55,6 +56,7 @@ def walk_layers(mesh: PolyMesh, patches: tuple[str, ...], max_layers: int,
         layers = np.zeros(count, dtype=np.int64)
         thick = np.zeros(count)
         first_h = np.zeros(count)
+        first_cell = np.zeros(count)
         for k in range(count):
             f0 = start + k
             normal = vec[f0] / max(area[f0], 1e-300)
@@ -71,6 +73,8 @@ def walk_layers(mesh: PolyMesh, patches: tuple[str, ...], max_layers: int,
                 if max(cos) < MIN_TOP_COS or len(pts(g)) < len(pts(f0)):
                     break
                 h = abs(float(np.dot(centre[g] - centre[f], normal)))
+                if n == 0:
+                    first_cell[k] = h  # a prism on the wall face: its height, a layer or not
                 if h > max_aspect * np.sqrt(area[f]) or (n > 0 and h > max_growth * last):
                     break
                 last = h
@@ -83,6 +87,34 @@ def walk_layers(mesh: PolyMesh, patches: tuple[str, ...], max_layers: int,
                 c = int(mesh.neighbour[g]) if int(mesh.owner[g]) == c else int(mesh.owner[g])
                 f = g
             layers[k], thick[k] = n, total
-        out[name] = {"layers": layers, "thickness": thick, "first": first_h,
+            if first_cell[k] == 0.0:  # not a prism on the wall face (a snapped polyhedron): twice the centre distance
+                c0 = int(mesh.owner[f0])
+                own = cell_faces[first[c0]:first[c0 + 1]]
+                cc = (centre[own] * area[own, None]).sum(axis=0) / max(float(area[own].sum()), 1e-300)
+                first_cell[k] = 2.0 * abs(float(np.dot(cc - centre[f0], normal)))
+        out[name] = {"layers": layers, "thickness": thick, "first": first_h, "first_cell": first_cell,
                      "area": area[start:start + count].copy(), "centre": centre[start:start + count].copy()}
     return out
+
+
+def weighted_percentile(values: np.ndarray, weights: np.ndarray, q: float) -> float:
+    """The area-weighted ``q`` percentile (0-100) of ``values``: the smallest value whose cumulative
+    weight reaches q % of the total."""
+    order = np.argsort(values)
+    cum = np.cumsum(weights[order])
+    k = int(np.searchsorted(cum, q / 100.0 * cum[-1]))
+    return float(values[order][min(k, len(values) - 1)])
+
+
+def first_cell_stats(area: np.ndarray, first_cell: np.ndarray, layers: np.ndarray) -> dict:
+    """The wall-adjacent cell height over the wall: the area-weighted mean and 95th percentile over every
+    face, and the maximum over the faces with at least one layer (m; None without faces).
+
+    [NUMERICS-REVIEW] the height is what OpenFOAM's y+ follows (it evaluates y+ at the cell centre, half
+    this height; D-107): on a face without a layer it is the snapped core cell's."""
+    if len(area) == 0 or float(area.sum()) <= 0:
+        return {"mean_m": None, "p95_m": None, "max_extruded_m": None}
+    has = layers > 0
+    return {"mean_m": float((area * first_cell).sum() / area.sum()),
+            "p95_m": weighted_percentile(first_cell, area, 95.0),
+            "max_extruded_m": float(first_cell[has].max()) if has.any() else None}

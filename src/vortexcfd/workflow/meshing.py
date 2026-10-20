@@ -17,6 +17,7 @@ from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.yplus import LayerPlan, first_layer_thickness, layer_cap, plan_layers
 from vortexcfd.foam.mesh_case import (
     DOMAIN_SURFACE,
+    ROBUST_CONTROLS_REVISION,
     TRI_SURFACE,
     MeshCaseInput,
     build_mesh_files,
@@ -462,6 +463,10 @@ def inputs_hash(project: Project) -> str:
             if project.sim.mesh.layer_sizing == "absolute_yplus" else None
         ),
     }
+    mesh_settings = project.sim.mesh
+    if mesh_settings.layer_controls == "robust" and mesh_settings.layer_sizing == "absolute_yplus":
+        # the robust controls changed in 5.4b (D-106): a mesh made with the earlier ones is out of date
+        payload["robust_controls"] = ROBUST_CONTROLS_REVISION
     enabled = [v for v in project.sim.refinement_volumes if v.enabled]
     if enabled:  # only enabled volumes reach the mesh (D-103); none: the hash of a project without volumes
         payload["refinement_volumes"] = [v.model_dump(mode="json", exclude={"enabled"}) for v in enabled]

@@ -486,8 +486,15 @@ def _layer_sizing(inp: MeshCaseInput) -> dict:
 # chosen in the 5.4 study (benchmarks/RESULT_5.4.md): replace the pre-5.4 values written below. [NUMERICS-REVIEW]
 ROBUST_LAYER_CONTROLS = {
     "featureAngle": 130,
-    "nOuterIter": 3,
+    "nOuterIter": 2,  # 3 in 5.4; 2 from the 5.4b study (D-106, benchmarks/RESULT_5.4b.md)
 }
+# The `relaxed` meshQualityControls of the robust layer controls (5.4b study, D-106): the face-decomposition
+# tet check stays on during layer addition (the main value), where D-045 disables it (-1e30) for the legacy
+# controls. Without it the aircraft's shrink leaves inverted core cells. [NUMERICS-REVIEW]
+ROBUST_RELAXED_QUALITY = {"minTetQuality": 1e-15}
+# Changes whenever the robust controls change, so a mesh made with earlier robust controls is out of date
+# (workflow/meshing.inputs_hash); "5.4b": nOuterIter 2 and the tet check on.
+ROBUST_CONTROLS_REVISION = "5.4b"
 
 
 def _robust(inp: MeshCaseInput) -> bool:
@@ -508,14 +515,18 @@ def _expansion(inp: MeshCaseInput) -> float:
 RELAXED_AFTER_LAYER_ITER = 0
 
 
-def _quality_controls(m: Mesh) -> dict:
+def _quality_controls(m: Mesh, robust: bool = False) -> dict:
     """meshQualityControls: the install's meshQualityDict values for every sizing. With absolute (y+)
     layers the face-decomposition tet-quality test is relaxed only in the `relaxed` sub-dictionary
     (minTetQuality -1e30), which the layer addition uses after RELAXED_AFTER_LAYER_ITER (0) iterations: a
     stack of thin, high-aspect layers trips that test on usable meshes, while every other check keeps
-    the main values; checkMesh still judges the final mesh. [NUMERICS-REVIEW]"""
+    the main values; checkMesh still judges the final mesh. With the robust layer controls (``robust``,
+    D-106 after the 5.4b study) the `relaxed` set keeps the tet check on (ROBUST_RELAXED_QUALITY).
+    [NUMERICS-REVIEW]"""
     controls = dict(MESH_QUALITY)
-    if m.layer_sizing == "absolute_yplus":
+    if robust:  # the robust layer controls keep the tet check on (D-106, 5.4b)
+        controls["relaxed"] = dict(ROBUST_RELAXED_QUALITY)
+    elif m.layer_sizing == "absolute_yplus":
         controls["relaxed"] = {"minTetQuality": -1e30}
     return controls
 
@@ -665,7 +676,7 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
             **({"nRelaxedIter": RELAXED_AFTER_LAYER_ITER} if m.layer_sizing == "absolute_yplus" else {}),
             **(ROBUST_LAYER_CONTROLS if _robust(inp) else {}),
         },
-        "meshQualityControls": _quality_controls(m),
+        "meshQualityControls": _quality_controls(m, _robust(inp)),
         "mergeTolerance": 1e-6,
     }
     return content

@@ -246,9 +246,13 @@ def test_absolute_yplus_layers_use_the_first_layer_thickness() -> None:
     layers = snappy_hex_mesh_dict(_mesh_input(mesh, 4e-5)).content["addLayersControls"]
     assert layers["relativeSizes"] is False
     quality = snappy_hex_mesh_dict(_mesh_input(mesh, 4e-5)).content["meshQualityControls"]
-    # The install's meshQualityDict value stays in force for snapping; only the relaxed controls drop
-    # the tet test, and the layer addition uses them from its first iteration (nRelaxedIter 0, D-045).
-    assert quality["minTetQuality"] == 1e-15 and quality["relaxed"] == {"minTetQuality": -1e30}
+    # The install's meshQualityDict value stays in force for snapping; the layer addition uses the relaxed
+    # controls from its first iteration (nRelaxedIter 0, D-045): with the robust layer controls they keep the
+    # tet test (5.4b, D-106), with the legacy ones they drop it.
+    assert quality["minTetQuality"] == 1e-15 and quality["relaxed"] == {"minTetQuality": 1e-15}
+    legacy = Mesh(layer_sizing="absolute_yplus", layer_controls="legacy")
+    assert snappy_hex_mesh_dict(_mesh_input(legacy, 4e-5)).content["meshQualityControls"]["relaxed"] == {
+        "minTetQuality": -1e30}
     assert layers["nRelaxedIter"] == 0
     assert layers["firstLayerThickness"] == 4e-5 and layers["expansionRatio"] == 1.3  # reused
     assert layers["minThickness"] == pytest.approx(0.2 * 4e-5)
