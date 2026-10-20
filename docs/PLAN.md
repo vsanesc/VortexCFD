@@ -151,7 +151,7 @@ Reality check: "as powerful as a commercial mesher" is not a deliverable that ca
 - Acceptance: one command runs the suite and outputs a comparison table.
 
 ### 5.1 Level M1 — GUI over snappyHexMesh — *done; sizing defaults revised after the 5.0 baseline (task 5.1-sizing: D-084 seed lines out of snapping, D-085 surface size from l_ref and curvature refinement, D-086 absolute y+ 50 layers; benchmarks/RESULT_5.1.md)*
-- STAR-like mesh controls: base size, surface target/min size relative to base, per-surface and per-volume refinement, feature-edge refinement, wake refinement boxes, prism-layer parameters (number, growth, total thickness or first-cell height), automatic `snappyHexMeshDict` + `blockMeshDict` generation, `checkMesh` report in GUI.
+- Mesh controls: base size, surface target/min size relative to base, per-surface and per-volume refinement (user refinement volumes: box, rotated box, cylinder, sphere, cone; done in task 5.x-refinement-volumes, D-103), feature-edge refinement, wake refinement (the Add Wake Volume cone, D-103), prism-layer parameters (number, growth, total thickness or first-cell height), automatic `snappyHexMeshDict` + `blockMeshDict` generation, `checkMesh` report in GUI.
 - Acceptance: wing and VTOL meshed from the GUI without editing text files; benchmark results recorded as baseline.
 
 ### 5.2 Level M2 — Surface preparation ("wrapper-like") pipeline — *first step done (task 5.2-surface-prep): the Surface Preparation operation with diagnostics, intersection features and CAD union (D-093), local benchmark cases with fidelity against a reference surface (D-094); benchmarks/RESULT_5.2_before.md, RESULT_5.2.md. No shell wrapper built (not needed for the owner's aircraft); the dirty-STL set is not in the benchmark yet*
