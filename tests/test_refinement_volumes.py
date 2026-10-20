@@ -102,18 +102,31 @@ def test_add_duplicate_edit_delete_are_undoable_steps(tmp_path: Path) -> None:
     assert project.redo() and project.volume(dup).name == "near"
 
 
-def test_every_volume_edit_puts_the_mesh_out_of_date(tmp_path: Path) -> None:
+def test_enabled_volume_edits_put_the_mesh_out_of_date(tmp_path: Path) -> None:
     project = sphere_project(tmp_path)
     before = meshing.inputs_hash(project)
     vid = project.add_refinement_volume(box_volume())
     added = meshing.inputs_hash(project)
     assert added != before
-    project.update_refinement_volume(vid, enabled=False)
-    assert meshing.inputs_hash(project) not in (before, added)
-    project.undo()
-    assert meshing.inputs_hash(project) == added
+    project.update_refinement_volume(vid, target_size=0.04)
+    edited = meshing.inputs_hash(project)
+    assert edited not in (before, added)
     project.remove_refinement_volume(vid)
     assert meshing.inputs_hash(project) == before  # no volumes: the hash of a project made before v12
+
+
+def test_a_disabled_volume_leaves_the_mesh_current_until_it_is_enabled(tmp_path: Path) -> None:
+    project = sphere_project(tmp_path)
+    before = meshing.inputs_hash(project)
+    vid = project.add_refinement_volume(box_volume().model_copy(update={"enabled": False}))
+    assert meshing.inputs_hash(project) == before  # adding a disabled volume
+    project.update_refinement_volume(vid, target_size=0.02, shape={"centre": (2.0, 0.0, 0.0)}, name="later")
+    assert meshing.inputs_hash(project) == before  # editing a disabled volume
+    project.update_refinement_volume(vid, enabled=True)
+    enabled = meshing.inputs_hash(project)
+    assert enabled != before  # enabling it marks the mesh out of date
+    project.update_refinement_volume(vid, enabled=False)
+    assert meshing.inputs_hash(project) == before  # and disabling it again
 
 
 # -- sizing ---------------------------------------------------------------------------------------
@@ -253,8 +266,8 @@ def test_outside_and_partly_outside_volumes(tmp_path: Path) -> None:
     est = meshing.project_estimate(project, box)
     b = box.bounds
     outside = refinement.volume_info(box_volume(centre=(b[1] + 10, 0, 0)), box, est, 5)
-    assert outside.status == "outside" and outside.is_error and not outside.written and outside.extra_cells == 0
-    assert refinement.OUTSIDE_ERROR in outside.messages
+    assert outside.status == "outside" and outside.ignored and not outside.written and outside.extra_cells == 0
+    assert outside.messages == ("Ignored: outside the domain",)
     half = refinement.volume_info(box_volume(centre=(b[1], 0, 0), size=0.1), box, est, 5)  # half beyond x_max
     assert half.status == "partial" and half.written and half.fraction == pytest.approx(0.5, abs=0.03)
     assert any("lies outside the domain" in m for m in half.messages)

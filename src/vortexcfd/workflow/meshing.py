@@ -457,8 +457,9 @@ def inputs_hash(project: Project) -> str:
             if project.sim.mesh.layer_sizing == "absolute_yplus" else None
         ),
     }
-    if project.sim.refinement_volumes:  # every volume edit changes the mesh inputs (D-103); none: old hashes hold
-        payload["refinement_volumes"] = [v.model_dump(mode="json") for v in project.sim.refinement_volumes]
+    enabled = [v for v in project.sim.refinement_volumes if v.enabled]
+    if enabled:  # only enabled volumes reach the mesh (D-103); none: the hash of a project without volumes
+        payload["refinement_volumes"] = [v.model_dump(mode="json", exclude={"enabled"}) for v in enabled]
     if project.sim.mesh.surface_size_reference == "l_ref":  # l_ref sizes the surface (D-085)
         payload["surface_l_ref"] = project.sim.reports.reference_length
     prep = project.sim.surface_prep

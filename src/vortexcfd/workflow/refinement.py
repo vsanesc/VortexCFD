@@ -12,7 +12,9 @@ from vortexcfd.geometry.domain import DomainBox, union_bounds
 # Shown with the estimate (the cell counts of overlapping volumes are added, not merged).
 OVERLAP_NOTE = ("Each volume's extra cells are estimated on its own, from the part of it inside the domain; "
                 "overlapping volumes are counted twice.")
-OUTSIDE_ERROR = "The volume lies wholly outside the domain: it is not written to the mesh."
+# A volume wholly outside the domain is a warning, never an error: it is left out and meshing goes on
+# (owner review of D-103, QUESTIONS 134).
+OUTSIDE_IGNORED = "Ignored: outside the domain"
 PARTIAL_WARNING = "Part of the volume ({outside:.0f} %) lies outside the domain: only the part inside refines."
 FINER_WARNING = ("The target is finer than the finest part surface level (level {level}, {size:.4g} m): "
                  "this volume may dominate the cell count.")
@@ -36,7 +38,8 @@ class VolumeInfo:
         return self.status in ("inside", "partial")
 
     @property
-    def is_error(self) -> bool:
+    def ignored(self) -> bool:
+        """Enabled but wholly outside the domain: not written, shown as a warning."""
         return self.status == "outside"
 
 
@@ -58,7 +61,7 @@ def volume_info(volume: RefinementVolume, box: DomainBox, est: MeshEstimate, fin
     messages = []
     if fraction <= 0.0:
         status = "outside"
-        messages.append(OUTSIDE_ERROR)
+        messages.append(OUTSIDE_IGNORED)
     elif fraction < 1.0:
         status = "partial"
         messages.append(PARTIAL_WARNING.format(outside=100.0 * (1.0 - fraction)))

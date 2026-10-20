@@ -12,6 +12,7 @@ from vortexcfd.core.project import Project
 from vortexcfd.geometry.loader import clear_cache
 from vortexcfd.gui.main_window import MainWindow
 from vortexcfd.gui.scene import VolumeView
+from vortexcfd.workflow import meshing
 
 
 @pytest.fixture(autouse=True)
@@ -127,7 +128,10 @@ def test_wake_duplicate_delete_and_domain_status(window: MainWindow) -> None:
     vid = w.project.sim.refinement_volumes[1].id
     w.project.update_refinement_volume(vid, shape={"centre": (500.0, 0.0, 0.0)})
     w.tree.setCurrentItem(w._items[("refinement_volume", 1)])
-    assert "outside the domain" in w.properties.vol_status.text()
+    assert w.properties.vol_status.text() == "Ignored: outside the domain"
+    assert w.properties.vol_status.property("warn") == "true"  # the warning style, never an error
+    assert w._items[("refinement_volume", 1)].toolTip(0) == "Ignored: outside the domain"
+    assert w.project.sim.refinement_volumes[1].enabled and meshing.readiness(w.project) is None  # not blocking
     w.delete_selected_volume()
     assert [v.name for v in w.project.sim.refinement_volumes] == ["wake"]
     assert w._selection == ("refinement_volumes", None)

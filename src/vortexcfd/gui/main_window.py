@@ -82,6 +82,8 @@ from vortexcfd.foam.mesh_case import (
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.gui.geometry_worker import GeometryWorker, IntersectionChecker, OverlapChecker, snapshot
 from vortexcfd.workflow import meshing, refinement, surface_prep
+from vortexcfd.workflow.refinement import OUTSIDE_IGNORED
+from vortexcfd.geometry.refinement_volumes import domain_fraction
 from vortexcfd.gui.mesh_worker import MeshWorker
 from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam.run_record import RunRecord, read_run_record, write_run_record
@@ -943,6 +945,10 @@ class MainWindow(StudyControlMixin, QMainWindow):
                 if not volume.enabled:
                     item.setForeground(0, QColor(t.muted_text))
                     item.setToolTip(0, "Disabled: not written to the mesh")
+                elif self._domain_box is not None and self._domain_box.bounds is not None and \
+                        domain_fraction(volume.shape, self._domain_box) <= 0.0:
+                    item.setIcon(0, self._node_icon("dot", "warning"))
+                    item.setToolTip(0, OUTSIDE_IGNORED)
             physics_item = add(continua, "physics", None, "Physics", "dot", "accent")
             add(physics_item, "inflow", None, "Inflow", "dot", "accent")
             regions = add(root, "regions", None, "Regions", "folder", "text")

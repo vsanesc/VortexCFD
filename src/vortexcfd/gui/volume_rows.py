@@ -209,9 +209,9 @@ class VolumeRowsMixin:
         self.vol_achieved.setText(f"{info.achieved_size:.4g} m (level {info.level}; requested "
                                   f"{volume.target_size:.4g} m)")
         self.vol_cells.setText(f"+{info.extra_cells:,} cells (estimate)" if volume.enabled else "— (disabled)")
-        status = {"inside": "inside the domain", "partial": "partly outside the domain",
-                  "outside": "outside the domain", "disabled": "disabled: not written"}[info.status]
-        self.vol_status.setText("\n".join((status, *info.messages)))
+        status = {"inside": ("inside the domain",), "partial": ("partly outside the domain",),
+                  "outside": (), "disabled": ("disabled: not written",)}[info.status]  # outside: its message says it
+        self.vol_status.setText("\n".join((*status, *info.messages)))
         self._set_warn(self.vol_status, bool(info.messages))
 
     def _candidate_shape(self, kind: str) -> dict:
