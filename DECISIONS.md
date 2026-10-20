@@ -117,7 +117,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-100 | 2026-10-19 | checkMesh failures: hard ones block the solver, soft ones warn | Proposed |
 | D-101 | 2026-10-19 | The CAD union's junction edges refine at the junction level | Rejected |
 | D-102 | 2026-10-20 | cfMesh evaluation case and the benchmark's mesher switch | Proposed |
-| D-103 | 2026-10-20 | User refinement volumes and the wake helper (schema v12) | Proposed |
+| D-103 | 2026-10-20 | User refinement volumes and the wake helper (schema v12) | Accepted |
 | D-104 | 2026-10-20 | NVIDIA adapter selected under WSL at start-up | Proposed |
 
 ---
@@ -1018,7 +1018,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: no app behaviour changes; `meshing.prepare_job` and `write_part_surfaces` are refactored without a change in output (`part_patch_labels`, `mesh_inputs`).
 
 ## D-103 User refinement volumes and the wake helper (schema v12)
-- Status: Proposed (task 5.x-refinement-volumes, Part A). [NUMERICS-REVIEW]
+- Status: Accepted with changes (owner review, 2026-10-20; [NUMERICS-REVIEW] reviewed): the box takes pitch and yaw instead of a z-only rotation; the wake default is a free-stream aligned box; a volume outside the domain is ignored with a warning; the estimate includes the level buffer; only enabled volumes enter the mesh hash (QUESTIONS 132-136 closed). The entry below describes the changed behaviour. [NUMERICS-REVIEW]
 - Context: the mesh could only be refined at the parts' surfaces (levels, curvature, features); wakes and other flow regions away from the walls kept the background cells.
 - Decision:
   - Model (schema v12): `Simulation.refinement_volumes`, an ordered list of `RefinementVolume` (id, name, shape, `target_size` in metres, `enabled`). Shapes (discriminated by `kind`): box (`centre`, `size`, `pitch_deg` about y, nose-up positive like the angle of attack, -90 to 90, and `yaw_deg` about z, both default 0; owner review: replaces the z-only rotation, changed in place because v12 is unpublished), cylinder (`point1`, `point2`, `radius`), sphere (`centre`, `radius`), cone (`point1`, `point2`, `radius1`, `radius2`; one may be 0). Names: a letter then letters, digits and "_" (at most 64), unique ignoring case; ids ("v1", "v2", ...) are stable across renames. v11 files migrate with no volumes (fixture tests/data/project_v11.json). Volumes are geometry-specific: presets hold only the mesh and domain settings, so they never carry volumes; applying a preset keeps the project's volumes.

@@ -18,16 +18,23 @@ Done on it:
   "Refinement volumes" tree node under Mesh, numeric editing with units, a live translucent outline in the
   viewer; one undo step per edit, every edit puts the mesh out of date; not in presets. The real-mesh test
   (`slow`) was written but not run.
+- Owner review of D-103 (accepted with changes, same branch): box pitch (about y) and yaw (about z)
+  through searchableRotatedBox (schema v12 changed in place, unpublished); the wake default is a box
+  aligned with the free stream (pitch = angle of attack; 2 L long, 1.1 x the y extent wide, 2 x the z
+  extent high); a volume wholly outside the domain is "Ignored: outside the domain" (warning, not
+  blocking); the estimate grows each volume by nCellsBetweenLevels cells per level step; only enabled
+  volumes enter the mesh hash. QUESTIONS 132-136 closed; 137 stays open until the owner checks the
+  renderer line.
 - Part B (D-104): under WSL with a display, GALLIUM_DRIVER=d3d12 and MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
   are set before Qt or VTK load unless the user set them; the OpenGL renderer string is written to the
-  console once the viewer exists.
+  console once the viewer exists (D-104 Proposed).
 
 Earlier on task/5.3-cfmesh (D-102, benchmarks/RESULT_5.3.md): the cfMesh evaluation; recommendation keep
 snappyHexMesh and move to 5.4 (QUESTIONS 130, owner decision pending).
 
 Next candidates: 5.4 prism layers (items 87, 106, 111, 122, 124); drag handles for the refinement volumes
 (item 132). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75, 82, 87, 89 to 94, 96, 97, 106,
-111, 122, 124 and 125 to 137.
+111, 122, 124, 125 to 131 and 137.
 
 ## Phases
 
