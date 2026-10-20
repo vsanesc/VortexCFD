@@ -409,3 +409,24 @@ def test_hidden_segments_skip_the_points_outside_a_component_box_without_changin
     assert geo._within_hull_container(on_sphere * 0.999, sphere).all()
     assert (np.abs(geo.winding_numbers(np.array([[1.5, 0.0, 0.0]]), a)) > geo.INSIDE_WINDING).all()
     assert geo._within_bounds(np.array([[1.0, -0.5, 0.2], [0.999, 0.0, 0.0]]), a.bounds).tolist() == [True, False]
+
+
+def test_filtering_precomputed_curves_equals_computing_them_again(shapes) -> None:
+    """``prepare`` computes the segments once and filters them (R-19): the filtered result is the
+    one a fresh call gives, segment by segment, on the four-box case and on the CAD body and wing."""
+    hull = pv.Box(bounds=(0, 4, -1, 1, -1, 1)).triangulate().clean()
+    a = pv.Box(bounds=(1, 2, -0.5, 0.5, -0.2, 0.2)).triangulate().clean()
+    b = pv.Box(bounds=(1.5, 2.5, -0.1, 0.1, -0.5, 0.5)).triangulate().clean()
+    c = pv.Box(bounds=(3.5, 5, -0.3, 0.3, -0.3, 0.3)).triangulate().clean()
+    from vortexcfd.geometry.cad import read_cad, tessellate
+
+    cad = []
+    for name in ("body", "wing", "open"):
+        model = read_cad(shapes[name])
+        cad.append(tessellate(model, model.default_linear_deflection(), 20.0).scale(1e-3, inplace=False))
+    for meshes in ([hull, a, b, c], cad):
+        every = geo.intersection_curves(meshes, drop_hidden=False)
+        fresh = geo.intersection_curves(meshes)
+        filtered = geo.intersection_curves(meshes, curves=every)
+        assert np.array_equal(fresh.segments, filtered.segments) and np.array_equal(fresh.pairs, filtered.pairs)
+        assert len(every.segments) >= len(fresh.segments) > 0

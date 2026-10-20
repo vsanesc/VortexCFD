@@ -135,13 +135,22 @@ def hidden_segments(middle: np.ndarray, pairs: np.ndarray, meshes: list[pv.PolyD
 
 
 def intersection_curves(meshes: list[pv.PolyData], subset: list[int] | None = None,
-                        drop_hidden: bool = True) -> Curves:
+                        drop_hidden: bool = True, curves: Curves | None = None) -> Curves:
     """The curves where the surfaces (one per component) cross each other. With ``subset``, only the
     pairs that involve at least one component of ``subset``. With ``drop_hidden``, segments whose
     middle lies inside a third component are left out: they are not on the outer skin, and as snap
-    features they would pull that component's surface inwards."""
+    features they would pull that component's surface inwards.
+
+    ``curves``: the result of an earlier call on the same meshes with ``drop_hidden`` False: the
+    segments are then filtered instead of computed again (the grid and the triangle-pair tests are
+    the expensive part). The result is the one a fresh call gives: a pair dropped as noise on its
+    full length has a visible length at least as short, so it is dropped either way, and the hidden
+    test of a segment does not depend on the other segments."""
     pts, tris, comp = combined(meshes)
-    segments, pairs = intersection_segments(pts, tris, comp)
+    if curves is None:
+        segments, pairs = intersection_segments(pts, tris, comp)
+    else:
+        segments, pairs = curves.segments, curves.pairs
     if drop_hidden and len(segments) and len(meshes) > 2:
         hidden = hidden_segments(segments.mean(axis=1), pairs, meshes)
         segments, pairs = segments[~hidden], pairs[~hidden]
