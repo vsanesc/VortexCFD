@@ -60,9 +60,10 @@ from vortexcfd.foam.physics_case import (
     inlet_turbulence,
     reference_values,
 )
+from vortexcfd.workflow.refinement import OVERLAP_NOTE
 from vortexcfd.workflow.meshing import (
     MeshingNotReady,
-    estimate_for,
+    estimate_with_volumes,
     fluid_location,
     parts_layout,
     plan_layers_for,
@@ -73,6 +74,7 @@ from vortexcfd.workflow.meshing import (
 from vortexcfd.geometry.domain import SHAPE_LABELS
 from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_file, part_status, report_for_part
 from vortexcfd.gui.study_rows import StudyRowsMixin
+from vortexcfd.gui.volume_rows import VolumeRowsMixin
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
 
 # Allowed units are read from the model so the two never drift apart.
@@ -343,7 +345,7 @@ MESH_SECTIONS = {
 }
 
 
-class PropertiesPanel(StudyRowsMixin, QWidget):
+class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
     """Form for the selected node. Never mutates the model: all edits use the Project API.
 
     The panel does not subscribe to the project; its owner calls ``refresh()`` on changes.
@@ -357,6 +359,8 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
     generate_domain_requested = Signal()  # the Generate domain button (D-078)
     prepare_surfaces_requested = Signal()  # the Surface Preparation node's buttons (D-093)
     remove_surface_prep_requested = Signal()
+    volume_action = Signal(str)  # refinement volumes (D-103): "add:<shape>", "wake", "duplicate", "delete"
+    volume_preview = Signal(object)  # a RefinementVolume being edited (drawn uncommitted), None: back to the project
     # part index, linear (m) or None, angular (deg) or None: re-tessellate on the worker (D-073)
     retessellate_requested = Signal(int, object, object)
 
@@ -585,6 +589,7 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
                 self._layout.addWidget(self.mesh_yplus_note)
         self._section("mesh_estimate", "Estimate")
         self.mesh_bg_cells = self._ro_row("mset_bg_cells", "Background cells")
+        self.mesh_volume_cells = self._ro_row("mset_volume_cells", "Refinement volumes")
         self.mesh_surface_length = self._ro_row("mset_surface_length", "Surface size from")
         self.mesh_surface_cells = self._ro_row("mset_surface_cells", "Surface cell size")
         self.mesh_curvature = self._ro_row("mset_curvature", "Curvature up to")
@@ -772,6 +777,8 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         self._layout.addWidget(self.run_empty)
         # Mesh Study and Polar Sweep nodes (under Reports & Monitors; gui/study_rows.py).
         self._build_study_rows(_dspin, _spin, _combo)
+        # Refinement volumes node and each volume (under Mesh; gui/volume_rows.py, D-103).
+        self._build_volume_rows()
         self._layout.addWidget(self.info_label)
         self._layout.addStretch(1)
         self.apply_metrics(metrics(), DARK)
@@ -905,7 +912,8 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
             widget.setFont(mono)
         self.mesh_title.setFont(section_title_font(QApplication.font()))
         self.mesh_title.setContentsMargins(m.s3, m.s3, m.s3, m.s2)
-        for label in (self.mesh_base_used, self.mesh_levels_used, self.mesh_bg_cells, self.mesh_surface_cells,
+        for label in (self.mesh_base_used, self.mesh_levels_used, self.mesh_bg_cells, self.mesh_volume_cells,
+                      self.mesh_surface_cells,
                       self.mesh_first_layer, self.mesh_layer_count, self.mesh_layer_stack, self.inflow_k, self.inflow_omega):
             label.setFont(mono)
         self.info_label.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
@@ -995,17 +1003,18 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         self._refresh_polar(self._kind == "polar_sweep")
         self._refresh_mesh_settings(self._kind == "mesh")
         self._refresh_mesh(self._kind == "mesh")
+        self._refresh_volumes()
         self.info_label.setVisible(
             not show_name and not is_domain
             and self._kind not in ("mesh", "reference_values", "stopping", "reports", "probes", "surface_prep",
-                                   "prepare_surfaces")
+                                   "prepare_surfaces", "refinement_volumes", "refinement_volume")
             and self._kind not in GROUPS
         )
         self._apply_label_column()
 
     def _mesh_setting_rows(self) -> list[str]:
         keys = [f"mset_{k}" for k, _, _ in MESH_SETTINGS]
-        return keys + ["mset_base_used", "mset_levels_used", "mset_bg_cells", "mset_surface_length",
+        return keys + ["mset_base_used", "mset_levels_used", "mset_bg_cells", "mset_volume_cells", "mset_surface_length",
                        "mset_surface_cells", "mset_curvature", "mset_first_layer", "mset_layer_count",
                        "mset_layer_stack"]
 
@@ -1068,14 +1077,14 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         for label in (self.mesh_layer_count, self.mesh_layer_stack):
             label.setToolTip(plan.warning if warn else "")
         if box.bounds is None:
-            for label in (self.mesh_base_used, self.mesh_levels_used, self.mesh_bg_cells,
+            for label in (self.mesh_base_used, self.mesh_levels_used, self.mesh_bg_cells, self.mesh_volume_cells,
                           self.mesh_surface_length, self.mesh_surface_cells, self.mesh_curvature):
                 label.setText("\u2014")
             self._set_warn(self.mesh_bg_cells, False)
             self.mesh_length_warning.setVisible(False)
             return
         length = surface_length(self._project, box)
-        est = estimate_for(box, mesh, length.value)
+        est = estimate_with_volumes(self._project, box)
         self.mesh_surface_length.setText(length.describe())
         warning = surface_length_warning(length)
         self.mesh_length_warning.setText(warning or "")
@@ -1091,6 +1100,12 @@ class PropertiesPanel(StudyRowsMixin, QWidget):
         nx, ny, nz = est.cells
         self.mesh_bg_cells.setText(f"{nx} \u00d7 {ny} \u00d7 {nz} = {est.total_cells:,}")
         self._set_warn(self.mesh_bg_cells, est.too_many_cells)
+        count = len(self._project.sim.refinement_volumes)
+        self.mesh_volume_cells.setText(
+            f"+{est.volume_cells:,} cells ({count} volume{'s' if count != 1 else ''}; total {est.budget_cells:,})"
+            if count else "none")
+        self.mesh_volume_cells.setToolTip(OVERLAP_NOTE if count else "")
+        self._set_warn(self.mesh_volume_cells, est.too_many_cells and est.volume_cells > 0)
         self.mesh_surface_cells.setText(f"{est.surface_size:.4g} m")
 
     def _refresh_groups(self) -> None:

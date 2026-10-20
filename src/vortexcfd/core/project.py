@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from vortexcfd.core import save_rules
-from vortexcfd.core.model import Part, Simulation, SurfacePrep
+from vortexcfd.core.model import Part, RefinementVolume, Simulation, SurfacePrep
 from vortexcfd.core.project_io import load_simulation, save_simulation
 
 MAX_OBSERVER_ERRORS = 20
@@ -320,6 +320,76 @@ class Project:
             data["surface_prep"] = value
 
         self._edit(label or default, mutate)
+
+    # -- refinement volumes (D-103) ---------------------------------------------------------------
+
+    def volume(self, volume_id: str) -> RefinementVolume:
+        for v in self._sim.refinement_volumes:
+            if v.id == volume_id:
+                return v
+        raise KeyError(f"No refinement volume with id {volume_id!r}")
+
+    def free_volume_name(self, base: str) -> str:
+        """``base``, or ``base_2``, ``base_3``, ... : the first name no volume uses (case-insensitive)."""
+        taken = {v.name.casefold() for v in self._sim.refinement_volumes}
+        name, n = base, 1
+        while name.casefold() in taken:
+            n += 1
+            name = f"{base}_{n}"
+        return name
+
+    def _free_volume_id(self) -> str:
+        used = {v.id for v in self._sim.refinement_volumes}
+        n = len(used) + 1
+        while f"v{n}" in used:
+            n += 1
+        return f"v{n}"
+
+    def add_refinement_volume(self, volume: RefinementVolume, label: str | None = None) -> str:
+        """Append ``volume`` as one undoable step with a new id (its name made unique); returns the id."""
+        data = volume.model_dump()
+        data["id"] = self._free_volume_id()
+        data["name"] = self.free_volume_name(data["name"])
+
+        def mutate(sim: dict[str, Any]) -> None:
+            sim["refinement_volumes"].append(data)
+
+        self._edit(label or f"Add refinement volume '{data['name']}'", mutate)
+        return data["id"]
+
+    def duplicate_refinement_volume(self, volume_id: str) -> str:
+        source = self.volume(volume_id)
+        return self.add_refinement_volume(source, f"Duplicate refinement volume '{source.name}'")
+
+    def remove_refinement_volume(self, volume_id: str) -> None:
+        name = self.volume(volume_id).name
+
+        def mutate(sim: dict[str, Any]) -> None:
+            sim["refinement_volumes"] = [v for v in sim["refinement_volumes"] if v["id"] != volume_id]
+
+        self._edit(f"Delete refinement volume '{name}'", mutate)
+
+    def update_refinement_volume(self, volume_id: str, **fields: Any) -> None:
+        """Edit a volume's fields (name, target_size, enabled, or ``shape`` as a dict merged into the
+        current shape) as one undoable step (validated; no-ops leave no trace)."""
+        old = self.volume(volume_id)
+        if "name" in fields:
+            fields["name"] = self._clean_name(fields["name"], "Volume")
+            if any(v.id != volume_id and v.name.casefold() == fields["name"].casefold()
+                   for v in self._sim.refinement_volumes):
+                raise ValueError(f"A refinement volume named '{fields['name']}' already exists")
+
+        def mutate(sim: dict[str, Any]) -> None:
+            for v in sim["refinement_volumes"]:
+                if v["id"] == volume_id:
+                    for key, value in fields.items():
+                        if key == "shape" and isinstance(value, dict) and value.get("kind", v["shape"]["kind"]) == v["shape"]["kind"]:
+                            v["shape"] = {**v["shape"], **value}
+                        else:
+                            v[key] = value
+
+        changed = ", ".join(fields) or "no fields"
+        self._edit(f"Edit refinement volume '{old.name}' ({changed})", mutate)
 
     def replace_simulation(self, sim: Simulation, label: str) -> None:
         """Make ``sim`` the current state as one undoable step (a preset applied, for example)."""

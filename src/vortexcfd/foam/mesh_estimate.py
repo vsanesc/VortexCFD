@@ -32,20 +32,50 @@ class MeshEstimate:
     # (level_max + Mesh.curvature_levels; level_max when it is off) and that level's cell size.
     curvature_level: int = 0
     curvature_size: float = 0.0
+    # Extra cells of the user refinement volumes (D-103; volume_extra_cells, summed; overlapping volumes
+    # are counted twice). They count against the same limit as the background cells.
+    volume_cells: int = 0
+
+    @property
+    def budget_cells(self) -> int:
+        """The cells the limit applies to: the background cells plus the refinement volumes' extra cells."""
+        return self.total_cells + self.volume_cells
 
     @property
     def too_many_cells(self) -> bool:
-        return self.total_cells > MAX_BACKGROUND_CELLS
+        return self.budget_cells > MAX_BACKGROUND_CELLS
 
     def limit_message(self) -> str | None:
         """Why the mesh cannot be generated, or None when the background mesh is acceptable."""
         if not self.too_many_cells:
             return None
+        if self.volume_cells:
+            return (
+                f"The background mesh and the refinement volumes would have {self.budget_cells:,} cells "
+                f"({self.total_cells:,} background, {self.volume_cells:,} in the volumes; limit "
+                f"{MAX_BACKGROUND_CELLS:,}): coarsen or shrink the refinement volumes, increase the base size "
+                f"or lower the background cell target."
+            )
         return (
             f"The background mesh would have {self.total_cells:,} cells "
             f"(limit {MAX_BACKGROUND_CELLS:,}): increase the base size, lower the background "
             f"cell target or shrink the domain."
         )
+
+
+def volume_level(base_size: float, target_size: float) -> int:
+    """The refinement level of a volume with cell size ``target_size`` (D-103): the coarsest level whose
+    cell size base / 2^level is at or below the target (rounding towards the finer level); 0 when the
+    target is not finer than the background cell."""
+    if target_size >= base_size:
+        return 0
+    return max(0, math.ceil(math.log2(base_size / target_size) - 1e-9))
+
+
+def volume_extra_cells(inside_volume: float, base_size: float, level: int) -> int:
+    """The cells a refinement volume adds at ``level`` over the background ones in ``inside_volume`` (m3,
+    the part of the volume inside the domain): V (8^level - 1) / base^3."""
+    return int(round(inside_volume * (8 ** level - 1) / base_size ** 3))
 
 
 def estimate_mesh(domain_bounds: Bounds, surface_length: float, mesh: Mesh, volume: float | None = None,

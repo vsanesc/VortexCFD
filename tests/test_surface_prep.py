@@ -274,10 +274,10 @@ def test_v10_project_migrates_without_a_preparation() -> None:
     stored = json.loads((DATA / "project_v10.json").read_text())
     assert stored["schema_version"] == 10 and "surface_prep" not in stored
     sim = load_simulation(DATA / "project_v10.json")
-    assert CURRENT_SCHEMA_VERSION == 11 and sim.schema_version == 11
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION  # v12 (D-103) added nothing to fill
     assert sim.surface_prep is None and [p.name for p in sim.geometry.parts] == ["Fuselage", "Wing"]
     assert sim.mesh.target_yplus == 50.0 and sim.reports.reference_length == 1.5 and sim.inflow.speed == 30.0
-    assert migrate({"schema_version": 10, "x": 1}) == {"schema_version": 11, "x": 1}
+    assert migrate({"schema_version": 10, "x": 1}) == {"schema_version": CURRENT_SCHEMA_VERSION, "x": 1}
 
 
 def test_prepared_project_round_trip(tmp_path: Path, shapes) -> None:

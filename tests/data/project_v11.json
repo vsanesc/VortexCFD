@@ -1,0 +1,14 @@
+{
+  "schema_version": 11,
+  "name": "v11 project",
+  "analysis_type": "external",
+  "preset_name": "External flow",
+  "geometry": {"parts": [{"name": "Body", "source_file": "geometry/body.stl", "units": "m"}]},
+  "domain": {"enabled": true, "shape": "box", "upstream": 5.0, "downstream": 10.0, "lateral": 5.0,
+             "vertical": 5.0, "symmetry": "none"},
+  "mesh": {"background_cells_target": 100000, "target_surface_size": 0.01, "surface_size_reference": "l_ref",
+           "curvature_levels": 2, "layer_sizing": "absolute_yplus", "target_yplus": 50.0},
+  "inflow": {"speed": 20.0, "alpha_deg": 4.0},
+  "reports": {"reference_length": 1.0},
+  "surface_prep": null
+}

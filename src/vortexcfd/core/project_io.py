@@ -41,7 +41,7 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
     mesh behaviour of the project where the v10 defaults changed it (V9_MESH_BEHAVIOUR: the surface
     size from the largest extent, no curvature refinement, relative layers with target y+ 1; D-085,
     D-086); v10 -> v11 adds the surface preparation operation (unset: not run, the parts mesh as
-    before; D-093).
+    before; D-093); v11 -> v12 adds the user refinement volumes (none; D-103).
     Data already at the current version (or not a dict /
     without a version) is returned unchanged.
     """
@@ -88,6 +88,8 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
         data["schema_version"] = 10
     if data.get("schema_version") == 10:
         data["schema_version"] = 11  # Simulation.surface_prep defaults to None (not run, D-093)
+    if data.get("schema_version") == 11:
+        data["schema_version"] = 12  # Simulation.refinement_volumes defaults to [] (D-103)
     return data
 
 

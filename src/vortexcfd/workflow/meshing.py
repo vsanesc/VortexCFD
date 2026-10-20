@@ -36,7 +36,7 @@ from vortexcfd.geometry import regions
 from vortexcfd.geometry.domain import DomainBox, compute_domain, union_bounds
 from vortexcfd.geometry.domain_surface import ROLE_ARRAY, meshing_surface
 from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
-from vortexcfd.workflow import surface_prep
+from vortexcfd.workflow import refinement, surface_prep
 
 CASE_DIR_NAME = "case"
 
@@ -87,6 +87,16 @@ def _loaded_parts(project: Project, prepared: bool = True):
         names.append(name)
     bounds = [tuple(float(b) for b in m.bounds) for m in meshes]
     return compute_domain(bounds, project.sim.domain, names), names, meshes
+
+
+def loaded_parts(project: Project):
+    """(domain box, part names, meshes in metres) as meshing uses them (the surface preparation's
+    surfaces when one is current).
+
+    Raises:
+        MeshingNotReady: a part cannot be loaded.
+    """
+    return _loaded_parts(project)
 
 
 def loaded_original_parts(project: Project):
@@ -271,7 +281,13 @@ def readiness(project: Project) -> str | None:
         box, _, _ = _loaded_parts(project)
     except MeshingNotReady as exc:
         return str(exc)
-    return estimate_for(box, project.sim.mesh).limit_message()
+    return estimate_with_volumes(project, box).limit_message()
+
+
+def estimate_with_volumes(project: Project, box: DomainBox, parts_bounds=None) -> MeshEstimate:
+    """The project's mesh estimate with its refinement volumes' extra cells (D-103)."""
+    est = project_estimate(project, box, parts_bounds=parts_bounds)
+    return refinement.with_volumes(est, refinement.volume_infos(project, box, est))
 
 
 def mesh_inputs(project: Project) -> tuple[MeshCaseInput, DomainBox, list]:
@@ -306,9 +322,18 @@ def mesh_inputs(project: Project) -> tuple[MeshCaseInput, DomainBox, list]:
         part_patches=tuple(part_patch_names(project.sim.geometry.parts)),
         surface_length=length.value,
         extra_features=_junction_features(project, box, length.value),
+        volumes=_volume_entries(project, box, union_bounds(bounds)),
         **domain_fields(box),
     )
     return inputs, box, meshes
+
+
+def _volume_entries(project: Project, box: DomainBox, parts_bounds) -> tuple:
+    """The refinement volumes meshing writes (enabled, not wholly outside the domain; D-103)."""
+    if not project.sim.refinement_volumes:
+        return ()
+    est = project_estimate(project, box, parts_bounds=parts_bounds)
+    return refinement.volume_entries(refinement.volume_infos(project, box, est))
 
 
 def prepare_job(project: Project) -> MeshJob:
@@ -432,6 +457,8 @@ def inputs_hash(project: Project) -> str:
             if project.sim.mesh.layer_sizing == "absolute_yplus" else None
         ),
     }
+    if project.sim.refinement_volumes:  # every volume edit changes the mesh inputs (D-103); none: old hashes hold
+        payload["refinement_volumes"] = [v.model_dump(mode="json") for v in project.sim.refinement_volumes]
     if project.sim.mesh.surface_size_reference == "l_ref":  # l_ref sizes the surface (D-085)
         payload["surface_l_ref"] = project.sim.reports.reference_length
     prep = project.sim.surface_prep

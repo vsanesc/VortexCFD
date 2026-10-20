@@ -13,6 +13,7 @@ from vortexcfd.core.project import Project
 from vortexcfd.geometry.checks import SurfaceReport, basic_report, cached_report
 from vortexcfd.geometry.domain import DomainBox, compute_domain
 from vortexcfd.geometry.domain_surface import ROLE_ARRAY, domain_surface
+from vortexcfd.geometry.refinement_volumes import outline as volume_outline
 from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
 from vortexcfd.gui.theme import BOUNDARY_FACE_OPACITY, SECTION_EPS_FRACTION, DOMAIN_OPACITY, HIGHLIGHT_OPACITY, PICK_MOVE_TOLERANCE_PX, Theme
 
@@ -305,6 +306,56 @@ class DomainView:
             self.plotter.remove_actor(name, render=False)
         self.box_actor = self.highlight_actor = None
         self.highlight_cells = 0
+
+
+# -- refinement volumes (D-103) -------------------------------------------------------------------
+
+# A refinement volume is drawn as a faint surface with its edges; the selected one is stronger.
+VOLUME_FACE_OPACITY = 0.06
+VOLUME_SELECTED_FACE_OPACITY = 0.16
+VOLUME_EDGE_OPACITY = 0.45
+
+
+class VolumeView:
+    """Every enabled refinement volume as a translucent outline (surface plus wireframe), the selected
+    one highlighted; a volume being edited is drawn from its uncommitted ``preview``."""
+
+    PREFIX = "refinement_volume_"
+
+    def __init__(self, plotter, theme: Theme) -> None:
+        self.plotter = plotter
+        self.theme = theme
+        self.actors: dict[str, tuple] = {}  # volume id -> (face actor, edge actor)
+        self.selected_id: str | None = None
+
+    def update(self, volumes, selected_id: str | None, visible: bool, preview=None) -> None:
+        self.clear()
+        self.selected_id = selected_id
+        if not visible:
+            return
+        t = self.theme
+        for volume in volumes:
+            if preview is not None and preview.id == volume.id:
+                volume = preview
+            if not volume.enabled:
+                continue
+            surface = volume_outline(volume.shape)
+            selected = volume.id == selected_id
+            color = t.accent if selected else t.accent_secondary
+            face = self.plotter.add_mesh(
+                surface, color=color, opacity=VOLUME_SELECTED_FACE_OPACITY if selected else VOLUME_FACE_OPACITY,
+                lighting=False, pickable=False, reset_camera=False, render=False, name=f"{self.PREFIX}{volume.id}")
+            edges = self.plotter.add_mesh(
+                surface, style="wireframe", color=color, line_width=2 if selected else 1,
+                opacity=1.0 if selected else VOLUME_EDGE_OPACITY, lighting=False, pickable=False,
+                reset_camera=False, render=False, name=f"{self.PREFIX}{volume.id}_edges")
+            self.actors[volume.id] = (face, edges)
+
+    def clear(self) -> None:
+        for vid in list(self.actors):
+            self.plotter.remove_actor(f"{self.PREFIX}{vid}", render=False)
+            self.plotter.remove_actor(f"{self.PREFIX}{vid}_edges", render=False)
+        self.actors = {}
 
 
 # -- mesh view ----------------------------------------------------------------------------------
