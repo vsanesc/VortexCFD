@@ -6,7 +6,6 @@ from vortexcfd.core.model import ConeShape, RefinementVolume
 from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_case import VolumeEntry, part_level_range
 from vortexcfd.foam.mesh_estimate import MeshEstimate, volume_extra_cells, volume_level
-from vortexcfd.foam.physics_case import flow_direction
 from vortexcfd.geometry import refinement_volumes as rv
 from vortexcfd.geometry.domain import DomainBox, union_bounds
 
@@ -112,14 +111,14 @@ def new_volume(project: Project, kind: str, box: DomainBox, est: MeshEstimate) -
 
 
 def wake_volume(project: Project, part_indices: list[int], parts_bounds: list, est: MeshEstimate) -> RefinementVolume:
-    """The "Add wake volume" cone behind the parts ``part_indices`` (``parts_bounds``: every part's box in
-    metres, in project order) along the free-stream direction (angle of attack about y, D-103):
-    geometry/refinement_volumes.wake_cone; the part surface cell size is the finest maximum surface level
-    of those parts. [NUMERICS-REVIEW]"""
+    """The "Add wake volume" box behind the parts ``part_indices`` (``parts_bounds``: every part's box in
+    metres, in project order; empty: all parts) aligned with the free stream (geometry/refinement_volumes.
+    wake_box, D-103); the part surface cell size is the finest maximum surface level of those parts.
+    [NUMERICS-REVIEW]"""
     parts = project.sim.geometry.parts
     chosen = part_indices or list(range(len(parts)))
     bounds = union_bounds([parts_bounds[i] for i in chosen])
     level = max(part_level_range(est.level_min, est.level_max,
                                  (parts[i].surface_level_min, parts[i].surface_level_max))[1] for i in chosen)
-    cone, target = rv.wake_cone(bounds, flow_direction(project.sim.inflow.alpha_deg), est.base_size / 2 ** level)
-    return RefinementVolume(id="new", name=project.free_volume_name("wake"), shape=cone, target_size=target)
+    box, target = rv.wake_box(bounds, project.sim.inflow.alpha_deg, est.base_size / 2 ** level)
+    return RefinementVolume(id="new", name=project.free_volume_name("wake"), shape=box, target_size=target)

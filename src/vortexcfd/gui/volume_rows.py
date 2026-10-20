@@ -73,7 +73,7 @@ class VolumeRowsMixin:
             add_box.addWidget(button)
             self.vol_add_buttons[kind] = button
         self.vol_wake_button = QPushButton("Wake")
-        self.vol_wake_button.setToolTip("Add a wake cone behind the selected part (or all parts) along the free stream")
+        self.vol_wake_button.setToolTip("Add a wake box behind the selected part (or all parts) aligned with the free stream")
         self.vol_wake_button.clicked.connect(lambda: self.volume_action.emit("wake"))
         add_box.addWidget(self.vol_wake_button)
         self._make_row_added("vol_add", "Add", adds)

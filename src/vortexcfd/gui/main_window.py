@@ -2050,8 +2050,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.act_generate_domain = action("&Generate Domain...", lambda: self.generate_domain())
         self.act_prepare_surfaces = action("Prepare &Surfaces...", lambda: self.prepare_surfaces())
         self.act_add_wake = action("Add &Wake Volume", self.add_wake_volume)
-        self.act_add_wake.setToolTip("A refinement cone behind the selected part (all parts when none is selected) "
-                                     "along the free stream")
+        self.act_add_wake.setToolTip("A refinement box behind the selected part (all parts when none is selected), "
+                                     "aligned with the free stream")
 
         self.act_zoom_in = action("Zoom &In", lambda: self.set_point_size(self._point_size + 1))
         self.act_zoom_in.setShortcuts([QKeySequence("Ctrl+="), QKeySequence("Ctrl++")])
@@ -2196,7 +2196,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._add_volume(volume, f"Add refinement volume '{volume.name}'")
 
     def add_wake_volume(self) -> None:
-        """Edit > Add Wake Volume: a cone behind the selected part (all parts when no part is selected) along
+        """Edit > Add Wake Volume: a box behind the selected part (all parts when no part is selected) aligned with
         the free stream (D-103); every value stays editable."""
         self._flush_edits()
         context = self._volume_context()

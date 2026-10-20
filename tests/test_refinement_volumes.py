@@ -288,36 +288,46 @@ def test_shape_volumes_and_containment() -> None:
 # -- wake helper ----------------------------------------------------------------------------------
 
 
-def test_wake_cone_for_a_known_part_and_flow_direction() -> None:
-    bounds = (0.0, 2.0, -0.5, 0.5, -0.2, 0.2)  # L = 2, half-width 0.5, half-height 0.2
-    cone, target = rv.wake_cone(bounds, (1.0, 0.0, 0.0), 0.01)
-    assert cone.point1 == pytest.approx((2.0, 0.0, 0.0)) and cone.point2 == pytest.approx((6.0, 0.0, 0.0))
-    assert cone.radius1 == pytest.approx(0.5) and cone.radius2 == pytest.approx(0.75) and target == pytest.approx(0.02)
-    a = math.radians(10.0)
-    d = (math.cos(a), 0.0, math.sin(a))
-    cone, _ = rv.wake_cone(bounds, d, 0.01)
-    start = np.array(cone.point1)
-    assert start[0] == pytest.approx(2.0) and start[2] == pytest.approx(math.tan(a))  # leaves through x = 2
-    axis = np.array(cone.point2) - start
-    assert np.linalg.norm(axis) == pytest.approx(4.0) and axis / 4.0 == pytest.approx(d)
+WING = (0.0, 10.0, -5.0, 5.0, -1.2, 1.2)  # a wing-like part: 10 x 10 x 2.4 m (wide and flat), L = 10 m
+
+
+def test_wake_box_for_a_wing_like_part_along_the_free_stream() -> None:
+    box, target = rv.wake_box(WING, 0.0, 0.05)
+    assert box.size == pytest.approx((20.0, 11.0, 4.8))  # 2 L long, 1.1 x the span, 2 x the thickness
+    assert box.centre == pytest.approx((20.0, 0.0, 0.0))  # from the rear (x = 10) downstream
+    assert (box.pitch_deg, box.yaw_deg) == (0.0, 0.0) and target == pytest.approx(0.1)
+    assert searchable_geometry(box) == {"type": "searchableBox", "min": [10.0, -5.5, -2.4], "max": [30.0, 5.5, 2.4]}
+
+
+def test_wake_box_is_pitched_by_the_angle_of_attack() -> None:
+    a = math.radians(6.0)
+    box, _ = rv.wake_box(WING, 6.0, 0.05)
+    assert box.pitch_deg == 6.0 and box.size == pytest.approx((20.0, 11.0, 4.8))
+    e1 = np.array(box.axes()[0])
+    assert e1 == pytest.approx((math.cos(a), 0.0, math.sin(a)))  # along the free stream
+    upstream_face = np.array(box.centre) - 10.0 * e1
+    assert upstream_face == pytest.approx((10.0, 0.0, 5.0 * math.tan(a)))  # the line through the centre leaves at x = 10
+    g = searchable_geometry(box)
+    assert g["type"] == "searchableRotatedBox" and g["span"] == pytest.approx([20.0, 11.0, 4.8])
+    assert rv.contains(box, [upstream_face + 0.5 * e1, upstream_face - 0.5 * e1]).tolist() == [True, False]
 
 
 def test_wake_volume_uses_the_inflow_angle_and_the_part_surface_size(tmp_path: Path) -> None:
-    project = sphere_project(tmp_path, alpha_deg=0.0)
+    project = sphere_project(tmp_path, alpha_deg=4.0)
     box, _names, meshes = meshing.loaded_parts(project)
     est = meshing.project_estimate(project, box)
     bounds = [tuple(float(x) for x in m.bounds) for m in meshes]
     wake = refinement.wake_volume(project, [0], bounds, est)
-    assert wake.name == "wake" and isinstance(wake.shape, ConeShape)
+    assert wake.name == "wake" and isinstance(wake.shape, BoxShape) and wake.shape.pitch_deg == 4.0
     assert wake.target_size == pytest.approx(2 * est.surface_size)
-    assert wake.shape.point1[0] == pytest.approx(bounds[0][1], rel=1e-6)
     b = bounds[0]
     length = max(b[1] - b[0], b[3] - b[2], b[5] - b[4])  # L: the largest extent
-    assert wake.shape.point2[0] - wake.shape.point1[0] == pytest.approx(2 * length, rel=1e-6)
-    assert wake.shape.radius1 == pytest.approx(max(b[3] - b[2], b[5] - b[4]) / 2, rel=1e-6)
+    assert wake.shape.size == pytest.approx((2 * length, 1.1 * (b[3] - b[2]), 2 * (b[5] - b[4])), rel=1e-6)
     project.add_refinement_volume(wake)
-    project.update_refinement_volume(project.sim.refinement_volumes[0].id, shape={"radius2": 2.0}, target_size=0.1)
-    assert project.sim.refinement_volumes[0].shape.radius2 == 2.0  # editable afterwards
+    project.update_refinement_volume(project.sim.refinement_volumes[0].id, shape={"pitch_deg": 0.0}, target_size=0.1)
+    assert project.sim.refinement_volumes[0].shape.pitch_deg == 0.0  # editable afterwards
+    cone = ConeShape(point1=(1, 0, 0), point2=(3, 0, 0), radius1=0.2, radius2=0.4)  # still a shape of its own
+    assert searchable_geometry(cone)["type"] == "searchableCone"
 
 
 # -- migration and presets ------------------------------------------------------------------------

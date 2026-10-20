@@ -7,7 +7,7 @@ import pyvista as pv
 from pytestqt.qtbot import QtBot
 
 from tests.fakes import FakeDialogs
-from vortexcfd.core.model import ConeShape, Part
+from vortexcfd.core.model import BoxShape, Part
 from vortexcfd.core.project import Project
 from vortexcfd.geometry.loader import clear_cache
 from vortexcfd.gui.main_window import MainWindow
@@ -118,13 +118,14 @@ def test_wake_duplicate_delete_and_domain_status(window: MainWindow) -> None:
     w.tree.setCurrentItem(w._items[("part", 0)])
     w.add_wake_volume()
     wake = w.project.sim.refinement_volumes[0]
-    assert wake.name == "wake" and isinstance(wake.shape, ConeShape)
-    assert wake.shape.point1[0] == pytest.approx(2.0) and wake.shape.point2[0] == pytest.approx(6.0)
+    assert wake.name == "wake" and isinstance(wake.shape, BoxShape)
+    # the 2 x 1 x 1 m part: 4 m long from its rear (x = 2), 1.1 m wide, 2 m high
+    assert wake.shape.centre == pytest.approx((4.0, 0.5, 0.5)) and wake.shape.size == pytest.approx((4.0, 1.1, 2.0))
     assert w.properties.vol_status.text().startswith("inside the domain")
     w.duplicate_selected_volume()
     assert [v.name for v in w.project.sim.refinement_volumes] == ["wake", "wake_2"]
     vid = w.project.sim.refinement_volumes[1].id
-    w.project.update_refinement_volume(vid, shape={"point1": (500.0, 0.0, 0.0), "point2": (510.0, 0.0, 0.0)})
+    w.project.update_refinement_volume(vid, shape={"centre": (500.0, 0.0, 0.0)})
     w.tree.setCurrentItem(w._items[("refinement_volume", 1)])
     assert "outside the domain" in w.properties.vol_status.text()
     w.delete_selected_volume()

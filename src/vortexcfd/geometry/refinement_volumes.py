@@ -10,7 +10,7 @@ import math
 import numpy as np
 import pyvista as pv
 
-from vortexcfd.core.model import BoxShape, ConeShape, CylinderShape, SphereShape
+from vortexcfd.core.model import BoxShape, CylinderShape, SphereShape
 from vortexcfd.geometry.domain import DomainBox
 
 # Samples per axis of the shape's bounding box when the domain fraction is estimated (about 16,000
@@ -18,11 +18,12 @@ from vortexcfd.geometry.domain import DomainBox
 FRACTION_SAMPLES = 25
 OUTLINE_SEGMENTS = 32
 
-# The wake helper's defaults (D-103) [NUMERICS-REVIEW]: the cone runs this many reference lengths L
-# downstream of the parts' rear, starts with the parts' largest half-extent across the flow (y or z) as
-# radius, ends this many times wider, and asks for this many part surface cells as its cell size.
+# The wake helper's defaults (D-103, owner review) [NUMERICS-REVIEW]: a box aligned with the free stream
+# (pitched by the angle of attack), from the parts' rear, this many reference lengths L long, this many
+# times the parts' y extent wide and z extent high, asking for this many part surface cells as its size.
 WAKE_LENGTH_L = 2.0
-WAKE_END_RADIUS_FACTOR = 1.5
+WAKE_WIDTH_FACTOR = 1.1
+WAKE_HEIGHT_FACTOR = 2.0
 WAKE_SIZE_FACTOR = 2.0
 
 
@@ -191,17 +192,18 @@ def rear_point(parts_bounds, direction) -> np.ndarray:
     return c + min(steps) * d
 
 
-def wake_cone(parts_bounds, direction, surface_size: float) -> tuple[ConeShape, float]:
-    """(the wake cone, its target cell size) behind the parts' box for the free-stream ``direction``
-    (D-103): from the parts' rear along the flow, WAKE_LENGTH_L x L long (L: the box's largest extent),
-    start radius = the largest of the box's half-width (y) and half-height (z), end radius
-    WAKE_END_RADIUS_FACTOR x that; target size WAKE_SIZE_FACTOR x the part surface cell size."""
+def wake_box(parts_bounds, alpha_deg: float, surface_size: float) -> tuple[BoxShape, float]:
+    """(the wake box, its target cell size) behind the parts' box for the free stream at angle of attack
+    ``alpha_deg`` about y (direction (cos a, 0, sin a), D-103): pitched by the angle of attack; its upstream
+    face centred where the line through the centre of the parts' box along the flow leaves the box; length
+    WAKE_LENGTH_L x L (L: the box's largest extent) along the flow, width WAKE_WIDTH_FACTOR x the y extent,
+    height WAKE_HEIGHT_FACTOR x the z extent; target size WAKE_SIZE_FACTOR x the part surface cell size."""
     b = parts_bounds
-    d = _arr(direction) / np.linalg.norm(direction)
-    length = max(b[1] - b[0], b[3] - b[2], b[5] - b[4])
-    start = rear_point(b, d)
-    end = start + WAKE_LENGTH_L * length * d
-    r1 = max((b[3] - b[2]) / 2, (b[5] - b[4]) / 2)
-    cone = ConeShape(point1=tuple(float(x) for x in start), point2=tuple(float(x) for x in end),
-                     radius1=float(r1), radius2=float(WAKE_END_RADIUS_FACTOR * r1))
-    return cone, WAKE_SIZE_FACTOR * surface_size
+    a = math.radians(alpha_deg)
+    d = _arr((math.cos(a), 0.0, math.sin(a)))
+    length = WAKE_LENGTH_L * max(b[1] - b[0], b[3] - b[2], b[5] - b[4])
+    centre = rear_point(b, d) + 0.5 * length * d
+    size = (length, WAKE_WIDTH_FACTOR * (b[3] - b[2]), WAKE_HEIGHT_FACTOR * (b[5] - b[4]))
+    box = BoxShape(centre=tuple(float(x) for x in centre), size=tuple(float(s) for s in size),
+                   pitch_deg=float(alpha_deg))
+    return box, WAKE_SIZE_FACTOR * surface_size

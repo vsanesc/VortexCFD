@@ -14,7 +14,7 @@ Done on it:
   snappyHexMeshDict geometry entries as v2606 searchable shapes (searchableBox / searchableRotatedBox,
   searchableCylinder, searchableSphere, searchableCone) and inside-mode refinementRegions; extra cells in
   the estimate and the cell budget; volumes wholly outside the domain are not written (error), partly
-  outside ones warn; Edit > Add Wake Volume (a cone along the free stream behind the parts); the
+  outside ones warn; Edit > Add Wake Volume (a box aligned with the free stream behind the parts); the
   "Refinement volumes" tree node under Mesh, numeric editing with units, a live translucent outline in the
   viewer; one undo step per edit, every edit puts the mesh out of date; not in presets. The real-mesh test
   (`slow`) was written but not run.
