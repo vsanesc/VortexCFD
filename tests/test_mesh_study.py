@@ -138,9 +138,12 @@ class FakeMeshRun:
     cells = [1000, 2800, 8000]
     calls: list = []
 
-    def __init__(self, case, *, on_line=None, step_timeout_s=None, parts=()):
+    cores: list = []
+
+    def __init__(self, case, *, on_line=None, step_timeout_s=None, parts=(), cores=1):
         self.case = Path(case)
         FakeMeshRun.calls.append(self.case.name)
+        FakeMeshRun.cores.append(cores)
 
     def start(self):
         pass
@@ -225,6 +228,132 @@ def test_study_run_flags_a_level_that_misses_its_criteria(tmp_path: Path) -> Non
     assert rec.levels[1].criteria_met is False and rec.levels[1].state_label == "Iteration limit"
     (row,) = quantity_rows(rec)
     assert not row.reliable and "medium" in row.note
+
+
+# -- parallel meshing of the levels (D-111) ----------------------------------------------------------
+
+
+def _levels(n: int = 3) -> list:
+    return [LevelResult(i, name, 1.0) for i, name in enumerate(("coarse", "medium", "fine")[:n])]
+
+
+def test_every_level_meshes_on_the_record_cores_one_at_a_time(tmp_path: Path) -> None:
+    FakeMeshRun.calls, FakeMeshRun.cores, FakeSolverRun.n = [], [], 0
+    rec = StudyRecord(math.sqrt(2), "fine", ["Cd"], 2, 8.0, _levels(), mesh_cores=4)
+    run = StudyRun(tmp_path, rec, lambda case: None, mesh_run_factory=FakeMeshRun, solver_run_factory=FakeSolverRun)
+    run.start()
+    assert run.wait(10).status == "finished"
+    assert FakeMeshRun.cores == [4, 4, 4] and FakeMeshRun.calls == ["level_1", "level_2", "level_3"]
+    assert read_record(tmp_path).mesh_cores == 4
+
+
+def test_a_record_before_parallel_meshing_meshes_in_serial(tmp_path: Path) -> None:
+    import json
+
+    write_record(tmp_path, StudyRecord(math.sqrt(2), "fine", ["Cd"], 1, 8.0, _levels()))
+    data = json.loads((tmp_path / "study.json").read_text())
+    del data["mesh_cores"]
+    (tmp_path / "study.json").write_text(json.dumps(data))
+    assert read_record(tmp_path).mesh_cores == 1
+
+
+def _real_mesh_run_with_fake_foam(monkeypatch, tmp_path: Path, n_levels: int):
+    """StudyRun with the real MeshRun on the fake OpenFOAM runner of tests/test_parallel_mesh.py."""
+    from tests.test_parallel_mesh import FakeFoamRun
+    from vortexcfd.foam import mesh_run
+
+    FakeFoamRun.calls, FakeFoamRun.block, FakeFoamRun.fail = [], set(), set()
+    monkeypatch.setattr(mesh_run, "FoamRun", FakeFoamRun)
+    for i in range(n_levels):
+        (tmp_path / f"level_{i + 1}" / "system").mkdir(parents=True)
+    FakeSolverRun.n = 0
+    rec = StudyRecord(math.sqrt(2), "fine", ["Cd"], 1, 8.0, _levels(n_levels), mesh_cores=4)
+    return FakeFoamRun, StudyRun(tmp_path, rec, lambda case: None, solver_run_factory=FakeSolverRun)
+
+
+def test_a_stop_during_a_level_ends_the_study_and_cleans_its_processors(tmp_path, monkeypatch) -> None:
+    import threading
+
+    fake, run = _real_mesh_run_with_fake_foam(monkeypatch, tmp_path, 3)
+    original = fake.start
+    level_2 = []
+
+    def start(self, command, case_dir, log_file, **kw):  # block level 2's snappyHexMesh only
+        self_block = Path(case_dir).name == "level_2" and Path(log_file).name == "log.snappyHexMesh"
+        original(self, command, case_dir, log_file, **kw)
+        self._blocking = self_block
+        if self_block:
+            level_2.append(True)
+
+    monkeypatch.setattr(fake, "start", start)
+    run.start()
+    for _ in range(200):
+        if level_2:
+            break
+        threading.Event().wait(0.05)
+    assert list((tmp_path / "level_2").glob("processor*"))  # decomposed while level 2 meshes
+    run.request_stop()
+    rec = run.wait(10)
+    assert rec.status == "stopped" and rec.levels[0].mesh_ok and not rec.levels[1].mesh_ok
+    assert FakeSolverRun.n == 1  # only level 1 was solved
+    assert not list(tmp_path.glob("level_*/processor*")) and not (tmp_path / "level_3" / "logs").exists()
+
+
+def test_a_failed_reconstruction_fails_the_level_and_cleans_it(tmp_path, monkeypatch) -> None:
+    fake, run = _real_mesh_run_with_fake_foam(monkeypatch, tmp_path, 2)
+    original = fake.start
+
+    def start(self, command, case_dir, log_file, **kw):
+        original(self, command, case_dir, log_file, **kw)
+        if Path(case_dir).name == "level_2" and Path(log_file).name == "log.reconstructParMesh":
+            self._code = 1
+
+    monkeypatch.setattr(fake, "start", start)
+    run.start()
+    rec = run.wait(10)
+    assert rec.status == "failed" and rec.levels[0].mesh_ok and rec.levels[1].error == "meshing failed"
+    assert [c[1][:3] for c in fake.calls if c[0] == "snappyHexMesh"] == [["mpirun", "-np", "4"]] * 2
+    assert not list(tmp_path.glob("level_*/processor*"))
+
+
+@pytest.mark.slow
+def test_a_two_level_study_meshes_the_sphere_on_four_cores(tmp_path: Path) -> None:
+    """The real pipeline on the two coarsest levels of the default sphere study, 4 meshing cores (the
+    solver is a fake: meshing only). 34 s on the development machine."""
+    import pyvista as pv
+
+    from vortexcfd.core.model import Part
+    from vortexcfd.core.project import Project
+    from vortexcfd.workflow.mesh_study import prepare_study
+
+    folder = tmp_path / "proj"
+    (folder / "geometry").mkdir(parents=True)
+    pv.Sphere(radius=0.5, theta_resolution=24, phi_resolution=24).save(str(folder / "geometry" / "sphere.stl"))
+    project = Project.new("study")
+    project.add_part(Part(name="Sphere", source_file="geometry/sphere.stl", units="m"))
+    project.save(folder / "p.json")
+    project.update_mesh(cores=4)
+    study_dir, record, inputs = prepare_study(project)
+    assert record.mesh_cores == 4
+    record.levels = record.levels[:2]
+    FakeSolverRun.n = 0
+    lines: list[str] = []
+    run = StudyRun(study_dir, record, lambda case: None, parts=inputs.parts, on_line=lines.append,
+                   solver_run_factory=FakeSolverRun, mesh_timeout_s=110)
+    run.start()
+    try:
+        rec = run.wait(240)
+    finally:
+        if run.is_running():
+            run.request_stop()
+            run.wait(60)
+    assert rec is not None and rec.status == "finished", rec
+    assert all(lv.mesh_ok for lv in rec.levels) and rec.levels[0].cells < rec.levels[1].cells
+    for lv in rec.levels:
+        case = study_dir / f"level_{lv.index + 1}"
+        assert "nProcs : 4" in (case / "logs" / "log.snappyHexMesh").read_text()
+        assert (case / "logs" / "log.reconstructParMesh").is_file() and not list(case.glob("processor*"))
+    print(f"\n2-level study on 4 cores: {[lv.cells for lv in rec.levels]} cells")
 
 
 # -- real study (marker long) -------------------------------------------------------------------------

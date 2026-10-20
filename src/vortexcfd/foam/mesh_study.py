@@ -151,6 +151,7 @@ class StudyRecord:
     levels: list[LevelResult]
     status: str = "not run"  # not run, running, finished, stopped, failed
     inputs_hash: str = ""
+    mesh_cores: int = 1  # snappyHexMesh ranks of every level (D-111; records before it: 1)
 
 
 def write_record(study_dir: Path, record: StudyRecord) -> None:
@@ -251,7 +252,9 @@ class StudyRun:
     """Meshes and solves the levels of ``record`` in order on a worker thread (no Qt).
 
     Every level directory must already hold its meshing case (dictionaries and surfaces, written by
-    the caller). Per level: MeshRun (blockMesh, surfaceFeatureExtract, snappyHexMesh, checkMesh), then
+    the caller). Per level: MeshRun (blockMesh, surfaceFeatureExtract, snappyHexMesh, checkMesh; on
+    ``record.mesh_cores`` ranks, decomposed and reconstructed within the level, its processor*/ removed
+    by MeshRun after the level, a stop or a failure, D-111), then
     ``write_solver(level_dir)`` writes the solver files, then SolverRun with the run's stopping
     criteria and cores, then the final values of the study quantities. The record is written to
     study.json after every step. ``on_line`` / ``on_level`` / ``on_done`` are called from worker
@@ -337,7 +340,7 @@ class StudyRun:
                 case = level_dir(self.study_dir, level.index)
                 self._say(f"Mesh study: meshing level {level.index + 1} ({level.name}) in {case}")
                 mesh_run = self._mesh_factory(case, on_line=self._on_line, step_timeout_s=self._mesh_timeout,
-                                              parts=self._parts)
+                                              parts=self._parts, cores=self.record.mesh_cores)
                 mesh_run.start()
                 self._attach(mesh_run)
                 mesh = mesh_run.wait()
