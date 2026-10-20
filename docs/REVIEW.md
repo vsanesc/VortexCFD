@@ -139,3 +139,34 @@ pyproject), R-12 (a cache bound), R-14 (splitting the two large GUI modules), R-
 No finding in this review changes a dictionary, a boundary condition, the numerics, the meshing defaults, the y+
 estimator, the layer sizing, the stopping criteria, the force calculation, the reference values or the schema; none is
 tagged [NUMERICS-REVIEW].
+
+## 8. Part B: what was applied
+
+The review was closed early at the owner's request after three of the ten planned commits; the rest of the
+plan stands as written in section 7 (nothing else was changed in src/).
+
+| commit | finding | measured |
+|---|---|---|
+| 773ed53 Geometry: hidden-segment test skips the points outside a component's hull | R-24 | three crossing spheres (178,800 triangles each, 3,821 segments): hidden filter 115.2 s -> 27.4 s, same mask |
+| 1d06183 Surface preparation: the intersection segments are computed once | R-19 | the preparation's two curve calls 1.68 s -> 1.35 s (58,800 triangles), 10.34 s -> 9.52 s (237,600); same segments |
+| 6c55b01 Monitors: the force breakdown is kept per time instead of recomputed at every poll | R-26 | at 12,000 iterations: series(Cd_pressure) 43.5 -> 18.6 ms, breakdown_rows 11.3 -> 6.1 ms, a poll 131.5 -> 75.6 ms |
+
+Not applied (still SAFE, in priority order): R-01 (a worker result of another project), R-02 / R-03 (`MeshRun`
+always reports; a stop while a step starts), R-04 / R-05 (one atomic writer honouring the umask for the project
+file, the presets and the four records), R-23 (the theme applied once per window: about 0.4 s of the 1.25 s a
+window costs, about 300 windows in the fast suite), R-25 (the layer walk, only if bit-identical), R-15 / R-16 /
+R-17 (docstrings, unused parameters, dead code), R-37 / R-38 (the DECISIONS index rows for D-107 to D-111, the
+stale GPU notes in ARCHITECTURE and STATUS).
+
+## 9. Verification
+
+1. Benchmark (`--no-solve --compare benchmarks/baseline.json`): **not run** (stopped early; the three applied
+   commits touch the surface preparation's hidden-segment filter, which the public cases never exercise, and the
+   monitors, which the benchmark does not use). To be run by the owner or the next task before publishing.
+2. Dictionaries: the meshing case of the three public benchmark cases as `prepare_job` writes it, their solver
+   files as `prepare_solver_case` writes them, the mesh and results hashes, and the cavity reference case were
+   generated at e41f7f2 (before the first Part B commit) and again at 6c55b01: `diff -r` of the 61 files is empty
+   (identical). Mesh cores of the cases: sphere 8, wing 7, ahmed 7 (QUESTIONS 155).
+3. Fast suite (`-m "not slow and not validation and not long"`, offscreen, `-n 8`), last line at 6c55b01:
+   `974 passed, 1 skipped in 67.83s (0:01:07)` (971 passed, 1 skipped in 68.61 s before Part B; the three new tests
+   are the equality pins of R-24, R-19 and R-26).

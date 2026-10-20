@@ -1,6 +1,6 @@
 # Status
 
-Updated 2026-10-20 (task/5.x-parallel-mesh: parallel snappyHexMesh; owner review applied).
+Updated 2026-10-20 (task/5.x-parallel-mesh: parallel snappyHexMesh; owner review applied; whole-codebase review).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
@@ -23,6 +23,12 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
     aircraft 7 (99,200-100,860 background cells).
   - QUESTIONS 156: the mesh study meshes every level on the project's meshing cores, one level at a time,
     processor*/ cleaned per level; a real 2-level sphere study on 4 cores took 34 s.
+
+- Whole-codebase review (docs/REVIEW.md, 2026-10-20): 42 findings, 3 SAFE fixes applied (the surface
+  preparation's hidden-segment filter 4.2x faster with the same mask, its segments computed once, the
+  monitors' force breakdown cached per time); the dictionaries of the public cases and the cavity are
+  byte-identical before and after; the benchmark compare was not run (stopped early). The remaining
+  SAFE fixes are listed in REVIEW.md section 8; the FROZEN findings for the owner in section 7.
 
 Next: the aircraft's zones (QUESTIONS 147); drag handles for the refinement volumes (item 132). The owner
 runs scripts/ship.sh (the slow tests, item 161). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73,
