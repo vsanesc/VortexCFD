@@ -158,7 +158,7 @@ Reality check: "as powerful as a commercial mesher" is not a deliverable that ca
 - Goal: robust watertight, quality surface from dirty/CAD tessellation before volume meshing (leak closing, remeshing, feature preservation).
 - Acceptance: improves benchmark success rate on the dirty set vs M1 baseline.
 
-### 5.3 Level M3 — Alternative volume mesher evaluation
+### 5.3 Level M3 — Alternative volume mesher evaluation — *cfMesh evaluated (task 5.3-cfmesh, D-102, benchmarks/RESULT_5.3.md): full layer coverage at sharp edges but a one-cell-thick stack, hard checkMesh failures on 4 of 5 layered meshes and worse fidelity on thin geometry; recommendation: keep snappyHexMesh (owner decision pending, QUESTIONS 130); `--mesher cfmesh` stays as a benchmark-only switch. Gmsh and others not evaluated*
 - Evaluate and, if better on the benchmarks, wrap: cfMesh (Cartesian/polyhedral/tetra), Gmsh, others from 0.2. Mesher selectable per project.
 - Acceptance: written comparison on the benchmark suite; adopt only on measurable improvement.
 

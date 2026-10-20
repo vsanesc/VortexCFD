@@ -1,55 +1,29 @@
 # Status
 
-Updated 2026-10-19 (task/5.2-surface-prep: surface preparation of multi-component models). Phases and
-sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
+Updated 2026-10-20 (task/5.3-cfmesh: cfMesh evaluation). Phases and sub-phases are those of
+docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
 
-**task/5.2-surface-prep** (not yet published; task/5.1-sizing was merged in PR #20). Done on it:
-- Part A (D-094): optional local-only benchmark cases from the git-ignored benchmarks/local_cases.json
-  (format in local_cases.example.json; projects outside the repository); a reference analysis (outer
-  skin, intersection-curve zones, mean chord as l_ref) and fidelity against it in both directions,
-  the wall left inside a component, patch faces and the per-part force partition.
-- Part B: the owner's aircraft through the current pipeline (benchmarks/RESULT_5.2_before.md): the
-  untrimmed export imports as six compounds of loose (sewable) faces; no check looks across parts;
-  the repair is per part (and loses the wings on a one-part import); the trimmed export is four
-  overlapping solids, not one skin (QUESTIONS 108).
-- Part C (D-093, [NUMERICS-REVIEW], schema v11): the Surface Preparation operation (tree node, Edit >
-  Prepare Surfaces, background worker, undoable, stale results block meshing): diagnostics,
-  "intersection_features" (crossing curves as snap features) and "cad_union" (sew, fuse, per-part
-  shares of the outer skin with their CAD faces; per-part fallback).
-- Part D: comparison (benchmarks/RESULT_5.2.md): CAD union is closest to the reference at the
-  junctions and leaves the least internal wall; proposed as the default (QUESTIONS 109). Every
-  aircraft mesh fails checkMesh at the 24-layer stack (QUESTIONS 111, input for 5.4). Public benchmark
-  re-run against baseline.json: no regressions, identical meshes (599 s).
+**task/5.3-cfmesh** (not yet published; task/5.2-surface-prep was merged in PR #21). An evaluation
+only: no GUI work, no default changes; the app keeps snappyHexMesh. Done on it:
+- Part A: cfMesh is in the v2606 installation (cartesianMesh, tetMesh, pMesh and the utilities; OpenMP
+  and MPI; ESI's module of cfMesh v1.1, version not printed; threads follow the CPU affinity;
+  QUESTIONS 125).
+- Part B (D-102, [NUMERICS-REVIEW]): `foam/cfmesh_case.py` writes a cartesianMesh case from the same
+  MeshCaseInput (`workflow/meshing.mesh_inputs`); `workflow/cfmesh.py` builds the closed combined surface
+  (domain + parts, one solid per snappyHexMesh patch, the symmetry plane cut around the parts); the
+  benchmark's evaluation switch `--mesher cfmesh`; layers counted from the mesh for both meshers
+  (`bench/layer_walk.py`, `foam/polymesh.py`). Settings mapping table in D-102.
+- Part C (benchmarks/RESULT_5.3.md): cfMesh gives full layer coverage at the trailing edge, tips and
+  sharp edges (100 % against 0-15 %), but its stack is one boundary cell thick (31-33 % of the y+
+  stack, first layer 0.29 mm against 0.90 mm), 4 of its 5 layered meshes fail checkMesh with hard
+  failures (all but the sphere), its fidelity is worse on the wing and the aircraft and the aircraft
+  took 21-28 minutes on 10 cores. Recommendation: keep snappyHexMesh and move to 5.4 (QUESTIONS 130).
 
-Owner review of 5.2 (same branch): CAD union accepted as the default (D-093 and D-094 Accepted;
-QUESTIONS 108-110, 112, 113, 115-118 accepted). Follow-up done:
-- D-095: the ~/case and ~/geometry folders of 2026-10-18 came from the old save-first import (the
-  project file was saved in the home folder); no path is built from the working directory; regression
-  test.
-- D-096 ([NUMERICS-REVIEW]): a mesh that fails checkMesh blocks Run Solver and the polar sweep (it did
-  not before), with the failed checks in the tooltip and the Mesh report.
-- D-097 ([NUMERICS-REVIEW]): intersection features did nothing because the junction curves refined to
-  level 5 where the cells were already at level 7; the junction level is now the maximum surface level
-  plus the curvature levels. Re-measured: the junctions' reference -> mesh RMS about halves against no
-  preparation (benchmarks/RESULT_5.2.md); intersection features stay the CAD union's fallback.
-- D-098: CAD component names from the STEP entities (the aircraft: Fuselage_0, Ala_0, ...).
-- D-099: the import checks report parts that cross each other and point to Surface Preparation.
-
-Second owner review (same branch): D-095 to D-099 accepted (D-096 changed by D-100). Follow-up done:
-- D-100 ([NUMERICS-REVIEW]): checkMesh failures split from the v2606 sources into hard (negative or
-  zero volumes and areas, face pyramids, non-orthogonality above 90 degrees, open or illegal cells,
-  boundary holes, unexplained failures: block Run Solver and the sweep) and soft (skewness, aspect
-  ratio, concave cells, weights, volume ratio, determinant, severe non-orthogonality 70-90 and the
-  other "*" lines: "Mesh: warnings" badge, tooltip, Mesh report). The as-imported aircraft mesh is
-  no longer blocked.
-- D-101 ([NUMERICS-REVIEW]): the CAD union's junction edges at the junction level were tried and
-  measured (junction fidelity a little better, junction layers collapsed: wing 57.3 -> 3.5 % extruded)
-  and rejected by the owner; the code is reverted (benchmarks/RESULT_5.2.md keeps the numbers).
-
-Next candidates: 5.4 prism layers (items 87, 106, 111, 122, 124); a dirty-STL set for 5.2. Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75, 82, 87,
-89 to 94, 96, 97, 106, 111, 122 and 124.
+Next candidates: 5.4 prism layers (items 87, 106, 111, 122, 124, and what 5.3 showed: extrude-then-
+untangle fails, remove-and-shrink collapses). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72,
+73, 75, 82, 87, 89 to 94, 96, 97, 106, 111, 122, 124 and 125 to 131.
 
 ## Phases
 
@@ -77,7 +51,7 @@ Next candidates: 5.4 prism layers (items 87, 106, 111, 122, 124); a dirty-STL se
 | 5.0 | Meshing benchmark suite | done (D-081, D-082): sphere, wing, Ahmed-type body; baseline in benchmarks/BASELINE.md; the dirty-STL set and solver convergence are not in it |
 | 5.1 | M1: GUI over snappyHexMesh | done (published in PR #11 and #12); y+ layer sizing done (D-024, D-026, D-045); sizing defaults revised after the baseline (D-084 to D-086, task 5.1-sizing) |
 | 5.2 | M2: surface preparation | first step done (D-093, D-094): Surface Preparation operation (diagnostics, intersection features, CAD union), local benchmark cases with fidelity against a reference; no shell wrapper; dirty-STL set not in the benchmark |
-| 5.3 | M3: alternative volume mesher | not started (cfMesh build spike pending) |
+| 5.3 | M3: alternative volume mesher | cfMesh evaluated (D-102, benchmarks/RESULT_5.3.md): recommendation keep snappyHexMesh, owner decision pending (QUESTIONS 130); benchmark-only `--mesher cfmesh`; Gmsh not evaluated |
 | 5.4 | M4: prism layer robustness | not started |
 | 5.5 | M5: own mesher (go/no-go) | not started |
 | 6.1 | Monitors and reports | done: report slots with Cd, Cl, Cm pitch and wall y+ (D-048); reference values (D-047); stopping criteria (runTimeControl for residuals, app-side range-based asymptotic criterion), convergence banner and oscillation warning (D-058, D-059); force breakdown, body-axis x_cp, mass balance, cellPoint probes (D-060) |

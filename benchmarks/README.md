@@ -50,6 +50,22 @@ per-part force partition check. Projects and a reference cache go to
 ~/.cache/vortexcfd/bench_local/ (outside the repository); results to benchmarks/results/local/
 (git-ignored); local results are never part of baseline.json.
 
+## cfMesh evaluation switch (phase 5.3, D-102)
+
+```bash
+nice -n 15 .venv/bin/python -m vortexcfd.bench --mesher cfmesh --cases ahmed
+```
+
+Evaluation only: the app always meshes with snappyHexMesh. `--mesher cfmesh` meshes the same project
+inputs with cfMesh's cartesianMesh (workflow/cfmesh.py: one closed combined surface of the domain and
+the parts, the settings mapped as in D-102), pinned to one CPU of each of 10 physical cores. It works
+with `--local` too. The project folder and the result's case name get the suffix `_cfmesh`; the result
+records `mesher`. With a symmetry plane the patch points are moved onto the plane before checkMesh
+(`symmetry_flattened` records how far). Every result, for either mesher, also has `layers_walk`: the
+layers counted from the mesh (bench/layer_walk.py: thin prism cells walked from each wall face), the
+only layer measure cfMesh meshes have; for snappyHexMesh the layer fields are reported as before.
+benchmarks/RESULT_5.3.md has the comparison.
+
 ## Files
 
 - `baseline.json`, `BASELINE.md`: the committed baseline of the current mesher (the 5.1b run).
