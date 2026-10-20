@@ -295,6 +295,13 @@ CHECK_ROWS = (
 )
 
 
+def layer_plan_text(plan) -> str:
+    """The Planned / achievable row of a y+ layer plan: both stack thicknesses, the share reached and
+    the expansion ratio written (raised by the layer cap, D-106)."""
+    ratio = f"ratio {plan.expansion:.3g}" + (f" (set {plan.planned_expansion:.3g})" if plan.expansion != plan.planned_expansion else "")
+    return (f"{plan.planned_total:.4g} m / {plan.total:.4g} m ({plan.thickness_percent:.0f} %), {ratio}")
+
+
 def _wrap(label: QLabel) -> None:
     """A value label that wraps instead of forcing the panel wider than its viewport."""
     label.setWordWrap(True)
@@ -600,6 +607,12 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         self.mesh_first_layer = self._ro_row("mset_first_layer", "First layer thickness")
         self.mesh_layer_count = self._ro_row("mset_layer_count", "Layers (computed)")
         self.mesh_layer_stack = self._ro_row("mset_layer_stack", "Stack / final layer")
+        # planned vs achievable stack thickness and the expansion ratio written (layer cap, D-106)
+        self.mesh_layer_plan = self._ro_row("mset_layer_plan", "Planned / achievable")
+        self.mesh_layer_thickness_warning = QLabel()
+        self.mesh_layer_thickness_warning.setObjectName("checkValue")
+        _wrap(self.mesh_layer_thickness_warning)
+        self._layout.addWidget(self.mesh_layer_thickness_warning)
         self.mesh_thin_warning = QLabel()
         self.mesh_thin_warning.setObjectName("checkValue")
         _wrap(self.mesh_thin_warning)
@@ -1064,13 +1077,23 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
             layers_field.blockSignals(False)
         if plan is not None:
             self.mesh_first_layer.setText(f"{plan.first:.4g} m (for y+ {mesh.target_yplus:g})")
-            self.mesh_layer_count.setText(f"{plan.count}" + (" (limit 30)" if plan.warning else ""))
+            notes = [f"cap; planned {plan.planned_count}"] if plan.capped else []
+            notes += ["limit 30"] if plan.warning else []
+            self.mesh_layer_count.setText(f"{plan.count}" + (f" ({', '.join(notes)})" if notes else ""))
             self.mesh_layer_stack.setText(f"{plan.total:.4g} m / {plan.final:.4g} m")
+            self.mesh_layer_plan.setText(layer_plan_text(plan))
         else:
             blank = "relative sizing" if not absolute else "\u2014"
             self.mesh_first_layer.setText(blank)
             self.mesh_layer_count.setText(f"{mesh.layers} (set)" if not absolute else "\u2014")
             self.mesh_layer_stack.setText("\u2014")
+            self.mesh_layer_plan.setText("\u2014")
+        thin = plan.thickness_warning if plan is not None else None
+        self.mesh_layer_thickness_warning.setText(thin or "")
+        self._set_warn(self.mesh_layer_thickness_warning, True)
+        self.mesh_layer_thickness_warning.setVisible(thin is not None)
+        self._set_warn(self.mesh_layer_plan, thin is not None)
+        self.mesh_layer_plan.setToolTip(thin or "")
         warn = plan is not None and plan.warning is not None
         for label in (self.mesh_first_layer, self.mesh_layer_count, self.mesh_layer_stack):
             self._set_warn(label, warn)

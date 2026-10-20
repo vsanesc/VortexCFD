@@ -12,9 +12,9 @@ from pathlib import Path
 import numpy as np
 
 from vortexcfd.core.project import Project
-from vortexcfd.core.project_io import V10_MESH_FIELDS
+from vortexcfd.core.project_io import V10_MESH_FIELDS, V13_MESH_FIELDS
 from vortexcfd.foam.mesh_estimate import estimate_mesh
-from vortexcfd.foam.yplus import LayerPlan, first_layer_thickness, plan_layers
+from vortexcfd.foam.yplus import LayerPlan, first_layer_thickness, layer_cap, plan_layers
 from vortexcfd.foam.mesh_case import (
     DOMAIN_SURFACE,
     TRI_SURFACE,
@@ -245,7 +245,8 @@ def plan_layers_for(project: Project, box: DomainBox) -> LayerPlan:
     first = first_layer_thickness(mesh.target_yplus, project.sim.inflow.speed, project.sim.physics.nu,
                                   length.value)
     est = estimate_for(box, mesh, length.value)
-    return plan_layers(first, mesh.expansion_ratio, est.surface_size)
+    return plan_layers(first, mesh.expansion_ratio, est.surface_size, **layer_cap(mesh.layer_controls))
+
 
 
 def layer_warning(project: Project) -> str | None:
@@ -258,7 +259,9 @@ def layer_warning(project: Project) -> str | None:
         return None
     if box.bounds is None:
         return None
-    return plan_layers_for(project, box).warning
+    plan = plan_layers_for(project, box)
+    lines = [w for w in (plan.warning, plan.thickness_warning) if w]  # the capped stack too (D-106)
+    return " ".join(lines) or None
 
 
 def readiness(project: Project) -> str | None:
@@ -304,10 +307,10 @@ def mesh_inputs(project: Project) -> tuple[MeshCaseInput, DomainBox, list]:
     bounds = [tuple(float(b) for b in m.bounds) for m in meshes]
     length = surface_length(project, box, union_bounds(bounds))
     safe = safe_part_names(names)
-    first_layer = layer_count = None
+    first_layer = layer_count = expansion = None
     if project.sim.mesh.layer_sizing == "absolute_yplus":
         plan = plan_layers_for(project, box)
-        first_layer, layer_count = plan.first, plan.count
+        first_layer, layer_count, expansion = plan.first, plan.count, plan.expansion
     inputs = MeshCaseInput(
         domain_bounds=box.bounds,
         symmetric=project.sim.domain.symmetry == "y_min",
@@ -317,6 +320,7 @@ def mesh_inputs(project: Project) -> tuple[MeshCaseInput, DomainBox, list]:
         mesh=project.sim.mesh,
         first_layer_thickness=first_layer,
         layer_count=layer_count,
+        layer_expansion=expansion,
         part_bounds=tuple(bounds),
         part_levels=_part_overrides(project),
         part_patches=tuple(part_patch_names(project.sim.geometry.parts)),
@@ -444,7 +448,8 @@ def inputs_hash(project: Project) -> str:
             entry.append(_hash_file(ids) if ids is not None and ids.is_file() else None)
         parts.append(entry)
     mesh = project.sim.mesh.model_dump()
-    for key, legacy in V10_MESH_FIELDS.items():  # a project meshed before v10 keeps its hash (D-085)
+    for key, legacy in {**V10_MESH_FIELDS, **V13_MESH_FIELDS}.items():  # a project meshed before v10 / v13
+        # keeps its hash (D-085, D-106)
         if mesh.get(key) == legacy:
             del mesh[key]
     payload = {

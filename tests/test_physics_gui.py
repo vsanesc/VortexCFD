@@ -218,9 +218,11 @@ def test_absolute_layers_make_the_mesh_depend_on_the_flow(tmp_path) -> None:
 
 
 def test_layer_count_rows_and_the_y_plus_warning(qtbot: QtBot, tmp_path) -> None:
-    from vortexcfd.foam.yplus import WARNING_HINT, first_layer_thickness, plan_layers
+    from vortexcfd.foam.yplus import (LAYER_CAP, MAX_EXPANSION_RATIO, WARNING_HINT, first_layer_thickness, layer_cap,
+                                      plan_layers)
+    from vortexcfd.gui.properties_panel import layer_plan_text
     from vortexcfd.gui.scene import domain_box_for
-    from vortexcfd.workflow.meshing import project_estimate
+    from vortexcfd.workflow.meshing import plan_layers_for, project_estimate
 
     project = _project_with_sphere(tmp_path)
     w = MainWindow(project, FakeDialogs(), with_viewer=False)
@@ -237,9 +239,9 @@ def test_layer_count_rows_and_the_y_plus_warning(qtbot: QtBot, tmp_path) -> None
         surface = project_estimate(project, box).surface_size
         project.update_mesh(layer_sizing="absolute_yplus", target_yplus=30.0)
         plan = plan_layers(first_layer_thickness(30.0, 20.0, 1.5e-5, box.parts_bounds[1] - box.parts_bounds[0]),
-                           project.sim.mesh.expansion_ratio, surface)
-        assert plan.warning is None
-        assert p.mesh_layer_count.text() == str(plan.count)
+                           project.sim.mesh.expansion_ratio, surface, **layer_cap("robust"))
+        assert plan.warning is None and plan.planned_count == 13 and plan.count == LAYER_CAP  # capped (D-106)
+        assert p.mesh_layer_count.text() == f"{plan.count} (cap; planned 13)"
         # absolute sizing: the Layers field shows the computed count, disabled, and says why (D-089)
         assert not layers_field.isEnabled() and layers_field.value() == plan.count != 3
         assert layers_field.toolTip() == LAYERS_ABSOLUTE_TIP and "target y+" in LAYERS_ABSOLUTE_TIP
@@ -247,10 +249,23 @@ def test_layer_count_rows_and_the_y_plus_warning(qtbot: QtBot, tmp_path) -> None
         assert p.mesh_layer_stack.text() == f"{plan.total:.4g} m / {plan.final:.4g} m"
         assert p.mesh_layer_count.property("warn") == "false"
         assert WARNING_HINT not in w.top_bar.mesh_button.toolTip() and w.top_bar.mesh_button.isEnabled()
+        assert p.mesh_layer_plan.text() == layer_plan_text(plan) and not p.mesh_layer_thickness_warning.isVisible()
         project.update_mesh(target_yplus=1.0)  # y+ 1 on this surface mesh: the stack cannot reach 0.5 h
-        assert p.mesh_layer_count.text() == "30 (limit 30)"
+        # the robust controls cap the 30 planned layers (D-106): 12 at ratio 1.3, a thinner stack, shown
+        capped = plan_layers_for(project, box)
+        assert capped.capped and capped.count == LAYER_CAP and capped.expansion == MAX_EXPANSION_RATIO
+        assert p.mesh_layer_count.text() == f"{LAYER_CAP} (cap; planned 30, limit 30)"
         assert p.mesh_layer_count.property("warn") == "true" and p.mesh_layer_stack.property("warn") == "true"
         assert WARNING_HINT in p.mesh_layer_count.toolTip()
+        assert p.mesh_layer_plan.text() == (f"{capped.planned_total:.4g} m / {capped.total:.4g} m "
+                                            f"({capped.thickness_percent:.0f} %), ratio 1.3 (set 1.2)")
+        assert p.mesh_layer_plan.property("warn") == "true" and p.mesh_layer_thickness_warning.isVisible()
+        assert p.mesh_layer_thickness_warning.text() == capped.thickness_warning
+        assert "thinner than planned" in w.top_bar.mesh_button.toolTip()
+        project.update_mesh(layer_controls="legacy")  # a project saved before v13: no cap
+        assert p.mesh_layer_count.text() == "30 (limit 30)" and not p.mesh_layer_thickness_warning.isVisible()
+        assert p.mesh_layer_plan.property("warn") == "false"
+        project.update_mesh(layer_controls="robust")
         tip = w.top_bar.mesh_button.toolTip()
         assert w.top_bar.mesh_button.isEnabled() and "Warning" in tip and WARNING_HINT in tip
         project.update_mesh(layer_sizing="relative")

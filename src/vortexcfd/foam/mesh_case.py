@@ -89,6 +89,9 @@ class MeshCaseInput:
     # Number of layers for layer_sizing "absolute_yplus" (foam/yplus.plan_layers); mesh.layers is
     # used for relative sizing only.
     layer_count: int | None = None
+    # The expansion ratio written for an absolute stack (first_layer_thickness / fixed_layers): the layer
+    # plan's, which the layer cap may raise above mesh.expansion_ratio (D-106). None: mesh.expansion_ratio.
+    layer_expansion: float | None = None
     # Per part, in the order of ``parts``: its bounding box (metres) and its (surface_level_min,
     # surface_level_max) overrides (None = the mesh's levels). Empty: no per-part data.
     part_bounds: tuple[Bounds, ...] = ()
@@ -479,6 +482,25 @@ def _layer_sizing(inp: MeshCaseInput) -> dict:
     return {"relativeSizes": False, "firstLayerThickness": h, "minThickness": m.min_thickness * h}
 
 
+# addLayersControls of the robust layer controls (Mesh.layer_controls "robust", absolute y+ sizing; D-106),
+# chosen in the 5.4 study (benchmarks/RESULT_5.4.md): replace the pre-5.4 values written below. [NUMERICS-REVIEW]
+ROBUST_LAYER_CONTROLS = {
+    "featureAngle": 130,
+    "nOuterIter": 3,
+}
+
+
+def _robust(inp: MeshCaseInput) -> bool:
+    m = inp.mesh
+    return m.layer_controls == "robust" and (m.layer_sizing == "absolute_yplus" or inp.fixed_layers is not None)
+
+
+def _expansion(inp: MeshCaseInput) -> float:
+    """The expansion ratio written: the layer plan's for an absolute stack (D-106), else the setting."""
+    absolute = inp.fixed_layers is not None or inp.mesh.layer_sizing == "absolute_yplus"
+    return inp.layer_expansion if absolute and inp.layer_expansion is not None else inp.mesh.expansion_ratio
+
+
 # Layer iterations with the main quality controls before snappyHexMesh switches to the `relaxed`
 # ones. 0 for absolute (y+) layers: the layer addition uses the relaxed controls from its first
 # iteration while snapping keeps the main ones (D-045). Relative sizing writes no nRelaxedIter and
@@ -627,7 +649,7 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
         "addLayersControls": {
             **_layer_sizing(inp),
             "layers": layers,
-            "expansionRatio": m.expansion_ratio,
+            "expansionRatio": _expansion(inp),
             "nGrow": 0,
             "featureAngle": 60,
             "slipFeatureAngle": 30,
@@ -641,6 +663,7 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
             "nBufferCellsNoExtrude": 0,
             "nLayerIter": 50,
             **({"nRelaxedIter": RELAXED_AFTER_LAYER_ITER} if m.layer_sizing == "absolute_yplus" else {}),
+            **(ROBUST_LAYER_CONTROLS if _robust(inp) else {}),
         },
         "meshQualityControls": _quality_controls(m),
         "mergeTolerance": 1e-6,

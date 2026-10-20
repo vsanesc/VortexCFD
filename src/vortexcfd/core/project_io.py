@@ -17,7 +17,10 @@ V5_RESIDUAL_TARGETS = (("residual_p", "p", 1e-4), ("residual_u", "U", 1e-5), ("r
 V10_MESH_FIELDS = {"surface_size_reference": "largest_extent", "curvature_levels": 0}
 # The v9 mesh behaviour that the v10 defaults changed (D-085, D-086): a v9 file that does not set these
 # keys keeps them (the app always saved the layer settings; hand-written or older files may not).
-V9_MESH_BEHAVIOUR = {**V10_MESH_FIELDS, "layer_sizing": "relative", "target_yplus": 1.0}
+# The Mesh field added in v13 (D-106) with the value that gives the v12 behaviour: the layer controls and
+# the uncapped layer count of every project saved before task 5.4.
+V13_MESH_FIELDS = {"layer_controls": "legacy"}
+V9_MESH_BEHAVIOUR = {**V10_MESH_FIELDS, "layer_sizing": "relative", "target_yplus": 1.0, **V13_MESH_FIELDS}
 
 
 class ProjectFileError(Exception):
@@ -41,7 +44,8 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
     mesh behaviour of the project where the v10 defaults changed it (V9_MESH_BEHAVIOUR: the surface
     size from the largest extent, no curvature refinement, relative layers with target y+ 1; D-085,
     D-086); v10 -> v11 adds the surface preparation operation (unset: not run, the parts mesh as
-    before; D-093); v11 -> v12 adds the user refinement volumes (none; D-103).
+    before; D-093); v11 -> v12 adds the user refinement volumes (none; D-103); v12 -> v13 keeps the
+    layer controls of the project (V13_MESH_FIELDS: "legacy", no layer cap; D-106).
     Data already at the current version (or not a dict /
     without a version) is returned unchanged.
     """
@@ -90,6 +94,13 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
         data["schema_version"] = 11  # Simulation.surface_prep defaults to None (not run, D-093)
     if data.get("schema_version") == 11:
         data["schema_version"] = 12  # Simulation.refinement_volumes defaults to [] (D-103)
+    if data.get("schema_version") == 12:
+        mesh = data.get("mesh")
+        mesh = dict(mesh) if isinstance(mesh, dict) else {}
+        for key, value in V13_MESH_FIELDS.items():
+            mesh.setdefault(key, value)  # the layer behaviour the project had (D-106)
+        data["mesh"] = mesh
+        data["schema_version"] = 13
     return data
 
 

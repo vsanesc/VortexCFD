@@ -305,7 +305,8 @@ def test_snappy_accepts_absolute_layers_and_first_layer_is_the_first_cell(tmp_pa
     sphere = pv.Sphere(radius=0.5, theta_resolution=24, phi_resolution=24)
     box = compute_domain([tuple(sphere.bounds)], Domain(upstream=2, downstream=3, lateral=2, vertical=2))
     mesh = Mesh(base_size=0.25, surface_level_min=1, surface_level_max=2, layers=3,
-                layer_sizing="absolute_yplus", target_yplus=1.0, expansion_ratio=1.2)
+                layer_sizing="absolute_yplus", target_yplus=1.0, expansion_ratio=1.2,
+                layer_controls="legacy")  # the pre-5.4 layer controls it was written for (D-106)
     h = 0.01
     inp = MeshCaseInput(box.bounds, False, tuple(safe_part_names(["Sphere"])), tuple(sphere.bounds),
                         box.reference_length, mesh, h)
@@ -385,7 +386,8 @@ def test_yplus_30_layer_count_gives_good_coverage_on_the_shared_sphere(sphere_me
     from vortexcfd.foam.mesh_run import MeshRun
 
     inputs, est = sphere_mesh.inputs, sphere_mesh.estimate
-    mesh = Mesh(layer_sizing="absolute_yplus", target_yplus=30.0)
+    mesh = Mesh(layer_sizing="absolute_yplus", target_yplus=30.0,
+                layer_controls="legacy")  # the pre-5.4 layer controls it was written for (D-106)
     first = first_layer_thickness(30.0, 20.0, 1.5e-5, inputs.reference_length)
     plan = plan_layers(first, mesh.expansion_ratio, est.surface_size)
     assert plan.warning is None and 5 <= plan.count <= 30

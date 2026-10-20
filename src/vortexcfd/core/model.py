@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 12
+CURRENT_SCHEMA_VERSION: int = 13
 
 
 class StrictModel(BaseModel):
@@ -195,6 +195,11 @@ class Mesh(StrictModel):
     # Default since schema v10: absolute sizing for y+ 50, the wall-function range (D-086).
     layer_sizing: Literal["relative", "absolute_yplus"] = "absolute_yplus"
     target_yplus: float = Field(default=50.0, gt=0)
+    # The prism-layer controls of absolute (y+) sizing (schema v13, D-106): "robust", the default, caps
+    # the layer count (the expansion ratio raised up to 1.3 to keep the planned stack thickness) and
+    # writes the 5.4 layer controls; "legacy" keeps the controls and the uncapped count of every
+    # project saved before v13. Relative sizing is the same in both.
+    layer_controls: Literal["legacy", "robust"] = "robust"
 
     @model_validator(mode="after")
     def _levels_ordered(self) -> "Mesh":

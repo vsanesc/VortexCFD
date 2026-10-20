@@ -177,6 +177,7 @@ def prepare_study(project: Project) -> tuple[Path, StudyRecord, MeshCaseInput]:
             part_bounds=tuple(bounds), part_levels=_part_overrides(project),
             part_patches=tuple(part_patch_names(project.sim.geometry.parts)),
             fixed_layers=fixed if fixed is not None else (1.0, 0),
+            layer_expansion=plan.layers.expansion if plan.layers is not None else None,
             surface_length=surface_length(project, box, union_bounds(bounds)).value,
             **domain_fields(box),
         )

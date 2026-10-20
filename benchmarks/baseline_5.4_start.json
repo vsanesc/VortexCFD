@@ -1,0 +1,930 @@
+{
+  "cases": [
+    {
+      "app_reference_length": 1.0,
+      "case": "sphere",
+      "cells": 276078,
+      "checks": {
+        "hard": 0,
+        "hard_lines": [],
+        "soft": 0,
+        "soft_lines": []
+      },
+      "description": "sphere, diameter 1 m, STL (control case)",
+      "deviations": [
+        "reports.reference_length = 1.0",
+        "solvers.iterations = 400 (fixed; stopping criteria removed; indicative y+ run)",
+        "solvers.write_interval = 400"
+      ],
+      "estimate": {
+        "background_cells": 100860,
+        "base_size": 0.2685127992366564,
+        "curvature_level": 7,
+        "level_max": 5,
+        "level_min": 4,
+        "surface_length": 1.0,
+        "surface_length_source": "l_ref",
+        "surface_size": 0.008391024976145512
+      },
+      "extruded_percent": 100.0,
+      "failed": false,
+      "failed_step": null,
+      "import_time_s": 0.0057688720007718075,
+      "layers": {
+        "fidelity": {
+          "max_m": 0.0001539774421905893,
+          "max_rel": 0.0001539774421905893,
+          "points": 13778,
+          "reference_m": 1.0,
+          "rms_m": 8.880950497180418e-05,
+          "rms_rel": 8.880950497180418e-05
+        },
+        "fields_found": true,
+        "log": {
+          "extruded_faces": 10636,
+          "feature_edges_zero_displacement": 0,
+          "isolated_points_stopped": 0,
+          "layer_check_errors": {},
+          "layer_iterations": 1,
+          "medial_axis_reduced_nodes": 0,
+          "removed_by_quality": 0,
+          "shrink_errors": {},
+          "shrink_scaling_steps": 0,
+          "total_faces": 10636
+        },
+        "low_coverage": [],
+        "patches": {
+          "sphere": {
+            "area": 3.1396904303412367,
+            "coverage_percent": 100.0,
+            "extruded_percent": 100.0,
+            "faces": 10636,
+            "layers_area_percent": {
+              "10": 100.0
+            },
+            "mean_layers": 10.0,
+            "mean_over_target_percent": 100.0,
+            "mean_thickness_m": 0.02337964251637459,
+            "near_full_percent": 100.0,
+            "target_layers": 10,
+            "thickness_percent": 100.0,
+            "zero_layers_percent": 0.0
+          }
+        },
+        "walls": {
+          "area": 3.1396904303412367,
+          "coverage_percent": 100.0,
+          "extruded_percent": 100.0,
+          "faces": 10636,
+          "layers_area_percent": {
+            "10": 100.0
+          },
+          "mean_layers": 10.0,
+          "mean_over_target_percent": 100.0,
+          "mean_thickness_m": 0.02337964251637459,
+          "near_full_percent": 100.0,
+          "target_layers": 10,
+          "thickness_percent": 100.0,
+          "zero_layers_percent": 0.0
+        },
+        "zones": {}
+      },
+      "layers_walk": {
+        "max_aspect": 0.6,
+        "max_growth": 3.0,
+        "method": "layer_walk",
+        "patches": {
+          "sphere": {
+            "area": 3.139612637370078,
+            "coverage_percent": 99.49795713965842,
+            "extruded_percent": 100.0,
+            "faces": 10636,
+            "layers_area_percent": {
+              "10": 96.46143484549121,
+              "11": 3.0365222941672,
+              "8": 0.09746438583068288,
+              "9": 0.4045784745108946
+            },
+            "mean_first_layer_m": 0.000900357141229514,
+            "mean_layers": 10.024370150479948,
+            "mean_over_target_percent": 100.24370150479947,
+            "mean_thickness_m": 0.023628529198885306,
+            "near_full_percent": 100.0,
+            "target_layers": 10,
+            "thickness_percent": 101.06454689826101,
+            "zero_layers_percent": 0.0
+          }
+        },
+        "planned_first_m": 0.0009006482626835573,
+        "planned_total_m": 0.02337964194572753,
+        "time_s": 7.899066514000879,
+        "walls": {
+          "area": 3.139612637370078,
+          "coverage_percent": 99.49795713965842,
+          "extruded_percent": 100.0,
+          "faces": 10636,
+          "layers_area_percent": {
+            "10": 96.46143484549121,
+            "11": 3.0365222941672,
+            "8": 0.09746438583068288,
+            "9": 0.4045784745108946
+          },
+          "mean_first_layer_m": 0.000900357141229514,
+          "mean_layers": 10.024370150479948,
+          "mean_over_target_percent": 100.24370150479947,
+          "mean_thickness_m": 0.023628529198885306,
+          "near_full_percent": 100.0,
+          "target_layers": 10,
+          "thickness_percent": 101.06454689826101,
+          "zero_layers_percent": 0.0
+        },
+        "zones": {}
+      },
+      "mesh_peak_mb": 492.75,
+      "mesh_success": true,
+      "mesher": "snappy",
+      "quality": {
+        "avg_non_ortho": 7.0636314,
+        "faces_non_ortho_gt65": 0,
+        "faces_non_ortho_gt70": 0,
+        "faces_non_ortho_gt70_checkmesh": 0,
+        "faces_skew_gt4": 0,
+        "failed_by_type": {},
+        "failed_checks": 0,
+        "internal_faces": 857313,
+        "max_aspect_ratio": 14.398802,
+        "max_non_ortho": 46.621122,
+        "max_skewness": 0.84925812,
+        "mesh_ok": true
+      },
+      "reference_length": 1.0,
+      "robustness": {
+        "domain_errors": [],
+        "lost_parts": [],
+        "mesh_ok": true,
+        "valid": true
+      },
+      "snappy_layer_table": [
+        {
+          "basis": "thickness",
+          "faces": 10636,
+          "mesh_layers": 10.0,
+          "patch": "sphere",
+          "target_layers": 10,
+          "thickness_m": 0.0234,
+          "thickness_percent": 100.0
+        }
+      ],
+      "time_s": {
+        "case_total": 70.08542271099941,
+        "castellation": 35.98,
+        "layers": 5.18,
+        "mesh_total": 58.90957929100114,
+        "snap": 13.49,
+        "snappy_total": 55.98,
+        "steps": {
+          "blockMesh": 1.1470280260000436,
+          "checkMesh": 2.1358262409994495,
+          "mesh_total": 58.90957929100114,
+          "snappyHexMesh": 55.06079934000081,
+          "surfaceFeatureExtract": 0.5655908010012354
+        }
+      }
+    },
+    {
+      "app_reference_length": 1.5000001192092896,
+      "case": "wing",
+      "cells": 337824,
+      "checks": {
+        "hard": 0,
+        "hard_lines": [],
+        "soft": 0,
+        "soft_lines": []
+      },
+      "description": "rectangular half wing NACA 0012, chord 1 m, span 1.5 m from the root on a y_min symmetry plane, trailing edge 0.25 % of the chord, flat tip, STEP",
+      "deviations": [
+        "domain.symmetry = 'y_min'",
+        "reports.reference_length = 1.0",
+        "solvers.iterations = 400 (fixed; stopping criteria removed; indicative y+ run)",
+        "solvers.write_interval = 400"
+      ],
+      "estimate": {
+        "background_cells": 99456,
+        "base_size": 0.317410253392034,
+        "curvature_level": 7,
+        "level_max": 5,
+        "level_min": 4,
+        "surface_length": 1.0,
+        "surface_length_source": "l_ref",
+        "surface_size": 0.009919070418501062
+      },
+      "extruded_percent": 99.709636,
+      "failed": false,
+      "failed_step": null,
+      "import_time_s": 1.0866541329996835,
+      "layers": {
+        "fidelity": {
+          "max_m": 0.0007768492656411696,
+          "max_rel": 0.0007768492656411696,
+          "points": 16890,
+          "reference_m": 1.0,
+          "rms_m": 0.00010677520469351963,
+          "rms_rel": 0.00010677520469351963
+        },
+        "fields_found": true,
+        "log": {
+          "extruded_faces": 16483,
+          "feature_edges_zero_displacement": 371,
+          "isolated_points_stopped": 39,
+          "layer_check_errors": {
+            "faces with face twist < 0.02": 2
+          },
+          "layer_iterations": 2,
+          "medial_axis_reduced_nodes": 0,
+          "removed_by_quality": 2,
+          "shrink_errors": {
+            "faces with face twist < 0.02": 12,
+            "non-orthogonality > 65 degrees": 124
+          },
+          "shrink_scaling_steps": 7,
+          "total_faces": 16531
+        },
+        "low_coverage": [
+          "half_wing",
+          "trailing_edge",
+          "tips"
+        ],
+        "patches": {
+          "half_wing": {
+            "area": 3.1395192009435546,
+            "coverage_percent": 78.4183758904568,
+            "extruded_percent": 99.89203389421846,
+            "faces": 16531,
+            "layers_area_percent": {
+              "0": 0.107966105781555,
+              "1": 1.9823050049713664,
+              "10": 1.9423611679207216,
+              "11": 78.4183758904568,
+              "2": 2.0732800508541254,
+              "3": 2.565242718687763,
+              "4": 2.1491335118142545,
+              "5": 2.3009055832393424,
+              "6": 2.2991150088826977,
+              "7": 2.1015785721818956,
+              "8": 2.0495330930419855,
+              "9": 2.0102032921674846
+            },
+            "mean_layers": 9.789452361328413,
+            "mean_over_target_percent": 88.99502146662194,
+            "mean_thickness_m": 0.028070618514756254,
+            "near_full_percent": 82.37094035054503,
+            "target_layers": 11,
+            "thickness_percent": 97.32327290006144,
+            "zero_layers_percent": 0.107966105781555
+          }
+        },
+        "walls": {
+          "area": 3.1395192009435546,
+          "coverage_percent": 78.4183758904568,
+          "extruded_percent": 99.89203389421846,
+          "faces": 16531,
+          "layers_area_percent": {
+            "0": 0.107966105781555,
+            "1": 1.9823050049713664,
+            "10": 1.9423611679207216,
+            "11": 78.4183758904568,
+            "2": 2.0732800508541254,
+            "3": 2.565242718687763,
+            "4": 2.1491335118142545,
+            "5": 2.3009055832393424,
+            "6": 2.2991150088826977,
+            "7": 2.1015785721818956,
+            "8": 2.0495330930419855,
+            "9": 2.0102032921674846
+          },
+          "mean_layers": 9.789452361328413,
+          "mean_over_target_percent": 88.99502146662194,
+          "mean_thickness_m": 0.028070618514756254,
+          "near_full_percent": 82.37094035054503,
+          "target_layers": 11,
+          "thickness_percent": 97.32327290006144,
+          "zero_layers_percent": 0.107966105781555
+        },
+        "zones": {
+          "root": {
+            "area": 0.09565036875462736,
+            "coverage_percent": 90.07704864021191,
+            "description": "faces within 0.05 m (5 % of the chord) of the root on the symmetry plane y = 0",
+            "extruded_percent": 100.0,
+            "faces": 939,
+            "layers_area_percent": {
+              "1": 0.6831982394822845,
+              "10": 0.9521827602826578,
+              "11": 90.07704864021191,
+              "2": 0.811059101413585,
+              "3": 1.4276302056726868,
+              "4": 0.9217460823854519,
+              "5": 0.9907280181573519,
+              "6": 1.031063929513768,
+              "7": 1.0379720428331236,
+              "8": 1.0379760924165906,
+              "9": 1.0293948876306014
+            },
+            "mean_layers": 10.466187447297363,
+            "mean_over_target_percent": 95.14715861179421,
+            "mean_thickness_m": 0.028567257170509945,
+            "near_full_percent": 92.05862628812518,
+            "target_layers": 11,
+            "thickness_percent": 98.78367466162065,
+            "zero_layers_percent": 0.0
+          },
+          "tips": {
+            "area": 0.18801208532710553,
+            "coverage_percent": 0.0,
+            "description": "faces within 0.05 m (5 % of the chord) of the tip plane y = 1.5 m",
+            "extruded_percent": 98.19712833054022,
+            "faces": 1744,
+            "layers_area_percent": {
+              "0": 1.802871669459788,
+              "1": 23.2281219883297,
+              "2": 22.351824254805873,
+              "3": 21.265092761213314,
+              "4": 19.563586054818213,
+              "5": 9.7619060755496,
+              "6": 2.026597195823513
+            },
+            "mean_layers": 2.7095050655354336,
+            "mean_over_target_percent": 24.631864232140302,
+            "mean_thickness_m": 0.01967197607519997,
+            "near_full_percent": 0.0,
+            "target_layers": 11,
+            "thickness_percent": 72.46689597978792,
+            "zero_layers_percent": 1.802871669459788
+          },
+          "trailing_edge": {
+            "area": 0.13887455364592166,
+            "coverage_percent": 0.0,
+            "description": "last 5 % of the chord (x/c >= 0.95), whole span",
+            "extruded_percent": 99.45218596292608,
+            "faces": 1502,
+            "layers_area_percent": {
+              "0": 0.5478140370739386,
+              "1": 14.641694768022504,
+              "2": 17.286936591308436,
+              "3": 29.240633032296333,
+              "4": 18.71693339855166,
+              "5": 19.565988172747115
+            },
+            "mean_layers": 3.096351415054706,
+            "mean_over_target_percent": 28.148649227770054,
+            "mean_thickness_m": 0.020956696532975484,
+            "near_full_percent": 0.0,
+            "target_layers": 11,
+            "thickness_percent": 75.0161455599326,
+            "zero_layers_percent": 0.5478140370739386
+          }
+        }
+      },
+      "layers_walk": {
+        "max_aspect": 0.6,
+        "max_growth": 3.0,
+        "method": "layer_walk",
+        "patches": {
+          "half_wing": {
+            "area": 3.1394587146942863,
+            "coverage_percent": 76.81020554841308,
+            "extruded_percent": 96.74893541112908,
+            "faces": 16531,
+            "layers_area_percent": {
+              "0": 3.2510645888708964,
+              "1": 2.1391214009287953,
+              "10": 2.5601618264797117,
+              "11": 76.76879487534876,
+              "12": 0.04141067306433091,
+              "2": 2.9262718260810074,
+              "3": 0.43585607924262026,
+              "4": 1.916034445604063,
+              "5": 1.7570534424075674,
+              "6": 2.1385405527201105,
+              "7": 2.076388795677687,
+              "8": 2.050296273034248,
+              "9": 1.9390052205401935
+            },
+            "mean_first_layer_m": 0.001288287460980794,
+            "mean_layers": 9.575233103108785,
+            "mean_over_target_percent": 87.0475736646253,
+            "mean_thickness_m": 0.026160910177605856,
+            "near_full_percent": 81.30937259543299,
+            "target_layers": 11,
+            "thickness_percent": 90.34643142186177,
+            "zero_layers_percent": 3.2510645888708964
+          }
+        },
+        "planned_first_m": 0.0009006482626835573,
+        "planned_total_m": 0.028956218597556593,
+        "time_s": 9.205892965997919,
+        "walls": {
+          "area": 3.1394587146942863,
+          "coverage_percent": 76.81020554841308,
+          "extruded_percent": 96.74893541112908,
+          "faces": 16531,
+          "layers_area_percent": {
+            "0": 3.2510645888708964,
+            "1": 2.1391214009287953,
+            "10": 2.5601618264797117,
+            "11": 76.76879487534876,
+            "12": 0.04141067306433091,
+            "2": 2.9262718260810074,
+            "3": 0.43585607924262026,
+            "4": 1.916034445604063,
+            "5": 1.7570534424075674,
+            "6": 2.1385405527201105,
+            "7": 2.076388795677687,
+            "8": 2.050296273034248,
+            "9": 1.9390052205401935
+          },
+          "mean_first_layer_m": 0.001288287460980794,
+          "mean_layers": 9.575233103108785,
+          "mean_over_target_percent": 87.0475736646253,
+          "mean_thickness_m": 0.026160910177605856,
+          "near_full_percent": 81.30937259543299,
+          "target_layers": 11,
+          "thickness_percent": 90.34643142186177,
+          "zero_layers_percent": 3.2510645888708964
+        },
+        "zones": {
+          "root": {
+            "area": 0.10985435170135914,
+            "coverage_percent": 87.43180934987906,
+            "description": "faces within 0.05 m (5 % of the chord) of the root on the symmetry plane y = 0",
+            "extruded_percent": 99.40513729891302,
+            "faces": 978,
+            "layers_area_percent": {
+              "0": 0.5948627010869921,
+              "1": 0.7061897824295933,
+              "10": 3.9282596066711584,
+              "11": 87.2708394885134,
+              "12": 0.1609698613656567,
+              "2": 2.045606054106385,
+              "4": 0.8626274314331417,
+              "5": 0.8977492090031278,
+              "6": 0.9037650869500093,
+              "7": 0.9037681789886888,
+              "8": 0.8962954958603836,
+              "9": 0.8290671035914646
+            },
+            "mean_first_layer_m": 0.0010664051529463891,
+            "mean_layers": 10.403110621119644,
+            "mean_over_target_percent": 94.5737329192695,
+            "mean_thickness_m": 0.027510756944522586,
+            "near_full_percent": 92.18913606014168,
+            "target_layers": 11,
+            "thickness_percent": 95.00811320316537,
+            "zero_layers_percent": 0.5948627010869921
+          },
+          "tips": {
+            "area": 0.18795703321843393,
+            "coverage_percent": 0.0,
+            "description": "faces within 0.05 m (5 % of the chord) of the tip plane y = 1.5 m",
+            "extruded_percent": 55.938592981293105,
+            "faces": 1744,
+            "layers_area_percent": {
+              "0": 44.06140701870689,
+              "1": 23.507538536013143,
+              "2": 13.875228109669456,
+              "3": 5.435171443293291,
+              "4": 13.120654892317221
+            },
+            "mean_first_layer_m": 0.004810393120769482,
+            "mean_layers": 1.2004612865450082,
+            "mean_over_target_percent": 10.913284423136439,
+            "mean_thickness_m": 0.0063698975842233505,
+            "near_full_percent": 0.0,
+            "target_layers": 11,
+            "thickness_percent": 21.998375108139495,
+            "zero_layers_percent": 44.06140701870689
+          },
+          "trailing_edge": {
+            "area": 0.13882831934258552,
+            "coverage_percent": 0.0,
+            "description": "last 5 % of the chord (x/c >= 0.95), whole span",
+            "extruded_percent": 84.34176754537849,
+            "faces": 1502,
+            "layers_area_percent": {
+              "0": 15.658232454621514,
+              "1": 17.353844472793654,
+              "2": 47.415401785973444,
+              "3": 0.13727405558349015,
+              "4": 19.4352472310279
+            },
+            "mean_first_layer_m": 0.004562289094932623,
+            "mean_layers": 1.9033745913560263,
+            "mean_over_target_percent": 17.303405375963873,
+            "mean_thickness_m": 0.009484221813562944,
+            "near_full_percent": 0.0,
+            "target_layers": 11,
+            "thickness_percent": 32.75366146863959,
+            "zero_layers_percent": 15.658232454621514
+          }
+        }
+      },
+      "mesh_peak_mb": 585.58984375,
+      "mesh_success": true,
+      "mesher": "snappy",
+      "quality": {
+        "avg_non_ortho": 8.1565968,
+        "faces_non_ortho_gt65": 0,
+        "faces_non_ortho_gt70": 0,
+        "faces_non_ortho_gt70_checkmesh": 0,
+        "faces_skew_gt4": 0,
+        "failed_by_type": {},
+        "failed_checks": 0,
+        "internal_faces": 1014417,
+        "max_aspect_ratio": 25.715371,
+        "max_non_ortho": 64.79341,
+        "max_skewness": 2.8567918,
+        "mesh_ok": true
+      },
+      "reference_length": 1.0,
+      "robustness": {
+        "domain_errors": [],
+        "lost_parts": [],
+        "mesh_ok": true,
+        "valid": true
+      },
+      "snappy_layer_table": [
+        {
+          "basis": "thickness",
+          "faces": 16531,
+          "mesh_layers": 8.98,
+          "patch": "half_wing",
+          "target_layers": 11,
+          "thickness_m": 0.0271,
+          "thickness_percent": 94.5
+        }
+      ],
+      "time_s": {
+        "case_total": 81.27879673899952,
+        "castellation": 30.02,
+        "layers": 9.35,
+        "mesh_total": 61.98394379200181,
+        "snap": 18.6,
+        "snappy_total": 59.39,
+        "steps": {
+          "blockMesh": 0.9745060089990147,
+          "checkMesh": 2.3429145090012753,
+          "mesh_total": 61.98394379200181,
+          "snappyHexMesh": 58.102764908999234,
+          "surfaceFeatureExtract": 0.5634368950013595
+        }
+      }
+    },
+    {
+      "app_reference_length": 1.0440000295639038,
+      "case": "ahmed",
+      "cells": 225842,
+      "checks": {
+        "hard": 0,
+        "hard_lines": [],
+        "soft": 0,
+        "soft_lines": []
+      },
+      "description": "Ahmed-type body 1.044 x 0.389 x 0.288 m, front radius 0.1 m, 25 degree slant, no stilts, STEP",
+      "deviations": [
+        "reports.reference_length = 1.044",
+        "solvers.iterations = 400 (fixed; stopping criteria removed; indicative y+ run)",
+        "solvers.write_interval = 400"
+      ],
+      "estimate": {
+        "background_cells": 99200,
+        "base_size": 0.2687257060439116,
+        "curvature_level": 7,
+        "level_max": 5,
+        "level_min": 4,
+        "surface_length": 1.044,
+        "surface_length_source": "l_ref",
+        "surface_size": 0.008397678313872238
+      },
+      "extruded_percent": 99.82699,
+      "failed": false,
+      "failed_step": null,
+      "import_time_s": 0.7000128239997139,
+      "layers": {
+        "fidelity": {
+          "max_m": 0.0003629081373014028,
+          "max_rel": 0.000347613158334677,
+          "points": 11966,
+          "reference_m": 1.044,
+          "rms_m": 6.3393768878072e-05,
+          "rms_rel": 6.072200084106514e-05
+        },
+        "fields_found": true,
+        "log": {
+          "extruded_faces": 11540,
+          "feature_edges_zero_displacement": 668,
+          "isolated_points_stopped": 8,
+          "layer_check_errors": {},
+          "layer_iterations": 1,
+          "medial_axis_reduced_nodes": 0,
+          "removed_by_quality": 0,
+          "shrink_errors": {
+            "faces on cells with determinant < 0.001": 5,
+            "faces with concavity > 80 degrees": 4,
+            "faces with face pyramid volume < 1e-13": 44,
+            "faces with face twist < 0.02": 9,
+            "faces with interpolation weights (0..1) < 0.05": 56,
+            "non-orthogonality > 65 degrees": 441
+          },
+          "shrink_scaling_steps": 4,
+          "total_faces": 11560
+        },
+        "low_coverage": [
+          "ahmed",
+          "slant_edges",
+          "rear_edges"
+        ],
+        "patches": {
+          "ahmed": {
+            "area": 1.526029611795997,
+            "coverage_percent": 30.998418287388155,
+            "extruded_percent": 99.92065669412274,
+            "faces": 11560,
+            "layers_area_percent": {
+              "0": 0.07934330587727921,
+              "1": 6.331616788028114,
+              "10": 30.998418287388155,
+              "2": 6.089652937387694,
+              "3": 6.3766391332874965,
+              "4": 6.150394934249429,
+              "5": 6.43376867982626,
+              "6": 9.12204298430278,
+              "7": 9.601803317210118,
+              "8": 9.418959770487998,
+              "9": 9.397359861954675
+            },
+            "mean_layers": 6.8626824412046,
+            "mean_over_target_percent": 68.626824412046,
+            "mean_thickness_m": 0.021522312003651862,
+            "near_full_percent": 49.814737919830826,
+            "target_layers": 10,
+            "thickness_percent": 93.16010905270325,
+            "zero_layers_percent": 0.07934330587727921
+          }
+        },
+        "walls": {
+          "area": 1.526029611795997,
+          "coverage_percent": 30.998418287388155,
+          "extruded_percent": 99.92065669412274,
+          "faces": 11560,
+          "layers_area_percent": {
+            "0": 0.07934330587727921,
+            "1": 6.331616788028114,
+            "10": 30.998418287388155,
+            "2": 6.089652937387694,
+            "3": 6.3766391332874965,
+            "4": 6.150394934249429,
+            "5": 6.43376867982626,
+            "6": 9.12204298430278,
+            "7": 9.601803317210118,
+            "8": 9.418959770487998,
+            "9": 9.397359861954675
+          },
+          "mean_layers": 6.8626824412046,
+          "mean_over_target_percent": 68.626824412046,
+          "mean_thickness_m": 0.021522312003651862,
+          "near_full_percent": 49.814737919830826,
+          "target_layers": 10,
+          "thickness_percent": 93.16010905270325,
+          "zero_layers_percent": 0.07934330587727921
+        },
+        "zones": {
+          "rear_edges": {
+            "area": 0.038804551911679155,
+            "coverage_percent": 0.0,
+            "description": "within 0.02 m of the four edges of the rear face",
+            "extruded_percent": 100.0,
+            "faces": 538,
+            "layers_area_percent": {
+              "1": 55.04425850985962,
+              "2": 44.955741490140376
+            },
+            "mean_layers": 1.4495574149014037,
+            "mean_over_target_percent": 14.495574149014036,
+            "mean_thickness_m": 0.009318350958843497,
+            "near_full_percent": 0.0,
+            "target_layers": 10,
+            "thickness_percent": 52.36103906166012,
+            "zero_layers_percent": 0.0
+          },
+          "slant_edges": {
+            "area": 0.04334974197261329,
+            "coverage_percent": 14.542083456718752,
+            "description": "within 0.02 m of the four edges of the 25 degree slant",
+            "extruded_percent": 99.99999999999999,
+            "faces": 496,
+            "layers_area_percent": {
+              "1": 37.770201200373215,
+              "10": 14.542083456718752,
+              "2": 32.828860396712635,
+              "3": 1.2654868108619997,
+              "4": 1.2676958796462094,
+              "5": 1.2468476914221187,
+              "6": 1.1069191544884975,
+              "7": 3.4122266440816835,
+              "8": 3.663301529228797,
+              "9": 2.8963772364660785
+            },
+            "mean_layers": 3.498511477667954,
+            "mean_over_target_percent": 34.98511477667954,
+            "mean_thickness_m": 0.013721116250802095,
+            "near_full_percent": 21.101762222413626,
+            "target_layers": 10,
+            "thickness_percent": 67.01781579940678,
+            "zero_layers_percent": 0.0
+          }
+        }
+      },
+      "layers_walk": {
+        "max_aspect": 0.6,
+        "max_growth": 3.0,
+        "method": "layer_walk",
+        "patches": {
+          "ahmed": {
+            "area": 1.5260060429262412,
+            "coverage_percent": 31.064882972732693,
+            "extruded_percent": 90.70924985601049,
+            "faces": 11560,
+            "layers_area_percent": {
+              "0": 9.29075014398952,
+              "1": 8.670767681435679,
+              "10": 30.975690898692967,
+              "11": 0.08919207403971934,
+              "2": 5.541591644951884,
+              "3": 1.429707857223644,
+              "4": 5.11570276202817,
+              "5": 4.408596325080908,
+              "6": 5.559728176720378,
+              "7": 10.61169112470195,
+              "8": 9.420946071777454,
+              "9": 8.885635239357725
+            },
+            "mean_first_layer_m": 0.0018748343324144978,
+            "mean_layers": 6.402653816795694,
+            "mean_over_target_percent": 64.02653816795694,
+            "mean_thickness_m": 0.018151638763336905,
+            "near_full_percent": 49.37146428386787,
+            "target_layers": 10,
+            "thickness_percent": 77.40022700115267,
+            "zero_layers_percent": 9.29075014398952
+          }
+        },
+        "planned_first_m": 0.0009034226309117878,
+        "planned_total_m": 0.023451660888625797,
+        "time_s": 5.233153476001462,
+        "walls": {
+          "area": 1.5260060429262412,
+          "coverage_percent": 31.064882972732693,
+          "extruded_percent": 90.70924985601049,
+          "faces": 11560,
+          "layers_area_percent": {
+            "0": 9.29075014398952,
+            "1": 8.670767681435679,
+            "10": 30.975690898692967,
+            "11": 0.08919207403971934,
+            "2": 5.541591644951884,
+            "3": 1.429707857223644,
+            "4": 5.11570276202817,
+            "5": 4.408596325080908,
+            "6": 5.559728176720378,
+            "7": 10.61169112470195,
+            "8": 9.420946071777454,
+            "9": 8.885635239357725
+          },
+          "mean_first_layer_m": 0.0018748343324144978,
+          "mean_layers": 6.402653816795694,
+          "mean_over_target_percent": 64.02653816795694,
+          "mean_thickness_m": 0.018151638763336905,
+          "near_full_percent": 49.37146428386787,
+          "target_layers": 10,
+          "thickness_percent": 77.40022700115267,
+          "zero_layers_percent": 9.29075014398952
+        },
+        "zones": {
+          "rear_edges": {
+            "area": 0.038804514319625324,
+            "coverage_percent": 0.0,
+            "description": "within 0.02 m of the four edges of the rear face",
+            "extruded_percent": 38.71323625152944,
+            "faces": 538,
+            "layers_area_percent": {
+              "0": 61.28676374847057,
+              "1": 38.71323625152944
+            },
+            "mean_first_layer_m": 0.004818297068184147,
+            "mean_layers": 0.3871323625152944,
+            "mean_over_target_percent": 3.8713236251529444,
+            "mean_thickness_m": 0.0018653187273066452,
+            "near_full_percent": 0.0,
+            "target_layers": 10,
+            "thickness_percent": 7.953887514258475,
+            "zero_layers_percent": 61.28676374847057
+          },
+          "slant_edges": {
+            "area": 0.04334494896729308,
+            "coverage_percent": 14.543694603715647,
+            "description": "within 0.02 m of the four edges of the 25 degree slant",
+            "extruded_percent": 45.00347795019191,
+            "faces": 496,
+            "layers_area_percent": {
+              "0": 54.99652204980809,
+              "1": 16.87593746218222,
+              "10": 14.543694603715647,
+              "2": 0.29068364843035593,
+              "3": 0.9771528978049812,
+              "4": 1.5786477935512742,
+              "5": 0.9021072273720995,
+              "6": 0.7557952791134522,
+              "7": 2.5190558624021135,
+              "8": 3.6637063664215272,
+              "9": 2.896696809198233
+            },
+            "mean_first_layer_m": 0.0025934707775063146,
+            "mean_layers": 2.5419892172633176,
+            "mean_over_target_percent": 25.419892172633176,
+            "mean_thickness_m": 0.006930234435391509,
+            "near_full_percent": 21.10409777933541,
+            "target_layers": 10,
+            "thickness_percent": 29.55114551717195,
+            "zero_layers_percent": 54.99652204980809
+          }
+        }
+      },
+      "mesh_peak_mb": 412.7421875,
+      "mesh_success": true,
+      "mesher": "snappy",
+      "quality": {
+        "avg_non_ortho": 10.892436,
+        "faces_non_ortho_gt65": 0,
+        "faces_non_ortho_gt70": 0,
+        "faces_non_ortho_gt70_checkmesh": 0,
+        "faces_skew_gt4": 0,
+        "failed_by_type": {},
+        "failed_checks": 0,
+        "internal_faces": 683632,
+        "max_aspect_ratio": 18.986564,
+        "max_non_ortho": 64.907255,
+        "max_skewness": 1.4291996,
+        "mesh_ok": true
+      },
+      "reference_length": 1.044,
+      "robustness": {
+        "domain_errors": [],
+        "lost_parts": [],
+        "mesh_ok": true,
+        "valid": true
+      },
+      "snappy_layer_table": [
+        {
+          "basis": "thickness",
+          "faces": 11560,
+          "mesh_layers": 5.35,
+          "patch": "ahmed",
+          "target_layers": 10,
+          "thickness_m": 0.0199,
+          "thickness_percent": 87.4
+        }
+      ],
+      "time_s": {
+        "case_total": 52.6916733049984,
+        "castellation": 19.37,
+        "layers": 5.71,
+        "mesh_total": 43.860641831000976,
+        "snap": 14.8,
+        "snappy_total": 40.93,
+        "steps": {
+          "blockMesh": 0.9898148419997597,
+          "checkMesh": 1.857464323999011,
+          "mesh_total": 43.860641831000976,
+          "snappyHexMesh": 40.50088972700178,
+          "surfaceFeatureExtract": 0.5120551260006323
+        }
+      }
+    }
+  ],
+  "meta": {
+    "cases": [
+      "sphere",
+      "wing",
+      "ahmed"
+    ],
+    "git_sha": "d52b99e-dirty",
+    "local": false,
+    "mesher": "snappy",
+    "note": "merged from concurrent single-case runs: 20261020T115926Z_d52b99e-dirty.json, 20261020T115926Z_d52b99e-dirty.json, 20261020T115926Z_d52b99e-dirty.json",
+    "physical_cores": 12,
+    "solve": false,
+    "stamp": "20261020T115926Z",
+    "utc": "2026-10-20 11:59:26",
+    "wall_s": 82.21094048500163
+  }
+}

@@ -29,7 +29,7 @@ from pathlib import Path
 
 from vortexcfd.core.model import Mesh
 from vortexcfd.foam import gci
-from vortexcfd.foam.yplus import plan_layers
+from vortexcfd.foam.yplus import layer_cap, plan_layers
 
 STUDY_DIR_NAME = "case_study"
 STUDY_JSON = "study.json"
@@ -70,8 +70,8 @@ def reference_layers(mesh: Mesh, surface_size: float, yplus_first: float | None)
     if mesh.layer_sizing == "absolute_yplus":
         if yplus_first is None:
             raise ValueError("absolute_yplus needs the y+ first layer")
-        plan = plan_layers(yplus_first, mesh.expansion_ratio, surface_size)
-        return LayerStack(yplus_first, plan.count, mesh.expansion_ratio)
+        plan = plan_layers(yplus_first, mesh.expansion_ratio, surface_size, **layer_cap(mesh.layer_controls))
+        return LayerStack(yplus_first, plan.count, plan.expansion)
     if mesh.layers <= 0:
         return None
     first = mesh.final_layer_thickness * surface_size / mesh.expansion_ratio ** (mesh.layers - 1)

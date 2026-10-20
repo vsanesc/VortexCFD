@@ -33,6 +33,7 @@ from vortexcfd.core.model import Simulation, StoppingCriteria
 from vortexcfd.core.presets import BUILTIN_PRESETS, apply_preset
 from vortexcfd.core.project import Project
 from vortexcfd.foam.cfmesh_case import cfmesh_commands
+from vortexcfd.foam.mesh_report import check_class
 from vortexcfd.foam.mesh_run import MeshRun
 from vortexcfd.foam.mesh_case import part_patch_names, safe_part_names
 from vortexcfd.foam.polymesh import PolyMesh
@@ -364,25 +365,28 @@ def run_mesh(project: Project, mesher: str = "snappy") -> tuple:
     return job, result, steps, notes
 
 
-def planned_stack(inputs) -> tuple[float | None, float | None]:
-    """(first layer, total stack thickness) in metres of the y+ stack both meshers are asked for; None
-    with relative sizing."""
+def planned_stack(inputs, plan=None) -> tuple[float | None, float | None]:
+    """(first layer, total stack thickness) in metres of the planned y+ stack: the layer plan's planned
+    total when ``plan`` (foam/yplus.LayerPlan) is given (with the layer cap it can be more than the stack
+    written, D-106), else the stack written; None with relative sizing."""
     if inputs.fixed_layers is not None:
         first, count = inputs.fixed_layers
     elif inputs.first_layer_thickness is not None and inputs.layer_count is not None:
         first, count = inputs.first_layer_thickness, inputs.layer_count
     else:
         return None, None
-    r = inputs.mesh.expansion_ratio
+    if plan is not None and plan.planned_total > 0:
+        return first, plan.planned_total
+    r = inputs.layer_expansion or inputs.mesh.expansion_ratio
     return first, (first * (r ** count - 1) / (r - 1) if r != 1 else first * count)
 
 
-def walk_measurements(case: BenchCase, case_dir: Path, inputs, target_layers: int) -> dict:
+def walk_measurements(case: BenchCase, case_dir: Path, inputs, target_layers: int, plan=None) -> dict:
     """Layers counted from the mesh (bench/layer_walk), overall, per patch and per zone, in
     metrics.layer_stats form: the thickness is the stack's, its percentage is of the planned stack
     (planned_stack); plus the mean first-layer height of the faces with a layer against the planned
     first layer."""
-    first_planned, total_planned = planned_stack(inputs)
+    first_planned, total_planned = planned_stack(inputs, plan)
     t0 = time.monotonic()
     walked = layer_walk.walk_layers(PolyMesh.read(case_dir), inputs.patches, target_layers + 5)
 
@@ -394,7 +398,8 @@ def walk_measurements(case: BenchCase, case_dir: Path, inputs, target_layers: in
         return row
 
     out: dict = {"method": "layer_walk", "max_aspect": layer_walk.MAX_ASPECT, "max_growth": layer_walk.MAX_GROWTH,
-                 "planned_first_m": first_planned, "planned_total_m": total_planned, "patches": {}, "zones": {}}
+                 "planned_first_m": first_planned, "planned_total_m": total_planned, "patches": {}, "zones": {},
+                 "written_total_m": planned_stack(inputs)[1]}
     if not walked:
         return out
     for name, d in walked.items():
@@ -535,6 +540,9 @@ def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool =
     target_layers = job.inputs.layer_count if job.inputs.layer_count is not None else project.sim.mesh.layers
     out["cells"] = report.cells
     out["quality"] = {**quality, **face_quality(job.case_dir)}
+    soft = [line for line in report.failed_check_lines if check_class(line) == "soft"]
+    out["checks"] = {"hard": len(report.hard_failures), "soft": len(soft),  # D-100 classes
+                     "hard_lines": list(report.hard_failures), "soft_lines": soft}
     out["robustness"] = {"valid": report.valid, "mesh_ok": report.mesh_ok, "lost_parts": list(report.lost_parts),
                          "domain_errors": list(report.domain_errors)}
     out["snappy_layer_table"] = [asdict(c) for c in report.layers]
@@ -549,7 +557,16 @@ def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool =
         out["patch_faces"] = {p: counts.get(p, 0) for p in job.inputs.patches}
         out["force_partition"] = force_partition_check(project, job.case_dir, job.inputs.patches)
     _log(f"{case.name}: layers counted from the mesh")
-    out["layers_walk"] = walk_measurements(case, job.case_dir, job.inputs, target_layers)
+    plan = meshing.plan_layers_for(project, job.box) if project.sim.mesh.layer_sizing == "absolute_yplus" else None
+    if plan is not None:  # the layer plan: planned against written (the layer cap, D-106)
+        out["layer_plan"] = {"count": plan.count, "planned_count": plan.planned_count, "expansion": plan.expansion,
+                             "planned_expansion": plan.planned_expansion, "first_m": plan.first,
+                             "total_m": plan.total, "planned_total_m": plan.planned_total,
+                             "thickness_percent": plan.thickness_percent, "capped": plan.capped}
+    try:
+        out["layers_walk"] = walk_measurements(case, job.case_dir, job.inputs, target_layers, plan)
+    except (IndexError, ValueError) as exc:  # a measurement failure is not a meshing failure (seen once in 5.4)
+        out["layers_walk"] = {"method": "layer_walk", "error": f"{type(exc).__name__}: {exc}", "zones": {}}
     if snappy_log.is_file():  # what the layer phase did (D-091); the snap and layer run's log
         out["layers"]["log"] = metrics.layer_log_diagnostics(snappy_log.read_text(errors="replace"))
     out["failed"] = not report.valid

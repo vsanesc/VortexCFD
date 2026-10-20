@@ -1,40 +1,34 @@
 # Status
 
-Updated 2026-10-20 (task/5.x-refinement-volumes: user refinement volumes, GPU selection under WSL).
+Updated 2026-10-20 (task/5.4-layers: prism-layer robustness).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
 
-**task/5.x-refinement-volumes** (not yet published; it starts from task/5.3-cfmesh, which is not
-published either). No OpenFOAM command was run in this task (another heavy process was running).
-Done on it:
-- Part A (D-103, [NUMERICS-REVIEW], schema v12): user refinement volumes (box with pitch and yaw,
-  cylinder, sphere, cone) with a target cell size mapped to a refinement level (rounded towards the finer
-  level; achieved size and level shown; warning when finer than the finest part surface level);
-  snappyHexMeshDict geometry entries as v2606 searchable shapes (searchableBox / searchableRotatedBox,
-  searchableCylinder, searchableSphere, searchableCone) and inside-mode refinementRegions; extra cells in
-  the estimate and the cell budget; volumes wholly outside the domain are not written (error), partly
-  outside ones warn; Edit > Add Wake Volume (a box aligned with the free stream behind the parts); the
-  "Refinement volumes" tree node under Mesh, numeric editing with units, a live translucent outline in the
-  viewer; one undo step per edit, every edit puts the mesh out of date; not in presets. The real-mesh test
-  (`slow`) was written but not run.
-- Owner review of D-103 (accepted with changes, same branch): box pitch (about y) and yaw (about z)
-  through searchableRotatedBox (schema v12 changed in place, unpublished); the wake default is a box
-  aligned with the free stream (pitch = angle of attack; 2 L long, 1.1 x the y extent wide, 2 x the z
-  extent high); a volume wholly outside the domain is "Ignored: outside the domain" (warning, not
-  blocking); the estimate grows each volume by nCellsBetweenLevels cells per level step; only enabled
-  volumes enter the mesh hash. QUESTIONS 132-136 closed; 137 stays open until the owner checks the
-  renderer line.
-- Part B (D-104): under WSL with a display, GALLIUM_DRIVER=d3d12 and MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
-  are set before Qt or VTK load unless the user set them; the OpenGL renderer string is written to the
-  console once the viewer exists (D-104 Proposed).
+**task/5.4-layers** (not yet published). Done on it (benchmarks/RESULT_5.4.md):
+- Part 0: QUESTIONS 137 closed, D-104 Accepted (renderer "D3D12 (NVIDIA GeForce RTX 3080 Ti)").
+- Part A (D-105): the benchmark's layer headline is counted from the mesh, snappyHexMesh's figure beside it,
+  hard / soft checkMesh failures per case; starting point benchmarks/baseline_5.4_start.json.
+- Part B: diagnosis. The `relaxed` set disables the tet-quality check for the whole layer phase (minTetQuality
+  -1e30 from iteration 0, D-045); the aircraft's hard failures come from a failed shrink two cells off the wing
+  (the tet check off lets the layer iterations reach it); on the public cases feature-angle termination is the
+  dominant collapse mechanism.
+- Part C: one-factor study of 30 variants and 5 combined candidates on the half wing, the Ahmed body, the
+  aircraft and the sphere (50.5 min of the 75.8 min of runs in the session).
+- Part D (D-106, [NUMERICS-REVIEW], schema v13): for y+ layers, a layer cap of 12 with the expansion ratio raised
+  up to 1.3 to keep the planned stack (planned / achievable thickness and a warning in the Mesh properties),
+  layer featureAngle 130 and nOuterIter 3; projects and presets saved before keep "legacy" controls (fixture
+  tests/data/project_v12.json); the slow tests written for the old controls pinned to them (not run).
+- Part E: half wing 76.8 -> 95.9 %, Ahmed body 31.1 -> 97.4 % strict coverage, every case without hard
+  failures, the aircraft valid (3 -> 0 hard failures) but at 0.0 % strict coverage and an indicative y+ mean of
+  619. benchmarks/baseline_candidate.json for the owner (baseline.json unchanged).
 
-Earlier on task/5.3-cfmesh (D-102, benchmarks/RESULT_5.3.md): the cfMesh evaluation; recommendation keep
-snappyHexMesh and move to 5.4 (QUESTIONS 130, owner decision pending).
+Left for later: the aircraft's coverage and y+ (QUESTIONS 141), the y+ band convention (142), feature edges
+with normals (124), the junction layers (122), nOuterIter's cost on large stacks (140).
 
-Next candidates: 5.4 prism layers (items 87, 106, 111, 122, 124); drag handles for the refinement volumes
-(item 132). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75, 82, 87, 89 to 94, 96, 97, 106,
-111, 122, 124, 125 to 131 and 137.
+Next candidates: owner review of D-105 / D-106; drag handles for the refinement volumes (item 132). Open:
+docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131
+and 138 to 146.
 
 ## Phases
 
@@ -63,7 +57,7 @@ Next candidates: 5.4 prism layers (items 87, 106, 111, 122, 124); drag handles f
 | 5.1 | M1: GUI over snappyHexMesh | done (published in PR #11 and #12); y+ layer sizing done (D-024, D-026, D-045); sizing defaults revised after the baseline (D-084 to D-086, task 5.1-sizing); user refinement volumes and the wake helper (D-103, task 5.x-refinement-volumes; no viewer drag handles) |
 | 5.2 | M2: surface preparation | first step done (D-093, D-094): Surface Preparation operation (diagnostics, intersection features, CAD union), local benchmark cases with fidelity against a reference; no shell wrapper; dirty-STL set not in the benchmark |
 | 5.3 | M3: alternative volume mesher | cfMesh evaluated (D-102, benchmarks/RESULT_5.3.md): recommendation keep snappyHexMesh, owner decision pending (QUESTIONS 130); benchmark-only `--mesher cfmesh`; Gmsh not evaluated |
-| 5.4 | M4: prism layer robustness | not started |
+| 5.4 | M4: prism layer robustness | first step done (D-105, D-106, benchmarks/RESULT_5.4.md): robust y+ layer defaults (cap 12, ratio up to 1.3, featureAngle 130, nOuterIter 3); half wing and Ahmed body above 85 % strict coverage, aircraft valid but not covered |
 | 5.5 | M5: own mesher (go/no-go) | not started |
 | 6.1 | Monitors and reports | done: report slots with Cd, Cl, Cm pitch and wall y+ (D-048); reference values (D-047); stopping criteria (runTimeControl for residuals, app-side range-based asymptotic criterion), convergence banner and oscillation warning (D-058, D-059); force breakdown, body-axis x_cp, mass balance, cellPoint probes (D-060) |
 | 6.2 | Scenes and derived parts | Cp along wall sections with CSV export (D-062); Cf / Cf_x and separation highlight (D-061); scalar scenes done (D-053): field/colormap/range selection, scalar bar, section; scene saving, image export, iso-surfaces and streamlines not started |
