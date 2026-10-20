@@ -93,6 +93,47 @@ def winding_numbers(points: np.ndarray, mesh: pv.PolyData) -> np.ndarray:
     return out
 
 
+def _within_bounds(points: np.ndarray, bounds) -> np.ndarray:
+    """The points inside the axis-aligned box ``bounds`` (xmin, xmax, ymin, ymax, zmin, zmax), its
+    faces included."""
+    b = bounds
+    return ((points[:, 0] >= b[0]) & (points[:, 0] <= b[1]) & (points[:, 1] >= b[2]) & (points[:, 1] <= b[3])
+            & (points[:, 2] >= b[4]) & (points[:, 2] <= b[5]))
+
+
+def _within_hull_container(points: np.ndarray, mesh: pv.PolyData) -> np.ndarray:
+    """The points inside the surface's bounding box AND inside the ball about the box's centre that
+    holds every vertex: both are convex sets containing the surface, so a point outside either is
+    outside the surface's convex hull."""
+    inside = _within_bounds(points, mesh.bounds)
+    if inside.any():
+        b = mesh.bounds
+        centre = np.array([(b[0] + b[1]) / 2, (b[2] + b[3]) / 2, (b[4] + b[5]) / 2])
+        radius = float(np.linalg.norm(np.asarray(mesh.points, dtype=float) - centre, axis=1).max())
+        inside[inside] = np.linalg.norm(points[inside] - centre, axis=1) <= radius
+    return inside
+
+
+def hidden_segments(middle: np.ndarray, pairs: np.ndarray, meshes: list[pv.PolyData],
+                    use_bounds: bool = True) -> np.ndarray:
+    """Mask of the segments (middle points ``middle``, component pairs ``pairs``) whose middle lies
+    inside a component other than the two it comes from (winding number above INSIDE_WINDING).
+
+    ``use_bounds`` skips the winding sum for the points outside a component's bounding box or
+    bounding ball: such a point is outside the surface's convex hull, so the surface lies in a half
+    space seen from it and subtends at most 2 pi, i.e. |winding| <= 0.5 for a surface that bounds a
+    region (closed up to small holes), never above INSIDE_WINDING. The mask is the same as the full
+    sum's; only the work changes (the sum is O(points x triangles))."""
+    hidden = np.zeros(len(middle), dtype=bool)
+    for k, mesh in enumerate(meshes):
+        others = (pairs[:, 0] != k) & (pairs[:, 1] != k) & ~hidden
+        if use_bounds:
+            others &= _within_hull_container(middle, mesh)
+        if others.any():
+            hidden[others] |= np.abs(winding_numbers(middle[others], mesh)) > INSIDE_WINDING
+    return hidden
+
+
 def intersection_curves(meshes: list[pv.PolyData], subset: list[int] | None = None,
                         drop_hidden: bool = True) -> Curves:
     """The curves where the surfaces (one per component) cross each other. With ``subset``, only the
@@ -102,12 +143,7 @@ def intersection_curves(meshes: list[pv.PolyData], subset: list[int] | None = No
     pts, tris, comp = combined(meshes)
     segments, pairs = intersection_segments(pts, tris, comp)
     if drop_hidden and len(segments) and len(meshes) > 2:
-        middle = segments.mean(axis=1)
-        hidden = np.zeros(len(segments), dtype=bool)
-        for k, mesh in enumerate(meshes):
-            others = (pairs[:, 0] != k) & (pairs[:, 1] != k) & ~hidden
-            if others.any():
-                hidden[others] |= np.abs(winding_numbers(middle[others], mesh)) > INSIDE_WINDING
+        hidden = hidden_segments(segments.mean(axis=1), pairs, meshes)
         segments, pairs = segments[~hidden], pairs[~hidden]
     if len(pairs):  # drop the noise of pairs that only touch
         diag = float(np.linalg.norm(np.ptp(pts, axis=0)))

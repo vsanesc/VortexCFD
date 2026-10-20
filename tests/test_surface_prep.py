@@ -379,3 +379,33 @@ def test_the_import_checks_report_overlapping_parts(qtbot, tmp_path: Path) -> No
         assert "Parts cross each other: Body / Wing" in window.console.text()
     finally:
         window.close()
+
+
+def test_hidden_segments_skip_the_points_outside_a_component_box_without_changing_the_mask() -> None:
+    """The winding sum is O(points x triangles); a point outside a component's bounding box cannot be
+    inside it (|winding| <= 0.5 from outside the convex hull), so it is not summed. Same mask as the
+    full sum on the four-box case and on three crossing spheres, and the sum itself behaves as stated."""
+    hull = pv.Box(bounds=(0, 4, -1, 1, -1, 1)).triangulate().clean()
+    a = pv.Box(bounds=(1, 2, -0.5, 0.5, -0.2, 0.2)).triangulate().clean()
+    b = pv.Box(bounds=(1.5, 2.5, -0.1, 0.1, -0.5, 0.5)).triangulate().clean()
+    c = pv.Box(bounds=(3.5, 5, -0.3, 0.3, -0.3, 0.3)).triangulate().clean()
+    sphere = pv.Sphere(radius=0.5, theta_resolution=60, phi_resolution=60).triangulate().clean()
+    spheres = [sphere, sphere.translate((0.6, 0.0, 0.0), inplace=False), sphere.translate((0.0, 0.7, 0.0), inplace=False)]
+    for meshes in ([hull, a, b, c], spheres):
+        pts, tris, comp = geo.combined(meshes)
+        segments, pairs = geo.intersection_segments(pts, tris, comp)
+        middle = segments.mean(axis=1)
+        fast = geo.hidden_segments(middle, pairs, meshes)
+        full = geo.hidden_segments(middle, pairs, meshes, use_bounds=False)
+        assert np.array_equal(fast, full) and fast.any() and not fast.all()
+    # outside the box or the ball of a closed surface the winding number stays at or below 0.5; inside it is 1
+    rng = np.random.default_rng(1)
+    outside = rng.uniform(-3, 3, (200, 3))
+    outside = outside[~geo._within_hull_container(outside, a)]
+    assert len(outside) > 100 and (np.abs(geo.winding_numbers(outside, a)) <= 0.5).all()
+    on_sphere = rng.normal(size=(50, 3))
+    on_sphere = 0.5 * on_sphere / np.linalg.norm(on_sphere, axis=1)[:, None]  # on the sphere's hull
+    assert geo._within_hull_container(on_sphere * 1.001, sphere).sum() == 0
+    assert geo._within_hull_container(on_sphere * 0.999, sphere).all()
+    assert (np.abs(geo.winding_numbers(np.array([[1.5, 0.0, 0.0]]), a)) > geo.INSIDE_WINDING).all()
+    assert geo._within_bounds(np.array([[1.0, -0.5, 0.2], [0.999, 0.0, 0.0]]), a.bounds).tolist() == [True, False]
