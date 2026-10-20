@@ -1,6 +1,6 @@
 # Status
 
-Updated 2026-10-20 (task/5.4b-yplus: y+ convention, tet check and outer passes).
+Updated 2026-10-20 (task/5.4b-yplus: y+ convention, tet check and outer passes; owner review applied).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
@@ -19,14 +19,17 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
 - Part E: the aircraft at 0.05 x l_ref: valid, 688,556 cells, strict coverage 20.2 % (zones 0 %), first cell
   4.2 x the plan, indicative y+ mean 232 for 50.
 - Part F: public y+ means 49.6 / 52.2 / 51.2 for 50 (were about 26), strict coverage 99.6 / 94.4 / 96.5 %;
-  benchmarks/baseline_candidate_5.4b.json. Machine time 40.9 min of wall-clock with runs going.
+  the run became benchmarks/baseline.json after the owner's review (D-110; the 5.1b baseline is now
+  baseline_1.json). Machine time 40.9 min of wall-clock with runs going.
+- Owner review: D-105 to D-110 accepted. **Phase 5.4 closed:** the public cases meet D1 (no hard failures,
+  half wing 94.4 % and Ahmed body 96.5 % strict coverage, the hard zones above 0 %); the aircraft is valid with
+  partial layers, and the achieved first cell and the y+ drift warning tell the user when the stacks collapse.
+- Flat plate (QUESTIONS 150): TMR Case B with the cell-centre convention at the same target y+ 2 is outside the
+  PASS WITH NOTE band (medium grid -5.81 %, y+ 0.93); not validated, the cell-height record is unchanged.
 
-Left for later: the aircraft's zones (QUESTIONS 147), the tet check's cost at edges (148), the flat-plate
-validation's convention (150), the slow tests (153).
-
-Next candidates: owner review of D-106 (update), D-107 to D-109; drag handles for the refinement volumes (item
-132). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128,
-130, 131 and 147 to 153.
+Next: the aircraft's zones (QUESTIONS 147) as the next aircraft task; drag handles for the refinement volumes
+(item 132). The owner runs scripts/ship.sh (the slow tests, item 153). Open: docs/QUESTIONS.md items 30, 67, 69,
+70, 71, 72, 73, 75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147 and 150.
 
 ## Phases
 
@@ -55,7 +58,7 @@ Next candidates: owner review of D-106 (update), D-107 to D-109; drag handles fo
 | 5.1 | M1: GUI over snappyHexMesh | done (published in PR #11 and #12); y+ layer sizing done (D-024, D-026, D-045); sizing defaults revised after the baseline (D-084 to D-086, task 5.1-sizing); user refinement volumes and the wake helper (D-103, task 5.x-refinement-volumes; no viewer drag handles) |
 | 5.2 | M2: surface preparation | first step done (D-093, D-094): Surface Preparation operation (diagnostics, intersection features, CAD union), local benchmark cases with fidelity against a reference; no shell wrapper; dirty-STL set not in the benchmark |
 | 5.3 | M3: alternative volume mesher | cfMesh evaluated (D-102, benchmarks/RESULT_5.3.md): recommendation keep snappyHexMesh, owner decision pending (QUESTIONS 130); benchmark-only `--mesher cfmesh`; Gmsh not evaluated |
-| 5.4 | M4: prism layer robustness | first steps done (D-105 to D-109, benchmarks/RESULT_5.4.md, RESULT_5.4b.md): robust y+ layer defaults (cap 12, ratio up to 1.3, featureAngle 130, nOuterIter 2, tet check on), y+ target at the first cell centre, achieved first cell reported; half wing and Ahmed body above 85 % strict coverage, aircraft valid but its zones not covered |
+| 5.4 | M4: prism layer robustness | closed (owner review of 5.4b; D-105 to D-110, benchmarks/RESULT_5.4.md, RESULT_5.4b.md): robust y+ layer defaults (cap 12, ratio up to 1.3, featureAngle 130, nOuterIter 2, tet check on), y+ target at the first cell centre, achieved first cell reported; half wing and Ahmed body above 85 % strict coverage, aircraft valid but its zones not covered |
 | 5.5 | M5: own mesher (go/no-go) | not started |
 | 6.1 | Monitors and reports | done: report slots with Cd, Cl, Cm pitch and wall y+ (D-048); reference values (D-047); stopping criteria (runTimeControl for residuals, app-side range-based asymptotic criterion), convergence banner and oscillation warning (D-058, D-059); force breakdown, body-axis x_cp, mass balance, cellPoint probes (D-060) |
 | 6.2 | Scenes and derived parts | Cp along wall sections with CSV export (D-062); Cf / Cf_x and separation highlight (D-061); scalar scenes done (D-053): field/colormap/range selection, scalar bar, section; scene saving, image export, iso-surfaces and streamlines not started |
