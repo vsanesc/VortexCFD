@@ -109,3 +109,30 @@ and 20.2 % has all 12. Reaching the target in the zones needs more than resoluti
 
 Machine time: Part E 1,574 s wall-clock (16:21-16:47), with Part F's 619 s inside it (Part F's y+ runs used at
 most 6 cores while Part E meshed on one; Part E's y+ run started after Part F ended).
+
+## Part F: verification
+
+The public benchmark with its indicative y+ runs at git `37b1281` (Parts A to D; run from a frozen copy of
+the commit): `nice -n 15 .venv/bin/python -m vortexcfd.bench --compare benchmarks/baseline_candidate.json`,
+wall-clock 585 s (619 s with start-up). Result: benchmarks/baseline_candidate_5.4b.json (a copy of
+benchmarks/results/20261020T142214Z_37b1281.json). The meshes are the Part B outer2tet meshes cell for cell.
+
+| Case | Hard / soft | Cells (5.4 candidate) | Target layers | Strict cov. % (5.4) | Worst zone strict % | Mean / target % | Thickness % of plan | Max non-ortho | Fidelity RMS mm | y+ mean (5.4) | y+ in band % (5.4) | y+ cores | Mesh s / total s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| sphere | 0 / 0 | 233,534 (276,078) | 6 | 99.6 (99.5) | - | 100.4 | 101.2 | 46.5 | 0.089 | 49.6 (26.8) | 73.4 (60.9) | 4 | 48 / 189 |
+| half wing | 0 / 0 | 300,025 (364,942) | 7 | 94.4 (95.9) | trailing edge 38.4 | 97.3 | 96.3 | 64.9 | 0.107 | 52.2 (27.1) | 99.0 (64.6) | 6 | 58 / 214 |
+| Ahmed body | 0 / 0 | 231,606 (279,054) | 6 | 96.5 (97.4) | slant edges 56.0 | 98.7 | 99.8 | 64.3 | 0.063 | 51.2 (25.9) | 95.6 (46.2) | 4 | 42 / 179 |
+
+Target y+ 50; band [25, 100]; y+ values are indicative (400 iterations). The y+ means are now within 5 % of the
+target (they were about half of it); the first layer is 1.80 mm (0.90 mm before) and the stacks have 6-7 layers
+(10-11 before) for about the same total thickness, so the meshes have 15-18 % fewer cells.
+
+`--compare` against benchmarks/baseline_candidate.json (the 5.4 candidate): FLAG target layers 10 / 11 / 10 -> 6
+/ 7 / 6 (a different stack); REGRESSION wing tips -25.2 points, Ahmed slant edges -43.7, Ahmed rear edges -13.4
+(the tet check's cost, Part B finding 2); no hard failures, max non-orthogonality and fidelity unchanged, total
+time down 9-11 %.
+
+## Machine time
+
+Part B 881 s; Part E 1,574 s with Part F (619 s) inside it: 2,455 s (40.9 min) of wall-clock with runs going,
+3,074 s (51.2 min) summed over the three batches (benchmarks/results/5.4b/machine_time.log).
