@@ -68,17 +68,21 @@ benchmarks/RESULT_5.3.md has the comparison.
 
 ## Files
 
-- `baseline.json`, `BASELINE.md`: the committed baseline of the current mesher (the 5.1b run).
-- `baseline_0.json`: the previous baseline, the pre-5.1 mesher (full-span wing: not comparable for the wing).
+- `baseline.json`, `BASELINE.md`: the committed baseline of the current mesher (the 5.4b run, RESULT_5.4b.md).
+- `baseline_1.json`: the pre-5.4 baseline (the 5.1b run, RESULT_5.1b.md).
+- `baseline_0.json`: the pre-5.1 baseline (full-span wing: not comparable for the wing).
+- `baseline_5.4_start.json`: the public cases at the start of task 5.4 (RESULT_5.4.md, Part A).
 - `geometries/generate.py`: regenerates the geometries (generators in `src/vortexcfd/bench/geometries.py`).
 - Case definitions: `src/vortexcfd/bench/cases.py`; metrics: `src/vortexcfd/bench/metrics.py`.
 - `RESULT_5.1.md`, `result_5.1.json`: the benchmark after the 5.1 sizing changes (l_ref surface size,
   curvature refinement, absolute y+ 50 layers, seed lines out of snapping) against `baseline_0.json`.
 - `RESULT_5.1b.md`: the run after the 5.1 review (half wing, y+ cores, layer diagnostics) that became
-  `baseline.json`.
+  `baseline.json`, now `baseline_1.json`.
 - `local_cases.example.json`: the format of the git-ignored local cases (D-094).
 - `RESULT_5.2_before.md`, `RESULT_5.2.md`: the owner's aircraft (local, numbers only) before surface
-  preparation and with each strategy (D-093), and the public re-run against `baseline.json`.
+  preparation and with each strategy (D-093), and the public re-run against `baseline.json` (now `baseline_1.json`).
+- `RESULT_5.3.md`, `RESULT_5.4.md`, `RESULT_5.4b.md`: the cfMesh evaluation, the prism-layer study and the y+
+  convention / layer-control study whose final run is `baseline.json`.
 
 ## Metrics (D-082)
 

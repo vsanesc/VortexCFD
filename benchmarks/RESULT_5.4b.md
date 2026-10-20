@@ -116,6 +116,8 @@ The public benchmark with its indicative y+ runs at git `37b1281` (Parts A to D;
 the commit): `nice -n 15 .venv/bin/python -m vortexcfd.bench --compare benchmarks/baseline_candidate.json`,
 wall-clock 585 s (619 s with start-up). Result: benchmarks/baseline_candidate_5.4b.json (a copy of
 benchmarks/results/20261020T142214Z_37b1281.json). The meshes are the Part B outer2tet meshes cell for cell.
+After the owner's review it became benchmarks/baseline.json (the 5.4 candidate file was removed; the
+pre-5.4 baseline is benchmarks/baseline_1.json).
 
 | Case | Hard / soft | Cells (5.4 candidate) | Target layers | Strict cov. % (5.4) | Worst zone strict % | Mean / target % | Thickness % of plan | Max non-ortho | Fidelity RMS mm | y+ mean (5.4) | y+ in band % (5.4) | y+ cores | Mesh s / total s |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
