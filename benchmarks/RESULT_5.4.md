@@ -149,3 +149,183 @@ surface cells (21 mm at the curvature-refined leading edges and junctions): 3 to
   and any layer cap of 12 to 15 layers with ratio 1.3. The failure is fragile, not systematic; coverage,
   on the other hand, stays near zero in every one-factor variant at 24 layers (mean layers 1.3 to 3.2 %
   of the target) and only the layer cap moves it (12 layers: mean 32.7 %, zero-layer area 20.6 %).
+
+## Study (Part C)
+
+Cases: half wing, Ahmed body, aircraft (CAD union) and the sphere (regression guard, for the combined
+candidates). Each variant changes the current defaults (the pre-5.4 controls, `layer_controls
+"legacy"`) only as named; mesh only; every job on one physical core under `nice -n 15`, at most 10 at a
+time. Driver: the benchmark runner with the generated snappyHexMeshDict content changed in memory before
+it is written (a session script, not part of the app; raw results in the git-ignored
+benchmarks/results/5.4/study/<variant>/<case>.json). Columns as in Part A, plus: core cells = cells
+minus the prism cells snappyHexMesh reports as added (the last "Added N out of M cells" of each outer
+iteration); layers @ ratio = the count and the expansion ratio written; thickness % of plan = the
+mesh-counted stack against the planned total (with a cap: the uncapped plan at 1.2). Zones: wing TE
+(trailing edge), tip, root; Ahmed rear and slant edges; aircraft wj / hj / vj (wing / horizontal / vertical
+tail junction), TE, tip. A variant with a hard failure is rejected whatever its coverage (D1).
+
+Variants (one factor at a time from the defaults): capN = layer cap N with the ratio raised up to 1.3
+(aircraft only: the public cases plan 10 and 11 layers, under every cap); faN = layer featureAngle N
+(60); slipN = slipFeatureAngle N (30); tetOn = `relaxed` with minTetQuality 1e-15 (the tet check on);
+relIter20 = nRelaxedIter 20 (0); rlx70 = `relaxed` maxNonOrtho 70 (tet check off); rlx70tet = the same with
+the tet check on; rlx75tw = tet on, maxNonOrtho 75, minTwist -1; medialR = maxThicknessToMedialRatio R
+(0.3); mmaN = minMedialAxisAngle N (90); sSurfN5 / sNorm10 / sThick30 = nSmoothSurfaceNormals 5 (1),
+nSmoothNormals 10 (3), nSmoothThickness 30 (10); layIter100 = nLayerIter 100 (50); outerN = nOuterIter N
+(1); grow1 = nGrow 1 (0); buffer1 = nBufferCellsNoExtrude 1 (0); relax10 = nRelaxIter 10 (3);
+motionSolver = meshShrinker displacementMotionSolver (displacementLaplacian, quadratic inverse-distance
+diffusivity from the walls); twoPass = castellate and snap, then a layer-only snappyHexMesh pass.
+Combined: C1 = featureAngle 130 + nOuterIter 3; C2 = featureAngle 180 + nOuterIter 3; C3 = featureAngle 180
++ nOuterIter 2; C4 = C1 + nSmoothThickness 30 + nSmoothSurfaceNormals 5; `_capN` = the aircraft at cap N;
+fa130_cap12 = featureAngle 130 alone at cap 12 on the aircraft.
+
+| Variant | Case | Hard / soft | Cells | Core cells | Layers @ ratio | Strict cov. % | Zones strict % / mean % | Mean / target % | Zero-layer % | Thickness % of plan | Max non-ortho | Fidelity RMS mm | Mesh s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| base | wing | 0 / 0 | 337824 | 189315 | 11 @ 1.200 | 76.8 | root 87/95, tip 0/11, TE 0/17 | 87.0 | 3.3 | 90.3 | 64.8 | 0.107 | 67 |
+| base | ahmed | 0 / 0 | 225842 | 164046 | 10 @ 1.200 | 31.1 | rear 0/4, slant 15/25 | 64.0 | 9.3 | 77.4 | 64.9 | 0.063 | 54 |
+| base | aircraft | 3 / 2 | 281113 | 269649 | 24 @ 1.200 | 0.0 | hj 0/1, tip 0/0, TE 0/0, vj 0/1, wj 0/0 | 2.2 | 74.8 | 8.4 | 174.4 | 3.54/4.43 | 225 |
+| base | sphere | 0 / 0 | 276078 | 169718 | 10 @ 1.200 | 99.5 |  | 100.2 | 0.0 | 101.1 | 46.6 | 0.089 | 68 |
+| cap12 | aircraft | 0 / 1 | 427628 | 269649 | 12 @ 1.300 | 2.7 | hj 0/8, tip 0/1, TE 0/0, vj 0/8, wj 0/2 | 32.7 | 20.6 | 13.4 | 64.9 | 3.54/4.43 | 237 |
+| cap13 | aircraft | 0 / 1 | 427524 | 269649 | 13 @ 1.300 | 0.7 | hj 0/6, tip 0/1, TE 0/0, vj 0/6, wj 0/1 | 29.9 | 20.1 | 16.6 | 65.0 | 3.54/4.43 | 236 |
+| cap14 | aircraft | 0 / 1 | 399342 | 269649 | 14 @ 1.300 | 0.3 | hj 0/5, tip 0/0, TE 0/0, vj 0/5, wj 0/1 | 24.3 | 24.2 | 18.9 | 67.8 | 3.54/4.43 | 236 |
+| cap15 | aircraft | 0 / 1 | 349943 | 269649 | 15 @ 1.300 | 0.1 | hj 0/4, tip 0/0, TE 0/0, vj 0/3, wj 0/0 | 18.8 | 30.8 | 20.8 | 65.0 | 3.54/4.43 | 245 |
+| fa90 | wing | 0 / 0 | 348155 | 189315 | 11 @ 1.200 | 83.9 | root 87/95, tip 51/65, TE 0/17 | 91.8 | 1.5 | 93.4 | 64.3 | 0.107 | 70 |
+| fa90 | ahmed | 3 / 2 | 276694 | 164046 | 10 @ 1.200 | 92.4 | rear 100/100, slant 62/78 | 98.1 | 0.3 | 99.8 | 167.1 | 0.063 | 55 |
+| fa90 | aircraft | 0 / 0 | 281800 | 269649 | 24 @ 1.200 | 0.0 | hj 0/1, tip 0/0, TE 0/0, vj 0/1, wj 0/0 | 2.2 | 74.8 | 8.3 | 64.9 | 3.54/4.55 | 219 |
+| fa130 | wing | 0 / 0 | 347948 | 189315 | 11 @ 1.200 | 83.8 | root 87/95, tip 51/65, TE 0/17 | 91.8 | 1.6 | 93.3 | 64.8 | 0.107 | 76 |
+| fa130 | ahmed | 0 / 0 | 279646 | 164046 | 10 @ 1.200 | 98.0 | rear 100/100, slant 100/100 | 100.3 | 0.0 | 100.9 | 63.8 | 0.063 | 54 |
+| fa130 | aircraft | 0 / 0 | 281645 | 269649 | 24 @ 1.200 | 0.0 | hj 0/1, tip 0/0, TE 0/0, vj 0/1, wj 0/0 | 2.3 | 74.5 | 8.6 | 64.6 | 3.54/4.55 | 219 |
+| fa180 | wing | 0 / 0 | 348468 | 189315 | 11 @ 1.200 | 85.2 | root 86/94, tip 73/83, TE 0/7 | 92.2 | 2.1 | 93.2 | 64.8 | 0.107 | 73 |
+| fa180 | ahmed | 0 / 0 | 279646 | 164046 | 10 @ 1.200 | 98.0 | rear 100/100, slant 100/100 | 100.3 | 0.0 | 100.9 | 63.8 | 0.063 | 55 |
+| fa180 | aircraft | 0 / 1 | 279773 | 269649 | 24 @ 1.200 | 0.0 | hj 0/1, tip 0/1, TE 0/0, vj 0/1, wj 0/0 | 1.7 | 79.2 | 6.4 | 64.7 | 3.54/4.55 | 219 |
+| slip10 | wing | 0 / 0 | 337824 | 189315 | 11 @ 1.200 | 76.8 | root 87/95, tip 0/11, TE 0/17 | 87.0 | 3.3 | 90.3 | 64.8 | 0.107 | 73 |
+| slip10 | ahmed | 0 / 0 | 225842 | 164046 | 10 @ 1.200 | 31.1 | rear 0/4, slant 15/25 | 64.0 | 9.3 | 77.4 | 64.9 | 0.063 | 52 |
+| slip10 | aircraft | 3 / 2 | 281113 | 269649 | 24 @ 1.200 | 0.0 | hj 0/1, tip 0/0, TE 0/0, vj 0/1, wj 0/0 | 2.2 | 74.8 | 8.4 | 174.4 | 3.54/4.43 | 216 |
+| slip45 | wing | 0 / 0 | 337824 | 189315 | 11 @ 1.200 | 76.8 | root 87/95, tip 0/11, TE 0/17 | 87.0 | 3.3 | 90.3 | 64.8 | 0.107 | 72 |
+| slip45 | ahmed | 0 / 0 | 225842 | 164046 | 10 @ 1.200 | 31.1 | rear 0/4, slant 15/25 | 64.0 | 9.3 | 77.4 | 64.9 | 0.063 | 51 |
+| slip45 | aircraft | 3 / 2 | 281113 | 269649 | 24 @ 1.200 | 0.0 | hj 0/1, tip 0/0, TE 0/0, vj 0/1, wj 0/0 | 2.2 | 74.8 | 8.4 | 174.4 | 3.54/4.43 | 218 |
+| tetOn | wing | 0 / 0 | 336987 | 189315 | 11 @ 1.200 | 76.2 | root 87/95, tip 0/9, TE 0/17 | 86.5 | 3.5 | 90.0 | 65.0 | 0.107 | 74 |
+| tetOn | ahmed | 0 / 0 | 218958 | 164046 | 10 @ 1.200 | 23.5 | rear 0/4, slant 0/10 | 55.4 | 12.7 | 71.8 | 64.8 | 0.063 | 60 |
+| tetOn | aircraft | 0 / 1 | 279240 | 269649 | 24 @ 1.200 | 0.0 | hj 0/1, tip 0/0, TE 0/0, vj 0/1, wj 0/0 | 1.7 | 78.5 | 6.6 | 65.0 | 3.54/4.43 | 212 |
+| relIter20 | wing | 0 / 0 | 336987 | 189315 | 11 @ 1.200 | 76.2 | root 87/95, tip 0/9, TE 0/17 | 86.5 | 3.5 | 90.0 | 65.0 | 0.107 | 72 |
+| relIter20 | ahmed | 0 / 0 | 218958 | 164046 | 10 @ 1.200 | 23.5 | rear 0/4, slant 0/10 | 55.4 | 12.7 | 71.8 | 64.8 | 0.063 | 61 |
+| relIter20 | aircraft | 0 / 1 | 279240 | 269649 | 24 @ 1.200 | 0.0 | hj 0/1, tip 0/0, TE 0/0, vj 0/1, wj 0/0 | 1.7 | 78.5 | 6.6 | 65.0 | 3.54/4.43 | 210 |
+| rlx70 | wing | 0 / 0 | 337824 | 189315 | 11 @ 1.200 | 76.8 | root 87/95, tip 0/11, TE 0/17 | 87.0 | 3.3 | 90.3 | 69.4 | 0.107 | 72 |
+| rlx70 | ahmed | 0 / 0 | 225842 | 164046 | 10 @ 1.200 | 31.1 | rear 0/4, slant 15/25 | 64.0 | 9.3 | 77.4 | 69.8 | 0.063 | 56 |
+| rlx70 | aircraft | 0 / 0 | 283752 | 269649 | 24 @ 1.200 | 0.0 | hj 0/1, tip 0/0, TE 0/0, vj 0/2, wj 0/0 | 2.5 | 72.0 | 9.5 | 75.3 | 3.54/4.43 | 211 |
+| rlx70tet | wing | 0 / 0 | 336982 | 189315 | 11 @ 1.200 | 76.2 | root 87/95, tip 0/9, TE 0/17 | 86.5 | 3.5 | 90.0 | 69.8 | 0.107 | 74 |
+| rlx70tet | ahmed | 0 / 0 | 218938 | 164046 | 10 @ 1.200 | 23.5 | rear 0/4, slant 0/10 | 55.4 | 12.8 | 71.8 | 69.8 | 0.063 | 63 |
+| rlx70tet | aircraft | 0 / 1 | 279802 | 269649 | 24 @ 1.200 | 0.0 | hj 0/1, tip 0/0, TE 0/0, vj 0/1, wj 0/0 | 1.8 | 78.3 | 7.1 | 69.8 | 3.54/4.43 | 225 |
+| rlx75tw | wing | 0 / 0 | 337017 | 189315 | 11 @ 1.200 | 76.2 | root 87/95, tip 0/9, TE 0/17 | 86.5 | 3.5 | 90.0 | 74.2 | 0.107 | 70 |
+| rlx75tw | ahmed | 0 / 0 | 218938 | 164046 | 10 @ 1.200 | 23.5 | rear 0/4, slant 0/10 | 55.4 | 12.8 | 71.8 | 74.8 | 0.063 | 65 |
+| rlx75tw | aircraft | 2 / 1 | 280575 | 269649 | 24 @ 1.200 | 0.0 | hj 0/1, tip 0/0, TE 0/0, vj 0/1, wj 0/0 | 1.8 | 78.4 | 6.8 | 159.3 | 3.54/4.43 | 224 |
+| medial05 | wing | 0 / 0 | 337824 | 189315 | 11 @ 1.200 | 76.8 | root 87/95, tip 0/11, TE 0/17 | 87.0 | 3.3 | 90.3 | 64.8 | 0.107 | 70 |
+| medial05 | ahmed | 0 / 0 | 225842 | 164046 | 10 @ 1.200 | 31.1 | rear 0/4, slant 15/25 | 64.0 | 9.3 | 77.4 | 64.9 | 0.063 | 57 |
+| medial05 | aircraft | 3 / 2 | 280518 | 269649 | 24 @ 1.200 | 0.0 | hj 0/1, tip 0/0, TE 0/0, vj 0/1, wj 0/0 | 2.1 | 76.1 | 8.0 | 174.4 | 3.58/4.43 | 207 |
+| medial1 | wing | 0 / 0 | 337824 | 189315 | 11 @ 1.200 | 76.8 | root 87/95, tip 0/11, TE 0/17 | 87.0 | 3.3 | 90.3 | 64.8 | 0.107 | 70 |
+| medial1 | ahmed | 0 / 0 | 225842 | 164046 | 10 @ 1.200 | 31.1 | rear 0/4, slant 15/25 | 64.0 | 9.3 | 77.4 | 64.9 | 0.063 | 56 |
+| medial1 | aircraft | 3 / 2 | 279968 | 269649 | 24 @ 1.200 | 0.0 | hj 0/1, tip 0/0, TE 0/0, vj 0/1, wj 0/0 | 2.0 | 76.6 | 7.9 | 174.4 | 3.58/4.43 | 203 |
+| mma60 | wing | 0 / 0 | 337824 | 189315 | 11 @ 1.200 | 76.8 | root 87/95, tip 0/11, TE 0/25 | 87.5 | 3.2 | 90.3 | 64.9 | 0.107 | 71 |
+| mma60 | ahmed | 0 / 0 | 225842 | 164046 | 10 @ 1.200 | 31.1 | rear 0/4, slant 15/25 | 64.0 | 9.3 | 77.4 | 65.0 | 0.063 | 55 |
+| mma60 | aircraft | 0 / 1 | 284144 | 269649 | 24 @ 1.200 | 0.0 | hj 0/1, tip 0/0, TE 0/0, vj 0/2, wj 0/0 | 3.2 | 67.8 | 11.2 | 64.9 | 3.54/4.43 | 209 |
+| mma130 | wing | 0 / 0 | 337824 | 189315 | 11 @ 1.200 | 76.8 | root 87/95, tip 0/11, TE 0/17 | 87.0 | 3.2 | 90.4 | 64.6 | 0.107 | 72 |
+| mma130 | ahmed | 0 / 0 | 225842 | 164046 | 10 @ 1.200 | 31.1 | rear 0/4, slant 15/25 | 64.0 | 9.3 | 77.4 | 64.9 | 0.063 | 54 |
+| mma130 | aircraft | 0 / 1 | 277701 | 269649 | 24 @ 1.200 | 0.0 | hj 0/0, tip 0/0, TE 0/0, vj 0/0, wj 0/0 | 1.3 | 82.9 | 5.0 | 65.0 | 3.54/4.43 | 210 |
+| sSurfN5 | wing | 0 / 0 | 338107 | 189315 | 11 @ 1.200 | 77.1 | root 88/95, tip 0/12, TE 0/17 | 87.3 | 2.9 | 90.5 | 64.8 | 0.107 | 70 |
+| sSurfN5 | ahmed | 0 / 0 | 225842 | 164046 | 10 @ 1.200 | 31.0 | rear 0/4, slant 15/26 | 64.4 | 7.5 | 78.2 | 64.7 | 0.063 | 54 |
+| sSurfN5 | aircraft | 0 / 1 | 280853 | 269649 | 24 @ 1.200 | 0.0 | hj 0/1, tip 0/0, TE 0/0, vj 0/1, wj 0/0 | 2.4 | 73.6 | 8.8 | 65.0 | 3.54/4.43 | 208 |
+| sNorm10 | wing | 0 / 0 | 337824 | 189315 | 11 @ 1.200 | 76.8 | root 87/95, tip 0/11, TE 0/17 | 87.0 | 3.2 | 90.3 | 64.9 | 0.107 | 72 |
+| sNorm10 | ahmed | 0 / 0 | 225842 | 164046 | 10 @ 1.200 | 31.1 | rear 0/4, slant 15/25 | 64.0 | 9.3 | 77.4 | 64.4 | 0.063 | 52 |
+| sNorm10 | aircraft | 0 / 1 | 281696 | 269649 | 24 @ 1.200 | 0.0 | hj 0/1, tip 0/0, TE 0/0, vj 0/2, wj 0/0 | 2.5 | 72.9 | 9.3 | 65.0 | 3.55/4.43 | 218 |
+| sThick30 | wing | 0 / 0 | 336830 | 189315 | 11 @ 1.200 | 76.2 | root 87/95, tip 0/17, TE 0/19 | 87.2 | 2.2 | 90.0 | 64.5 | 0.107 | 78 |
+| sThick30 | ahmed | 0 / 0 | 226278 | 164046 | 10 @ 1.200 | 31.9 | rear 0/5, slant 15/28 | 65.7 | 6.5 | 77.4 | 63.2 | 0.063 | 54 |
+| sThick30 | aircraft | 0 / 1 | 286387 | 269649 | 24 @ 1.200 | 0.0 | hj 0/1, tip 0/0, TE 0/0, vj 0/1, wj 0/0 | 4.3 | 57.9 | 14.2 | 64.9 | 3.54/4.43 | 226 |
+| layIter100 | wing | 0 / 0 | 337824 | 189315 | 11 @ 1.200 | 76.8 | root 87/95, tip 0/11, TE 0/17 | 87.0 | 3.3 | 90.3 | 64.8 | 0.107 | 71 |
+| layIter100 | ahmed | 0 / 0 | 225842 | 164046 | 10 @ 1.200 | 31.1 | rear 0/4, slant 15/25 | 64.0 | 9.3 | 77.4 | 64.9 | 0.063 | 53 |
+| layIter100 | aircraft | 3 / 2 | 281113 | 269649 | 24 @ 1.200 | 0.0 | hj 0/1, tip 0/0, TE 0/0, vj 0/1, wj 0/0 | 2.2 | 74.8 | 8.4 | 174.4 | 3.54/4.43 | 216 |
+| outer2 | wing | 0 / 0 | 353709 | 189315 | 11 @ 1.200 | 88.5 | root 93/98, tip 2/39, TE 0/46 | 93.9 | 2.1 | 93.3 | 65.0 | 0.107 | 79 |
+| outer2 | ahmed | 0 / 0 | 253346 | 164046 | 10 @ 1.200 | 73.2 | rear 0/14, slant 27/38 | 84.8 | 6.3 | 86.5 | 65.0 | 0.063 | 57 |
+| outer3 | wing | 0 / 0 | 360099 | 189315 | 11 @ 1.200 | 93.1 | root 96/99, tip 32/58, TE 38/73 | 96.3 | 2.1 | 94.9 | 65.3 | 0.107 | 88 |
+| outer3 | ahmed | 0 / 0 | 262352 | 164046 | 10 @ 1.200 | 79.3 | rear 0/23, slant 28/46 | 89.0 | 6.5 | 88.8 | 65.0 | 0.063 | 62 |
+| outer3 | aircraft | 2 / 1 | 313832 | 269649 | 24 @ 1.200 | 0.0 | hj 0/2, tip 0/0, TE 0/0, vj 0/4, wj 0/0 | 11.3 | 53.8 | 21.5 | 97.3 | 3.54/4.43 | 504 |
+| grow1 | wing | 0 / 0 | 332508 | 189315 | 11 @ 1.200 | 74.9 | root 86/94, tip 0/6, TE 0/7 | 85.2 | 5.4 | 88.4 | 64.9 | 0.107 | 70 |
+| grow1 | ahmed | 0 / 0 | 217786 | 164046 | 10 @ 1.200 | 24.7 | rear 0/0, slant 12/22 | 58.5 | 13.1 | 74.4 | 64.9 | 0.063 | 51 |
+| grow1 | aircraft | 0 / 1 | 271307 | 269649 | 24 @ 1.200 | 0.0 | hj 0/0, tip 0/0, TE 0/0, vj 0/0, wj 0/0 | 0.3 | 94.1 | 1.2 | 64.6 | 3.56/4.43 | 208 |
+| buffer1 | wing | 0 / 0 | 313858 | 189315 | 11 @ 1.200 | 58.4 | root 79/89, tip 0/1, TE 0/0 | 75.0 | 11.2 | 82.8 | 64.8 | 0.107 | 73 |
+| buffer1 | ahmed | 0 / 0 | 199812 | 164046 | 10 @ 1.200 | 0.0 | rear 0/0, slant 0/13 | 32.9 | 32.0 | 65.3 | 64.9 | 0.063 | 52 |
+| buffer1 | aircraft | 0 / 1 | 277103 | 269649 | 24 @ 1.200 | 0.0 | hj 0/0, tip 0/0, TE 0/0, vj 0/0, wj 0/0 | 0.2 | 96.3 | 0.7 | 65.0 | 3.55/4.43 | 207 |
+| relax10 | wing | 0 / 0 | 338018 | 189315 | 11 @ 1.200 | 77.2 | root 87/95, tip 0/11, TE 0/17 | 87.3 | 3.2 | 90.4 | 64.8 | 0.107 | 75 |
+| relax10 | ahmed | 0 / 0 | 225842 | 164046 | 10 @ 1.200 | 31.1 | rear 0/4, slant 15/25 | 64.0 | 9.2 | 77.4 | 64.9 | 0.063 | 51 |
+| relax10 | aircraft | 0 / 0 | 285548 | 269649 | 24 @ 1.200 | 0.0 | hj 0/3, tip 0/0, TE 0/0, vj 0/2, wj 0/0 | 2.6 | 75.4 | 8.6 | 65.0 | 3.54/4.43 | 231 |
+| motionSolver | wing | 0 / 1 | 325547 | 189315 | 11 @ 1.200 | 60.4 | root 11/42, tip 0/10, TE 0/17 | 78.3 | 5.0 | 85.4 | 64.2 | 0.107 | 64 |
+| motionSolver | ahmed | 0 / 0 | 228186 | 164046 | 10 @ 1.200 | 34.0 | rear 0/3, slant 15/25 | 65.4 | 10.6 | 77.8 | 63.7 | 0.063 | 36 |
+| motionSolver | aircraft | FAIL - / - | - | - | 24 @ 1.200 | - |  | - | - | - | - | - | 174 |
+| twoPass | wing | 0 / 0 | 337824 | 189315 | 11 @ 1.200 | 76.8 | root 87/95, tip 0/11, TE 0/17 | 87.0 | 3.3 | 90.3 | 64.8 | 0.107 | 78 |
+| twoPass | ahmed | 0 / 0 | 225842 | 164046 | 10 @ 1.200 | 31.1 | rear 0/4, slant 15/25 | 64.0 | 9.3 | 77.4 | 64.9 | 0.063 | 50 |
+| twoPass | aircraft | 3 / 2 | 281113 | 269649 | 24 @ 1.200 | 0.0 | hj 0/1, tip 0/0, TE 0/0, vj 0/1, wj 0/0 | 2.2 | 74.8 | 8.4 | 174.4 | 3.54/4.43 | 218 |
+| fa130_cap12 | aircraft | 0 / 1 | 428998 | 269649 | 12 @ 1.300 | 2.6 | hj 0/10, tip 0/1, TE 0/0, vj 0/24, wj 0/1 | 31.9 | 21.2 | 13.2 | 65.0 | 3.54/4.55 | 184 |
+| C1 | wing | 0 / 0 | 364942 | 189315 | 11 @ 1.200 | 95.9 | root 96/99, tip 75/87, TE 38/73 | 98.1 | 1.2 | 96.9 | 64.8 | 0.107 | 89 |
+| C1 | ahmed | 0 / 0 | 279054 | 164046 | 10 @ 1.200 | 97.4 | rear 100/100, slant 100/100 | 100.0 | 0.1 | 100.5 | 64.8 | 0.063 | 46 |
+| C1 | sphere | 0 / 0 | 276078 | 169718 | 10 @ 1.200 | 99.5 |  | 100.2 | 0.0 | 100.9 | 46.7 | 0.089 | 66 |
+| C1_cap12 | aircraft | 0 / 1 | 444586 | 269649 | 12 @ 1.300 | 0.0 | hj 0/21, tip 0/2, TE 0/0, vj 0/43, wj 0/3 | 31.8 | 28.8 | 10.2 | 80.3 | 3.54/4.55 | 927 |
+| C1_cap15 | aircraft | 2 / 1 | 488484 | 269649 | 15 @ 1.300 | 0.0 | hj 0/9, tip 0/1, TE 0/0, vj 0/23, wj 0/1 | 47.5 | 15.3 | 29.1 | 97.2 | 3.54/4.55 | 755 |
+| C2 | wing | 0 / 0 | 365839 | 189315 | 11 @ 1.200 | 95.9 | root 95/98, tip 89/96, TE 20/63 | 98.2 | 0.9 | 97.2 | 64.7 | 0.107 | 92 |
+| C2 | ahmed | 0 / 0 | 279054 | 164046 | 10 @ 1.200 | 97.4 | rear 100/100, slant 100/100 | 100.0 | 0.1 | 100.5 | 64.8 | 0.063 | 46 |
+| C2 | sphere | 0 / 0 | 276078 | 169718 | 10 @ 1.200 | 99.5 |  | 100.2 | 0.0 | 100.9 | 46.7 | 0.089 | 64 |
+| C2_cap12 | aircraft | 0 / 1 | 453518 | 269649 | 12 @ 1.300 | 0.0 | hj 0/23, tip 0/4, TE 0/0, vj 0/35, wj 0/19 | 37.2 | 21.0 | 11.6 | 79.5 | 3.54/4.55 | 864 |
+| C2_cap15 | aircraft | 3 / 2 | 487307 | 269649 | 15 @ 1.300 | 0.0 | hj 0/10, tip 0/5, TE 0/0, vj 0/20, wj 0/22 | 46.9 | 16.3 | 28.8 | 179.5 | 3.58/4.56 | 801 |
+| C3 | wing | 0 / 0 | 365774 | 189315 | 11 @ 1.200 | 94.3 | root 93/98, tip 85/94, TE 0/62 | 98.0 | 0.9 | 97.7 | 64.6 | 0.107 | 84 |
+| C3 | ahmed | 0 / 0 | 278518 | 164046 | 10 @ 1.200 | 96.6 | rear 100/100, slant 100/100 | 99.7 | 0.1 | 100.3 | 64.9 | 0.063 | 40 |
+| C3 | sphere | 0 / 0 | 276078 | 169718 | 10 @ 1.200 | 99.5 |  | 100.2 | 0.0 | 101.0 | 46.6 | 0.089 | 57 |
+| C3_cap12 | aircraft | 3 / 2 | 458857 | 269649 | 12 @ 1.300 | 2.5 | hj 0/15, tip 0/4, TE 0/0, vj 4/38, wj 0/22 | 38.8 | 15.4 | 12.9 | 177.0 | 3.54/4.55 | 612 |
+| C3_cap15 | aircraft | 0 / 1 | 423329 | 269649 | 15 @ 1.300 | 1.4 | hj 0/6, tip 0/3, TE 0/0, vj 0/16, wj 0/8 | 32.2 | 24.2 | 22.4 | 68.2 | 3.54/4.55 | 674 |
+| C4 | wing | 0 / 0 | 358628 | 189315 | 11 @ 1.200 | 92.0 | root 96/99, tip 33/59, TE 32/67 | 95.9 | 2.5 | 93.4 | 76.0 | 0.107 | 251 |
+| C4 | ahmed | 0 / 0 | 278266 | 164046 | 10 @ 1.200 | 95.8 | rear 100/101, slant 100/100 | 99.3 | 0.6 | 99.4 | 64.9 | 0.063 | 46 |
+| C4 | sphere | 0 / 0 | 276078 | 169718 | 10 @ 1.200 | 99.5 |  | 100.2 | 0.0 | 100.9 | 46.7 | 0.089 | 55 |
+| C4_cap12 | aircraft | FAIL - / - | - | - | 12 @ 1.300 | - |  | - | - | - | - | - | - |
+| C4_cap15 | aircraft | 3 / 2 | 490962 | 269649 | 15 @ 1.300 | 0.1 | hj 0/12, tip 0/0, TE 0/0, vj 0/26, wj 0/1 | 43.9 | 15.9 | 26.4 | 176.1 | 3.54/4.55 | 919 |
+
+Notes on the runs:
+
+- Not in the table: C5 (featureAngle 130 + nOuterIter 5) on the aircraft was stopped after 13 minutes
+  (each outer pass ran its 50 layer iterations; too slow for a default) and its public cases were not run;
+  C1tet (C1 with the tet check on) was not run for lack of machine time. The aircraft row of outer2 is not
+  in the table: it ran with source edited during the run (see below).
+- Ten aircraft jobs of the first screen started after the app's source had been edited for Part D (the
+  layer cap already active, so they ran at 17 layers @ 1.3 instead of 24 @ 1.2); they were moved to
+  benchmarks/results/5.4/study/_contaminated/ and rerun from a frozen copy of the source with the
+  pre-5.4 controls pinned. Every row above has the uncapped plan (24 @ 1.2) unless it names a cap.
+- motionSolver: the aircraft run failed to start the motion solver (the app's placeholder fvSchemes is
+  written as lists, `laplacianSchemes { default (Gauss linear corrected); }`, which snappyHexMesh never
+  reads but the displacement solver does); fixed in the driver for the wing and the Ahmed body, where it
+  is worse (60.4 / 34.0 %) and not rerun on the aircraft.
+- C4_cap12: the mesh is valid (soft skewness, max non-orthogonality 76.3) but the mesh walk failed on it
+  (IndexError in bench/layer_walk); the runner now records such an error instead of losing the case.
+
+### Findings
+
+1. **Feature-angle termination is the main lever at sharp edges (D4).** featureAngle 130 (or 180) lets
+   the stacks wrap the Ahmed body's 90-degree rear-face and slant edges: strict coverage 31.1 -> 98.0 %,
+   both edge zones 0 / 15 -> 100 %, zero-layer area 9.3 -> 0.0 %, no hard failure; the wing tip 0 -> 51 %
+   (73 % at 180). At 90 the Ahmed mesh gets 3 hard failures (rejected; not analysed further: the
+   limit sits at the body's own 90-degree edge angle).
+2. **Layer-by-layer addition is the lever at the thin trailing edge.** nOuterIter 3 brings the wing to
+   93.1 % (trailing edge 0 -> 38 %) and the Ahmed body to 79.3 %; combined with featureAngle 130 (C1):
+   wing 95.9 % (tip 75 %, trailing edge 38 %), Ahmed 97.4 % (edges 100 %), sphere 99.5 % (unchanged). It
+   also brings the first layer back to the plan where stacks used to be squashed (wing walk mean 1.29 ->
+   0.89 mm against 0.90 mm planned).
+3. **The relaxed tet check, the medial axis, smoothing and iteration counts do not move coverage** on the
+   public cases (within 1 point), except the tet check on (Ahmed 31 -> 23.5 %), nGrow 1 and
+   nBufferCellsNoExtrude 1 (worse: Ahmed 24.7 % / 0 %). The layer-only second pass gives the identical
+   mesh (twoPass = base on all three cases), so it is not adopted.
+4. **The aircraft is limited by its stack, not by a control.** At 24 layers every one-factor variant
+   stays at 0.0 % strict coverage and 1.3 to 4.3 % mean (11 % with outer3); the cap is what moves it (12
+   layers: mean 32.7 %, zero-layer 20.6 %). Combined with C1 or C2 at cap 12 the mean is 31.8 / 37.2 %, but
+   no face has the full 12 layers by either count (stacks stop at 4 or 8 layers, one or two of the three
+   outer passes). Validity is fragile: valid at cap 12 (cap only, C1, C2, fa130), invalid at cap 15 with
+   C1, C2 and C4, and C3 is invalid at 12 but valid at 15. Cap 12 is the cap valid in every combination
+   tried at that count except C3.
+5. **Cells and time.** Every candidate's core mesh is identical to the baseline's (core cells equal):
+   the growth is the prism cells of the planned stack, +8 % on the half wing (C1), +24 % on the Ahmed body,
+   +58 % on the aircraft (C1 at cap 12), 0 % on the sphere. nOuterIter 3 costs mesh time: wing 67 -> 89 s,
+   Ahmed 54 -> 57 s (contended runs), aircraft 237 s (cap 12) -> 927 s (C1 at cap 12); on the aircraft it
+   adds no coverage over featureAngle 130 alone at cap 12 (mean 31.9 %, 184 s).
