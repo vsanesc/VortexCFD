@@ -399,3 +399,42 @@ def test_probe_criterion_stops_simplefoam_on_the_session_mesh(sphere_mesh, tmp_p
     monitor.poll()
     assert len({t for t, _ in monitor.series("probe:wake:p")}) == 8
     assert monitor.mass_balance() is not None and monitor.breakdown_rows()[0].name == "All walls"
+
+
+def test_breakdown_series_are_kept_up_to_date_incrementally(tmp_path: Path, monkeypatch) -> None:
+    """The breakdown of every time is computed once (R-26): rows appended between polls, and a
+    rewritten last row (writeAndEnd), give the series a fresh monitor computes from the whole files."""
+    from vortexcfd.foam import postprocessing
+
+    case = tmp_path / "case"
+    shutil.copytree(RUN, case)
+    folder = case / "postProcessing"
+    files = {name: (folder / func / "0" / name).read_text().splitlines(keepends=True)
+             for func, name in (("forces1", "force.dat"), ("forces1", "moment.dat"))}
+    heads = {name: [l for l in lines if l.startswith("#")] for name, lines in files.items()}
+    rows = {name: [l for l in lines if not l.startswith("#")] for name, lines in files.items()}
+    for name in files:
+        (folder / "forces1" / "0" / name).write_text("".join(heads[name] + rows[name][:100]))
+    calls = []
+    original = postprocessing.breakdown
+    monkeypatch.setattr(postprocessing, "breakdown", lambda *a, **k: calls.append(a[1].time) or original(*a, **k))
+    m = ReportMonitor(case)
+    assert m.poll()
+    first = m.series("Cd_pressure")
+    assert len(first) == 100 and len(calls) == 100
+    # more rows, the last one rewritten with other numbers (the later row wins, as before)
+    rewritten = rows["force.dat"][-1].replace("(", "(1.5 ", 1)
+    for name in files:
+        with open(folder / "forces1" / "0" / name, "a") as fh:
+            fh.write("".join(rows[name][100:]))
+    with open(folder / "forces1" / "0" / "force.dat", "a") as fh:
+        fh.write(rewritten)
+    assert m.poll()
+    series = {q: m.series(q) for q in ("Cd_pressure", "Cd_viscous", "Cl_pressure", "x_cp")}
+    assert len(calls) == 300  # the 200 new times once each (the rewritten row is in the same poll), never the 100 old ones
+    fresh = ReportMonitor(case)
+    fresh.poll()
+    for q, got in series.items():
+        assert got == fresh.series(q)
+    assert m.breakdown_rows() == fresh.breakdown_rows()
+    assert m.series("Cd_pressure")[:100] == first
