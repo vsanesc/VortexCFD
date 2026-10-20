@@ -8,8 +8,8 @@ from vortexcfd.core.model import Mesh
 Bounds = tuple[float, float, float, float, float, float]  # xmin, xmax, ymin, ymax, zmin, zmax
 
 # snappyHexMesh's nCellsBetweenLevels (castellatedMeshControls, written by foam/mesh_case.py): the
-# buffer of cells at each level before the next coarser one; the refinement volume estimate grows
-# each volume by it (D-103).
+# buffer of cells at each level before the next coarser one; the refinement volume estimate builds its
+# staircase of levels from it (D-103).
 CELLS_BETWEEN_LEVELS = 3
 # The Generate Mesh button is disabled above this many background cells.
 MAX_BACKGROUND_CELLS = 2_000_000
@@ -36,7 +36,7 @@ class MeshEstimate:
     # (level_max + Mesh.curvature_levels; level_max when it is off) and that level's cell size.
     curvature_level: int = 0
     curvature_size: float = 0.0
-    # Extra cells of the user refinement volumes (D-103; volume_extra_cells, summed; overlapping volumes
+    # Extra cells of the user refinement volumes (D-103; workflow/refinement.staircase_cells, summed; overlapping volumes
     # are counted twice). They count against the same limit as the background cells.
     volume_cells: int = 0
 
@@ -76,17 +76,14 @@ def volume_level(base_size: float, target_size: float) -> int:
     return max(0, math.ceil(math.log2(base_size / target_size) - 1e-9))
 
 
-def volume_buffer(level: int, cell_size: float, cells_between_levels: int = CELLS_BETWEEN_LEVELS) -> float:
-    """How far (m) a refinement volume is grown before its cells are estimated (D-103, owner review): the
-    buffer snappyHexMesh keeps between levels, ``cells_between_levels`` cells of the volume's cell size
-    per level step from the background (``level`` steps)."""
-    return cells_between_levels * level * cell_size
-
-
-def volume_extra_cells(inside_volume: float, base_size: float, level: int) -> int:
-    """The cells a refinement volume adds at ``level`` over the background ones in ``inside_volume`` (m3,
-    the part of the volume inside the domain): V (8^level - 1) / base^3."""
-    return int(round(inside_volume * (8 ** level - 1) / base_size ** 3))
+def volume_staircase(level: int, base_size: float,
+                     cells_between_levels: int = CELLS_BETWEEN_LEVELS) -> list[tuple[int, float]]:
+    """The staircase of a refinement volume at ``level`` over the background (level 0), D-103 [NUMERICS-REVIEW]:
+    (level k, outward growth in metres of the region at k from the region inside it), from k = ``level``
+    (grown from the volume itself) down to k = 1. The region at level k is the next finer region (the
+    volume itself for k = level) grown by ``cells_between_levels`` cells of that level's size base / 2^k,
+    as snappyHexMesh keeps nCellsBetweenLevels cells at each level before the next coarser one."""
+    return [(k, cells_between_levels * base_size / 2 ** k) for k in range(level, 0, -1)]
 
 
 def estimate_mesh(domain_bounds: Bounds, surface_length: float, mesh: Mesh, volume: float | None = None,

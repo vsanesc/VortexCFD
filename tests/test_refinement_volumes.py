@@ -29,7 +29,7 @@ from vortexcfd.foam.mesh_case import (
     searchable_geometry,
     snappy_hex_mesh_dict,
 )
-from vortexcfd.foam.mesh_estimate import MAX_BACKGROUND_CELLS, volume_extra_cells, volume_level
+from vortexcfd.foam.mesh_estimate import MAX_BACKGROUND_CELLS, volume_level
 from vortexcfd.geometry import refinement_volumes as rv
 from vortexcfd.geometry.domain import compute_domain
 from vortexcfd.geometry.loader import clear_cache
@@ -251,10 +251,11 @@ def test_estimate_with_and_without_volumes(tmp_path: Path) -> None:
     assert plain.volume_cells == 0 and plain.budget_cells == plain.total_cells
     project.add_refinement_volume(box_volume(size=0.05))  # 1 m3, level 3
     est = meshing.estimate_with_volumes(project, box)
-    h = est.base_size / 8
-    edge = 1.0 + 2 * 3 * 3 * h  # grown by 3 cells per level step, 3 steps
-    expected = volume_extra_cells(edge ** 3, est.base_size, 3)
-    assert expected == round(edge ** 3 * (8 ** 3 - 1) / est.base_size ** 3)
+    b = est.base_size
+    e3 = 1.0 + 2 * 3 * b / 8  # level 3: the box grown by 3 cells of b / 8
+    e2 = e3 + 2 * 3 * b / 4  # level 2 shell: grown again by 3 cells of b / 4
+    e1 = e2 + 2 * 3 * b / 2  # level 1 shell
+    expected = round((e3 ** 3 * 511 + (e2 ** 3 - e3 ** 3) * 63 + (e1 ** 3 - e2 ** 3) * 7) / b ** 3)
     assert est.volume_cells == expected and est.budget_cells == est.total_cells + expected
     assert est.total_cells == plain.total_cells and meshing.readiness(project) is None
     project.add_refinement_volume(box_volume("huge", size=0.004))
@@ -265,20 +266,30 @@ def test_estimate_with_and_without_volumes(tmp_path: Path) -> None:
     assert "counted twice" in refinement.OVERLAP_NOTE
 
 
-def test_level_buffer_grows_the_volume_before_its_cells_are_counted() -> None:
-    """Hand calculation: base 1 m, a 1 m box with a 0.25 m target -> level 2 (0.25 m cells); grown by
-    nCellsBetweenLevels (3) cells x 2 level steps x 0.25 m = 1.5 m on every side -> a 4 m box, 64 m3;
-    extra cells = 64 x (8^2 - 1) / 1^3 = 4032 (the ungrown box would give 63)."""
+def test_level_staircase_against_a_hand_calculation() -> None:
+    """Hand calculation: base 1 m, a 1 m box with a 0.25 m target -> level 2 (h2 = 0.25 m, h1 = 0.5 m),
+    nCellsBetweenLevels 3.
+    - level-2 region: the box grown by 3 x 0.25 = 0.75 m on every side -> a 2.5 m box, 15.625 m3;
+      its extra cells = 15.625 x (8^2 - 1) / 1^3 = 984.375;
+    - level-1 shell: that region grown by 3 x 0.5 = 1.5 m -> a 5.5 m box, 166.375 m3, minus the 15.625 m3
+      inside it = 150.75 m3; its extra cells = 150.75 x (8 - 1) / 1^3 = 1055.25;
+    - total 2039.625 -> 2040 cells (both regions lie wholly inside the domain)."""
     from vortexcfd.core.model import Domain, Mesh
-    from vortexcfd.foam.mesh_estimate import CELLS_BETWEEN_LEVELS, estimate_mesh, volume_buffer
+    from vortexcfd.foam.mesh_estimate import CELLS_BETWEEN_LEVELS, estimate_mesh, volume_staircase
 
     assert CELLS_BETWEEN_LEVELS == 3
     domain = compute_domain([(0.0, 1.0, 0.0, 1.0, 0.0, 1.0)], Domain())  # x -5..11, y and z -5..6
     est = estimate_mesh(domain.bounds, 1.0, Mesh(base_size=1.0))
     volume = RefinementVolume(id="x", name="b", shape=BoxShape(centre=(5.0, 0.5, 0.5), size=(1, 1, 1)), target_size=0.25)
+    assert volume_staircase(2, 1.0) == [(2, 0.75), (1, 1.5)]
+    assert rv.grow(rv.grow(volume.shape, 0.75), 1.5).size == (5.5, 5.5, 5.5)
     info = refinement.volume_info(volume, domain, est, finest=5)
-    assert (info.level, info.achieved_size, info.buffer) == (2, 0.25, 1.5) == (2, 0.25, volume_buffer(2, 0.25))
-    assert info.extra_cells == 4032
+    assert (info.level, info.achieved_size, info.buffer) == (2, 0.25, 2.25)
+    assert info.extra_cells == 2040 == round(15.625 * 63 + (5.5 ** 3 - 2.5 ** 3) * 7)
+    level_one = refinement.volume_info(volume.model_copy(update={"target_size": 0.5}), domain, est, finest=5)
+    assert level_one.extra_cells == round((1.0 + 2 * 1.5) ** 3 * 7)  # one region only: 4 m box, 448 cells
+    level_zero = refinement.volume_info(volume.model_copy(update={"target_size": 2.0}), domain, est, finest=5)
+    assert level_zero.level == 0 and level_zero.extra_cells == 0
     assert rv.grow(volume.shape, 1.5).size == (4.0, 4.0, 4.0)
     sphere = rv.grow(SphereShape(radius=1.0), 0.5)
     assert sphere.radius == 1.5
