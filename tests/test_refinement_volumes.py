@@ -86,9 +86,9 @@ def test_add_duplicate_edit_delete_are_undoable_steps(tmp_path: Path) -> None:
     assert [v.name for v in project.sim.refinement_volumes] == ["wake"] and project.undo_label.startswith("Add")
     dup = project.duplicate_refinement_volume(vid)
     assert [v.name for v in project.sim.refinement_volumes] == ["wake", "wake_2"] and dup != vid
-    project.update_refinement_volume(dup, name="near", target_size=0.02, shape={"rotation_deg": 30.0})
+    project.update_refinement_volume(dup, name="near", target_size=0.02, shape={"yaw_deg": 30.0})
     near = project.volume(dup)
-    assert near.name == "near" and near.target_size == 0.02 and near.shape.rotation_deg == 30.0
+    assert near.name == "near" and near.target_size == 0.02 and near.shape.yaw_deg == 30.0
     assert near.shape.size == (1.0, 1.0, 1.0)  # the other shape fields are kept
     project.update_refinement_volume(dup, enabled=False)
     assert not project.volume(dup).enabled
@@ -153,18 +153,45 @@ def test_searchable_shapes_and_keywords() -> None:
         "point2": [3.0, 0.0, 0.0], "radius2": 1.0, "innerRadius2": 0.0}
 
 
-def test_rotated_box_is_a_searchable_rotated_box_with_its_corner_as_origin() -> None:
-    shape = BoxShape(centre=(1, 1, 0), size=(2, 1, 4), rotation_deg=90.0)
-    g = searchable_geometry(shape)
-    assert g["type"] == "searchableRotatedBox" and g["span"] == [2.0, 1.0, 4.0] and g["e3"] == [0.0, 0.0, 1.0]
-    assert g["e1"] == pytest.approx([0.0, 1.0, 0.0], abs=1e-12)
-    # v2606: the local box (0 0 0)-(span) placed at origin with the local axes e1, e2 = e3 x e1, e3
+def _written_corners(g: dict) -> np.ndarray:
+    """The corners of a searchableRotatedBox as v2606 builds it: the local box (0 0 0)-(span) placed at
+    origin with the local axes e1, e2 = e3 x e1, e3 (searchableRotatedBox.C)."""
     e1, e3 = np.array(g["e1"]), np.array(g["e3"])
     e2 = np.cross(e3, e1)
-    local = np.array([(i, j, k) for i in (0, 2) for j in (0, 1) for k in (0, 4)], dtype=float)
-    corners = np.array(g["origin"]) + local @ np.vstack([e1, e2, e3])
+    span = g["span"]
+    local = np.array([(i, j, k) for i in (0, span[0]) for j in (0, span[1]) for k in (0, span[2])], dtype=float)
+    return np.array(g["origin"]) + local @ np.vstack([e1, e2, e3])
+
+
+def test_unrotated_box_stays_a_plain_searchable_box() -> None:
+    assert searchable_geometry(BoxShape(centre=(1, 2, 3), size=(2, 4, 6), pitch_deg=0.0, yaw_deg=360.0))["type"] == \
+        "searchableBox"
+
+
+@pytest.mark.parametrize("pitch, yaw, e1, e3", [
+    (0.0, 90.0, (0, 1, 0), (0, 0, 1)),  # yawed: e1 turns from +x to +y, e3 stays z
+    (30.0, 0.0, (math.cos(math.radians(30)), 0, math.sin(math.radians(30))),
+     (-math.sin(math.radians(30)), 0, math.cos(math.radians(30)))),  # pitched nose-up: e1 towards +z
+    (10.0, 45.0, (math.cos(math.radians(10)) * math.sqrt(0.5), math.cos(math.radians(10)) * math.sqrt(0.5),
+                  math.sin(math.radians(10))),
+     (-math.sin(math.radians(10)) * math.sqrt(0.5), -math.sin(math.radians(10)) * math.sqrt(0.5),
+      math.cos(math.radians(10)))),
+])
+def test_pitched_and_yawed_boxes_are_searchable_rotated_boxes(pitch, yaw, e1, e3) -> None:
+    shape = BoxShape(centre=(1, 1, 0), size=(2, 1, 4), pitch_deg=pitch, yaw_deg=yaw)
+    g = searchable_geometry(shape)
+    assert g["type"] == "searchableRotatedBox" and g["span"] == [2.0, 1.0, 4.0]
+    assert g["e1"] == pytest.approx(e1, abs=1e-12) and g["e3"] == pytest.approx(e3, abs=1e-12)
+    assert np.dot(g["e1"], g["e3"]) == pytest.approx(0.0, abs=1e-12)
+    corners = _written_corners(g)
     assert np.allclose(np.sort(corners, axis=0), np.sort(rv.box_corners(shape), axis=0))
     assert np.allclose(corners.mean(axis=0), shape.centre)
+    # the long edge (2 m) runs along e1
+    assert np.linalg.norm(corners[4] - corners[0]) == pytest.approx(2.0)
+    assert (corners[4] - corners[0]) / 2.0 == pytest.approx(e1, abs=1e-12)
+    inside = rv.contains(shape, [shape.centre, np.array(shape.centre) + 0.99 * np.array(e1),
+                                 np.array(shape.centre) + 1.01 * np.array(e1)])
+    assert inside.tolist() == [True, True, False]
 
 
 def test_snappy_dict_has_one_geometry_and_one_inside_region_per_volume(tmp_path: Path) -> None:
@@ -251,7 +278,7 @@ def test_shape_volumes_and_containment() -> None:
     cone = ConeShape(point1=(0, 0, 0), point2=(2, 0, 0), radius1=0.5, radius2=1.0)
     assert rv.volume(cone) == pytest.approx(math.pi * 2 / 3 * (0.25 + 0.5 + 1.0))
     assert rv.contains(cone, [(1, 0, 0.74), (1, 0, 0.76), (-0.1, 0, 0)]).tolist() == [True, False, False]
-    rot = BoxShape(centre=(0, 0, 0), size=(2, 0.2, 1), rotation_deg=90)
+    rot = BoxShape(centre=(0, 0, 0), size=(2, 0.2, 1), yaw_deg=90)
     assert rv.contains(rot, [(0, 0.9, 0), (0.9, 0, 0)]).tolist() == [True, False]
     assert rv.bounds(rot) == pytest.approx((-0.1, 0.1, -1, 1, -0.5, 0.5))
     for shape in (rot, cone, CylinderShape(), SphereShape()):
@@ -307,7 +334,7 @@ def test_v11_project_migrates_without_volumes() -> None:
 
 def test_volumes_round_trip_and_are_not_saved_in_presets(tmp_path: Path) -> None:
     project = sphere_project(tmp_path)
-    project.add_refinement_volume(box_volume(rotation_deg=15.0))
+    project.add_refinement_volume(box_volume(pitch_deg=5.0, yaw_deg=15.0))
     project.save()
     sim = load_simulation(project.path)
     assert sim.refinement_volumes == project.sim.refinement_volumes

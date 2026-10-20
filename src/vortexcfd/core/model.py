@@ -501,13 +501,26 @@ VOLUME_SHAPES = ("box", "cylinder", "sphere", "cone")
 
 
 class BoxShape(StrictModel):
-    """A box: its centre, its edge lengths along its own axes and a rotation about the z axis
-    (degrees, counter-clockwise seen from +z)."""
+    """A box: its centre, its edge lengths along its own axes (e1, e2, e3) and its orientation: ``pitch_deg``
+    tilts e1 from +x towards +z (nose-up positive, as the angle of attack), then ``yaw_deg`` turns it
+    about z (counter-clockwise seen from +z). Both 0: the box is aligned with x, y, z."""
 
     kind: Literal["box"] = "box"
     centre: Vector = (0.0, 0.0, 0.0)
     size: Vector = (1.0, 1.0, 1.0)
-    rotation_deg: float = Field(default=0.0, ge=-360.0, le=360.0)
+    pitch_deg: float = Field(default=0.0, ge=-90.0, le=90.0)
+    yaw_deg: float = Field(default=0.0, ge=-360.0, le=360.0)
+
+    @property
+    def rotated(self) -> bool:
+        return self.pitch_deg != 0.0 or self.yaw_deg % 360.0 != 0.0
+
+    def axes(self) -> tuple[Vector, Vector, Vector]:
+        """The box's unit axes: e1 = (cos p cos y, cos p sin y, sin p), e2 = (-sin y, cos y, 0),
+        e3 = e1 x e2 = (-sin p cos y, -sin p sin y, cos p)."""
+        p, y = math.radians(self.pitch_deg), math.radians(self.yaw_deg)
+        cp, sp, cy, sy = math.cos(p), math.sin(p), math.cos(y), math.sin(y)
+        return (cp * cy, cp * sy, sp), (-sy, cy, 0.0), (-sp * cy, -sp * sy, cp)
 
     @field_validator("size")
     @classmethod

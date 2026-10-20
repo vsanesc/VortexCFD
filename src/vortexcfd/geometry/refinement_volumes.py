@@ -31,9 +31,9 @@ def _arr(v) -> np.ndarray:
 
 
 def box_axes(shape: BoxShape) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """The box's own unit axes (e1, e2, e3): x and y turned by rotation_deg about z, e3 = z."""
-    a = math.radians(shape.rotation_deg)
-    return _arr((math.cos(a), math.sin(a), 0.0)), _arr((-math.sin(a), math.cos(a), 0.0)), _arr((0.0, 0.0, 1.0))
+    """The box's own unit axes (e1, e2, e3) after its pitch and yaw (BoxShape.axes)."""
+    e1, e2, e3 = shape.axes()
+    return _arr(e1), _arr(e2), _arr(e3)
 
 
 def box_corners(shape: BoxShape) -> np.ndarray:

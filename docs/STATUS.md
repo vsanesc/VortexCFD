@@ -8,7 +8,7 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
 **task/5.x-refinement-volumes** (not yet published; it starts from task/5.3-cfmesh, which is not
 published either). No OpenFOAM command was run in this task (another heavy process was running).
 Done on it:
-- Part A (D-103, [NUMERICS-REVIEW], schema v12): user refinement volumes (box with a rotation about z,
+- Part A (D-103, [NUMERICS-REVIEW], schema v12): user refinement volumes (box with pitch and yaw,
   cylinder, sphere, cone) with a target cell size mapped to a refinement level (rounded towards the finer
   level; achieved size and level shown; warning when finer than the finest part surface level);
   snappyHexMeshDict geometry entries as v2606 searchable shapes (searchableBox / searchableRotatedBox,

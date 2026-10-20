@@ -14,7 +14,8 @@ from vortexcfd.workflow import meshing, refinement
 
 # The editable fields of each shape: (field, label, vector?, suffix).
 SHAPE_FIELDS: dict[str, tuple[tuple[str, str, bool, str], ...]] = {
-    "box": (("centre", "Centre", True, " m"), ("size", "Size", True, " m"), ("rotation_deg", "Rotation about z", False, "°")),
+    "box": (("centre", "Centre", True, " m"), ("size", "Size", True, " m"),
+            ("pitch_deg", "Pitch (about y)", False, "\u00b0"), ("yaw_deg", "Yaw (about z)", False, "\u00b0")),
     "cylinder": (("point1", "End point 1", True, " m"), ("point2", "End point 2", True, " m"), ("radius", "Radius", False, " m")),
     "sphere": (("centre", "Centre", True, " m"), ("radius", "Radius", False, " m")),
     "cone": (("point1", "End point 1", True, " m"), ("radius1", "Radius 1", False, " m"),
@@ -22,6 +23,7 @@ SHAPE_FIELDS: dict[str, tuple[tuple[str, str, bool, str], ...]] = {
 }
 SHAPE_LABELS = {"box": "Box", "cylinder": "Cylinder", "sphere": "Sphere", "cone": "Cone"}
 COORD_RANGE = 1e6
+ANGLE_RANGES = {"pitch_deg": (-90.0, 90.0), "yaw_deg": (-360.0, 360.0)}
 
 
 class VectorEdit(QWidget):
@@ -98,7 +100,7 @@ class VolumeRowsMixin:
                     widget.setDecimals(4)
                     widget.setSuffix(suffix)
                     widget.setKeyboardTracking(False)
-                    widget.setRange(-360.0, 360.0) if field == "rotation_deg" else widget.setRange(0.0, COORD_RANGE)
+                    widget.setRange(*ANGLE_RANGES.get(field, (0.0, COORD_RANGE)))
                     spins = [widget]
                 for spin in spins:
                     spin.valueChanged.connect(lambda _v, k=kind: self._preview_volume(k))

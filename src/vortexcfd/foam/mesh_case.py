@@ -172,21 +172,19 @@ def _vec(v) -> list[float]:
 def searchable_geometry(shape) -> dict:
     """The v2606 searchable shape of a refinement volume (src/meshTools/searchableSurfaces, D-103):
     searchableBox (min, max); searchableRotatedBox (span; origin = the box's corner at its local
-    (0 0 0); e1, e3 = its local x and z axes) when the box is rotated; searchableCylinder (point1,
-    point2, radius); searchableSphere (centre, radius); searchableCone (point1, radius1, innerRadius1,
-    point2, radius2, innerRadius2; solid: inner radii 0). [NUMERICS-REVIEW]"""
+    (0 0 0); e1, e3 = its local x and z axes after pitch and yaw, BoxShape.axes) when the box is pitched or
+    yawed; searchableCylinder (point1, point2, radius); searchableSphere (centre, radius); searchableCone
+    (point1, radius1, innerRadius1, point2, radius2, innerRadius2; solid: inner radii 0). [NUMERICS-REVIEW]"""
     if isinstance(shape, BoxShape):
         half = [s / 2 for s in shape.size]
         c = shape.centre
-        if shape.rotation_deg % 360.0 == 0.0:
+        if not shape.rotated:
             return {"type": "searchableBox", "min": [c[i] - half[i] for i in range(3)],
                     "max": [c[i] + half[i] for i in range(3)]}
-        a = math.radians(shape.rotation_deg)
-        e1 = (math.cos(a), math.sin(a), 0.0)
-        e2 = (-math.sin(a), math.cos(a), 0.0)
-        origin = [c[i] - half[0] * e1[i] - half[1] * e2[i] - (half[2] if i == 2 else 0.0) for i in range(3)]
+        e1, e2, e3 = shape.axes()
+        origin = [c[i] - half[0] * e1[i] - half[1] * e2[i] - half[2] * e3[i] for i in range(3)]
         return {"type": "searchableRotatedBox", "span": _vec(shape.size), "origin": origin,
-                "e1": _vec(e1), "e3": [0.0, 0.0, 1.0]}
+                "e1": _vec(e1), "e3": _vec(e3)}
     if isinstance(shape, CylinderShape):
         return {"type": "searchableCylinder", "point1": _vec(shape.point1), "point2": _vec(shape.point2),
                 "radius": float(shape.radius)}

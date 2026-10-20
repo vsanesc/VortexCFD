@@ -78,12 +78,12 @@ def test_properties_edit_every_field_with_one_undo_step_each(window: MainWindow)
     panel = w.properties
     assert panel._rows["vol_box_centre"].isVisibleTo(panel) and not panel._rows["vol_cone_point1"].isVisibleTo(panel)
     assert panel.vol_shape_fields[("box", "size")].spins[0].suffix() == " m"
-    assert panel.vol_shape_fields[("box", "rotation_deg")].suffix() == "°"
+    assert panel.vol_shape_fields[("box", "pitch_deg")].suffix() == "°"
     vid = w.project.sim.refinement_volumes[0].id
-    spin = panel.vol_shape_fields[("box", "rotation_deg")]
+    spin = panel.vol_shape_fields[("box", "yaw_deg")]
     spin.setValue(30.0)
     spin.editingFinished.emit()
-    assert w.project.volume(vid).shape.rotation_deg == 30.0
+    assert w.project.volume(vid).shape.yaw_deg == 30.0
     assert w.project.undo_label == "Edit refinement volume 'box' (shape)"
     panel.vol_target.setValue(0.02)
     panel.vol_target.editingFinished.emit()
@@ -98,7 +98,7 @@ def test_properties_edit_every_field_with_one_undo_step_each(window: MainWindow)
     assert w.project.volume(vid).name == "near_body" and panel.vol_name.text() == "near_body"  # reverted
     for _ in range(3):
         w.project.undo()
-    assert w.project.volume(vid).shape.rotation_deg == 0.0
+    assert w.project.volume(vid).shape.yaw_deg == 0.0
 
 
 def test_viewer_previews_an_edit_before_it_is_committed(window: MainWindow) -> None:
