@@ -270,10 +270,10 @@ class _Estimate:
 
 
 @pytest.mark.parametrize("solver, chosen, cells, physical, used, automatic", [
-    (1, None, 10**7, 12, 1, True),  # serial projects mesh in serial
-    (8, None, 10**7, 12, MESH_EFFICIENT_CORES, True),  # capped by the recommendation
+    (1, None, 10**7, 12, MESH_EFFICIENT_CORES, True),  # the Solvers cores do not cap it (owner review)
+    (4, None, 100_000, 12, 8, True),  # the default background: 100,000 / 12,500
     (8, None, MESH_CELLS_PER_CORE * 2, 12, 2, True),
-    (3, None, 10**7, 12, min(3, MESH_EFFICIENT_CORES), True),
+    (1, None, 10, 12, 1, True),
     (1, 6, 10, 12, 6, False),  # the user's number, beyond the recommendation
     (1, 16, 10, 12, 12, False),  # never more than the physical cores
     (16, None, 10**7, 2, 2, True),

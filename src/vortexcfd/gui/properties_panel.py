@@ -184,9 +184,9 @@ MESH_SETTINGS = (
 )
 MESH_OPTIONAL = frozenset({"base_size", "surface_level_min", "surface_level_max", "cores"})
 # Tooltip of the Mesh cores field (D-111).
-MESH_CORES_TIP = ("snappyHexMesh ranks. auto: the Solvers cores, capped by the recommendation from the estimated "
-                  "background cells. 1 meshes in serial; with more the mesh is reconstructed into one serial "
-                  "mesh afterwards.")
+MESH_CORES_TIP = ("snappyHexMesh ranks. auto: the recommendation from the estimated background cells (12,500 per "
+                  "core, at most 8). Meshing scales better than the solver; it can use more cores. 1 meshes in "
+                  "serial; with more the mesh is reconstructed into one serial mesh afterwards.")
 # Reference Values node (D-047): the note under the auto (bounding box) values.
 REFERENCE_NOTE = "set the wing area and mean chord for aircraft"
 AREA_BASES = ("planform", "frontal", "custom")

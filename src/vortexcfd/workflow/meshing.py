@@ -312,17 +312,15 @@ class MeshCores:
 
 
 def mesh_cores(project: Project, box: DomainBox, physical: int | None = None) -> MeshCores:
-    """The snappyHexMesh ranks of ``project`` (P2 of D-111): Mesh.cores when set, else the Solvers cores
-    capped by the recommendation from the estimated background cells; never more than the physical
-    cores, at least 1."""
+    """The snappyHexMesh ranks of ``project`` (D-111): Mesh.cores when set, else the meshing recommendation
+    from the estimated background cells, min(physical, cells / 12,500, 8); never more than the physical
+    cores, at least 1. The Solvers cores do not enter: their cap (D-064) measured the solver's efficiency,
+    and meshing scales better (owner review of D-111). [NUMERICS-REVIEW]"""
     physical = physical or physical_cores()
     cells = estimate_with_volumes(project, box).budget_cells
     recommended = recommended_mesh_cores(cells, physical)
     chosen = project.sim.mesh.cores
-    if chosen is None:
-        used = min(project.sim.solvers.cores, recommended)
-    else:
-        used = chosen
+    used = recommended if chosen is None else chosen
     return MeshCores(max(1, min(used, physical)), recommended, cells, chosen is None)
 
 

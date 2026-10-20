@@ -589,8 +589,10 @@ def test_the_mesh_cores_field_shows_auto_and_the_cores_used(make_window) -> None
     p = w.properties
     spin = p.mesh_fields["cores"]
     assert spin.value() == 0 and spin.specialValueText() == "auto" and spin.maximum() == properties_panel.PHYSICAL_CORES
-    assert "Solvers cores" in spin.toolTip() and p._rows["mset_cores_used"].isVisible()
-    assert p.mesh_cores_used.text().startswith("1 (automatic; recommended ")  # Solvers cores 1
+    assert "Meshing scales better than the solver; it can use more cores" in spin.toolTip()
+    assert p._rows["mset_cores_used"].isVisible() and w.project.sim.solvers.cores == 1
+    used = p.mesh_cores_used.text()  # the recommendation, whatever the Solvers cores (owner review of D-111)
+    assert used.startswith(f"{used.split(' ')[0]} (automatic; recommended {used.split(' ')[0]} for ")
     spin.setValue(2)
     spin.editingFinished.emit()
     assert w.project.sim.mesh.cores == 2 and p.mesh_cores_used.text().startswith("2 (set; recommended ")
