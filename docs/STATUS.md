@@ -1,6 +1,6 @@
 # Status
 
-Updated 2026-10-20 (task/5.x-parallel-mesh: parallel snappyHexMesh).
+Updated 2026-10-20 (task/5.x-parallel-mesh: parallel snappyHexMesh; owner review applied).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
@@ -10,18 +10,23 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
   decomposePar (scotch), every snappyHexMesh pass through mpirun on one decomposition, reconstructParMesh
   -constant, then createPatch and checkMesh on the serial mesh; processor*/ removed after the reconstruction
   and after a stop or failure; a new meshing case drops the old mesh record. Mesh properties: "Mesh cores"
-  (auto = the Solvers cores capped by the recommendation) and "Cores used"; the mesh record keeps the cores.
+  (auto = the meshing recommendation, see the owner review below) and "Cores used"; the mesh record keeps the cores.
   Benchmark `--mesh-cores` (default serial) and the summed memory of all ranks.
 - Part B: mesh only at 1 / 4 / 8 cores: speedup at 8 cores 2.13 sphere, 1.97 half wing, 1.85 Ahmed body,
   4.13 aircraft (497 -> 120 s); validity, checks, strict coverage (overall and zones), first cell and
   fidelity the same to the noise. Meshing cap rule: background cells / 12,500, at most 8. Machine time
   about 29 min.
+- Owner review: D-111 accepted with two changes, QUESTIONS 154 and 157-161 accepted.
+  - QUESTIONS 155 ([NUMERICS-REVIEW]): automatic meshing cores = min(physical cores, background cells /
+    12,500, 8), independent of the Solvers cores (the solver's cap of 4 measured the solver); the solver
+    recommendation is unchanged. Automatic cores of the benchmark cases: sphere 8, half wing 7, Ahmed body 7,
+    aircraft 7 (99,200-100,860 background cells).
+  - QUESTIONS 156: the mesh study meshes every level on the project's meshing cores, one level at a time,
+    processor*/ cleaned per level; a real 2-level sphere study on 4 cores took 34 s.
 
-Next: owner review of D-111 and QUESTIONS 154-161 (155: whether automatic meshing should ignore the Solvers
-cores; 156: the mesh study in parallel). Then the aircraft's zones (QUESTIONS 147); drag handles for the
-refinement volumes (item 132). The owner runs scripts/ship.sh (the slow tests, item 161). Open:
-docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131,
-147 and 154 to 161.
+Next: the aircraft's zones (QUESTIONS 147); drag handles for the refinement volumes (item 132). The owner
+runs scripts/ship.sh (the slow tests, item 161). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73,
+75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131 and 147.
 
 ## Phases
 
@@ -57,7 +62,7 @@ docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75, 82, 89 to 94, 96, 97, 12
 | 6.3 | Data export and reports | not started (section CSV export only, D-062) |
 | 6.4 | Mesh independence study (GCI) | done (D-066): Mesh Study node, three levels, Celik GCI, results window and CSV; flat plate Case B not reproduced through the workflow (item 72) |
 | 6.5 | Angle-of-attack sweep (polars) | done (D-067): Polar Sweep node, points on the current mesh initialised from the previous converged point, CL-alpha / drag polar / CM-alpha, CSV; NACA 0012 check waits for the wing case |
-| 6.6 | Parallel runs (mpirun) | done (D-063 Accepted): decomposePar / mpirun / reconstructPar, clean stop through mpirun; speedup study and recommended cores (D-064); parallel snappyHexMesh reconstructed to a serial mesh (D-111, proposed) |
+| 6.6 | Parallel runs (mpirun) | done (D-063 Accepted): decomposePar / mpirun / reconstructPar, clean stop through mpirun; speedup study and recommended cores (D-064); parallel snappyHexMesh reconstructed to a serial mesh, also for the mesh study levels (D-111 accepted) |
 | 7.1-7.3 | Coupled solver analysis | not started |
 | 8.1-8.5 | Moving meshes | not started |
 | 9.1 | Project management | partly done: save/load, undo/redo, start screen, recent projects, project folders, presets (D-077); cloning not started |
