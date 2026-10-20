@@ -65,6 +65,7 @@ from vortexcfd.workflow.meshing import (
     MeshingNotReady,
     estimate_with_volumes,
     fluid_location,
+    mesh_cores,
     parts_layout,
     plan_layers_for,
     surface_length,
@@ -179,8 +180,13 @@ MESH_SETTINGS = (
     ("min_thickness", "Min layer thickness", lambda: _dspin(0.001, 5.0, 3, " \u00d7 cell")),
     ("layer_sizing", "Layer sizing", lambda: _combo(("relative", "absolute_yplus"))),
     ("target_yplus", "Target y+", lambda: _dspin(0.01, 1000.0, 3)),
+    ("cores", "Mesh cores", lambda: _spin(0, PHYSICAL_CORES, "", "auto")),
 )
-MESH_OPTIONAL = frozenset({"base_size", "surface_level_min", "surface_level_max"})
+MESH_OPTIONAL = frozenset({"base_size", "surface_level_min", "surface_level_max", "cores"})
+# Tooltip of the Mesh cores field (D-111).
+MESH_CORES_TIP = ("snappyHexMesh ranks. auto: the Solvers cores, capped by the recommendation from the estimated "
+                  "background cells. 1 meshes in serial; with more the mesh is reconstructed into one serial "
+                  "mesh afterwards.")
 # Reference Values node (D-047): the note under the auto (bounding box) values.
 REFERENCE_NOTE = "set the wing area and mean chord for aircraft"
 AREA_BASES = ("planform", "frontal", "custom")
@@ -361,6 +367,7 @@ MESH_SECTIONS = {
     "background_cells_target": "Sizing",
     "surface_level_min": "Refinement",
     "layers": "Layers",
+    "cores": "Parallel",
 }
 
 
@@ -601,6 +608,9 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
                 self.mesh_base_used = self._ro_row("mset_base_used", "Base size used")
             if key == "surface_level_max":
                 self.mesh_levels_used = self._ro_row("mset_levels_used", "Levels used")
+            if key == "cores":
+                widget.setToolTip(MESH_CORES_TIP)
+                self.mesh_cores_used = self._ro_row("mset_cores_used", "Cores used")
             if key == "target_yplus":
                 self.mesh_yplus_note = QLabel(YPLUS_NOTE)
                 self.mesh_yplus_note.setObjectName("muted")
@@ -1041,12 +1051,12 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         keys = [f"mset_{k}" for k, _, _ in MESH_SETTINGS]
         return keys + ["mset_base_used", "mset_levels_used", "mset_bg_cells", "mset_volume_cells", "mset_surface_length",
                        "mset_surface_cells", "mset_curvature", "mset_first_layer", "mset_layer_count",
-                       "mset_layer_stack"]
+                       "mset_layer_stack", "mset_cores_used"]
 
     def _refresh_mesh_settings(self, show: bool) -> None:
         for key in self._mesh_setting_rows():
             self._rows[key].setVisible(show)
-        for key in ("mesh_sizing", "mesh_refinement", "mesh_layers", "mesh_estimate"):
+        for key in ("mesh_sizing", "mesh_refinement", "mesh_layers", "mesh_parallel", "mesh_estimate"):
             self._sections[key].setVisible(show)
         self.mesh_title.setVisible(show and self._mesh_report is not None)
         if not show:
@@ -1114,7 +1124,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
             label.setToolTip(plan.warning if warn else "")
         if box.bounds is None:
             for label in (self.mesh_base_used, self.mesh_levels_used, self.mesh_bg_cells, self.mesh_volume_cells,
-                          self.mesh_surface_length, self.mesh_surface_cells, self.mesh_curvature):
+                          self.mesh_surface_length, self.mesh_surface_cells, self.mesh_curvature,
+                          self.mesh_cores_used):
                 label.setText("\u2014")
             self._set_warn(self.mesh_bg_cells, False)
             self.mesh_length_warning.setVisible(False)
@@ -1143,6 +1154,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         self.mesh_volume_cells.setToolTip(OVERLAP_NOTE if count else "")
         self._set_warn(self.mesh_volume_cells, est.too_many_cells and est.volume_cells > 0)
         self.mesh_surface_cells.setText(f"{est.surface_size:.4g} m")
+        self.mesh_cores_used.setText(mesh_cores(self._project, box, PHYSICAL_CORES).describe())
 
     def _refresh_groups(self) -> None:
         """Show the group of the selected node (Physics, Inflow or Solvers) and fill it."""

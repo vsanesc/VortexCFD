@@ -65,6 +65,7 @@ class FakeRun:
 
     def __init__(self, case_dir, *, on_line=None, on_step=None, on_done=None, **kwargs) -> None:
         self.case_dir, self.on_line, self.on_step, self.on_done = case_dir, on_line, on_step, on_done
+        self.kwargs = kwargs
         self.started = False
         self.stop_requested = False
         self.alive = False
@@ -549,3 +550,50 @@ def test_mesh_properties_state_the_surface_length_and_warn_when_l_ref_is_auto(ma
     assert p.mesh_surface_length.text().startswith("L = ") and p.mesh_curvature.text() == "off"
     assert p.mesh_fields["curvature_levels"].specialValueText() == "off"
     assert p.mesh_fields["surface_size_reference"].currentText() == "largest_extent"
+
+
+# -- parallel meshing (D-111) ----------------------------------------------------------------------
+
+
+def test_the_mesh_cores_reach_the_run_and_the_record(make_window, fake_run, monkeypatch) -> None:
+    from vortexcfd.foam.mesh_record import read_mesh_record
+    from vortexcfd.workflow import meshing
+
+    monkeypatch.setattr(meshing, "physical_cores", lambda: 12)
+    w = make_window(with_viewer=False)
+    w.project.update_mesh(cores=3)
+    w.top_bar.mesh_button.click()
+    run = fake_run.instances[-1]
+    assert run.kwargs["cores"] == 3
+    run.finish(MeshRunResult(True, False, exit_codes={}, report=_ready_report(), cores=3))
+    assert read_mesh_record(w.project.path.parent / "case").cores == 3
+
+
+def test_a_failed_parallel_step_reports_its_log(make_window, fake_run) -> None:
+    w = make_window()
+    w.top_bar.mesh_button.click()
+    error = "reconstructParMesh failed (exit code 1): see /x/logs/log.reconstructParMesh"
+    fake_run.instances[-1].finish(MeshRunResult(False, False, "reconstructParMesh", {"reconstructParMesh": 1},
+                                                cores=4, error=error))
+    assert "Meshing failed in reconstructParMesh" in w.statusBar().currentMessage()
+    assert error in w.console.text() and w.mesh_report is None
+
+
+def test_the_mesh_cores_field_shows_auto_and_the_cores_used(make_window) -> None:
+    from vortexcfd.gui import properties_panel
+
+    if properties_panel.PHYSICAL_CORES < 2:
+        pytest.skip("needs two physical cores")
+    w = make_window(with_viewer=False)
+    _mesh_node(w)
+    p = w.properties
+    spin = p.mesh_fields["cores"]
+    assert spin.value() == 0 and spin.specialValueText() == "auto" and spin.maximum() == properties_panel.PHYSICAL_CORES
+    assert "Solvers cores" in spin.toolTip() and p._rows["mset_cores_used"].isVisible()
+    assert p.mesh_cores_used.text().startswith("1 (automatic; recommended ")  # Solvers cores 1
+    spin.setValue(2)
+    spin.editingFinished.emit()
+    assert w.project.sim.mesh.cores == 2 and p.mesh_cores_used.text().startswith("2 (set; recommended ")
+    spin.setValue(0)
+    spin.editingFinished.emit()
+    assert w.project.sim.mesh.cores is None  # back to automatic

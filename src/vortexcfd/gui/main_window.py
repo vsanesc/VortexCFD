@@ -1243,9 +1243,11 @@ class MainWindow(StudyControlMixin, QMainWindow):
                  est.level_min, est.level_max, est.surface_size)
         for text in thin_part_warnings(self._project):
             log.warning(text)
+        if job.cores > 1:
+            log.info("snappyHexMesh on %d cores (decomposed, reconstructed afterwards)", job.cores)
         planned = job.inputs.first_layer_thickness
         first_layer = (planned, job.inputs.layer_count or 1) if planned is not None else None  # y+ layers (D-109)
-        self.mesh_worker.start(job.case_dir, job.inputs.patches, first_layer)
+        self.mesh_worker.start(job.case_dir, job.inputs.patches, first_layer, job.cores)
         self._update_mesh_stale()
         self._update_mesh_button()
         self._update_run_button()
@@ -1308,6 +1310,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         elif not result.success:
             step = result.failed_step or "meshing"
             log.error("Meshing failed in %s (exit codes: %s)", step, result.exit_codes)
+            if result.error:
+                log.error("%s", result.error)
             self.show_message(f"Meshing failed in {step}; see the console", "error", log_it=False)
         else:
             report = result.report
@@ -1324,7 +1328,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
                                                      drift or report.first_cell.description())
             try:
                 write_mesh_record(case_dir_for(self._project), MeshRecord(
-                    report, self._run_hash or "", self._mesh_patches))
+                    report, self._run_hash or "", self._mesh_patches, result.cores))
             except OSError as exc:
                 log.warning("Could not save the mesh record: %s", exc)
             self._clear_results_after_meshing()

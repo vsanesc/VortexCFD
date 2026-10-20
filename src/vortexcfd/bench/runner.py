@@ -16,8 +16,10 @@ measurement is the same, and the layers are also counted from the mesh itself (b
 both meshers, because cfMesh writes no layer fields.
 """
 
+import os
 import resource
 import shutil
+import threading
 import time
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -78,6 +80,56 @@ def _log(msg: str) -> None:
 def _peak_child_mb() -> float:
     """Peak resident memory of the largest finished child process so far (MiB; Linux reports KiB)."""
     return resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 1024.0
+
+
+def descendants_rss_mb(root: int | None = None, proc: Path = Path("/proc")) -> float:
+    """Resident memory (MiB) of every live descendant of ``root`` (default: this process) together: the
+    ranks of an mpirun run add up, which the per-process peak of getrusage does not show."""
+    root = os.getpid() if root is None else root
+    parent: dict[int, int] = {}
+    rss: dict[int, int] = {}
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            fields = (entry / "stat").read_text().rpartition(")")[2].split()
+        except OSError:
+            continue
+        parent[int(entry.name)] = int(fields[1])  # after the command: state, ppid, ...
+        rss[int(entry.name)] = int(fields[21])  # rss in pages (field 24 of proc(5))
+    children: dict[int, list[int]] = {}
+    for pid, ppid in parent.items():
+        children.setdefault(ppid, []).append(pid)
+    total, todo = 0, list(children.get(root, ()))
+    while todo:
+        pid = todo.pop()
+        total += rss.get(pid, 0)
+        todo.extend(children.get(pid, ()))
+    return total * PAGE_BYTES / 2**20
+
+
+PAGE_BYTES = os.sysconf("SC_PAGE_SIZE")
+
+
+class MemorySampler:
+    """The peak of descendants_rss_mb, sampled every ``interval_s`` on a thread while in the ``with``."""
+
+    def __init__(self, interval_s: float = 0.5) -> None:
+        self.interval_s, self.peak_mb = interval_s, 0.0
+        self._done = threading.Event()
+        self._thread = threading.Thread(target=self._sample, daemon=True)
+
+    def _sample(self) -> None:
+        while not self._done.wait(self.interval_s):
+            self.peak_mb = max(self.peak_mb, descendants_rss_mb())
+
+    def __enter__(self) -> "MemorySampler":
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._done.set()
+        self._thread.join()
 
 
 def new_project(case: BenchCase, work_root: Path) -> Project:
@@ -318,8 +370,9 @@ def cfmesh_cpus(cores: int = CFMESH_CORES) -> tuple[int, ...]:
     return tuple(range(0, 2 * cores, 2))
 
 
-def run_mesh(project: Project, mesher: str = "snappy") -> tuple:
-    """Prepare and run the meshing case; returns (job, MeshRunResult, step durations, notes). With
+def run_mesh(project: Project, mesher: str = "snappy", mesh_cores: int = 1) -> tuple:
+    """Prepare and run the meshing case; returns (job, MeshRunResult, step durations, notes).
+    ``mesh_cores``: snappyHexMesh ranks (D-111; the benchmark meshes in serial unless asked). With
     cfMesh and a symmetry plane the run stops before checkMesh, the symmetry patch is made exactly
     planar (workflow/cfmesh.flatten_symmetry, its displacement in the notes) and checkMesh runs on that."""
     stages: list[tuple] = []
@@ -355,6 +408,8 @@ def run_mesh(project: Project, mesher: str = "snappy") -> tuple:
             on_step("flattenSymmetry")
             notes["symmetry_flattened"] = cfmesh.flatten_symmetry(job.case_dir, "symmetry", job.box.bounds[2])
         extra = {"steps": stage} if stage is not None else {}
+        if mesher == "snappy":
+            extra["cores"] = mesh_cores
         run = MeshRun(job.case_dir, on_step=on_step, parts=job.inputs.patches, step_timeout_s=STEP_TIMEOUT_S, **extra)
         run.start()
         result = run.wait()
@@ -475,9 +530,11 @@ def _name(ref: "reference_module.ReferenceSurface", index: int) -> str:
     return next((n for n, k in ref.components.items() if k == index), str(index))
 
 
-def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool = True, mesher: str = "snappy") -> dict:
+def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool = True, mesher: str = "snappy",
+             mesh_cores: int = 1) -> dict:
     """Mesh (and, with ``solve``, the y+ run) one case; every result is a plain dict for the JSON.
-    ``mesher`` "cfmesh" is the 5.3 evaluation switch (the project folder is <case>_cfmesh)."""
+    ``mesher`` "cfmesh" is the 5.3 evaluation switch (the project folder is <case>_cfmesh);
+    ``mesh_cores`` the snappyHexMesh ranks (D-111, 1 by default for comparability with the baseline)."""
     t0 = time.monotonic()
     ref = None
     out: dict = {"case": case.name, "description": case.description, "mesher": mesher}
@@ -523,10 +580,13 @@ def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool =
                        "surface_size": est.surface_size, "background_cells": est.total_cells,
                        "surface_length": length.value, "surface_length_source": length.source,
                        "curvature_level": est.curvature_level}
-    _log(f"{case.name}: meshing")
-    job, result, steps, notes = run_mesh(project, mesher)
+    _log(f"{case.name}: meshing" + (f" on {mesh_cores} cores" if mesh_cores > 1 else ""))
+    with MemorySampler() as memory:
+        job, result, steps, notes = run_mesh(project, mesher, mesh_cores)
     out.update(notes)
+    out["mesh_cores"] = mesh_cores
     out["mesh_peak_mb"] = _peak_child_mb()
+    out["mesh_peak_total_mb"] = memory.peak_mb  # all processes of the run together (sampled, D-111)
     report = result.report if result else None
     stages = snappy_stages(job.case_dir / "logs")
     snappy_log = job.case_dir / "logs" / "log.snappyHexMesh"

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, ValidationError, field_validator
+from pydantic import Field, ValidationError, field_serializer, field_validator
 
 from vortexcfd.core.model import CURRENT_SCHEMA_VERSION, Mesh, Simulation, StrictModel
 from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR, V13_MESH_FIELDS, V14_MESH_FIELDS
@@ -72,6 +72,12 @@ class Preset(StrictModel):
     domain: PresetDomain = Field(default_factory=PresetDomain)
     boundary_types: dict[str, str] = Field(default_factory=lambda: dict(DEFAULT_BOUNDARY_TYPES))
     mesh: Mesh = Field(default_factory=Mesh)
+
+    @field_serializer("mesh")
+    def _mesh_without_cores(self, mesh: Mesh) -> dict:
+        """The meshing cores belong to the machine, like the solver's: a preset never carries them and a
+        project made from one meshes with automatic cores (D-111)."""
+        return mesh.model_dump(exclude={"cores"})
 
     @field_validator("name")
     @classmethod
@@ -165,7 +171,7 @@ def preset_from_simulation(sim: Simulation, name: str) -> Preset:
     """A user preset from an open project: its analysis type, domain set-up and mesh settings."""
     domain = {key: getattr(sim.domain, key) for key in DOMAIN_FIELDS}
     return Preset(name=name, analysis_type=sim.analysis_type, domain=PresetDomain(**domain),
-                  mesh=sim.mesh.model_copy(deep=True))
+                  mesh=sim.mesh.model_copy(deep=True, update={"cores": None}))
 
 
 @dataclass(frozen=True)

@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 14
+CURRENT_SCHEMA_VERSION: int = 15
 
 
 class StrictModel(BaseModel):
@@ -205,6 +205,11 @@ class Mesh(StrictModel):
     # the target wall distance); "cell_height" (every project saved before v14) uses the target distance
     # as the first-layer height (OpenFOAM then reports about half the target).
     yplus_at: Literal["cell_centre", "cell_height"] = "cell_centre"
+    # snappyHexMesh ranks (schema v15, D-111): None, the default, is automatic: the Solvers cores capped by
+    # the meshing recommendation from the estimated cells (workflow/meshing.mesh_cores); a number is the
+    # user's choice, capped by the machine's physical cores at run time. 1 is the serial pipeline. Left
+    # out of the mesh hash: a parallel run meshes the same inputs.
+    cores: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def _levels_ordered(self) -> "Mesh":

@@ -1,11 +1,19 @@
 """Sequential meshing run (blockMesh, surfaceFeatureExtract, snappyHexMesh, checkMesh; the optional steps
 run only when their dictionary was written).
 
+With ``cores`` N > 1 (D-111) the snappyHexMesh passes run on N ranks: decomposePar after
+surfaceFeatureExtract (system/decomposeParDict written here), ``mpirun -np N snappyHexMesh -parallel``
+for every pass and reconstructParMesh -constant after the last one, so createPatch, checkMesh, the
+lost-part guard and the first-cell walk read the usual serial mesh. The master rank prints the log in
+the serial format. The processor* directories are removed after the reconstruction and after a
+stopped or failed run.
+
 No Qt. Everything runs on a worker thread; ``on_line``, ``on_step`` and ``on_done`` are called
 from worker/reader threads, so a GUI must forward them through Qt signals only.
 """
 
 import json
+import shutil
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -14,8 +22,10 @@ from pathlib import Path
 import numpy as np
 
 from vortexcfd.foam import layer_walk
-from vortexcfd.foam.mesh_case import DOMAIN_GUARD_FILE, MESH_COMMANDS, STEP_DICTS
+from vortexcfd.foam.dictfile import write_foam_file
+from vortexcfd.foam.mesh_case import DOMAIN_GUARD_FILE, RECONSTRUCT_STEP, STEP_DICTS, mesh_commands
 from vortexcfd.foam.mesh_report import FirstCell, MeshReport, parse_check_mesh, parse_layer_table
+from vortexcfd.foam.parallel import DECOMPOSE_DICT, decompose_par_dict, processor_dirs
 from vortexcfd.foam.polymesh import PolyMesh
 from vortexcfd.foam.postprocessing import patch_face_counts
 from vortexcfd.foam.runner import FoamRun
@@ -34,6 +44,8 @@ class MeshRunResult:
     exit_codes: dict[str, int | None] = field(default_factory=dict)
     report: MeshReport | None = None  # from checkMesh, if it ran
     log_dir: Path | None = None
+    cores: int = 1  # snappyHexMesh ranks (D-111)
+    error: str | None = None  # the failed step and its log, for the console
 
 
 def lost_parts(case_dir: Path, parts: tuple[str, ...]) -> tuple[str, ...]:
@@ -84,14 +96,16 @@ class MeshRun:
         on_line: Callable[[str], None] | None = None,
         on_step: Callable[[str], None] | None = None,
         on_done: Callable[[MeshRunResult], None] | None = None,
-        steps: tuple[tuple[str, list[str]], ...] = MESH_COMMANDS,
+        steps: tuple[tuple[str, list[str]], ...] | None = None,
         step_timeout_s: float | None = 3600.0,
         parts: tuple[str, ...] = (),
         first_layer: tuple[float, int] | None = None,
+        cores: int = 1,
     ) -> None:
         self.case_dir = Path(case_dir)
         self._on_line, self._on_step, self._on_done = on_line, on_step, on_done
-        self._steps = steps
+        self.cores = max(1, int(cores))
+        self._steps = steps if steps is not None else mesh_commands(self.cores)
         self._parts = tuple(parts)  # part patches that must be in the final mesh (lost-part guard)
         # (planned first layer in metres, layer count) of absolute (y+) layers: the achieved first cell is
         # measured on the part patches after checkMesh (D-109); None: not measured
@@ -125,13 +139,35 @@ class MeshRun:
             self._thread.join(timeout)
         return self._result
 
+    def _clean_processors(self) -> None:
+        """Remove the decomposed copy of the mesh (processor*/) and the meshing decomposeParDict."""
+        if self.cores <= 1:
+            return
+        for path in processor_dirs(self.case_dir):
+            shutil.rmtree(path, ignore_errors=True)
+        (self.case_dir / DECOMPOSE_DICT).unlink(missing_ok=True)
+
     def _run(self) -> None:
+        try:
+            self._run_steps()
+        finally:
+            self._clean_processors()  # also after a stop, a failure or an exception (D-111)
+        if self._on_done is not None and self._result is not None:
+            self._on_done(self._result)
+
+    def _run_steps(self) -> None:
         log_dir = self.case_dir / "logs"
         codes: dict[str, int | None] = {}
         report: MeshReport | None = None
         layers: tuple = ()
         extruded: float | None = None
         failed: str | None = None
+        error: str | None = None
+        if self.cores > 1:
+            self._clean_processors()  # a decomposed mesh of an earlier run or solve
+            spec = decompose_par_dict(self.cores)
+            write_foam_file(self.case_dir / DECOMPOSE_DICT, spec.content, object_name="decomposeParDict",
+                            class_name=spec.class_name)
         for name, command in self._steps:
             with self._lock:
                 if self._stop:
@@ -168,13 +204,15 @@ class MeshRun:
                                                                            *self._first_layer))
             elif res.exit_code != 0:
                 failed = name
+                error = f"{name} failed (exit code {res.exit_code}): see {res.log_file}"
                 break
+            if name == RECONSTRUCT_STEP:
+                self._clean_processors()  # the serial mesh is in constant/polyMesh
         with self._lock:
             stopped = self._stop
         result = MeshRunResult(
             success=failed is None and not stopped and report is not None,
             stopped=stopped, failed_step=failed, exit_codes=codes, report=report, log_dir=log_dir,
+            cores=self.cores, error=error,
         )
         self._result = result
-        if self._on_done is not None:
-            self._on_done(result)

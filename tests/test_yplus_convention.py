@@ -44,7 +44,7 @@ def test_v13_project_keeps_the_cell_height_convention() -> None:
     stored = json.loads((DATA / "project_v13.json").read_text())
     assert stored["schema_version"] == 13 and "yplus_at" not in stored["mesh"]
     sim = load_simulation(DATA / "project_v13.json")
-    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 14
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 15
     assert sim.mesh.yplus_at == "cell_height" and sim.mesh.layer_controls == "robust"  # stored settings kept
     assert sim.mesh.target_yplus == 50.0 and sim.inflow.speed == 20.0
     assert migrate({"schema_version": 13, "mesh": {"yplus_at": "cell_centre"}})["mesh"]["yplus_at"] == "cell_centre"
