@@ -24,6 +24,10 @@ SHAPE_FIELDS: dict[str, tuple[tuple[str, str, bool, str], ...]] = {
 SHAPE_LABELS = {"box": "Box", "cylinder": "Cylinder", "sphere": "Sphere", "cone": "Cone"}
 COORD_RANGE = 1e6
 ANGLE_RANGES = {"pitch_deg": (-90.0, 90.0), "yaw_deg": (-360.0, 360.0)}
+FIELD_TOOLTIPS = {
+    ("box", "pitch_deg"): "Positive = the box x axis tilts towards +z, the same sign as the angle of attack. "
+                          "Pitch is applied before yaw.",
+}
 
 
 class VectorEdit(QWidget):
@@ -106,6 +110,8 @@ class VolumeRowsMixin:
                     spin.valueChanged.connect(lambda _v, k=kind: self._preview_volume(k))
                     spin.editingFinished.connect(lambda k=kind, f=field: self._commit_volume_field(k, f))
                 self.vol_shape_fields[(kind, field)] = widget
+                if (kind, field) in FIELD_TOOLTIPS:
+                    widget.setToolTip(FIELD_TOOLTIPS[(kind, field)])
                 self._make_row_added(f"vol_{kind}_{field}", label, widget)
         self.vol_target = QDoubleSpinBox()
         self.vol_target.setRange(1e-6, COORD_RANGE)

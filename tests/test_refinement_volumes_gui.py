@@ -80,6 +80,8 @@ def test_properties_edit_every_field_with_one_undo_step_each(window: MainWindow)
     assert panel._rows["vol_box_centre"].isVisibleTo(panel) and not panel._rows["vol_cone_point1"].isVisibleTo(panel)
     assert panel.vol_shape_fields[("box", "size")].spins[0].suffix() == " m"
     assert panel.vol_shape_fields[("box", "pitch_deg")].suffix() == "°"
+    assert panel.vol_shape_fields[("box", "pitch_deg")].toolTip() == (
+        "Positive = the box x axis tilts towards +z, the same sign as the angle of attack. Pitch is applied before yaw.")
     vid = w.project.sim.refinement_volumes[0].id
     spin = panel.vol_shape_fields[("box", "yaw_deg")]
     spin.setValue(30.0)
