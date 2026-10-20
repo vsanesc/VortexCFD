@@ -525,6 +525,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self.scene = PartScene(self.viewer, self._theme, self._on_viewer_pick)
             self.scene.on_cell_pick = self._on_triangle_pick
             self.domain_view = DomainView(self.viewer, self._theme)
+            QTimer.singleShot(0, self._log_renderer)  # once the viewer has a GL context (D-104)
             self.volume_view = VolumeView(self.viewer, self._theme)
             self.mesh_view = MeshView(self.viewer, self._theme)
             self.results_view = ResultsView(self.viewer, self._theme)
@@ -1109,6 +1110,21 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self._volume_preview.id == self._selected_volume_id() else None
         self.volume_view.update(self._project.sim.refinement_volumes, self._selected_volume_id(),
                                 self._scene_mode == "geometry", preview)
+
+    def _log_renderer(self) -> None:
+        """Write the OpenGL renderer string (and the GPU variables set at start-up) to the console log."""
+        if self.viewer is None:
+            return
+        from vortexcfd.core.gpu_select import renderer_string
+        from vortexcfd.gui import GPU_SELECTION
+
+        try:
+            self.viewer.render()
+            renderer = renderer_string(self.viewer.ren_win.ReportCapabilities())
+        except Exception:  # pragma: no cover - a render window without a context
+            renderer = None
+        selected = ", ".join(f"{k}={v}" for k, v in GPU_SELECTION.items())
+        log.info("OpenGL renderer: %s%s", renderer or "unknown", f" (set at start-up: {selected})" if selected else "")
 
     def _on_volume_preview(self, volume) -> None:
         self._volume_preview = volume

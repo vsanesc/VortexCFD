@@ -118,6 +118,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-101 | 2026-10-19 | The CAD union's junction edges refine at the junction level | Rejected |
 | D-102 | 2026-10-20 | cfMesh evaluation case and the benchmark's mesher switch | Proposed |
 | D-103 | 2026-10-20 | User refinement volumes and the wake helper (schema v12) | Proposed |
+| D-104 | 2026-10-20 | NVIDIA adapter selected under WSL at start-up | Proposed |
 
 ---
 
@@ -1030,4 +1031,11 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   - GUI: a "Refinement volumes (n)" node under Mesh with one child per volume (disabled ones muted); add by shape, wake, duplicate, delete, enable/disable and rename from the node's buttons, the volume's buttons and the tree's context menu; the properties panel edits every field numerically with units (m, degrees); the achieved size and level, the extra cells and the domain status are read-only rows; the Mesh node's estimate gains "Refinement volumes: +N cells (n volumes; total ...)". The viewer draws every enabled volume as a translucent surface with its edges (geometry scene), the selected one stronger, and redraws an edited shape from the uncommitted field values while it is being changed. No drag handles yet (docs/QUESTIONS.md).
 - Alternatives considered: refinement by distance from the parts (not a volume); counting overlaps once (needs a union of the shapes); refusing a volume partly outside the domain; blocking meshing on a volume wholly outside (the task asks only that it is not written).
 - Consequences: projects with volumes can need far more cells; the estimate shows it before meshing. Schema v12: an older app cannot open a project saved by this one.
+
+## D-104 NVIDIA adapter selected under WSL at start-up
+- Status: Proposed (task 5.x-refinement-volumes, Part B; pending item).
+- Context: under WSL2 the viewer renders through Mesa's d3d12 driver on a Windows GPU adapter, which may be the integrated GPU instead of the discrete NVIDIA one.
+- Decision: `core/gpu_select.select_gpu` sets GALLIUM_DRIVER=d3d12 and MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA, each only when the user has not set it, only under WSL (WSL_DISTRO_NAME or WSL_INTEROP set, or "microsoft" in /proc/version), and not in an offscreen run (QT_QPA_PLATFORM=offscreen: no display, so tests and the display guard are unaffected). It runs at the top of `vortexcfd/gui/__init__.py`, before its first import of a Qt or VTK module: the installed `vortexcfd` console script imports `vortexcfd.gui.main_window`, which runs the package's `__init__` first, so no entry point or reinstall change is needed. Once the viewer exists, the main window logs "OpenGL renderer: <the renderer string of vtkRenderWindow.ReportCapabilities()>" and the variables it set, to the console.
+- Alternatives considered: a separate launcher module as the console script (needs the package reinstalled to regenerate the script); setting the variables in `vortexcfd/__init__.py` (every import of the package, the benchmark and the tests included).
+- Consequences: on a WSL PC without an NVIDIA adapter Mesa falls back to its default adapter; a user who sets either variable keeps it.
 
