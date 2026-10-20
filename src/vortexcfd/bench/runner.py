@@ -33,6 +33,7 @@ from vortexcfd.core.model import Simulation, StoppingCriteria
 from vortexcfd.core.presets import BUILTIN_PRESETS, apply_preset
 from vortexcfd.core.project import Project
 from vortexcfd.foam.cfmesh_case import cfmesh_commands
+from vortexcfd.foam.mesh_report import check_class
 from vortexcfd.foam.mesh_run import MeshRun
 from vortexcfd.foam.mesh_case import part_patch_names, safe_part_names
 from vortexcfd.foam.polymesh import PolyMesh
@@ -535,6 +536,9 @@ def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool =
     target_layers = job.inputs.layer_count if job.inputs.layer_count is not None else project.sim.mesh.layers
     out["cells"] = report.cells
     out["quality"] = {**quality, **face_quality(job.case_dir)}
+    soft = [line for line in report.failed_check_lines if check_class(line) == "soft"]
+    out["checks"] = {"hard": len(report.hard_failures), "soft": len(soft),  # D-100 classes
+                     "hard_lines": list(report.hard_failures), "soft_lines": soft}
     out["robustness"] = {"valid": report.valid, "mesh_ok": report.mesh_ok, "lost_parts": list(report.lost_parts),
                          "domain_errors": list(report.domain_errors)}
     out["snappy_layer_table"] = [asdict(c) for c in report.layers]

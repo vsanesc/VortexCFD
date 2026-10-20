@@ -118,7 +118,8 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-101 | 2026-10-19 | The CAD union's junction edges refine at the junction level | Rejected |
 | D-102 | 2026-10-20 | cfMesh evaluation case and the benchmark's mesher switch | Proposed |
 | D-103 | 2026-10-20 | User refinement volumes and the wake helper (schema v12) | Accepted |
-| D-104 | 2026-10-20 | NVIDIA adapter selected under WSL at start-up | Proposed |
+| D-104 | 2026-10-20 | NVIDIA adapter selected under WSL at start-up | Accepted |
+| D-105 | 2026-10-20 | Benchmark layer headline counted from the mesh; hard and soft checks per case | Proposed |
 
 ---
 
@@ -1033,9 +1034,15 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: projects with volumes can need far more cells; the estimate shows it before meshing. Schema v12: an older app cannot open a project saved by this one.
 
 ## D-104 NVIDIA adapter selected under WSL at start-up
-- Status: Proposed (task 5.x-refinement-volumes, Part B; pending item).
+- Status: Accepted (owner, 2026-10-20: confirmed on a real start-up, the console reported the renderer "D3D12 (NVIDIA GeForce RTX 3080 Ti)"; docs/QUESTIONS.md item 137).
 - Context: under WSL2 the viewer renders through Mesa's d3d12 driver on a Windows GPU adapter, which may be the integrated GPU instead of the discrete NVIDIA one.
 - Decision: `core/gpu_select.select_gpu` sets GALLIUM_DRIVER=d3d12 and MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA, each only when the user has not set it, only under WSL (WSL_DISTRO_NAME or WSL_INTEROP set, or "microsoft" in /proc/version), and not in an offscreen run (QT_QPA_PLATFORM=offscreen: no display, so tests and the display guard are unaffected). It runs at the top of `vortexcfd/gui/__init__.py`, before its first import of a Qt or VTK module: the installed `vortexcfd` console script imports `vortexcfd.gui.main_window`, which runs the package's `__init__` first, so no entry point or reinstall change is needed. Once the viewer exists, the main window logs "OpenGL renderer: <the renderer string of vtkRenderWindow.ReportCapabilities()>" and the variables it set, to the console.
 - Alternatives considered: a separate launcher module as the console script (needs the package reinstalled to regenerate the script); setting the variables in `vortexcfd/__init__.py` (every import of the package, the benchmark and the tests included).
 - Consequences: on a WSL PC without an NVIDIA adapter Mesa falls back to its default adapter; a user who sets either variable keeps it.
 
+## D-105 Benchmark layer headline counted from the mesh; hard and soft checks per case
+- Status: Proposed (task 5.4, Part A; docs/QUESTIONS.md item 129).
+- Context: since 5.3 every result has both snappyHexMesh's own layer fields and the layers counted from the mesh (bench/layer_walk, D-102). The fields count a collapsed stack, squashed to core-cell thickness, as layers; the walk does not (Ahmed zero-layer area 0.1 % by the fields, 9.3 % by the walk). Task 5.4 asks for the mesh-based count as the headline.
+- Decision: the summary tables, the worst zone and `--compare` (bench/report.py) take the layer columns from `layers_walk` when the result has it, with a "Basis" column ("mesh" or "fields") and snappyHexMesh's own strict coverage as a separate column; a comparison uses the walk only when both results have it (like for like; older results such as baseline.json have no walk and are compared on the fields). Each case also records its checkMesh failures by the D-100 classes (`checks`: hard and soft counts and lines), shown as the "Hard" and "Soft" columns. The 5.4 starting point is benchmarks/baseline_5.4_start.json (public cases); the local aircraft's result stays under the git-ignored benchmarks/results/5.4/ (D-094: local results are never part of a committed result file) and its numbers are in benchmarks/RESULT_5.4.md.
+- Alternatives considered: keeping the fields as the headline (hides collapsed stacks); committing the aircraft result in the same JSON (it holds names and figures derived from the owner's geometry).
+- Consequences: the headline coverage drops slightly where stacks are squashed (half wing 78.4 -> 76.8 %, Ahmed 31.0 -> 31.1 %, sphere 100.0 -> 99.5 %); thickness percentages are of the planned y+ stack (bench/runner.planned_stack) instead of snappyHexMesh's own target.

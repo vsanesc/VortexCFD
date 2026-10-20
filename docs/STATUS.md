@@ -27,7 +27,7 @@ Done on it:
   renderer line.
 - Part B (D-104): under WSL with a display, GALLIUM_DRIVER=d3d12 and MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
   are set before Qt or VTK load unless the user set them; the OpenGL renderer string is written to the
-  console once the viewer exists (D-104 Proposed).
+  console once the viewer exists (D-104 Accepted: the owner saw "D3D12 (NVIDIA GeForce RTX 3080 Ti)" on a real start-up).
 
 Earlier on task/5.3-cfmesh (D-102, benchmarks/RESULT_5.3.md): the cfMesh evaluation; recommendation keep
 snappyHexMesh and move to 5.4 (QUESTIONS 130, owner decision pending).

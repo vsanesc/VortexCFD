@@ -214,13 +214,30 @@ def test_headline_coverage_is_strict_and_a_changed_stack_is_flagged() -> None:
     """D-087: the headline is the strict coverage (full target layer count), extruded is its own
     column; a different target layer count is flagged, while a coverage drop stays a regression."""
     head = report.markdown_table(_result()).splitlines()[0]
-    assert "| Strict coverage % | Target layers | Extruded % |" in head
+    assert "| Strict coverage % | Basis | Strict cov. % (snappy fields) | Target layers | Extruded % |" in head
     old, new = _result(), _result()
     old["cases"][0]["layers"]["walls"]["target_layers"] = 3
     new["cases"][0]["layers"]["walls"].update(target_layers=10, coverage_percent=50.0)
     _deltas, regressions, flags = report.compare(old, new)
     assert any("target layer count 3 -> 10" in f for f in flags)
     assert any("strict layer coverage dropped 40.0" in r for r in regressions)
+
+
+def test_headline_uses_the_layers_counted_from_the_mesh() -> None:
+    """D-105: with the mesh walk in the result the headline coverage and the zones come from it, the
+    snappyHexMesh fields stay a column; a comparison uses the walk only when both results have it."""
+    walked = _result(layers_walk={"walls": {"coverage_percent": 60.0},
+                                  "zones": {"tips": {"coverage_percent": 10.0}}},
+                     checks={"hard": 0, "soft": 1})
+    row = report.case_row(walked["cases"][0])
+    assert (row["coverage"], row["coverage_fields"], row["layer_basis"]) == (60.0, 90.0, "mesh")
+    assert row["worst_zone_coverage"] == 10.0 and (row["hard_failures"], row["soft_failures"]) == (0, 1)
+    assert report.case_row(walked["cases"][0], walk=False)["coverage"] == 90.0
+    # the old result has no walk: like for like on the snappyHexMesh fields, no regression
+    assert report.compare(_result(), walked)[1] == []
+    worse = _result(layers_walk={"walls": {"coverage_percent": 50.0}, "zones": {"tips": {"coverage_percent": 10.0}}})
+    regressions = report.compare(walked, worse)[1]
+    assert any("strict layer coverage dropped 10.0" in r for r in regressions)
 
 
 def test_compare_flags_failed_lost_and_missing_cases() -> None:

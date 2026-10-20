@@ -27,8 +27,21 @@ def _fmt(v, spec: str = "g") -> str:
     return str(v)
 
 
-def worst_zone(case: dict) -> tuple[str | None, float | None]:
-    zones = _get(case, "layers", "zones") or {}
+def has_walk(case: dict) -> bool:
+    """Whether the case holds the layers counted from the mesh (bench/layer_walk, D-102)."""
+    return bool(_get(case, "layers_walk", "walls"))
+
+
+def layer_key(case: dict, walk: bool | None = None) -> str:
+    """The layer measure of the headline: "layers_walk", the layers counted from the mesh (D-105),
+    when the case has them (and ``walk`` is not False), else "layers", snappyHexMesh's own fields."""
+    if walk is None:
+        walk = has_walk(case)
+    return "layers_walk" if walk and has_walk(case) else "layers"
+
+
+def worst_zone(case: dict, walk: bool | None = None) -> tuple[str | None, float | None]:
+    zones = _get(case, layer_key(case, walk), "zones") or {}
     rows = [(n, z.get("coverage_percent")) for n, z in zones.items() if z.get("coverage_percent") is not None]
     return min(rows, key=lambda r: r[1]) if rows else (None, None)
 
@@ -41,10 +54,14 @@ def _metres(case: dict, kind: str) -> float | None:
     return None if rel is None or ref is None else rel * ref
 
 
-def case_row(case: dict) -> dict:
-    """The values of the summary table for one case."""
-    zone, zone_cov = worst_zone(case)
-    walls = _get(case, "layers", "walls") or {}
+def case_row(case: dict, walk: bool | None = None) -> dict:
+    """The values of the summary table for one case. The layer columns come from the layers counted
+    from the mesh when the case has them (D-105; ``walk`` False forces snappyHexMesh's own fields),
+    with snappyHexMesh's strict coverage as ``coverage_fields``."""
+    key = layer_key(case, walk)
+    zone, zone_cov = worst_zone(case, walk)
+    walls = _get(case, key, "walls") or {}
+    checks = case.get("checks") or {}
     thick = walls.get("mean_thickness_m")
     frac = walls.get("thickness_percent")
     return {
@@ -59,7 +76,11 @@ def case_row(case: dict) -> dict:
         "faces_skew_gt4": _get(case, "quality", "faces_skew_gt4"),
         "max_aspect": _get(case, "quality", "max_aspect_ratio"),
         "failed_checks": _get(case, "quality", "failed_checks"),
+        "hard_failures": checks.get("hard"),
+        "soft_failures": checks.get("soft"),
+        "layer_basis": "mesh" if key == "layers_walk" else "fields",
         "coverage": walls.get("coverage_percent"),
+        "coverage_fields": _get(case, "layers", "walls", "coverage_percent"),
         "mean_over_target": walls.get("mean_over_target_percent"),
         "near_full": walls.get("near_full_percent"),
         "zero_layers": walls.get("zero_layers_percent"),
@@ -92,8 +113,11 @@ TABLE_COLUMNS = (
     ("faces_gt65", "Faces >65", "d"), ("faces_gt70", "Faces >70", "d"),
     ("max_skewness", "Max skew", ".2f"), ("faces_skew_gt4", "Faces skew>4", "d"),
     ("max_aspect", "Max AR", ".1f"), ("failed_checks", "Failed checks", "d"),
-    # headline layer metric: strict coverage, the wall area with the full target layer count (D-087)
-    ("coverage", "Strict coverage %", ".1f"), ("target_layers", "Target layers", "d"),
+    ("hard_failures", "Hard", "d"), ("soft_failures", "Soft", "d"),
+    # headline layer metric: strict coverage, the wall area with the full target layer count (D-087),
+    # counted from the mesh when the result has the walk (D-105); snappyHexMesh's own figure next to it
+    ("coverage", "Strict coverage %", ".1f"), ("layer_basis", "Basis", "s"),
+    ("coverage_fields", "Strict cov. % (snappy fields)", ".1f"), ("target_layers", "Target layers", "d"),
     ("extruded", "Extruded %", ".1f"), ("mean_layers", "Mean layers", ".2f"),
     ("mean_over_target", "Mean / target %", ".1f"), ("near_full", ">=80 % of target %", ".1f"),
     ("zero_layers", "No layer %", ".1f"), ("removed_by_quality", "Layer faces removed by checks", "d"),
@@ -132,7 +156,9 @@ def _checks(errors: dict | None) -> str:
 
 LOCAL_COLUMNS = (
     ("case", "Case"), ("status", "Status"), ("cells", "Cells"), ("failed_checks", "Failed checks"),
+    ("hard_failures", "Hard"), ("soft_failures", "Soft"),
     ("max_non_ortho", "Max non-ortho"), ("faces_gt70", "Faces >70"), ("coverage", "Strict coverage %"),
+    ("coverage_fields", "Strict cov. % (snappy fields)"),
     ("target_layers", "Target layers"), ("m2r_rms", "Mesh->ref RMS mm"), ("m2r_max", "Mesh->ref max mm"),
     ("m2r_far", "Mesh->ref far %"), ("r2m_rms", "Ref->mesh RMS mm"), ("r2m_max", "Ref->mesh max mm"),
     ("r2m_far", "Ref->mesh far %"), ("internal_points", "Internal points"), ("internal_area", "Internal area m2"),
@@ -179,7 +205,7 @@ def local_zone_table(result: dict) -> str:
              "|---|---|---|---|---|---|---|---|---|---|"]
     for case in result.get("cases", []):
         zones = _get(case, "reference_fidelity", "zones") or {}
-        layer_zones = _get(case, "layers", "zones") or {}
+        layer_zones = _get(case, layer_key(case), "zones") or {}
         for name, z in zones.items():
             m2r, r2m = z.get("mesh_to_reference") or {}, z.get("reference_to_mesh") or {}
             lines.append("| " + " | ".join(_cell(v) for v in (
@@ -319,14 +345,19 @@ def compare(old: dict, new: dict) -> tuple[list[str], list[str], list[str]]:
 
     for case in new.get("cases", []):
         name = case["case"]
-        a, b = case_row(old_cases[name]) if name in old_cases else None, case_row(case)
+        # like for like: the mesh-based layer count only when both results have it (D-105)
+        walk = has_walk(case) and name in old_cases and has_walk(old_cases[name])
+        a, b = case_row(old_cases[name], walk) if name in old_cases else None, case_row(case, walk)
         if b["status"] == "FAILED" or b["lost_parts"]:
             regressions.append(f"{name}: mesh failed or a part was lost ({case.get('failure') or 'lost parts'})")
         if a is None:
             deltas.append(f"{name}: not in the reference result")
             continue
         parts = []
-        for key in ("cells", "max_non_ortho", "faces_gt70", "coverage", "target_layers", "worst_zone_coverage",
+        if walk:
+            parts.append("layers counted from the mesh")
+        for key in ("cells", "max_non_ortho", "faces_gt70", "hard_failures", "coverage", "target_layers",
+                    "worst_zone_coverage",
                     "yplus_mean", "total_time"):
             delta = d(a[key], b[key])
             parts.append(f"{key} {_fmt(a[key], '.4g')} -> {_fmt(b[key], '.4g')} ({_fmt(delta, '+.4g')})")
@@ -343,8 +374,8 @@ def compare(old: dict, new: dict) -> tuple[list[str], list[str], list[str]]:
         if a["target_layers"] is not None and b["target_layers"] is not None and a["target_layers"] != b["target_layers"]:
             flags.append(f"{name}: target layer count {a['target_layers']} -> {b['target_layers']}: strict coverage "
                          "counts the full stack, so the coverage figures measure different stacks")
-        old_zones = _get(old_cases[name], "layers", "zones") or {}
-        for zname, z in (_get(case, "layers", "zones") or {}).items():
+        old_zones = _get(old_cases[name], layer_key(old_cases[name], walk), "zones") or {}
+        for zname, z in (_get(case, layer_key(case, walk), "zones") or {}).items():
             dz = d((old_zones.get(zname) or {}).get("coverage_percent"), z.get("coverage_percent"))
             if dz is not None and dz < -COVERAGE_DROP_POINTS:
                 regressions.append(f"{name}: zone {zname} coverage dropped {-dz:.1f} points")
