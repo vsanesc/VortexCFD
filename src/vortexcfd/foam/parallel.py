@@ -81,9 +81,11 @@ def recommended_cores(cells: int, physical: int, cells_per_core: int = CELLS_PER
 
 # Recommended meshing cores (D-111, benchmarks/RESULT_parallel_mesh.md): from the estimated background
 # cells (the only cell count known before meshing, foam/mesh_estimate), at least MESH_CELLS_PER_CORE
-# background cells per rank and no more than MESH_EFFICIENT_CORES ranks.
-MESH_CELLS_PER_CORE = 25_000
-MESH_EFFICIENT_CORES = 4
+# background cells per rank and no more than MESH_EFFICIENT_CORES ranks. Measured on the development
+# machine with 100,000 background cells: 8 ranks mesh 1.85-2.13 times faster than serial on the public
+# cases and 4.13 times on the aircraft, still faster than 4 ranks everywhere; above 8 was not measured.
+MESH_CELLS_PER_CORE = 12_500
+MESH_EFFICIENT_CORES = 8
 
 
 def recommended_mesh_cores(background_cells: int, physical: int) -> int:
