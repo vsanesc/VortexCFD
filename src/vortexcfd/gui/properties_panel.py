@@ -213,6 +213,17 @@ YPLUS_NOTE = ("Flat-plate verification: Cf about 6% low at y+ 1, about 3.6% low 
 # Tooltip of the disabled Layers field with absolute layer sizing (D-089).
 LAYERS_ABSOLUTE_TIP = ("Absolute (y+) layer sizing: the layer count follows from the target y+ and the surface "
                        "cell size; it is shown here and cannot be set. Choose relative sizing to set it.")
+# Added to the Target y+ tooltip with absolute layer sizing: the usual targets (owner review of 5.4b).
+YPLUS_GUIDANCE = ("Wall-resolved (no wall functions): about 1 at the first cell centre. Wall functions: 30-300; "
+                  "the default is 50.")
+# Tooltip of the Target y+ field with absolute layer sizing, by Mesh.yplus_at (D-107), then YPLUS_GUIDANCE.
+YPLUS_AT_TIPS = {
+    "cell_centre": ("The target y+ is placed at the first cell centre, where OpenFOAM evaluates y+: the first "
+                    "layer is twice the target wall distance."),
+    "cell_height": ("This project was saved before the y+ convention changed: the target wall distance is used "
+                    "as the first-layer height, so OpenFOAM reports about half the target y+ (at the first cell "
+                    "centre)."),
+}
 # Tooltip of the disabled Target y+ field with relative layer sizing (D-086).
 YPLUS_RELATIVE_TIP = ("Relative layer sizing: the layer thickness follows the surface cell size, so y+ is not "
                       "targeted. Choose absolute_yplus to size the layers for this y+.")
@@ -275,6 +286,7 @@ MESH_ROWS = (
     ("ok", "Mesh OK"),
     ("lost", "Lost parts"),
     ("extruded", "Surface faces with layers"),
+    ("first_cell", "First cell at the wall"),
     ("status", "Status"),
 )
 
@@ -1050,7 +1062,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         self.mesh_yplus_note.setVisible(mesh.layer_sizing == "absolute_yplus")
         yplus_used = mesh.layer_sizing == "absolute_yplus"
         self.mesh_fields["target_yplus"].setEnabled(yplus_used)
-        self.mesh_fields["target_yplus"].setToolTip("" if yplus_used else YPLUS_RELATIVE_TIP)
+        self.mesh_fields["target_yplus"].setToolTip(f"{YPLUS_AT_TIPS[mesh.yplus_at]}\n{YPLUS_GUIDANCE}" if yplus_used
+                                                    else YPLUS_RELATIVE_TIP)
         widgets = list(self.mesh_fields.values())
         for w in widgets:
             w.blockSignals(True)
@@ -1224,12 +1237,16 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
             "ok": ("yes" if report.mesh_ok else "no", not report.mesh_ok),
             "lost": (", ".join(report.lost_parts), False),
             "extruded": (num(report.extruded_percent, "{:g} %"), False),
+            "first_cell": ((report.first_cell.description() if report.first_cell is not None else "")
+                           + (f"\n{report.first_cell_warning()}" if report.first_cell_warning() else ""),
+                           bool(report.first_cell_warning())),  # the achieved first cell (D-109)
             "status": (("Mesh out of date", True) if self._mesh_stale else ("Up to date", False)),
         }
         for key, (text, warn) in values.items():
             self.mesh_values[key].setText(text)
             self._set_warn(self.mesh_values[key], warn)
         self._rows["mesh_extruded"].setVisible(show and report.extruded_percent is not None)
+        self._rows["mesh_first_cell"].setVisible(show and report.first_cell is not None)
         self._rows["mesh_lost"].setVisible(show and bool(report.lost_parts))
         self._set_error(self.mesh_values["lost"], bool(report.lost_parts))
         self._set_error(self.mesh_values["failed"], bool(report.hard_failures))

@@ -4,6 +4,7 @@ The solver process is a FakeRunner (tests/fake_solver.py); the mesh is a fake me
 (marker, empty constant/polyMesh and a mesh record with the project's inputs hash).
 """
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -322,6 +323,34 @@ def test_soft_checkmesh_failures_warn_without_blocking(make_window) -> None:
     assert w.top_bar.mesh_badge.text() == "Mesh: warnings" and not w.top_bar.mesh_badge.isHidden()
     w.properties.show_node("mesh", None)
     assert w.properties.mesh_values["failed"].text().endswith("Warnings only: the solver can run")
+
+
+def test_collapsed_layers_warn_in_the_mesh_report_and_the_run_solver_tooltip(make_window) -> None:
+    """D-109: an achieved first cell above 1.5 x the planned first layer warns; the solver can still run."""
+    from vortexcfd.foam.mesh_report import FirstCell
+
+    w = make_window(mesh=False)
+    case = fake_mesh(w.project)
+    collapsed = replace(REPORT, first_cell=FirstCell(mean_m=3.7e-3, p95_m=8e-3, planned_m=0.64e-3))
+    text = "Layers collapsed near the wall: first cell 3.7 mm vs 0.64 mm planned; y+ will be about 5.8 times the target."
+    assert collapsed.first_cell_warning() == text
+    write_mesh_record(case, MeshRecord(collapsed, inputs_hash(w.project), ("Ball",)))
+    w._load_mesh_record(w.project)
+    w._refresh()
+    w._update_run_button()
+    button = w.top_bar.run_button
+    assert button.isEnabled() and button.toolTip() == f"Run simpleFoam on the mesh\nWarning: {text}"
+    w.properties.show_node("mesh", None)
+    row = w.properties.mesh_values["first_cell"]
+    assert row.text() == f"3.7 mm mean, 8 mm 95th percentile (planned 0.64 mm)\n{text}"
+    assert row.property("warn") == "true" and w.properties._rows["mesh_first_cell"].isVisibleTo(w.properties)
+    healthy = replace(REPORT, first_cell=FirstCell(mean_m=0.66e-3, p95_m=0.7e-3, planned_m=0.64e-3))
+    write_mesh_record(case, MeshRecord(healthy, inputs_hash(w.project), ("Ball",)))
+    w._load_mesh_record(w.project)
+    w._update_run_button()
+    assert button.toolTip() == "Run simpleFoam on the mesh"
+    w.properties.show_node("mesh", None)
+    assert row.property("warn") == "false" and "Layers collapsed" not in row.text()
 
 
 def test_the_as_imported_aircraft_mesh_is_not_blocked() -> None:

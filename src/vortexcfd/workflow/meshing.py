@@ -12,11 +12,12 @@ from pathlib import Path
 import numpy as np
 
 from vortexcfd.core.project import Project
-from vortexcfd.core.project_io import V10_MESH_FIELDS, V13_MESH_FIELDS
+from vortexcfd.core.project_io import V10_MESH_FIELDS, V13_MESH_FIELDS, V14_MESH_FIELDS
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.yplus import LayerPlan, first_layer_thickness, layer_cap, plan_layers
 from vortexcfd.foam.mesh_case import (
     DOMAIN_SURFACE,
+    ROBUST_CONTROLS_REVISION,
     TRI_SURFACE,
     MeshCaseInput,
     build_mesh_files,
@@ -243,7 +244,7 @@ def plan_layers_for(project: Project, box: DomainBox) -> LayerPlan:
     mesh = project.sim.mesh
     length = surface_length(project, box)
     first = first_layer_thickness(mesh.target_yplus, project.sim.inflow.speed, project.sim.physics.nu,
-                                  length.value)
+                                  length.value, mesh.yplus_at)  # at the first cell centre by default (D-107)
     est = estimate_for(box, mesh, length.value)
     return plan_layers(first, mesh.expansion_ratio, est.surface_size, **layer_cap(mesh.layer_controls))
 
@@ -448,8 +449,8 @@ def inputs_hash(project: Project) -> str:
             entry.append(_hash_file(ids) if ids is not None and ids.is_file() else None)
         parts.append(entry)
     mesh = project.sim.mesh.model_dump()
-    for key, legacy in {**V10_MESH_FIELDS, **V13_MESH_FIELDS}.items():  # a project meshed before v10 / v13
-        # keeps its hash (D-085, D-106)
+    for key, legacy in {**V10_MESH_FIELDS, **V13_MESH_FIELDS, **V14_MESH_FIELDS}.items():  # a project meshed
+        # before v10 / v13 / v14 keeps its hash (D-085, D-106, D-107)
         if mesh.get(key) == legacy:
             del mesh[key]
     payload = {
@@ -462,6 +463,10 @@ def inputs_hash(project: Project) -> str:
             if project.sim.mesh.layer_sizing == "absolute_yplus" else None
         ),
     }
+    mesh_settings = project.sim.mesh
+    if mesh_settings.layer_controls == "robust" and mesh_settings.layer_sizing == "absolute_yplus":
+        # the robust controls changed in 5.4b (D-106): a mesh made with the earlier ones is out of date
+        payload["robust_controls"] = ROBUST_CONTROLS_REVISION
     enabled = [v for v in project.sim.refinement_volumes if v.enabled]
     if enabled:  # only enabled volumes reach the mesh (D-103); none: the hash of a project without volumes
         payload["refinement_volumes"] = [v.model_dump(mode="json", exclude={"enabled"}) for v in enabled]

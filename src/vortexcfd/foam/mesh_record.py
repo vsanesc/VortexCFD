@@ -4,7 +4,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from vortexcfd.foam.mesh_report import LayerCoverage, MeshReport
+from vortexcfd.foam.mesh_report import FirstCell, LayerCoverage, MeshReport
 
 RECORD_NAME = "vortexcfd_mesh.json"
 
@@ -36,6 +36,8 @@ def read_mesh_record(case_dir: Path) -> MeshRecord | None:
         report["domain_errors"] = tuple(report.get("domain_errors", ()))  # absent before D-078
         report["failed_check_lines"] = tuple(report.get("failed_check_lines", ()))  # absent before D-096
         report["warning_lines"] = tuple(report.get("warning_lines", ()))  # absent before D-100
+        first_cell = report.get("first_cell")  # absent before D-109
+        report["first_cell"] = FirstCell(**first_cell) if isinstance(first_cell, dict) else None
         return MeshRecord(MeshReport(**report), str(data["inputs_hash"]), tuple(data["patches"]))
     except (OSError, ValueError, KeyError, TypeError):
         return None

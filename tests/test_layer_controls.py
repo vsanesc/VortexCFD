@@ -8,8 +8,14 @@ import pytest
 
 from vortexcfd.core.model import CURRENT_SCHEMA_VERSION, Mesh
 from vortexcfd.core.presets import migrate_preset
-from vortexcfd.core.project_io import V13_MESH_FIELDS, load_simulation, migrate
-from vortexcfd.foam.mesh_case import ROBUST_LAYER_CONTROLS, MeshCaseInput, snappy_hex_mesh_dict
+from vortexcfd.core.project_io import V13_MESH_FIELDS, V14_MESH_FIELDS, load_simulation, migrate
+from vortexcfd.foam.mesh_case import (
+    ROBUST_CONTROLS_REVISION,
+    ROBUST_LAYER_CONTROLS,
+    ROBUST_RELAXED_QUALITY,
+    MeshCaseInput,
+    snappy_hex_mesh_dict,
+)
 from vortexcfd.foam.mesh_study import reference_layers
 from vortexcfd.foam.yplus import (
     LAYER_CAP,
@@ -85,8 +91,9 @@ def test_robust_controls_and_the_plan_ratio_are_written_for_y_plus_layers() -> N
     assert alc["layers"]['"Wing.*"'] == {"nSurfaceLayers": 12}
     for key, value in ROBUST_LAYER_CONTROLS.items():
         assert alc[key] == value, key
-    assert d["meshQualityControls"]["relaxed"] == {"minTetQuality": -1e30}  # unchanged (D-045)
-    assert d["meshQualityControls"]["minTetQuality"] == 1e-15
+    # the tet check stays on during layer addition with the robust controls (5.4b study, D-106)
+    assert d["meshQualityControls"]["relaxed"] == ROBUST_RELAXED_QUALITY == {"minTetQuality": 1e-15}
+    assert d["meshQualityControls"]["minTetQuality"] == 1e-15 and alc["nOuterIter"] == 2
 
 
 def test_legacy_and_relative_sizing_keep_the_pre_5_4_controls() -> None:
@@ -95,6 +102,8 @@ def test_legacy_and_relative_sizing_keep_the_pre_5_4_controls() -> None:
     for d in (legacy, relative):
         alc = d["addLayersControls"]
         assert alc["featureAngle"] == 60 and "nOuterIter" not in alc and alc["nSmoothThickness"] == 10
+    assert legacy["meshQualityControls"]["relaxed"] == {"minTetQuality": -1e30}  # D-045, unchanged
+    assert "relaxed" not in relative["meshQualityControls"]
     assert relative["addLayersControls"]["expansionRatio"] == 1.25  # relative sizing: the setting
 
 
@@ -102,10 +111,10 @@ def test_v12_project_migrates_to_the_legacy_layer_controls() -> None:
     stored = json.loads((DATA / "project_v12.json").read_text())
     assert stored["schema_version"] == 12 and "layer_controls" not in stored["mesh"]
     sim = load_simulation(DATA / "project_v12.json")
-    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 13
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 14
     assert sim.mesh.layer_controls == "legacy" and sim.mesh.expansion_ratio == 1.2  # stored settings kept
     assert sim.inflow.speed == 30.0 and sim.reports.reference_length == 1.5
-    assert migrate({"schema_version": 12})["mesh"] == V13_MESH_FIELDS
+    assert migrate({"schema_version": 12})["mesh"] == {**V13_MESH_FIELDS, **V14_MESH_FIELDS}
     assert migrate({"schema_version": 12, "mesh": {"layer_controls": "robust"}})["mesh"]["layer_controls"] == "robust"
     # a preset written before v13 keeps them too; a v13 preset keeps the robust default
     assert migrate_preset({"schema_version": 12, "name": "p", "mesh": {}})["mesh"]["layer_controls"] == "legacy"
@@ -131,3 +140,18 @@ def test_a_migrated_project_keeps_its_mesh_hash(monkeypatch) -> None:
         assert inputs_hash(project) == legacy  # the hash the project had before v13
     project.update_mesh(layer_controls="robust")
     assert inputs_hash(project) != legacy
+
+
+def test_a_mesh_made_with_the_5_4_robust_controls_is_out_of_date(monkeypatch) -> None:
+    from vortexcfd.core.project import Project
+    from vortexcfd.workflow import meshing
+
+    project = Project.new("r")
+    current = meshing.inputs_hash(project)
+    monkeypatch.setattr(meshing, "ROBUST_CONTROLS_REVISION", "5.4")
+    assert meshing.inputs_hash(project) != current  # the controls changed in 5.4b (D-106)
+    assert ROBUST_CONTROLS_REVISION == "5.4b"
+    project.update_mesh(layer_controls="legacy")
+    legacy = meshing.inputs_hash(project)
+    monkeypatch.setattr(meshing, "ROBUST_CONTROLS_REVISION", "5.4b")
+    assert meshing.inputs_hash(project) == legacy  # legacy projects keep their hash

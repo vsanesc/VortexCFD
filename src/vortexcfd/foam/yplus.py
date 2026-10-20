@@ -15,19 +15,34 @@ def friction_velocity(speed: float, nu: float, length: float) -> float:
     return math.sqrt(0.5 * speed**2 * cf)
 
 
-def first_layer_thickness(target_yplus: float, speed: float, nu: float, reference_length: float) -> float:
-    """First prism-layer thickness (metres) that gives ``target_yplus``.
+# Where the target y+ is placed (Mesh.yplus_at, schema v14; D-107): "cell_centre", the default, puts it
+# at the first cell centre, where OpenFOAM's yPlus function object and the wall functions evaluate y+
+# (nearWallDist: the cell-centre-to-wall distance), so the first layer is twice the target distance;
+# "cell_height" (projects saved before v14) uses the target distance as the first-layer height, which
+# gives a reported y+ of about half the target.
+YPLUS_AT = ("cell_centre", "cell_height")
 
-    y = y+ nu / u*, with u* from the turbulent flat-plate correlation Cf = 0.026 / Re^(1/7) at
-    Re = V L / nu (L = ``reference_length``): tau_w = 0.5 rho V^2 Cf, u* = sqrt(tau_w / rho).
 
-    Convention: the returned value is used AS the first cell height. snappyHexMesh's
-    ``firstLayerThickness`` (with ``relativeSizes false``) is the thickness of the cell next to the
-    wall, so the cell CENTRE sits at half of it and the y+ that OpenFOAM's ``yPlus`` function
-    reports (which uses the cell-centre distance) is about ``target_yplus / 2``. The "twice the
-    cell-centre distance" convention is NOT applied: ``yplus_of_first_cell`` is the inverse.
+def first_layer_thickness(target_yplus: float, speed: float, nu: float, reference_length: float,
+                          yplus_at: str = "cell_height") -> float:
+    """First prism-layer thickness (metres) for ``target_yplus``. [NUMERICS-REVIEW]
+
+    The wall distance of the target is y = y+ nu / u*, with u* from the turbulent flat-plate
+    correlation Cf = 0.026 / Re^(1/7) at Re = V L / nu (L = ``reference_length``):
+    tau_w = 0.5 rho V^2 Cf, u* = sqrt(tau_w / rho).
+
+    ``yplus_at`` "cell_centre" (Mesh.yplus_at's default since schema v14, D-107): the target falls at the first cell CENTRE, so
+    the first layer (snappyHexMesh's ``firstLayerThickness`` with ``relativeSizes false``, the height
+    of the cell next to the wall) is 2 y; OpenFOAM v2606 evaluates y+ at that distance (the yPlus
+    function object and nutkWallFunction use nearWallDist, the cell-centre-to-wall distance).
+    "cell_height" (this function's default, kept for direct callers such as the flat-plate validation
+    case; projects saved before schema v14): the first layer is y itself, so the reported y+ is about
+    ``target_yplus / 2``. ``yplus_of_first_cell`` is the inverse of the "cell_centre" rule.
     """
-    return target_yplus * nu / friction_velocity(speed, nu, reference_length)
+    if yplus_at not in YPLUS_AT:
+        raise ValueError(f"yplus_at must be one of {YPLUS_AT}, not {yplus_at!r}")
+    y = target_yplus * nu / friction_velocity(speed, nu, reference_length)
+    return 2.0 * y if yplus_at == "cell_centre" else y
 
 
 def yplus_of_first_cell(thickness: float, speed: float, nu: float, x: float) -> float:

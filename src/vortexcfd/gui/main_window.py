@@ -1243,7 +1243,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
                  est.level_min, est.level_max, est.surface_size)
         for text in thin_part_warnings(self._project):
             log.warning(text)
-        self.mesh_worker.start(job.case_dir, job.inputs.patches)
+        planned = job.inputs.first_layer_thickness
+        first_layer = (planned, job.inputs.layer_count or 1) if planned is not None else None  # y+ layers (D-109)
+        self.mesh_worker.start(job.case_dir, job.inputs.patches, first_layer)
         self._update_mesh_stale()
         self._update_mesh_button()
         self._update_run_button()
@@ -1316,6 +1318,10 @@ class MainWindow(StudyControlMixin, QMainWindow):
             if report.layers:
                 low = [c for c in report.layers if c.below_threshold]
                 (log.warning if low else log.info)("Layers: %s", report.layer_summary())
+            if report.first_cell is not None:
+                drift = report.first_cell_warning()
+                (log.warning if drift else log.info)("First cell at the wall: %s",
+                                                     drift or report.first_cell.description())
             try:
                 write_mesh_record(case_dir_for(self._project), MeshRecord(
                     report, self._run_hash or "", self._mesh_patches))
@@ -1356,8 +1362,10 @@ class MainWindow(StudyControlMixin, QMainWindow):
     def _update_run_button(self) -> None:
         running = self.solver_worker.is_running()
         report = self.mesh_report
-        warning = report.warnings_message() if report is not None and not self.mesh_stale else None
-        self.top_bar.set_solver_state(None if running else self.solve_readiness(), running, warning)
+        current = report is not None and not self.mesh_stale
+        warning = report.warnings_message() if current else None
+        drift = report.first_cell_warning() if current else None  # the y+ drift of collapsed layers (D-109)
+        self.top_bar.set_solver_state(None if running else self.solve_readiness(), running, warning, drift)
         self._update_study_state()
 
     def run_solver(self) -> None:

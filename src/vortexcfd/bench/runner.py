@@ -390,11 +390,12 @@ def walk_measurements(case: BenchCase, case_dir: Path, inputs, target_layers: in
     t0 = time.monotonic()
     walked = layer_walk.walk_layers(PolyMesh.read(case_dir), inputs.patches, target_layers + 5)
 
-    def stats(a, n, th, first):
+    def stats(a, n, th, first, cell):
         frac = th / total_planned if total_planned else np.zeros_like(th)
         row = metrics.layer_stats(a, n, th, frac, target_layers)
         has = n > 0
         row["mean_first_layer_m"] = float((a[has] * first[has]).sum() / a[has].sum()) if has.any() else None
+        row["first_cell"] = layer_walk.first_cell_stats(a, cell, n)  # every face, layered or not
         return row
 
     out: dict = {"method": "layer_walk", "max_aspect": layer_walk.MAX_ASPECT, "max_growth": layer_walk.MAX_GROWTH,
@@ -403,13 +404,14 @@ def walk_measurements(case: BenchCase, case_dir: Path, inputs, target_layers: in
     if not walked:
         return out
     for name, d in walked.items():
-        out["patches"][name] = stats(d["area"], d["layers"], d["thickness"], d["first"])
-    a, n, th, first, c = (np.concatenate([d[k] for d in walked.values()])
-                          for k in ("area", "layers", "thickness", "first", "centre"))
-    out["walls"] = stats(a, n, th, first)
+        out["patches"][name] = stats(d["area"], d["layers"], d["thickness"], d["first"], d["first_cell"])
+    a, n, th, first, cell, c = (np.concatenate([d[k] for d in walked.values()])
+                                for k in ("area", "layers", "thickness", "first", "first_cell", "centre"))
+    out["walls"] = stats(a, n, th, first, cell)
     for zone in case.zones:
         mask = metrics.zone_mask(c, zone.boxes, zone.segments, zone.width)
-        out["zones"][zone.name] = {**stats(a[mask], n[mask], th[mask], first[mask]), "description": zone.description}
+        out["zones"][zone.name] = {**stats(a[mask], n[mask], th[mask], first[mask], cell[mask]),
+                                   "description": zone.description}
     out["time_s"] = time.monotonic() - t0
     return out
 
