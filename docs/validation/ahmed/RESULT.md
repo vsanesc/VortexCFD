@@ -5,7 +5,10 @@ Set-up and sources: [SETUP.md](SETUP.md). Numbers: [result.json](result.json) (w
 2026-10-21, task validation-ahmed, three levels through the app's mesh study (D-066, D-117), meshing on 8
 cores, simpleFoam on 4, nice -n 15.
 
-**Verdict: FAIL** (V6). The finest grid's body Cd is 0.3250, **14.0 % above** the experimental 0.285
+Round 2 (the set-up fixed after the owner's review): [below](#round-2); also **FAIL**, fine-grid body
+Cd 0.3246 (+13.9 %).
+
+**Verdict (round 1): FAIL** (V6). The finest grid's body Cd is 0.3250, **14.0 % above** the experimental 0.285
 (13.0 % above the alternative reading 0.2875): inside the 10-20 % band, but above every published
 k-omega SST result found (0.284 to 0.313), so the PASS WITH NOTE condition is not met. The grid study is
 oscillatory (no GCI, no extrapolation) and the fine level is 6.3 % below the medium one, so the result is
@@ -146,71 +149,146 @@ length in the experiment is not taken from [LB03] here (not read); only the stat
 - I. B. Celik, U. Ghia, P. J. Roache, C. J. Freitas, H. Coleman, P. E. Raad, "Procedure for estimation and
   reporting of uncertainty due to discretization in CFD applications", J. Fluids Eng. 130 (2008) 078001.
 
-## Round 2 (partial: coarse and medium)
+## Round 2
 
 Set-up: SETUP.md, "Round 2" (inlet 5 L ahead with a slip strip to the ground wall 1.35 L ahead of the
 nose, D-118; prism layers on the ground wall; the mean-stable criterion on the body Cd, W 500, tol 0.5 %,
-with the 1500-iteration cap; round 1's level sizes; meshing and solver on 8 cores). Run on 2026-10-21,
-20:46-21:17, nice -n 15. Numbers: [result_round2.json](result_round2.json) (`--round 2 collect`).
-Values are means over the last 500 iterations at the stop (the criterion's window), standard deviation
-over the same iterations in brackets. **No verdict:** the fine level runs next (STATUS.md has the command).
+with the 1500-iteration cap; round 1's level sizes; meshing and solver on 8 cores). Run on 2026-10-21:
+coarse and medium 20:46-21:17, fine 21:26-22:36, nice -n 15. Numbers: [result_round2.json](result_round2.json)
+(`--round 2 collect`). Values are means over the last 500 iterations at the stop (the criterion's
+window), standard deviation over the same iterations in brackets.
 
-| | coarse r1 | coarse r2 | medium r1 | medium r2 |
-|---|---|---|---|---|
-| Cells (checkMesh) | 202,717 | 245,577 | 524,785 | 627,219 |
-| checkMesh / max non-orth. / skewness | OK / 73.5 / 2.38 | OK / 79.1 / 1.95 | OK / 64.8 / 3.23 | OK / 81.3 / 3.09 |
-| Ground layers (of 9) / thickness | none | 2.08 / 25.7 % | none | 2.68 / 28.8 % |
-| **Ground y+ mean under the body** (whole ground) | 1,707 (10,782) | **316** (10,696) | 1,240 (7,656) | **602** (7,558) |
-| Body y+ mean / in [25, 100] | 87.6 / 56.0 % | 66.4 / 90.5 % | 57.6 / 90.1 % | 58.1 / 89.3 % |
-| End state | 1500, iteration limit | **criteria met** (mean stable), 1164 | 1500, iteration limit | **criteria met** (mean stable), 1006 |
-| **Cd body** (mean) | 0.3409 (0.0065) | **0.3003** (0.0049) | 0.3468 (0.0046) | **0.3272** (0.0104) |
-| Cd body: pressure / viscous | 0.2972 / 0.0437 | 0.2576 / 0.0427 | 0.3023 / 0.0446 | 0.2854 / 0.0418 |
-| Pressure share of the body's drag | 87.2 % | 85.8 % | 87.1 % | 87.2 % |
-| Cd stilts (front + rear) | 0.0235 + 0.0113 | 0.0196 + 0.0105 | 0.0217 + 0.0134 | 0.0195 + 0.0121 |
-| **Cd body + stilts** (all walls, mean) | 0.3756 | **0.3305** | 0.3819 | **0.3589** |
-| Cl body (mean) | 0.341 (0.034) | 0.348 (0.018) | 0.395 (0.044) | 0.270 (0.061) |
-| Slant reversed area / centre strip reversed | 30.8 % / 89.8 % | 23.2 % / 96.0 % | 26.5 % / 87.9 % | 37.2 % / 95.7 % |
-| Centre strip reversed from / to (slant length) | 0.11 / 0.98 | 0.08 / 0.98 | 0.07 / 0.94 | 0.05 / 0.98 |
-| Meshing / solver time | 56 s / 535 s (4 cores) | 87 s / 400 s (8 cores) | 60 s / 1654 s (4 cores) | 187 s / 1128 s (8 cores) |
+**Verdict: FAIL** (V6), as round 1. The fine grid's body Cd is 0.3246, **13.9 % above** the experimental
+0.285 (12.9 % above 0.2875): inside the 10-20 % band but 3.7 % above the highest published k-omega SST
+value (0.313), so the PASS WITH NOTE condition is not met. The grid study is oscillatory again (no GCI, no
+extrapolation). Unlike round 1, the medium and fine levels agree within the oscillation (-0.8 %), and all
+three levels stopped on the mean-stable criterion.
+
+| | coarse r1 | coarse r2 | medium r1 | medium r2 | fine r1 | fine r2 |
+|---|---|---|---|---|---|---|
+| Cells (checkMesh) | 202,717 | 245,577 | 524,785 | 627,219 | 1,338,191 | 1,614,529 |
+| h = (V / N)^(1/3) | 0.12416 m | 0.12697 m | 0.09042 m | 0.09289 m | 0.06619 m | 0.06778 m |
+| checkMesh / max non-orth. / skewness | OK / 73.5 / 2.38 | OK / 79.1 / 1.95 | OK / 64.8 / 3.23 | OK / 81.3 / 3.09 | OK / 65.0 / 2.39 | OK / 76.3 / 1.67 |
+| Ground layers (of 9) / thickness | none | 2.08 / 25.7 % | none | 2.68 / 28.8 % | none | 2.93 / 30.8 % |
+| **Ground y+ mean under the body** (whole ground) | 1,707 (10,782) | **316** (10,696) | 1,240 (7,656) | **602** (7,558) | 1,518 (5,438) | **366** (5,331) |
+| Body y+ mean / in [25, 100] | 87.6 / 56.0 % | 66.4 / 90.5 % | 57.6 / 90.1 % | 58.1 / 89.3 % | 55.2 / 91.7 % | 56.1 / 89.7 % |
+| End state | 1500, iteration limit | **criteria met** (mean stable), 1164 | 1500, iteration limit | **criteria met** (mean stable), 1006 | 1500, iteration limit | **criteria met** (mean stable), 1021 |
+| **Cd body** (mean) | 0.3409 (0.0065) | **0.3003** (0.0049) | 0.3468 (0.0046) | **0.3272** (0.0104) | 0.3250 (0.0016) | **0.3246** (0.0067) |
+| Cd body: pressure / viscous | 0.2972 / 0.0437 | 0.2576 / 0.0427 | 0.3023 / 0.0446 | 0.2854 / 0.0418 | 0.2791 / 0.0459 | 0.2811 / 0.0435 |
+| Pressure share of the body's drag | 87.2 % | 85.8 % | 87.1 % | 87.2 % | 85.9 % | 86.6 % |
+| Cd stilts (front + rear) | 0.0235 + 0.0113 | 0.0196 + 0.0105 | 0.0217 + 0.0134 | 0.0195 + 0.0121 | 0.0196 + 0.0107 | 0.0179 + 0.0109 |
+| **Cd body + stilts** (all walls, mean) | 0.3756 | **0.3305** | 0.3819 | **0.3589** | 0.3553 | **0.3534** |
+| Cl body (mean) | 0.341 (0.034) | 0.348 (0.018) | 0.395 (0.044) | 0.270 (0.061) | 0.382 (0.040) | 0.395 (0.055) |
+| Slant reversed area / centre strip reversed | 30.8 % / 89.8 % | 23.2 % / 96.0 % | 26.5 % / 87.9 % | 37.2 % / 95.7 % | 7.8 % / 51.4 % | 40.4 % / 67.9 % |
+| Centre strip reversed from / to (slant length) | 0.11 / 0.98 | 0.08 / 0.98 | 0.07 / 0.94 | 0.05 / 0.98 | 0.07 / 0.80 | 0.06 / 0.96 |
+| Meshing / solver time | 56 s / 535 s (4 cores) | 87 s / 400 s (8 cores) | 60 s / 1654 s (4 cores) | 187 s / 1128 s (8 cores) | 167 s / 4564 s (4 cores) | 560 s / 3578 s (8 cores) |
 
 Round 1 judged the means over iterations 501-1500 (1000 iterations); round 2 the 500 before the stop. On
 round 1's own histories the two differ by at most 0.21 % (D-118), far less than the changes below.
 
-**Body Cd.** It falls by 11.9 % on the coarse level (0.3409 to 0.3003) and by 5.7 % on the medium level
-(0.3468 to 0.3272); against the experimental 0.285 the medium level is now +14.8 % (round 1: +21.7 %)
-and the coarse level +5.4 %. The drop is almost all pressure drag (coarse -0.040, medium -0.017); the
-viscous drag changes by -0.001 and -0.003. The coarse-to-medium change is now +9.0 % (round 1 +1.7 %), so
-the two levels are further apart than in round 1: with the fine level still to run, nothing can be said
-on grid convergence yet.
+### Grid convergence (Celik 2008, foam/gci.py)
 
-**Slant flow: unchanged.** Both levels still separate along the centre of the slant almost to the base
-(reversed on 96 % of the centre strip, from 5-8 % to 98 % of the slant length), as round 1's coarse and
-medium levels did; the medium level's reversed area grows (26.5 to 37.2 %). The drop in Cd therefore does
-not come from a change of the slant regime (round 1's fine-grid drop did, item (a)); it comes from the
-set-up.
+| Quantity (round 2 means) | coarse | medium | fine | Convergence |
+|---|---|---|---|---|
+| Cd body | 0.30032 | 0.32723 | 0.32456 | oscillatory |
+| Cd body + stilts | 0.33046 | 0.35886 | 0.35341 | oscillatory |
+| Cl body | 0.34790 | 0.26949 | 0.39503 | oscillatory |
+| Cd body, pressure | 0.25759 | 0.28540 | 0.28105 | oscillatory |
+| Cd body, viscous | 0.04273 | 0.04183 | 0.04351 | oscillatory |
 
-**Attribution.** Two set-up fixes changed at once, so this run cannot separate them:
-- (b) the inlet 5 L instead of 1.35 L ahead (fixed-value inlet no longer 1.4 m from the nose); the ground
-  wall still starts at the same place (within 3 cm, D-118), so the ground boundary layer's development
-  length is unchanged and the strip adds no boundary layer;
-- (c) the ground layers: the ground y+ under the body falls from 1,707 to 316 (coarse) and from 1,240 to
-  602 (medium), but the stacks are thin (2.1-2.7 of 9 layers, 26-29 % of the planned thickness; the
-  whole-ground mean y+ is unchanged at 7,600-10,700 because the large ground cells away from the body keep
-  almost no layers), so the ground boundary layer is still not in the wall-function range (30-300)
-  under the body on the medium level.
-A run with the round 1 inlet and the ground layers (or the round 2 inlet without them) would separate the
-two; not run tonight (QUESTIONS 177). The pressure-drag drop with a slant regime that did not change
-points at the underbody and base pressure, which both fixes act on.
+**No GCI can be computed:** the changes have opposite signs (+9.0 % coarse to medium, -0.8 % medium to
+fine), so there is no apparent order and no extrapolated value; every quantity is oscillatory (the stilts'
+Cd: front divergent, rear oscillatory). The medium-to-fine change (-0.0027) is smaller than the standard
+deviation of either level over its window (0.0104 and 0.0067; the oscillation period is about 167
+iterations, so a 500-iteration mean holds three periods), so medium and fine agree within the uncertainty
+of the windowed mean; the coarse level is the outlier (its ground y+ and its body layers differ most, the
+table above). Two grids within the noise do not make a GCI: the judged value is the fine grid's, without a
+grid uncertainty (V6). Size ratios from the measured cells: 1.367 and 1.371.
 
-**Lift.** The medium level's Cl falls from 0.395 to 0.270 with a large swing (standard deviation 0.061
-over the window; range 0.10-0.40): Cl oscillates much more than Cd; its mean over 500 iterations is less
-certain than Cd's.
+### Against the experiment and the literature
 
-**Stopping.** Both levels met the mean-stable criterion (the run then stopped cleanly through the app):
-coarse at iteration 1162 (written 1164), medium at 1004 (written 1006), i.e. 336 and 494 iterations
-before the cap; the oscillation is still present (Cd standard deviation 0.005-0.010).
+| Source | Cd | Error vs 0.285 |
+|---|---|---|
+| Ahmed et al. (1984), as quoted (SETUP.md) | 0.285 (0.2875 as read by SimScale) | - |
+| **This study, round 2, fine grid, body** | **0.3246** | **+13.9 %** (+12.9 % vs 0.2875) |
+| This study, round 1, fine grid, body | 0.3250 | +14.0 % |
+| Published k-omega SST: [H22], [SS], [SF] | 0.2839, 0.2915, 0.313 | -0.4 %, +2.3 %, +9.8 % |
 
-**Skipped tonight (deadline 23:15).** The fine level (estimated 6 min meshing and up to 113 min solving
-on 8 cores for 1.98 M estimated cells: past the deadline, and not to be run tonight in any case); no
-level was stopped at the deadline. References: none supplied (SETUP.md, "Round 2"): the experimental
-0.285 and the SST values stay unverified (item (d), QUESTIONS 171, 172).
+The fine value is 0.0116 (3.7 %) above the highest published SST result (SimFlow's simpleFoam case,
+16.6 M cells), and 0.033 and 0.041 above the other two. The references are still unverified (no papers supplied;
+QUESTIONS 171, 172).
+
+### The slant flow on the fine level
+
+The fine level now shows a **closed separation bubble on the slant's centre, larger than round 1's**.
+Reversed share of the slant faces per tenth of the slant length (wall shear stress at the last
+iteration, 1021), by distance y from the plane of symmetry (the half width is 0.1945 m):
+
+| y | 0-0.1 | 0.1-0.2 | 0.2-0.3 | 0.3-0.4 | 0.4-0.5 | 0.5-0.6 | 0.6-0.7 | 0.7-0.8 | 0.8-0.9 | 0.9-1 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 0-0.03 m | 50 | 50 | 92 | 100 | 100 | 100 | 100 | 46 | 17 | 17 |
+| 0.03-0.10 m | 50 | 93 | 100 | 100 | 100 | 100 | 30 | 0 | 0 | 0 |
+| 0.10-0.16 m | 40 | 81 | 77 | 33 | 25 | 23 | 23 | 4 | 0 | 0 |
+| 0.16-0.20 m | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| round 1 fine, 0-0.03 m (1500) | 23 | 100 | 100 | 100 | 88 | 58 | 38 | 17 | 4 | 0 |
+| round 1 fine, 0.03-0.20 m | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+The near-wall flow separates at the slant's leading edge, runs up the slant over the first 60-70 % of its
+length on the inner half of the span and reattaches before the base (from 0.7 at the centre, 0.6-0.7
+further out); the outer 35 mm (under the side-edge vortices) stays attached everywhere. That is the
+low-drag regime of [A84] below 30 degrees (a bubble closing on the slant, attached flanks), the same
+state as round 1's fine level, but the bubble covers most of the inner span (40 % of the slant area,
+round 1: 7.8 %, only the centre strip). Coarse and medium r2 separate to the base (to 0.98 on the centre
+strip). The fine level's centre "to 0.96" in the main table is a few isolated faces (17 % per tenth past
+0.8), not the bubble. These are the fields at one iteration of an oscillating solution (Cl over the window
+0.30 to 0.51); the bubble length moves with it. With the bubble so different from round 1's and Cd the
+same (0.3246 against 0.3250), the slant regime alone does not decide the fine level's drag.
+
+### What the set-up fixes did
+
+The change from round 1 shrinks with refinement: -11.9 % (coarse), -5.7 % (medium), -0.1 % (fine). The
+fixes moved the coarse levels toward the experiment but not the fine level, where the error stays 14 %.
+Ground y+ under the body: 316 / 602 / 366 (round 1: 1,707 / 1,240 / 1,518); the ground stacks keep 2.1-2.9
+of 9 layers (26-31 % of the thickness), so the medium level is still above the wall-function range there
+(QUESTIONS 177).
+
+**The separating run (QUESTIONS 177; SETUP.md, "The separating run").** Coarse level, round 2's set-up
+with the ground layers off (inlet 5 L ahead and the slip strip kept), run 22:37-22:43 (63 s meshing, 322 s
+solving, 8 cores). Numbers: [result_round3.json](result_round3.json).
+
+| Coarse level | r1 | r2 without ground layers | r2 |
+|---|---|---|---|
+| Inlet / slip strip / ground layers | 1.35 L / no / off | 5 L / yes / off | 5 L / yes / on |
+| Cells | 202,717 | 235,082 | 245,577 |
+| Ground y+ mean under the body | 1,707 | 1,478 | 316 |
+| Body y+ mean / in [25, 100] | 87.6 / 56.0 % | 70.9 / 79.1 % | 66.4 / 90.5 % |
+| End state | 1500, iteration limit | criteria met (mean stable), 1007 | criteria met (mean stable), 1164 |
+| **Cd body** (mean) | 0.3409 (0.0065) | **0.3189** (0.00001) | 0.3003 (0.0049) |
+| Cd body: pressure / viscous | 0.2972 / 0.0437 | 0.2758 / 0.0430 | 0.2576 / 0.0427 |
+| Cd body + stilts | 0.3756 | 0.3510 | 0.3305 |
+| Cl body | 0.341 (0.034) | 0.409 (0.0002) | 0.348 (0.018) |
+| Slant reversed area / centre strip reversed | 30.8 % / 89.8 % | 9.7 % / 63.3 % | 23.2 % / 96.0 % |
+| Centre strip reversed from / to | 0.11 / 0.98 | 0.08 / 0.92 | 0.08 / 0.98 |
+
+Of the coarse level's drop from 0.3409 to 0.3003 (-0.0406), the inlet and the slip strip (b) account for
+-0.0220 and the ground layers (c) for -0.0186: about half each, both almost all pressure drag. That split
+is only indicative: the middle run is a different flow, **steady** (Cd standard deviation 1e-5 over its
+window, against 0.005-0.007 for the two others: the only steady level of either round) with a smaller
+slant separation (9.7 % of the slant reversed against 23-31 %). So each fix also changes the coarse
+level's slant state, and the two effects need not add. On the fine level the two fixes together change
+Cd by -0.1 %. Not run: the fine level without ground layers.
+
+**Lift.** Cl oscillates much more than Cd (standard deviation 0.018-0.061 over the window; fine 0.30 to
+0.51); the windowed means (0.348 / 0.269 / 0.395) are less certain than Cd's.
+
+**Stopping.** All three levels met the mean-stable criterion and stopped cleanly through the app: coarse
+at 1164, medium 1006, fine 1021 (written iterations), 336 to 494 before the cap; the oscillation stays
+(Cd standard deviation 0.005-0.010).
+
+**Machine time and the deadline.** The fine level was started at 21:26 on the medium level's measured
+rate (1.80 us per cell-iteration on 8 ranks, scaled by cells; estimated end 22:40-22:53 for 1000-1200
+iterations; the driver's own estimate, round 1's 4-core rate for 1500 iterations, gave 23:25, so it was
+run without `--deadline` and a separate 23:15 watcher would have sent the app's clean stop, SIGUSR1 to
+mpirun, D-058). It ended by itself at 22:36:39: 9 min 20 s meshing (1,614,529 cells against 1,982,625
+estimated), 3,578 s solving 1021 iterations (2.17 us per cell-iteration; round 1's fine on 4 cores:
+2.27). No level was stopped at the deadline.

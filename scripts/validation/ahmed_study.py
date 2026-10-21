@@ -14,6 +14,10 @@ solver's clean stop, D-058; the meshing stop, D-111):
     .venv/bin/python scripts/validation/ahmed_study.py --round 2 study --level coarse --deadline 23:15
     .venv/bin/python scripts/validation/ahmed_study.py --round 2 collect   # -> result_round2.json
 
+Round 3 (SETUP.md, "The separating run"): round 2 without the ground layers, project ahmed25_r2_nolayers,
+the coarse level only (``--round 3 setup``, ``--round 3 study --level coarse``, ``--round 3 collect`` ->
+result_round3.json).
+
 Run with nice -n 15. The project goes to run/validation/ahmed/ (git-ignored); the numbers to
 docs/validation/ahmed/result.json (round 2: result_round2.json; RESULT.md is written from them).
 """
@@ -92,7 +96,7 @@ def setup(args) -> None:
     est = meshing.project_estimate(project, box)
     bounds = [tuple(float(b) for b in m.bounds) for m in meshes]
     project.update_mesh(target_surface_size=args.surface_size, background_cells_target=args.background)
-    if ROUND == 2:  # round 1's level sizes in the longer domain (SETUP.md, "Round 2")
+    if ROUND >= 2:  # round 1's level sizes in the longer domain (SETUP.md, "Round 2")
         project.update_mesh(base_size=ac.BASE_SIZE_ROUND1)
     est = meshing.project_estimate(project, box)
     project.add_refinement_volume(refinement.wake_volume(project, [names.index(ac.BODY)], bounds, est))
@@ -122,7 +126,7 @@ def setup(args) -> None:
     from vortexcfd.workflow.mesh_study import plan_study
 
     sp = plan_study(project)
-    if ROUND == 2:
+    if ROUND >= 2:
         from vortexcfd.foam.mesh_case import ground_split_x
 
         print(f"ground wall start asked {ac.GROUND_WALL_START:.4f} m")
@@ -131,7 +135,7 @@ def setup(args) -> None:
               f"background {lp.estimate.total_cells}, "
               f"estimated cells {lp.estimated_cells} ({'measured ratio' if sp.measured else 'assumed ratio'} "
               f"{sp.cells_per_background:.2f})")
-        if ROUND == 2:
+        if ROUND >= 2:
             mesh_s, solve_s = estimate_level(lp.level.name, lp.estimated_cells, ac.ITERATIONS)
             from vortexcfd.workflow.mesh_study import prepare_study  # noqa: F401 (the split is per level)
 
@@ -152,7 +156,7 @@ def study(args) -> None:
 
     project = Project.open(project_path())
     deadline = None
-    if ROUND == 2:
+    if ROUND >= 2:
         if not args.level:
             raise SystemExit("round 2 runs one level per command: --level coarse|medium|fine")
         planned = {lp.level.name: lp.estimated_cells for lp in plan_study(project).levels}
@@ -197,11 +201,11 @@ def study(args) -> None:
         threading.Thread(target=watchdog, daemon=True).start()
     result = run.wait()
     log.close()
-    suffix = f"_{args.level}" if ROUND == 2 else ""
+    suffix = f"_{args.level}" if ROUND >= 2 else ""
     (study_dir / f"study_events{suffix}.json").write_text(
         json.dumps({"start": start, "end": time.time(), "events": events,
                     "stopped_at_deadline": stopped_at_deadline.is_set()}, indent=1), encoding="utf-8")
-    if ROUND == 2:  # keep this level's record: the next level's run rewrites study.json
+    if ROUND >= 2:  # keep this level's record: the next level's run rewrites study.json
         shutil.copy(study_dir / "study.json", study_dir / f"study_{args.level}.json")
     print(f"study {result.status} in {time.time() - start:.0f} s")
 
@@ -321,15 +325,34 @@ def collect_round2() -> None:
     result = {"project": str(project_path().relative_to(ROOT)), "average_window": window,
               "mesh_cores": ac.CORES_R2, "solver_cores": ac.CORES_R2, "ground_wall_start_asked": ac.GROUND_WALL_START,
               "levels": levels}
+    if [lv["name"] for lv in levels] == ["coarse", "medium", "fine"]:  # the GCI and V6, as round 1's collect
+        from vortexcfd.foam import gci
+
+        sizes = [lv["h_m"] for lv in levels]
+        means = {}
+        for q in ac.STUDY_QUANTITIES:
+            values = [lv["window"][q]["mean"] for lv in levels]
+            r = gci.study(values, sizes)
+            means[q] = {"values": values, **dataclasses.asdict(r), "applicable": r.applicable,
+                        "in_asymptotic_range": r.in_asymptotic_range, "text": r.text}
+        result["gci_window_means"] = means
+        cd, basis, _ = ac.judged_value([lv["window"]["Cd@body"]["mean"] for lv in levels], sizes)
+        error = cd / ac.CD_EXPERIMENT - 1.0
+        consistent = ac.consistent_with_sst(cd)
+        result["verdict"] = {"quantity": "Cd@body", "basis": basis, "cd": cd, "experiment": ac.CD_EXPERIMENT,
+                             "error": error, "error_alt": cd / ac.CD_EXPERIMENT_ALT - 1.0,
+                             "published_sst": list(ac.PUBLISHED_SST_CD), "consistent_with_sst": consistent,
+                             "verdict": ac.verdict(error, consistent),
+                             "fine_stopped_at_deadline": levels[-1]["stopped_at_deadline"]}
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "result_round2.json").write_text(json.dumps(result, indent=2, default=str) + "\n", encoding="utf-8")
+    (OUT / ("result_round2.json" if ROUND == 2 else "result_round3.json")).write_text(json.dumps(result, indent=2, default=str) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=1, default=str)[:8000])
 
 
 def collect(args) -> None:
     from vortexcfd.foam.mesh_study import quantity_rows, read_record
 
-    if ROUND == 2:
+    if ROUND >= 2:
         collect_round2()
         return
 
@@ -380,7 +403,8 @@ def collect(args) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--round", type=int, choices=(1, 2), default=1, help="1: the first study; 2: SETUP.md round 2")
+    parser.add_argument("--round", type=int, choices=(1, 2, 3), default=1,
+                        help="1: the first study; 2: SETUP.md round 2; 3: round 2 without ground layers (QUESTIONS 177)")
     sub = parser.add_subparsers(dest="command", required=True)
     s = sub.add_parser("setup")
     s.add_argument("--surface-size", type=float, default=ac.SURFACE_SIZE, help="target surface size (x l_ref)")

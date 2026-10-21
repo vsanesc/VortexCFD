@@ -1,6 +1,6 @@
 # Status
 
-Updated 2026-10-21 (task/validation-ahmed: ground plane boundary and the Ahmed 25 degree force validation; round 2 partial).
+Updated 2026-10-21 (task/validation-ahmed: ground plane boundary and the Ahmed 25 degree force validation; round 2).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
@@ -36,20 +36,21 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
     per command with a deadline guard (`prepare_study(only=...)`).
   - Part D: coarse and medium run (RESULT.md "Round 2"): body Cd 0.3003 / 0.3272 (round 1 0.3409 /
     0.3468), both stopped by the mean-stable criterion (1162 / 1004); ground y+ under the body 316 / 602
-    (round 1 1,707 / 1,240); the slant still separated on both. No verdict until the fine level.
+    (round 1 1,707 / 1,240); the slant still separated on both.
+  - Part E: the fine level (1,614,529 cells, mean-stable stop at 1021, 70 min on 8 cores): body Cd
+    0.3246, +13.9 % against 0.285, above the published SST range: **verdict FAIL** (V6), as round 1. GCI
+    oscillatory (+9.0 % / -0.8 %: medium and fine agree within the oscillation, coarse is the outlier);
+    the fine slant has a closed bubble reattaching at 0.6-0.7 of the slant (40 % of its area reversed).
+    The set-up fixes change Cd by -11.9 / -5.7 / -0.1 % (coarse / medium / fine). The separating coarse run
+    without ground layers (`--round 3`, QUESTIONS 177): 0.3189, about half of the coarse drop each from
+    the inlet and the ground layers, but that run converged steady (indicative only). D-118 Accepted;
+    QUESTIONS 176 and 178 accepted.
 
-Next: the Ahmed round 2 fine level (estimated 6 min meshing and up to 113 min solving on 8 cores), then
-collect and the verdict:
-
-```bash
-nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 2 study --level fine
-nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 2 collect
-```
-
-The owner's review of D-118 and QUESTIONS 175 to 178. Then the
+Next: QUESTIONS 175 (the mesh study's values from the mean-stable window; owner: fix it next); the owner's
+review of the Ahmed round 2 verdict and QUESTIONS 177. Then the
 aircraft's zones (QUESTIONS 147); drag handles for the refinement volumes (item 132). The owner runs
 scripts/ship.sh (the slow tests, item 161). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75,
-82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 171, 172, 174 and 175 to 178.
+82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 171, 172, 174, 175 and 177.
 
 ### Previous branch (task/5.x-parallel-mesh, published in PR #26)
 
@@ -77,7 +78,7 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
 | 3.5 | Surface-to-patch assignment | done (D-071): regions, angle split, patches in the meshing dictionary |
 | 4.1 | Physics continua | done for steady incompressible RANS (merged in PR #13) |
 | 4.2 | Boundary condition library | done for the external-aerodynamics set (D-022) |
-| 4.3 | Turbulence module | done for kOmegaSST (y+ estimator, flat plate verified against TMR: PASS WITH NOTE; Ahmed body 25 degrees: FAIL, docs/validation/ahmed/RESULT.md); docs/reference/turbulence_mapping.md not written |
+| 4.3 | Turbulence module | done for kOmegaSST (y+ estimator, flat plate verified against TMR: PASS WITH NOTE; Ahmed body 25 degrees: FAIL in rounds 1 and 2, docs/validation/ahmed/RESULT.md); docs/reference/turbulence_mapping.md not written |
 | 4.4 | Numerics presets | preset "robust" only (merged in PR #13) |
 | 5.0 | Meshing benchmark suite | done (D-081, D-082): sphere, wing, Ahmed-type body; baseline in benchmarks/BASELINE.md; the dirty-STL set and solver convergence are not in it |
 | 5.1 | M1: GUI over snappyHexMesh | done (published in PR #11 and #12); y+ layer sizing done (D-024, D-026, D-045); sizing defaults revised after the baseline (D-084 to D-086, task 5.1-sizing); user refinement volumes and the wake helper (D-103, task 5.x-refinement-volumes; no viewer drag handles) |
@@ -99,8 +100,9 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
 
 ## Known issues
 
-- The Ahmed body 25 degree validation FAILS V6 (body Cd +14.0 % on the finest of three grids, above the
-  published SST range; not grid-converged; the steady run oscillates, QUESTIONS 170; docs/validation/ahmed/RESULT.md).
+- The Ahmed body 25 degree validation FAILS V6 in both rounds (round 2: body Cd +13.9 % on the finest of
+  three grids, above the published SST range; no GCI, oscillatory; the steady run oscillates;
+  docs/validation/ahmed/RESULT.md).
 
 - Results at angle of attack != 0 are biased by the angled-inlet method with slip far field (QUESTIONS 71, open).
 

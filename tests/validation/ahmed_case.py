@@ -117,6 +117,10 @@ DOMAIN_R2 = {"upstream": UPSTREAM_R2, "downstream": 10.0, "lateral": 5.0, "verti
 CORES_R2 = 8
 # Round 1's fine background cell size: (domain volume 388.1 m3 / 800,000 cells)^(1/3) (SETUP.md, "Mesh":
 # 78.6 mm). Round 2's longer domain keeps it as an explicit base size, so its levels have round 1's sizes.
+# Round 3 (QUESTIONS 177): round 2's set-up with the ground layers off (the inlet 5 L ahead and the slip
+# strip kept), the coarse level only, to separate the two round 2 set-up fixes.
+PROJECT_NAME_R3 = "ahmed25_r2_nolayers"
+DOMAIN_R3 = {**DOMAIN_R2, "ground": {**DOMAIN_R2["ground"], "layers": False}}
 BASE_SIZE_ROUND1 = (12.893 * 5.415 * 5.558 / BACKGROUND_CELLS) ** (1.0 / 3.0)
 STUDY_QUANTITIES = ["Cd@body", "Cd", "Cl@body", "Cl", "Cd_pressure@body", "Cd_viscous@body", "Cd@stilt_front",
                     "Cd@stilt_rear", "Cl_pressure@body", "Cl_viscous@body"]
@@ -173,11 +177,11 @@ def stopping_round2() -> StoppingCriteria:
 
 
 def project_name(round_: int) -> str:
-    return PROJECT_NAME if round_ == 1 else PROJECT_NAME_R2
+    return {1: PROJECT_NAME, 2: PROJECT_NAME_R2, 3: PROJECT_NAME_R3}[round_]
 
 
 def build_project(work_root: Path, geometry_dir: Path, round_: int = 1) -> Project:
-    """A fresh project <work_root>/ahmed25/ (round 2: ahmed25_r2/) made as the New simulation dialog does
+    """A fresh project <work_root>/ahmed25/ (round 2: ahmed25_r2/, round 3: ahmed25_r2_nolayers/) made as the New simulation dialog does
     (preset "External flow"), the three parts imported as File > Import Geometry does, and the validation
     inputs set."""
     from vortexcfd.bench.runner import import_geometry
@@ -194,7 +198,7 @@ def build_project(work_root: Path, geometry_dir: Path, round_: int = 1) -> Proje
         import_geometry(project, path, "mm", mode="parts")
     for index in range(len(project.sim.geometry.parts)):  # the deflection rows of the part properties
         project.update_part(index, **part_ops.retessellate(project, index, LINEAR_DEFLECTION, ANGULAR_DEFLECTION))
-    project.update_domain(**(DOMAIN if round_ == 1 else DOMAIN_R2))
+    project.update_domain(**{1: DOMAIN, 2: DOMAIN_R2, 3: DOMAIN_R3}[round_])
     project.update_physics(nu=NU)
     project.update_inflow(speed=SPEED, turbulence_intensity=TURBULENCE_INTENSITY)
     project.update_reports(reference_area_basis="custom", reference_area=A_REF_HALF, reference_length=LENGTH)

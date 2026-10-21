@@ -233,3 +233,15 @@ nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 2 collect
 
 `collect` writes `docs/validation/ahmed/result_round2.json` from the levels run so far (round 1's
 `result.json` is not touched).
+
+### The separating run (QUESTIONS 177)
+
+`--round 3`: round 2's set-up with the ground prism layers off (the inlet 5 L ahead and the slip strip
+kept), in its own project ahmed25_r2_nolayers; the coarse level only. Against coarse r1 it isolates the
+inlet distance and slip strip (b); against coarse r2, the ground layers (c).
+
+```bash
+nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 3 setup
+nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 3 study --level coarse --deadline 23:15
+nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 3 collect   # -> result_round3.json
+```

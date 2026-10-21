@@ -130,8 +130,9 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-113 | 2026-10-21 | Every background run reports its end, also after an exception | Accepted |
 | D-114 | 2026-10-21 | Project files, presets and records written atomically with the umask's permissions | Accepted |
 | D-115 | 2026-10-21 | Edit > Add part (placeholder) disabled | Accepted |
-| D-116 | 2026-10-21 | Ground plane boundary of the box domain (schema v16) | Proposed |
-| D-117 | 2026-10-21 | Mesh study levels keep the refinement volumes and junction curves | Proposed |
+| D-116 | 2026-10-21 | Ground plane boundary of the box domain (schema v16) | Accepted |
+| D-117 | 2026-10-21 | Mesh study levels keep the refinement volumes and junction curves | Accepted |
+| D-118 | 2026-10-21 | Ground slip strip and the mean-stable stopping criterion (schema v17) | Accepted |
 
 ---
 
@@ -1163,7 +1164,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: a study of a project with volumes meshes what Generate Mesh meshes at every level. The study's background-cell limit check still counts background cells only (as before).
 
 ## D-118 Ground slip strip and the mean-stable stopping criterion (schema v17)
-- Status: Proposed (task validation-ahmed round 2, Part A; owner review of round 1, QUESTIONS 168 b and 170). [NUMERICS-REVIEW]
+- Status: Accepted (owner review of validation-ahmed round 2, 2026-10-21; QUESTIONS 176 accepted, 175 open). Was Proposed (task validation-ahmed round 2, Part A; owner review of round 1, QUESTIONS 168 b and 170). [NUMERICS-REVIEW]
 - Context: the owner read the round 1 FAIL of the Ahmed validation as inconclusive. Two of the reasons need the app: (b) the inlet 1.35 L ahead of the nose was where Ahmed's ground board started, not where the free stream started, and the ground had no slip section ahead of the board (D-116 left it for later); (QUESTIONS 170) the steady run oscillates about a stationary mean, so neither the residual nor the range-based asymptotic criterion can stop it and no averaged value was shown.
 - Decision:
   - Ground slip strip. `Ground.wall_start_x: float | None` (metres; None = the wall starts at the inlet, as before). When it lies strictly inside the box's x range (`geometry/domain.ground_wall_start`), the bottom face is two patches: `ground_slip` (type patch) upstream, `ground` (wall) downstream. The blockMesh background is written as two blocks split at the background cell face nearest to the value (`mesh_case.ground_split`, kept between 1 and nx - 1 cells), so the cells, the refinement levels and locationInMesh are those of the single block; the split is at most half a background cell from the asked x (`ground_split_x` gives the actual one; the mesh study's levels split at their own nearest face). Prism layers (`Ground.layers`) go on `ground` only. The domain guard expects both patches. Solver: `ground_slip` is one of the far-field patches (`far_field_patches(shape, ground, slip_strip)`), so it gets the far field's conditions (U slip; p, k, omega zeroGradient; nut calculated); the forces, wall shear stress and part y+ never list it (a patch, not a wall). A wall start at or behind the outlet blocks meshing with a message. "ground_slip" is a reserved patch name. GUI: "Wall starts at x" on the ground plane rows (the minimum shows "inlet" = unset), and the boundary-condition text names the strip. Mesh hash: `wall_start_x` enters only when set (projects without a strip keep their hash).
