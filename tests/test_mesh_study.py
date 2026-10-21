@@ -508,3 +508,106 @@ def test_one_level_can_be_prepared_without_touching_the_others(tmp_path: Path) -
     _, record, _ = prepare_study(project, only=["medium"])
     assert [lv.name for lv in record.levels] == ["medium"] and record.levels[0].index == 1
     assert (done / "points").read_text() == "kept" and (study_dir / "level_2" / "system" / "blockMeshDict").is_file()
+
+
+# -- the recorded value: windowed mean or last value (D-119) ------------------------------------------
+
+ROUND1 = Path(__file__).parent / "data" / "ahmed_round1_cd_body.csv"
+ROUND1_STOPS = {"coarse": 1002, "medium": 1003, "fine": 1036}  # where the mean-stable defaults stop (D-118)
+
+
+def _round1() -> dict[str, list[tuple[float, float]]]:
+    """The body Cd per iteration of the three Ahmed round 1 levels (1500 iterations each)."""
+    rows = [r for r in ROUND1.read_text(encoding="utf-8").splitlines() if not r.startswith("#")]
+    out: dict[str, list] = {"coarse": [], "medium": [], "fine": []}
+    for r in csv.DictReader(rows):
+        for level in out:
+            out[level].append((float(r["iteration"]), float(r[level])))
+    return out
+
+
+def test_recorded_value_of_the_round1_histories() -> None:
+    """A mean-stable criterion: the mean over its window at the stop (D-118's means); the oscillation
+    warning alone: the mean over the oscillation window; no stopping criteria: the last value."""
+    from vortexcfd.core.model import MeanStableCriterion, StoppingCriteria
+    from vortexcfd.foam.mesh_study import BASIS_LAST, BASIS_MEAN_STABLE, BASIS_OSCILLATION, recorded_value
+
+    stable = StoppingCriteria(criteria=[MeanStableCriterion(quantity="Cd@body")])
+    plain = StoppingCriteria()  # the oscillation warning only (window 100, threshold 1 %)
+    means = {"coarse": 0.3416, "medium": 0.3464, "fine": 0.3250}
+    lasts = {"coarse": 0.3441, "medium": 0.3435, "fine": 0.3227}  # RESULT.md, the study's own round 1 values
+    for level, series in _round1().items():
+        at_stop = series[:ROUND1_STOPS[level]]
+        v = recorded_value("Cd@body", at_stop, stable)
+        assert v.basis == BASIS_MEAN_STABLE and v.window == 500
+        assert v.value == pytest.approx(sum(c for _, c in at_stop[-500:]) / 500, rel=1e-12)
+        assert v.value == pytest.approx(means[level], abs=5e-5) and v.last == at_stop[-1][1]
+        assert v.amplitude == pytest.approx((max(c for _, c in at_stop[-500:]) - min(c for _, c in at_stop[-500:]))
+                                            / v.value, rel=1e-12)
+        o = recorded_value("Cd@body", series, plain)
+        assert o.basis == BASIS_OSCILLATION and o.window == 100 and o.amplitude > 0.01
+        assert o.value == pytest.approx(sum(c for _, c in series[-100:]) / 100, rel=1e-12)
+        n = recorded_value("Cd@body", series, None)
+        assert n.basis == BASIS_LAST and n.value == n.last == pytest.approx(lasts[level], abs=5e-5)
+        assert n.window is None and n.amplitude is None
+    # a series shorter than the mean-stable window falls back to the oscillation check, then the last value
+    short = _round1()["coarse"][300:700]
+    assert recorded_value("Cd@body", short, stable).basis == BASIS_OSCILLATION
+    steady = [(float(i), 0.3 + 1e-7 * i) for i in range(1, 300)]
+    assert recorded_value("Cd@body", steady, plain).basis == BASIS_LAST
+    assert recorded_value("Cd@body", [], stable) is None
+
+
+class HistorySolverRun(FakeSolverRun):
+    """Writes round 1's body Cd history of its level up to the mean-stable stop as forceCoeffs1's Cd."""
+
+    def start(self):
+        level = ("coarse", "medium", "fine")[self.i]
+        coeffs = self.case / "postProcessing" / "forceCoeffs1" / "0"
+        coeffs.mkdir(parents=True)
+        lines = ["# Time\tCd\tCd(f)\tCd(r)\tCl\tCl(f)\tCl(r)\tCmPitch\tCmRoll\tCmYaw\tCs\tCs(f)\tCs(r)"]
+        lines += [f"{int(t)}\t{cd}\t0\t0\t0.1\t0\t0\t0\t0\t0\t0\t0\t0" for t, cd in _round1()[level][:ROUND1_STOPS[level]]]
+        (coeffs / "coefficient.dat").write_text("\n".join(lines) + "\n")
+
+
+def test_study_records_the_windowed_means_and_the_gci_uses_them(tmp_path: Path) -> None:
+    from vortexcfd.core.model import MeanStableCriterion, StoppingCriteria
+    from vortexcfd.foam.mesh_study import BASIS_LAST, BASIS_MEAN_STABLE
+
+    FakeMeshRun.calls, FakeSolverRun.n = [], 0
+    stopping = StoppingCriteria(criteria=[MeanStableCriterion(quantity="Cd")])
+    rec = StudyRecord(math.sqrt(2), "fine", ["Cd", "Cl"], 1, 8.0, _levels())
+    run = StudyRun(tmp_path, rec, lambda case: None, stopping=stopping, mesh_run_factory=FakeMeshRun,
+                   solver_run_factory=HistorySolverRun)
+    run.start()
+    out = run.wait(10)
+    histories = _round1()
+    for lv in out.levels:
+        at_stop = histories[lv.name][:ROUND1_STOPS[lv.name]]
+        assert lv.values["Cd"] == pytest.approx(sum(c for _, c in at_stop[-500:]) / 500, rel=1e-9)
+        assert lv.last_values["Cd"] == pytest.approx(at_stop[-1][1], rel=1e-9)
+        assert (lv.basis("Cd"), lv.windows["Cd"]) == (BASIS_MEAN_STABLE, 500) and lv.amplitudes["Cd"] > 0
+        assert lv.basis("Cl") == BASIS_LAST and lv.values["Cl"] == lv.last_values["Cl"] == 0.1
+        assert "Cl" not in lv.windows
+    assert read_record(tmp_path) == out
+    cd, cl = quantity_rows(out)
+    assert cd.values == tuple(lv.values["Cd"] for lv in out.levels)
+    assert cd.result.convergence == "oscillatory"  # 0.3416, 0.3464, 0.3250: D-118's means
+    assert cd.note == "oscillatory, GCI not applicable; windowed means: coarse, medium, fine"
+    assert "windowed" not in cl.note
+
+
+def test_a_record_before_d119_reads_its_values_as_last_values(tmp_path: Path) -> None:
+    import json
+
+    rec = StudyRecord(math.sqrt(2), "fine", ["Cd"], 1, 8.0, _levels())
+    write_record(tmp_path, rec)
+    data = json.loads((tmp_path / "study.json").read_text())
+    for lv in data["levels"]:
+        for key in ("last_values", "value_basis", "windows", "amplitudes"):
+            del lv[key]
+        lv["values"] = {"Cd": 0.3}
+    (tmp_path / "study.json").write_text(json.dumps(data))
+    back = read_record(tmp_path)
+    assert all(lv.basis("Cd") == "last" and lv.values == {"Cd": 0.3} for lv in back.levels)
+    assert "windowed" not in quantity_rows(back)[0].note
