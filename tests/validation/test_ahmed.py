@@ -128,3 +128,43 @@ def test_round2_reverdict_with_the_verified_references(record_r2) -> None:
     text = _round2_text()
     section = text[text.index("### Re-verdict with the verified references"):]
     assert re.search(r"\*\*Verdict \(verified references\): FAIL\*\*", section)
+
+
+def test_round4_ground_keeps_its_own_stack() -> None:
+    """Round 4: the ground's layer entry gets round 2's stack, the body's entries are untouched."""
+    text = ('layers\n{\n    "body.*"\n    {\n        nSurfaceLayers 12;\n    }\n    ground\n    {\n'
+            '        nSurfaceLayers 12;\n    }\n}\n')
+    out = ac.ground_layer_override(text, 0.000635357966547543, 9, 1.2, 6.35357966547543e-05)
+    assert '"body.*"\n    {\n        nSurfaceLayers 12;' in out
+    assert re.search(r"ground\n\{\n    nSurfaceLayers 9;\n    firstLayerThickness 0.000635357966547543;\n"
+                     r"    expansionRatio 1.2;\n    minThickness 6.35357966547543e-05;\n\}", out)
+    with pytest.raises(RuntimeError):
+        ac.ground_layer_override(out, 0.001, 9, 1.2, 1e-4)  # already overridden: no plain entry left
+
+
+def test_round4_note_condition() -> None:
+    """Round 4's V6 (owner): PASS WITH NOTE inside 0.2915-0.313 or within 3 % of Guilmineau's 0.3074."""
+    assert ac.consistent_round4(0.2915) and ac.consistent_round4(0.313)
+    assert ac.consistent_round4(0.3166) and not ac.consistent_round4(0.3168)  # 0.3074 * 1.03 = 0.31662
+    assert not ac.consistent_round4(0.29) and not ac.consistent_round4(0.3246)
+    assert ac.verdict(0.3166 / ac.CD_EXPERIMENT - 1.0, ac.consistent_round4(0.3166)) == "PASS WITH NOTE"
+    assert ac.verdict(0.3246 / ac.CD_EXPERIMENT - 1.0, ac.consistent_round4(0.3246)) == "FAIL"
+
+
+def test_round4_verdict_follows_from_the_recorded_values() -> None:
+    """RESULT.md, "Round 4": V6 with the owner's round 4 rule on the finest level run; y+ far from 1."""
+    r4 = json.loads((RECORD / "result_round4.json").read_text(encoding="utf-8"))
+    fine = r4["levels"][-1]
+    assert [lv["name"] for lv in r4["levels"]] == ["medium", "fine"]
+    cd = fine["window"]["Cd@body"]["mean"]
+    error = cd / ac.CD_EXPERIMENT - 1.0
+    judged = r4["verdict"]
+    assert judged["cd"] == pytest.approx(cd, rel=1e-12) and judged["basis"] == "fine"
+    assert judged["consistent"] == ac.consistent_round4(cd) is True
+    assert judged["verdict"] == ac.verdict(error, judged["consistent"]) == "PASS WITH NOTE"
+    assert round(100 * error, 1) == 10.7 and round(100 * (cd / ac.CD_GUILMINEAU - 1.0), 1) == 2.6
+    assert all(lv["yplus_body"]["mean"] > 5 for lv in r4["levels"])  # the hypothesis is not tested
+    text = _round2_text()
+    section = text[text.index("## Round 4"):]
+    assert "**Verdict (V6, round 4 rule, finest level = fine): PASS WITH NOTE.**" in section
+    assert f"**{cd:.4f}**" in section

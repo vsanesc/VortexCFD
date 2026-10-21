@@ -6,7 +6,7 @@ the marker `validation` (or `long`) and are not part of the default test run.
 | Case | What it checks | Verdict | Where |
 |---|---|---|---|
 | Flat plate (TMR), zero pressure gradient | k-omega SST with wall functions: skin friction | Case B: **PASS WITH NOTE** (Cf(0.97) 3.3 % below the TMR reference) | [flat_plate/README.md](flat_plate/README.md) |
-| Ahmed body, 25 degree slant, in ground proximity | external aerodynamics with a ground plane: body drag against Ahmed et al. (1984) | **FAIL** (V6) in rounds 1 and 2, and in the re-verdict with the verified references: fine-grid body Cd 0.325, +14 %, above the SST range 0.2915-0.313 | [ahmed/RESULT.md](ahmed/RESULT.md), [ahmed/SETUP.md](ahmed/SETUP.md) |
+| Ahmed body, 25 degree slant, in ground proximity | external aerodynamics with a ground plane: body drag against Ahmed et al. (1984) | Closed (W1). **FAIL** (V6) in rounds 1 and 2 (fine body Cd 0.325, +14 %); round 4 **PASS WITH NOTE** (0.3154, +10.7 %, within 3 % of Guilmineau 2008) but its y+ 1 layers collapsed, so the wall-function explanation is untested ([Conclusion](ahmed/RESULT.md#conclusion)) | [ahmed/RESULT.md](ahmed/RESULT.md), [ahmed/SETUP.md](ahmed/SETUP.md) |
 | Parallel speedup (D-064) | solver speed-up with the number of MPI ranks | measurement, no verdict | [parallel/README.md](parallel/README.md) |
 
 ## Ahmed body: reading of round 2 (owner review and the references read after it, 2026-10-21)

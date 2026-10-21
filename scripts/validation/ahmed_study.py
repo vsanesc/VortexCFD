@@ -18,6 +18,11 @@ Round 3 (SETUP.md, "The separating run"): round 2 without the ground layers, pro
 the coarse level only (``--round 3 setup``, ``--round 3 study --level coarse``, ``--round 3 collect`` ->
 result_round3.json).
 
+Round 4 (SETUP.md, "Round 4"): round 2 with the body and the stilts wall-resolved (target y+ 1 at the first
+cell centre), the ground keeping round 2's stack, the safety cap 3000; project ahmed25_r4_wallres, the medium
+and fine levels (``--round 4 setup``, ``--round 4 study --level medium --deadline HH:MM``, ``--round 4
+collect`` -> result_round4.json). Its solver estimate falls back to round 2's measured rates (8 ranks).
+
 Run with nice -n 15. The project goes to run/validation/ahmed/ (git-ignored); the numbers to
 docs/validation/ahmed/result.json (round 2: result_round2.json; RESULT.md is written from them).
 """
@@ -111,29 +116,71 @@ def setup(args) -> None:
     from vortexcfd.workflow.mesh_study import plan_study, study_dir_for
 
     sp = plan_study(project)
-    measured = ac.measured_rates(study_dir_for(project), project.sim.studies.mesh.cores) if ROUND >= 2 else {}
+    measured = round_measured(project) if ROUND >= 2 else {}
     if ROUND >= 2:
         from vortexcfd.foam.mesh_case import ground_split_x
 
         print(f"ground wall start asked {ac.GROUND_WALL_START:.4f} m")
+    if ROUND == 4:
+        stack = ground_stack_round4(project)
+        print(f"ground keeps round 2's stack: {stack.count} x first {stack.first * 1000:.4f} mm, ratio "
+              f"{stack.expansion:.3f}; body and stilts: {sp.layers.count} x first {sp.layers.first * 1000:.4f} mm, "
+              f"ratio {sp.layers.expansion:.3f}")
     for lp in sp.levels:
         print(f"level {lp.level.name}: factor {lp.level.factor:.3f}, base {lp.estimate.base_size * 1000:.1f} mm, "
               f"background {lp.estimate.total_cells}, "
               f"estimated cells {lp.estimated_cells} ({'measured ratio' if sp.measured else 'assumed ratio'} "
               f"{sp.cells_per_background:.2f})")
         if ROUND >= 2:
-            mesh_s, solve_s, source = ac.estimate_level(lp.level.name, lp.estimated_cells, ac.ITERATIONS, measured)
+            mesh_s, solve_s, source = ac.estimate_level(lp.level.name, lp.estimated_cells, ac.iterations(ROUND),
+                                                        measured)
             from vortexcfd.workflow.mesh_study import prepare_study  # noqa: F401 (the split is per level)
 
             inp = meshing.mesh_inputs(project)[0]
             inp = dataclasses.replace(inp, mesh=lp.level.mesh)
-            print(f"  ground wall starts at x = {ground_split_x(inp):.4f} m on this level; estimate (1500 "
+            print(f"  ground wall starts at x = {ground_split_x(inp):.4f} m on this level; estimate ({ac.iterations(ROUND)} "
                   f"iterations, solver rate {source}): meshing {mesh_s / 60:.1f} min, solver {solve_s / 60:.1f} min")
 
 
+def ground_stack_round4(project: Project):
+    """Round 4: round 2's shared layer stack (target y+ GROUND_TARGET_YPLUS_R4 at the first cell centre, the
+    fine settings' surface size), which the ground keeps: a LayerStack (first, count, expansion). The project
+    is changed in memory only."""
+    from vortexcfd.workflow.mesh_study import plan_study
+
+    copy = Project.open(project.path)
+    copy.update_mesh(target_yplus=ac.GROUND_TARGET_YPLUS_R4)
+    return plan_study(copy).layers
+
+
+def override_ground_layers(project: Project, case: Path) -> str:
+    """Round 4: give the ground of a prepared level case round 2's stack (its own per-patch entry)."""
+    stack = ground_stack_round4(project)
+    path = case / "system" / "snappyHexMeshDict"
+    path.write_text(ac.ground_layer_override(path.read_text(encoding="utf-8"), stack.first, stack.count,
+                                             stack.expansion, project.sim.mesh.min_thickness * stack.first),
+                    encoding="utf-8")
+    return f"ground layers {stack.count} x first {stack.first * 1000:.4f} mm, ratio {stack.expansion:.3f}"
+
+
+def round_measured(project: Project) -> dict:
+    """The measured solver rates of this round's levels; round 4 falls back to round 2's (same 8 ranks)."""
+    from vortexcfd.workflow.mesh_study import study_dir_for
+
+    cores = project.sim.studies.mesh.cores
+    measured = ac.measured_rates(study_dir_for(project), cores)
+    if not measured and ROUND == 4:
+        print("solver rates: none measured on round 4 yet, round 2's levels used", flush=True)
+        measured = ac.measured_rates(WORK / ac.PROJECT_NAME_R2 / "case_study", cores)
+    return measured
+
+
 def deadline_today(text: str) -> datetime.datetime:
+    """HH:MM as the next such time: today, or tomorrow when it has passed (an overnight run)."""
     hours, minutes = (int(x) for x in text.split(":"))
-    return datetime.datetime.now().replace(hour=hours, minute=minutes, second=0, microsecond=0)
+    now = datetime.datetime.now()
+    deadline = now.replace(hour=hours, minute=minutes, second=0, microsecond=0)
+    return deadline + datetime.timedelta(days=1) if deadline <= now else deadline
 
 
 def study(args) -> None:
@@ -146,17 +193,21 @@ def study(args) -> None:
         if not args.level:
             raise SystemExit("round 2 runs one level per command: --level coarse|medium|fine")
         planned = {lp.level.name: lp.estimated_cells for lp in plan_study(project).levels}
-        measured = ac.measured_rates(study_dir_for(project), project.sim.studies.mesh.cores)
-        mesh_s, solve_s, source = ac.estimate_level(args.level, planned[args.level], ac.ITERATIONS, measured)
+        measured = round_measured(project)
+        mesh_s, solve_s, source = ac.estimate_level(args.level, planned[args.level], ac.iterations(ROUND), measured)
         end = datetime.datetime.now() + datetime.timedelta(seconds=mesh_s + solve_s + 60)
         print(f"{args.level}: {planned[args.level]} cells estimated, meshing {mesh_s / 60:.1f} min, solver "
-              f"{solve_s / 60:.1f} min (1500 iterations, solver rate {source}): estimated end {end:%H:%M}",
+              f"{solve_s / 60:.1f} min ({ac.iterations(ROUND)} iterations, solver rate {source}): estimated end {end:%H:%M}",
               flush=True)
         if args.deadline:
             deadline = deadline_today(args.deadline)
             if end > deadline:
                 raise SystemExit(f"not started: the estimated end {end:%H:%M} is after the deadline {deadline:%H:%M}")
         study_dir, record, inputs = prepare_study(project, only=[args.level])
+        if ROUND == 4:
+            from vortexcfd.foam.mesh_study import level_dir
+
+            print(override_ground_layers(project, level_dir(study_dir, record.levels[0].index)), flush=True)
     else:
         study_dir, record, inputs = prepare_study(project)
         if args.levels:
@@ -248,6 +299,38 @@ def window_stats(case_dir: Path, quantities: list[str], window: int) -> dict:
     return out
 
 
+def wall_resolved_metrics(case_dir: Path, body, project: Project) -> dict:
+    """Round 4: the body's y+ share below 2 at the first cell centre, the first-cell report of D-109 on the
+    body and the stilts (foam/mesh_run.measure_first_cell, the walk the GUI's Mesh report uses), and the
+    layer walk's coverage on the body (area share with at least one layer and with the full stack)."""
+    import numpy as np
+
+    from vortexcfd.foam import layer_walk
+    from vortexcfd.foam.mesh_report import FIRST_CELL_DRIFT
+    from vortexcfd.foam.mesh_run import measure_first_cell
+    from vortexcfd.foam.polymesh import PolyMesh
+    from vortexcfd.workflow.mesh_study import plan_study
+
+    stack = plan_study(project).layers
+    v, a = np.asarray(body.cell_data["yPlus"]), np.asarray(body.cell_data["Area"])
+    out = {"planned_first_m": stack.first, "planned_count": stack.count, "planned_expansion": stack.expansion,
+           "yplus_body_below_2_percent": 100.0 * float(a[v < 2.0].sum() / a.sum()),
+           "yplus_body_below_5_percent": 100.0 * float(a[v < 5.0].sum() / a.sum()),
+           "yplus_body_median": float(np.median(v))}
+    for name, patches in (("body", (ac.BODY,)), ("stilts", (ac.STILT_FRONT, ac.STILT_REAR))):
+        fc = measure_first_cell(case_dir, patches, stack.first, stack.count)
+        out[f"first_cell_{name}"] = {"mean_m": fc.mean_m, "p95_m": fc.p95_m, "planned_m": fc.planned_m,
+                                     "error": fc.error,
+                                     "drift_warning": bool(fc.mean_m and fc.mean_m > FIRST_CELL_DRIFT * stack.first)}
+    walked = layer_walk.walk_layers(PolyMesh.read(case_dir), (ac.BODY,), stack.count + 5)
+    area = np.concatenate([d["area"] for d in walked.values()])
+    layers = np.concatenate([d["layers"] for d in walked.values()])
+    out["body_layer_walk"] = {"any_layer_area_percent": 100.0 * float(area[layers >= 1].sum() / area.sum()),
+                              "full_stack_area_percent": 100.0 * float(area[layers >= stack.count].sum() / area.sum()),
+                              "mean_layers": float((area * layers).sum() / area.sum())}
+    return out
+
+
 def level_metrics(case_dir: Path, level, project: Project, window: int = ac.AVERAGE_WINDOW) -> dict:
     """The numbers RESULT.md reports for one level."""
     import numpy as np
@@ -280,6 +363,8 @@ def level_metrics(case_dir: Path, level, project: Project, window: int = ac.AVER
         out["yplus_ground"] = {"mean": float((ga * gv).sum() / ga.sum()), "max": float(gv.max()),
                                "mean_near_body": float((ga[under] * gv[under]).sum() / ga[under].sum())}
         out["slant"] = slant_flow(case_dir, t)
+        if ROUND == 4:
+            out["wall_resolved"] = wall_resolved_metrics(case_dir, body, project)
         out["window"] = window_stats(case_dir, ac.STUDY_QUANTITIES, window)
     return out
 
@@ -312,7 +397,18 @@ def collect_round2() -> None:
         levels.append(entry)
     result = {"project": str(project_path().relative_to(ROOT)), "average_window": window,
               "mesh_cores": ac.CORES_R2, "solver_cores": ac.CORES_R2, "ground_wall_start_asked": ac.GROUND_WALL_START,
-              "levels": levels}
+              "iteration_cap": ac.iterations(ROUND), "levels": levels}
+    if ROUND == 4 and levels:  # V6 on the finest level run (owner): no GCI with two levels
+        cd = levels[-1]["window"]["Cd@body"]["mean"]
+        error = cd / ac.CD_EXPERIMENT - 1.0
+        consistent = ac.consistent_round4(cd)
+        result["verdict"] = {"quantity": "Cd@body", "basis": levels[-1]["name"], "cd": cd,
+                             "experiment": ac.CD_EXPERIMENT, "error": error,
+                             "error_alt": cd / ac.CD_EXPERIMENT_ALT - 1.0,
+                             "vs_guilmineau": cd / ac.CD_GUILMINEAU - 1.0,
+                             "published_sst": list(ac.PUBLISHED_SST_VERIFIED.values()),
+                             "consistent": consistent, "verdict": ac.verdict(error, consistent),
+                             "stopped_at_deadline": levels[-1]["stopped_at_deadline"]}
     if [lv["name"] for lv in levels] == ["coarse", "medium", "fine"]:  # the GCI and V6, as round 1's collect
         from vortexcfd.foam import gci
 
@@ -333,7 +429,7 @@ def collect_round2() -> None:
                              "verdict": ac.verdict(error, consistent),
                              "fine_stopped_at_deadline": levels[-1]["stopped_at_deadline"]}
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / ("result_round2.json" if ROUND == 2 else "result_round3.json")).write_text(json.dumps(result, indent=2, default=str) + "\n", encoding="utf-8")
+    (OUT / f"result_round{ROUND}.json").write_text(json.dumps(result, indent=2, default=str) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=1, default=str)[:8000])
 
 
@@ -391,8 +487,9 @@ def collect(args) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--round", type=int, choices=(1, 2, 3), default=1,
-                        help="1: the first study; 2: SETUP.md round 2; 3: round 2 without ground layers (QUESTIONS 177)")
+    parser.add_argument("--round", type=int, choices=(1, 2, 3, 4), default=1,
+                        help="1: the first study; 2: SETUP.md round 2; 3: round 2 without ground layers (QUESTIONS 177); "
+                             "4: round 2 wall-resolved on the body and stilts")
     sub = parser.add_subparsers(dest="command", required=True)
     s = sub.add_parser("setup")
     s.add_argument("--surface-size", type=float, default=ac.SURFACE_SIZE, help="target surface size (x l_ref)")

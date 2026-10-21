@@ -290,3 +290,53 @@ nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 3 setup
 nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 3 study --level coarse --deadline 23:15
 nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 3 collect   # -> result_round3.json
 ```
+
+## Round 4: wall-resolved body and stilts (owner, 2026-10-21)
+
+The last Ahmed run (workstream W1 closes after it, whatever the outcome). It tests whether the wall
+functions explain the gap between round 2's fine body Cd (0.3246, wall functions, body y+ 56) and [G08]'s
+wall-resolved k-omega SST value (0.3074, y+ about 0.25). Its own project, ahmed25_r4_wallres; rounds 1 to
+3 are untouched.
+
+| Item | Round 2 | Round 4 | Reason |
+|---|---|---|---|
+| Body and stilts: target y+ | 50 at the first cell centre (D-107) | **1** at the first cell centre | wall-resolved, as [G08] |
+| Body and stilts: layer stack | 9 x first 0.635 mm, ratio 1.2, 13.2 mm | 12 (the cap, D-106) x first 0.0127 mm, ratio 1.3 (the maximum), **0.94 mm achievable of 15.0 mm planned (6.3 %)**; last layer 0.23 mm | the app's sizing defaults; planned 30 layers at 1.2 (the count rule to half a surface cell); the cap cannot reach the planned thickness: accepted (owner) |
+| Ground: layer stack | the shared stack (above) | round 2's stack kept: 9 x first 0.635 mm, ratio 1.2 | "the ground stays as in round 2" (owner) |
+| Wall boundary conditions | nutUSpaldingWallFunction, kqRWallFunction, omegaWallFunction (D-022) | unchanged | the app's wall BCs are y+-insensitive (owner) |
+| Stopping | mean stable on body Cd (W 500, 0.5 %), cap 1500 | the same criterion, **cap 3000** | wall-resolved runs converge more slowly (owner) |
+| Levels | coarse, medium, fine | **medium**, then **fine** only if its estimated end is before 07:30 | owner; deadline 08:00 for every OpenFOAM process |
+
+Everything else is round 2's: the geometry, the inlet 5 L ahead with the slip strip and the ground wall
+from 1.35 L ahead of the nose (D-118), the level sizes (round 1's base sizes), the refinement volumes,
+the numerics, 8 cores for meshing and the solver, nice -n 15. The shared stack of the study (D-066) is
+the body's; the app has one layer specification for every wall, so the driver writes the ground's own
+entry into each level's `system/snappyHexMeshDict` after the study prepares it
+(`ahmed_case.ground_layer_override`: `nSurfaceLayers 9; firstLayerThickness 0.000635...;
+expansionRatio 1.2; minThickness 6.35e-05;`, the per-patch override snappyHexMesh v2606 reads,
+src/mesh/snappyHexMesh/snappyHexMeshDriver/layerParameters/layerParameters.C). This is a driver step,
+not an app change (QUESTIONS 179).
+
+Plan (`--round 4 setup`; the cells from the app's assumed ratio 1.90, as round 2's plan; the solver at
+round 2's measured rates on 8 ranks, for the full 3000 iterations; wall-resolved cells may be slower per
+iteration):
+
+| Level | Base | Background cells | Estimated cells | Meshing | Solver (3000 it.) |
+|---|---|---|---|---|---|
+| medium | 111.1 mm | 367,500 | 698,250 (round 2 measured 627,219) | 2.0 min (round 2: 3.1) | 62.4 min |
+| fine | 78.6 mm | 1,043,487 | 1,982,625 (round 2 measured 1,614,529) | 6.2 min (round 2: 9.3) | 215.2 min |
+
+Medium started at 23:13 (estimated end 00:19 at the cap); fine at 23:39 on medium's measured rate
+(estimated end 02:43, before 07:30). Actual: medium 555,423 cells, 167 s meshing, 992 s solving (1004
+iterations); fine 1,492,052 cells, 472 s meshing, 3,229 s solving (1046 iterations); both stopped on the
+mean-stable criterion, ended 00:43. Fewer cells than round 2: the body's y+ 1 stack collapsed (0.23-0.24 of
+12 layers; RESULT.md, "Round 4"; QUESTIONS 180).
+
+```bash
+nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 4 setup
+nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 4 study --level medium --deadline 07:30
+nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 4 study --level fine --deadline 07:30
+nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 4 collect   # -> result_round4.json
+```
+
+`--deadline HH:MM` now means the next such time (tomorrow when it has passed), for the overnight run.

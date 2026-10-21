@@ -73,6 +73,13 @@ PUBLISHED_SST_VERIFIED = {
 }
 
 
+def consistent_round4(cd: float) -> bool:
+    """Round 4's PASS WITH NOTE condition (owner): inside the verified SST range (0.2915-0.313), or within
+    GUILMINEAU_TOLERANCE of [G08]'s 0.3074."""
+    return (consistent_with_sst(cd, tuple(PUBLISHED_SST_VERIFIED.values()))
+            or abs(cd / CD_GUILMINEAU - 1.0) <= GUILMINEAU_TOLERANCE)
+
+
 def consistent_with_sst(cd: float, published=PUBLISHED_SST_CD) -> bool:
     """V6's condition for PASS WITH NOTE: the value lies within the range of the published k-omega SST
     results (no widening: the study gives the fine value no grid uncertainty, RESULT.md)."""
@@ -131,6 +138,18 @@ CORES_R2 = 8
 # strip kept), the coarse level only, to separate the two round 2 set-up fixes.
 PROJECT_NAME_R3 = "ahmed25_r2_nolayers"
 DOMAIN_R3 = {**DOMAIN_R2, "ground": {**DOMAIN_R2["ground"], "layers": False}}
+# Round 4 (owner, 2026-10-21; SETUP.md "Round 4"): round 2's set-up with the body and the stilts wall-resolved,
+# target y+ 1 at the first cell centre (D-107), the app's layer sizing (cap 12, expansion up to 1.3, D-106)
+# and wall BCs (y+-insensitive: nutUSpaldingWallFunction, kqR, omegaWallFunction); the ground keeps round
+# 2's stack (the y+ 50 rule), written as a per-patch override of the ground's layers; the mean-stable
+# criterion with the safety cap raised to ITERATIONS_R4. The medium and fine levels only.
+PROJECT_NAME_R4 = "ahmed25_r4_wallres"
+TARGET_YPLUS_R4 = 1.0
+GROUND_TARGET_YPLUS_R4 = 50.0  # round 2's (the app default), for the ground's own stack
+ITERATIONS_R4 = 3000
+# V6 for round 4 (owner): PASS WITH NOTE also within 3 % of Guilmineau 2008's wall-resolved SST value.
+CD_GUILMINEAU = 0.3074
+GUILMINEAU_TOLERANCE = 0.03
 BASE_SIZE_ROUND1 = (12.893 * 5.415 * 5.558 / BACKGROUND_CELLS) ** (1.0 / 3.0)
 STUDY_QUANTITIES = ["Cd@body", "Cd", "Cl@body", "Cl", "Cd_pressure@body", "Cd_viscous@body", "Cd@stilt_front",
                     "Cd@stilt_rear", "Cl_pressure@body", "Cl_viscous@body"]
@@ -236,11 +255,30 @@ def stopping_round2() -> StoppingCriteria:
 
 
 def project_name(round_: int) -> str:
-    return {1: PROJECT_NAME, 2: PROJECT_NAME_R2, 3: PROJECT_NAME_R3}[round_]
+    return {1: PROJECT_NAME, 2: PROJECT_NAME_R2, 3: PROJECT_NAME_R3, 4: PROJECT_NAME_R4}[round_]
+
+
+def iterations(round_: int) -> int:
+    """The iteration limit (the safety cap from round 2 on) of a round."""
+    return ITERATIONS_R4 if round_ == 4 else ITERATIONS
+
+
+def ground_layer_override(text: str, first: float, count: int, expansion: float, min_thickness: float) -> str:
+    """Round 4: ``text`` (a snappyHexMeshDict) with the ground's layer entry given its own stack
+    (snappyHexMesh v2606 reads a per-patch firstLayerThickness, expansionRatio and minThickness over the
+    global ones, src/mesh/snappyHexMesh/.../layerParameters.C). Raises if the entry is not found once."""
+    import re
+
+    entry = (f"ground\n{{\n    nSurfaceLayers {count};\n    firstLayerThickness {first!r};\n"
+             f"    expansionRatio {expansion!r};\n    minThickness {min_thickness!r};\n}}")
+    new, n = re.subn(r"\bground\s*\{\s*nSurfaceLayers\s+\d+;\s*\}", entry, text)
+    if n != 1:
+        raise RuntimeError(f"expected one ground layer entry in snappyHexMeshDict, found {n}")
+    return new
 
 
 def build_project(work_root: Path, geometry_dir: Path, round_: int = 1) -> Project:
-    """A fresh project <work_root>/ahmed25/ (round 2: ahmed25_r2/, round 3: ahmed25_r2_nolayers/) made as the New simulation dialog does
+    """A fresh project <work_root>/ahmed25/ (round 2: ahmed25_r2/, round 3: ahmed25_r2_nolayers/, round 4: ahmed25_r4_wallres/) made as the New simulation dialog does
     (preset "External flow"), the three parts imported as File > Import Geometry does, and the validation
     inputs set."""
     from vortexcfd.bench.runner import import_geometry
@@ -257,7 +295,7 @@ def build_project(work_root: Path, geometry_dir: Path, round_: int = 1) -> Proje
         import_geometry(project, path, "mm", mode="parts")
     for index in range(len(project.sim.geometry.parts)):  # the deflection rows of the part properties
         project.update_part(index, **part_ops.retessellate(project, index, LINEAR_DEFLECTION, ANGULAR_DEFLECTION))
-    project.update_domain(**{1: DOMAIN, 2: DOMAIN_R2, 3: DOMAIN_R3}[round_])
+    project.update_domain(**{1: DOMAIN, 2: DOMAIN_R2, 3: DOMAIN_R3, 4: DOMAIN_R2}[round_])
     project.update_physics(nu=NU)
     project.update_inflow(speed=SPEED, turbulence_intensity=TURBULENCE_INTENSITY)
     project.update_reports(reference_area_basis="custom", reference_area=A_REF_HALF, reference_length=LENGTH)
@@ -265,8 +303,10 @@ def build_project(work_root: Path, geometry_dir: Path, round_: int = 1) -> Proje
         project.update_solver(cores=SOLVER_CORES, iterations=ITERATIONS, write_interval=ITERATIONS,
                               stopping=stopping())
     else:
-        project.update_solver(cores=CORES_R2, iterations=ITERATIONS, write_interval=ITERATIONS,
+        project.update_solver(cores=CORES_R2, iterations=iterations(round_), write_interval=iterations(round_),
                               stopping=stopping_round2())
         project.update_mesh(cores=CORES_R2)
+        if round_ == 4:
+            project.update_mesh(target_yplus=TARGET_YPLUS_R4)
     project.save()
     return project

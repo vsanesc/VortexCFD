@@ -9,6 +9,11 @@ Round 2 (the set-up fixed after the owner's review): [below](#round-2); also **F
 Cd 0.3246 (+13.9 %). Re-verdict with the references read after round 2: still **FAIL**
 ([Re-verdict](#re-verdict-with-the-verified-references)); the reading: [Reading of round 2](#reading-of-round-2).
 
+Round 4 (the last run, body and stilts meant to be wall-resolved): [below](#round-4-wall-resolved-body-and-stilts);
+**PASS WITH NOTE** under the owner's round 4 rule (fine body Cd 0.3154, +10.7 %, 2.6 % above [G08]), but the
+y+ 1 stack collapsed (body y+ mean 562), so it does **not** test the wall-function hypothesis. The closing
+reading of the whole study: [Conclusion](#conclusion).
+
 **Verdict (round 1): FAIL** (V6). The finest grid's body Cd is 0.3250, **14.0 % above** the experimental 0.285
 (13.0 % above the alternative reading 0.2875): inside the 10-20 % band, but above every published
 k-omega SST result found (0.284 to 0.313), so the PASS WITH NOTE condition is not met. The grid study is
@@ -354,3 +359,92 @@ run without `--deadline` and a separate 23:15 watcher would have sent the app's 
 mpirun, D-058). It ended by itself at 22:36:39: 9 min 20 s meshing (1,614,529 cells against 1,982,625
 estimated), 3,578 s solving 1021 iterations (2.17 us per cell-iteration; round 1's fine on 4 cores:
 2.27). No level was stopped at the deadline.
+
+## Round 4: wall-resolved body and stilts
+
+Set-up: SETUP.md, "Round 4" (round 2's set-up with target y+ 1 at the first cell centre on the body and
+the stilts, the app's layer sizing, the ground keeping round 2's stack, the mean-stable criterion with the
+cap 3000; medium and fine levels). Run overnight 2026-10-21/22: medium 23:13-23:33, fine 23:39-00:43,
+8 cores, nice -n 15. Numbers: [result_round4.json](result_round4.json) (`--round 4 collect`). Values are
+means over the last 500 iterations at the stop (standard deviation in brackets).
+
+**The y+ 1 stack was not built.** The plan is 12 layers (the cap, D-106) x first 0.0127 mm at ratio 1.3:
+0.94 mm achievable of the 15.0 mm planned (6.3 %; planned 30 layers at 1.2), last layer 0.23 mm. On the
+body snappyHexMesh kept 0.23 (medium) and 0.24 (fine) of the 12 layers on average; the layer walk finds a
+layer on 7.5 % (medium) and 1.0 % (fine) of the body's area and the full stack nowhere. The first cell at
+the wall is the core cell (D-109: mean 8.7 mm medium, 6.9 mm fine, against 0.0127 mm planned; the drift
+warning fires on both levels), so **the body's mean y+ is 683 (medium) and 562 (fine), far above 5: this
+run does not test the hypothesis** that the wall functions explain the gap to [G08]. It is a wall-function
+run at a body y+ about ten times round 2's. Cause, from the medium level's log: at the first layer
+iteration 14,899 faces fail "interpolation weights < 0.05" and 16,093 "cells with determinant < 0.001": the
+0.23 mm last layer against a 7 mm core cell (face weight about 0.03) and 12.7 um x 7 mm flat cells
+(QUESTIONS 180).
+
+| | medium r2 | **medium r4** | fine r2 | **fine r4** |
+|---|---|---|---|---|
+| Cells (checkMesh) | 627,219 | 555,423 | 1,614,529 | 1,492,052 |
+| checkMesh / max non-orth. / skewness | OK / 81.3 / 3.09 | OK / 81.3 / 3.70 | OK / 76.3 / 1.67 | OK / 76.3 / 3.72 |
+| Body target y+ (first cell centre) | 50 | 1 | 50 | 1 |
+| **Body y+ mean** / median | 58.1 | **683** / 542 | 56.1 | **562** / 388 |
+| Body area with y+ below 2 / below 5 | - | 0.003 % / 0.04 % | - | 0.004 % / 0.20 % |
+| First cell, body: mean / 95th percentile (planned) | - | 8.7 / 12.6 mm (0.0127) | - | 6.9 / 9.2 mm (0.0127) |
+| First cell, stilts: mean / 95th percentile | - | 4.1 / 7.9 mm | - | 3.2 / 5.6 mm |
+| Layers, body (mesh layers / thickness) | 9: 7.06 / 74.1 %* | 12: 0.23 / 5.2 % | 9: 7.41 / 78.4 %* | 12: 0.24 / 4.7 % |
+| Layers, stilts front / rear (thickness) | - | 27.1 / 25.2 % | - | 14.6 / 24.8 % |
+| Layers, ground (of 9) / thickness | 2.68 / 28.8 % | 2.70 / 28.9 % | 2.93 / 30.8 % | 2.92 / 30.7 % |
+| Ground y+ mean under the body | 602 | 602 | 366 | 363 |
+| End state | mean stable, 1006 | mean stable, 1004 | mean stable, 1021 | mean stable, 1046 |
+| **Cd body** (mean) | 0.3272 (0.0104) | **0.3262** (0.0033) | 0.3246 (0.0067) | **0.3154** (0.0019) |
+| Cd body: pressure / viscous | 0.2854 / 0.0418 | 0.2848 / 0.0414 | 0.2811 / 0.0435 | 0.2721 / 0.0433 |
+| Cd stilts (front + rear) | 0.0195 + 0.0121 | 0.0174 + 0.0141 | 0.0179 + 0.0109 | 0.0160 + 0.0130 |
+| **Cd body + stilts** | 0.3589 | **0.3576** | 0.3534 | **0.3444** |
+| Cl body (mean) | 0.270 (0.061) | 0.354 (0.060) | 0.395 (0.055) | 0.398 (0.054) |
+| Slant reversed area / centre strip reversed | 37.2 % / 95.7 % | **0 % / 0 %** | 40.4 % / 67.9 % | **0 % / 0 %** |
+| Meshing / solver time | 187 s / 1128 s | 167 s / 992 s | 560 s / 3578 s | 472 s / 3229 s |
+
+\* round 2's body layer rows from its result_round2.json (snappyHexMesh's table).
+
+**The slant flow.** On both round 4 levels the near-wall flow runs down the whole slant (no reversed face;
+mean downslope Cf 0.0036 medium, 0.0035 fine): the slant is attached, unlike round 2 (a bubble from the
+leading edge to 0.6-0.7 of the slant), the experiment as [G08] describes it (separation on the middle of the
+top edge, reattachment about half-way) and [G08]'s SST (massive separation). SimFlow's wall-function
+simpleFoam case also reports "the flow remains attached over the slant" (0.313). The fields are at the last
+iteration of an oscillating solution (Cl standard deviation 0.054-0.060).
+
+**Verdict (V6, round 4 rule, finest level = fine): PASS WITH NOTE.** Body Cd 0.3154 is 10.7 % above the
+experimental 0.285 (inside 10-20 %) and 2.6 % above [G08]'s 0.3074 (within 3 %); it is 0.8 % above the
+top of the verified SST range 0.2915-0.313, so the [G08] condition alone carries the note. Against 0.2875 the
+error is 9.7 %. The medium-to-fine change is -3.3 % (0.3262 to 0.3154), larger than either level's standard
+deviation (0.0033, 0.0019), so the grid is not converged and there is no GCI with two levels. **The note:**
+the value does not come from a wall-resolved mesh. Against round 2's fine level it changed by -2.8 % with a
+body y+ ten times higher and a fully attached slant, so it agrees with [G08] without reproducing its near-wall
+treatment or its slant flow (separated). The pass is the rule applied to the number, not evidence that the
+gap was explained.
+
+## Conclusion
+
+Workstream W1, the Ahmed body at 25 degrees, is closed with this round (owner). Four rounds of steady
+k-omega SST through the app's own workflow gave a finest-grid body Cd of 0.3250 (round 1), 0.3246 (round 2)
+and 0.3154 (round 4), against the experimental 0.285 ([A84] as quoted, confirmed by [G08] Table 1) and
+[G08]'s wall-resolved SST 0.3074. The final verdict is round 4's **PASS WITH NOTE** (above); rounds 1 and 2
+stay FAIL.
+
+What each explanation tested did:
+
+| Explanation | Test | Change of the body Cd | Reading |
+|---|---|---|---|
+| Inlet distance (and the slip strip ahead of the ground board, D-118) | round 3 against round 1, coarse | -0.022 (-6.5 %) | indicative only: round 3 settled steady with a smaller bubble |
+| Ground boundary layer (prism layers on the ground) | round 2 against round 3, coarse | -0.019 (-5.8 %) | indicative only, as above |
+| Both set-up fixes together | round 2 against round 1, fine | -0.1 % | the coarse-level gains vanish on the fine grid |
+| Grid | round 2 medium to fine; round 4 medium to fine | -0.8 %; -3.3 % | round 2's two finest grids agree within the oscillation; no GCI in any round (oscillatory) |
+| Slant bubble size | round 1 fine (7.8 % of the slant reversed) against round 2 fine (40 %); round 4 fine (0 %) | 0.3250, 0.3246, 0.3154 | the bubble's size does not track the drag; no round reproduces the experiment's reattachment about half-way |
+| Wall functions (y+ 50 against wall-resolved y+ 1) | round 4 | **not tested**: the y+ 1 stack collapsed (body y+ 562-683) | the -2.8 % against round 2 comes with a y+ ten times higher and an attached slant, not with wall resolution |
+
+What is left unexplained: why the fine-grid drag stays 11-14 % above the experiment; why no round reproduces
+the experimental slant flow (a bubble reattaching about half-way down; this study gives separation to the
+base, a long bubble or an attached slant, depending on the grid and the near-wall cells); and whether a
+wall-resolved mesh would close the gap to [G08] (the app's layer defaults cannot build one on these surface
+cells, QUESTIONS 180). What was learned: the set-up fixes matter on coarse grids only; the steady solution
+oscillates and needs the mean-stable criterion; the near-wall cell size alone moves the drag by about 3 % and
+flips the slant regime. [A84] Fig. 4 and [LB03]'s data were never read; the experimental 0.285 is confirmed
+by [G08] Table 1, enough for the verdict (QUESTIONS 171 closed).
