@@ -12,7 +12,7 @@ Bounds = tuple[float, float, float, float, float, float]  # xmin, xmax, ymin, ym
 SYMMETRY_TOLERANCE = 0.01
 
 # Boundary names (roles) in display order; a shape uses some of them (DomainBox.roles).
-BOUNDARY_NAMES = ("inlet", "outlet", "farfield", "sides", "top", "bottom", "symmetry")
+BOUNDARY_NAMES = ("inlet", "outlet", "farfield", "sides", "top", "bottom", "ground", "symmetry")
 SHAPE_ROLES = {
     "box": ("inlet", "outlet", "sides", "top", "bottom"),
     "bullet": ("inlet", "outlet", "farfield"),
@@ -21,9 +21,13 @@ SHAPE_ROLES = {
 SHAPE_LABELS = {"box": "Box", "bullet": "Bullet", "c_type": "C-type"}
 
 
-def shape_roles(shape: str, symmetric: bool) -> tuple[str, ...]:
-    """The boundary roles of a domain shape, in display order."""
-    return SHAPE_ROLES[shape] + (("symmetry",) if symmetric else ())
+def shape_roles(shape: str, symmetric: bool, ground: bool = False) -> tuple[str, ...]:
+    """The boundary roles of a domain shape, in display order. With the ground plane (box only, D-116)
+    the bottom face is the role "ground" instead of "bottom"."""
+    roles = SHAPE_ROLES[shape]
+    if ground and shape == "box":
+        roles = tuple("ground" if r == "bottom" else r for r in roles)
+    return roles + (("symmetry",) if symmetric else ())
 
 
 @dataclass(frozen=True)
@@ -51,6 +55,7 @@ class DomainBox:
     x_rear: float = 0.0
     y_span: tuple[float, float] = (0.0, 0.0)
     parts_bounds: Bounds | None = None  # union of the boxes of the parts the domain is sized around
+    ground: bool = False  # the bottom face is the ground plane (D-116)
 
     @property
     def rounded(self) -> bool:
@@ -108,6 +113,23 @@ def face_corners(bounds: Bounds, axis: int, side: int) -> list[tuple[float, floa
     return corners
 
 
+def ground_z(domain: Domain, parts_union: Bounds) -> float:
+    """z of the ground plane (D-116): the lowest z of the parts the domain is sized around, or the
+    user's value."""
+    return parts_union[4] if domain.ground.position == "parts_min" else domain.ground.z
+
+
+def ground_warnings(parts_bounds: Sequence[Bounds], z: float, names: Sequence[str] | None) -> list[str]:
+    """A part wholly below the ground plane is outside the fluid; one that crosses it is cut by the
+    domain (the part of it below the plane is not meshed; its supports may do so on purpose)."""
+    out = []
+    for i, b in enumerate(parts_bounds):
+        label = names[i] if names is not None else f"Part {i + 1}"
+        if b[5] <= z:
+            out.append(f"{label} lies below the ground plane (z = {z:.4g} m): it is outside the fluid.")
+    return out
+
+
 def _box_corners(b: Bounds) -> list[tuple[float, float, float]]:
     return [(x, y, z) for x in (b[0], b[1]) for y in (b[2], b[3]) for z in (b[4], b[5])]
 
@@ -122,7 +144,8 @@ def compute_domain(
 
     - box: ``upstream * L`` before and ``downstream * L`` after the parts along x (the flow),
       ``lateral * L`` on each side along y and ``vertical * L`` above and below along z. With
-      symmetry "y_min" the box starts at the parts' y_min instead.
+      symmetry "y_min" the box starts at the parts' y_min instead. With the ground plane (D-116) the
+      bottom face is the ground at the parts' lowest z or at ``domain.ground.z``.
     - bullet: a hemisphere of radius ``radius * L`` centred at c, a cylinder of the same radius behind
       it along +x up to ``downstream * L`` after the parts. With symmetry the axis lies in the plane
       y = the parts' y_min and only the half y >= that plane is kept.
@@ -147,18 +170,20 @@ def compute_domain(
     axis = None
     radius_m = x_rear = 0.0
     y_span = (0.0, 0.0)
+    ground = domain.ground.enabled and shape == "box"
     if shape == "box":
+        z_ground = ground_z(domain, u) if ground else None
         bounds: Bounds = (
             u[0] - domain.upstream * length, u[1] + domain.downstream * length,
             u[2] if symmetric else u[2] - domain.lateral * length, u[3] + domain.lateral * length,
-            u[4] - domain.vertical * length, u[5] + domain.vertical * length,
+            u[4] - domain.vertical * length if z_ground is None else z_ground, u[5] + domain.vertical * length,
         )
         boundaries = {
             "inlet": ((0, 0),),
             "outlet": ((0, 1),),
             "sides": ((1, 1),) if symmetric else ((1, 0), (1, 1)),
             "top": ((2, 1),),
-            "bottom": ((2, 0),),
+            "ground" if ground else "bottom": ((2, 0),),
         }
         if symmetric:
             boundaries["symmetry"] = ((1, 0),)
@@ -179,11 +204,14 @@ def compute_domain(
             bounds = (axis[0] - radius_m, x_rear, y_span[0], y_span[1], axis[2] - radius_m, axis[2] + radius_m)
             area = 0.5 * math.pi * radius_m ** 2 + 2.0 * radius_m * max(0.0, x_rear - axis[0])
             volume = area * (y_span[1] - y_span[0])
-    roles = shape_roles(shape, symmetric)
+    roles = shape_roles(shape, symmetric, ground)
     size = (bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4])
     box = DomainBox(length, bounds, size, boundaries, [], shape=shape, symmetric=symmetric, volume=volume,
-                    roles=roles, axis=axis, radius_m=radius_m, x_rear=x_rear, y_span=y_span, parts_bounds=u)
+                    roles=roles, axis=axis, radius_m=radius_m, x_rear=x_rear, y_span=y_span, parts_bounds=u,
+                    ground=ground)
     warnings = box.warnings
+    if ground:
+        warnings.extend(ground_warnings(parts_bounds, bounds[4], names))
     if symmetric and length > 0:
         for i, b in enumerate(parts_bounds):
             if b[2] - u[2] > SYMMETRY_TOLERANCE * length:

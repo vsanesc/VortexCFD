@@ -50,7 +50,8 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
     before; D-093); v11 -> v12 adds the user refinement volumes (none; D-103); v12 -> v13 keeps the
     layer controls of the project (V13_MESH_FIELDS: "legacy", no layer cap; D-106); v13 -> v14 keeps
     the project's first-layer convention (V14_MESH_FIELDS: the target y+ distance as the first-layer
-    height; D-107); v14 -> v15 adds the meshing cores (unset: automatic, D-111).
+    height; D-107); v14 -> v15 adds the meshing cores (unset: automatic, D-111); v15 -> v16 adds the
+    domain's ground plane (off: the bottom face stays slip far field, D-116).
     Data already at the current version (or not a dict /
     without a version) is returned unchanged.
     """
@@ -115,6 +116,8 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
         data["schema_version"] = 14
     if data.get("schema_version") == 14:
         data["schema_version"] = 15  # Mesh.cores defaults to None: automatic meshing cores (D-111)
+    if data.get("schema_version") == 15:
+        data["schema_version"] = 16  # Domain.ground defaults to off: the bottom face stays far field (D-116)
     return data
 
 

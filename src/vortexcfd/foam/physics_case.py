@@ -29,6 +29,7 @@ from vortexcfd.core.model import Inflow, Physics, Reports, Solvers
 from vortexcfd.foam.case_writer import FoamFileSpec
 from vortexcfd.foam.convergence import FUNCTION_NAME as RUN_TIME_CONTROL
 from vortexcfd.foam.convergence import force_coeffs_name, probe_function_name, run_time_control
+from vortexcfd.foam.mesh_case import GROUND_PATCH
 from vortexcfd.foam.parallel import DECOMPOSE_DICT, decompose_par_dict
 
 Bounds = tuple[float, float, float, float, float, float]  # xmin, xmax, ymin, ymax, zmin, zmax
@@ -55,6 +56,15 @@ class SolverCaseInput:
     # the per-part force objects sum all of the part's patches.
     part_groups: tuple[tuple[str, tuple[str, ...]], ...] = ()
     far_field: tuple[str, ...] = FAR_FIELD  # the domain's far-field patches (FAR_FIELD_BY_SHAPE)
+    # The ground plane's motion ("stationary" or "moving"; None: no ground, D-116). Its patch is
+    # GROUND_PATCH and replaces "bottom" in ``far_field`` (far_field_patches).
+    ground: str | None = None
+
+
+def far_field_patches(shape: str, ground: bool) -> tuple[str, ...]:
+    """The far-field (slip) patches of a domain shape; the ground plane replaces the box's bottom (D-116)."""
+    names = FAR_FIELD_BY_SHAPE[shape]
+    return tuple(n for n in names if n != "bottom") if ground and shape == "box" else names
 
 
 def flow_direction(alpha_deg: float) -> tuple[float, float, float]:
@@ -333,6 +343,12 @@ def turbulence_properties(physics: Physics) -> FoamFileSpec:
     })
 
 
+def ground_velocity(inp: SolverCaseInput) -> tuple[float, float, float]:
+    """The moving ground's velocity (D-116): the free-stream speed along the flow direction projected on
+    the ground plane, which is +x for every angle of attack (the app turns the free stream about y)."""
+    return inp.inflow.speed, 0.0, 0.0
+
+
 def _patch_names(inp: SolverCaseInput) -> list[str]:
     names = ["inlet", "outlet", *inp.far_field]
     if inp.symmetric:
@@ -341,12 +357,15 @@ def _patch_names(inp: SolverCaseInput) -> list[str]:
 
 
 def _field(inp: SolverCaseInput, cls: str, dimensions: list[int], internal, inlet: dict, outlet: dict,
-           far: dict, wall: dict, value_for_walls=None) -> FoamFileSpec:
+           far: dict, wall: dict, value_for_walls=None, ground: dict | None = None) -> FoamFileSpec:
+    """A field file; the ground plane (if any) takes ``ground``, else the part walls' ``wall``."""
     boundary: dict[str, dict] = {"inlet": inlet, "outlet": outlet}
     for name in inp.far_field:
         boundary[name] = dict(far)
     if inp.symmetric:
         boundary["symmetry"] = {"type": "symmetryPlane"}
+    if inp.ground is not None:
+        boundary[GROUND_PATCH] = dict(ground if ground is not None else wall)
     for name in inp.patches:
         boundary[name] = dict(wall)
     return FoamFileSpec(
@@ -363,6 +382,8 @@ def initial_fields(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
     sides/top/bottom: slip (nut calculated); symmetry: symmetryPlane.
     part walls: U noSlip; p zeroGradient; k kqRWallFunction; omega omegaWallFunction;
     nut nutUSpaldingWallFunction.
+    ground plane (D-116): the part walls' conditions; a moving ground has U fixedValue
+    ``ground_velocity`` instead of noSlip (the motorBike tutorial's lowerWall). [NUMERICS-REVIEW]
     """
     d = flow_direction(inp.inflow.alpha_deg)
     velocity = [inp.inflow.speed * c for c in d]
@@ -374,6 +395,7 @@ def initial_fields(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
         inlet={"type": "fixedValue", "value": velocity},
         outlet={"type": "inletOutlet", "inletValue": [0.0, 0.0, 0.0], "value": velocity},
         far=slip, wall={"type": "noSlip"},
+        ground=({"type": "fixedValue", "value": list(ground_velocity(inp))} if inp.ground == "moving" else None),
     )
     p = _field(
         inp, "volScalarField", [0, 2, -2, 0, 0, 0, 0], 0.0,

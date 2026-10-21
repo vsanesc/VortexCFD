@@ -34,8 +34,12 @@ BOUNDARY_PATCH_TYPES = {
     "sides": "patch",
     "top": "patch",
     "bottom": "patch",
+    "ground": "wall",
     "symmetry": "symmetryPlane",
 }
+# The ground plane of a box domain (D-116): the blockMesh z_min face as a wall patch, never a part's
+# (the name is reserved). Forces and the part walls' y+ leave it out.
+GROUND_PATCH = "ground"
 # A rounded domain (D-078): its surface constant/triSurface/domain.stl (one solid per boundary role)
 # is a refinement surface cutting the fluid out of a background box whose faces form the patch
 # "background" (y_min is the symmetry patch with symmetry); createPatch then removes the empty
@@ -122,6 +126,10 @@ class MeshCaseInput:
     # The user refinement volumes to write (D-103): enabled and not wholly outside the domain (the
     # workflow decides), each with its refinement level.
     volumes: tuple["VolumeEntry", ...] = ()
+    # The ground plane (box domains, D-116): the z_min face is the wall patch "ground" instead of the far
+    # field "bottom"; ``ground_layers`` gives it the parts' prism layers. [NUMERICS-REVIEW]
+    ground: bool = False
+    ground_layers: bool = False
 
     @property
     def rounded(self) -> bool:
@@ -136,7 +144,7 @@ class MeshCaseInput:
     def expected_domain_patches(self) -> tuple[str, ...]:
         """The domain patches the final mesh must have (each with faces)."""
         if not self.rounded:
-            names = ["inlet", "outlet", "sides", "top", "bottom"]
+            names = ["inlet", "outlet", "sides", "top", GROUND_PATCH if self.ground else "bottom"]
         else:
             names = list(self.domain_patches)
         return tuple(names + (["symmetry"] if self.symmetric else []))
@@ -431,7 +439,7 @@ def block_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
             ("outlet", ["x_max"]),
             ("sides", ["y_max"] if inp.symmetric else ["y_min", "y_max"]),
             ("top", ["z_max"]),
-            ("bottom", ["z_min"]),
+            (GROUND_PATCH if inp.ground else "bottom", ["z_min"]),
         ]
     if inp.symmetric:
         patches.append(("symmetry", ["y_min"]))
@@ -627,6 +635,8 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
         for i, n in enumerate(inp.parts):
             for key in (inp.patches_of(i) if inp.has_regions(i) else (f'"{n}.*"',)):
                 layers[key] = {"nSurfaceLayers": n_layers}
+        if inp.ground and inp.ground_layers:  # optional on the ground plane (D-116)
+            layers[GROUND_PATCH] = {"nSurfaceLayers": n_layers}
     content = {
         "castellatedMesh": True,
         "snap": True,

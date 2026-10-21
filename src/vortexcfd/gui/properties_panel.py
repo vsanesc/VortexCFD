@@ -91,6 +91,18 @@ DOMAIN_SHAPE_FIELDS = {
 }
 DOMAIN_FIELD_LABELS = {"upstream": "Upstream", "downstream": "Downstream", "lateral": "Lateral",
                        "vertical": "Vertical", "radius": "Radius"}
+# The ground plane of a box domain (D-116): its options and the boundary conditions it gets.
+GROUND_MOTIONS = {"stationary": "Stationary wall", "moving": "Moving (free-stream speed along +x)"}
+GROUND_POSITIONS = {"parts_min": "Parts' lowest z", "value": "Value"}
+GROUND_ROWS = ("dom_ground_enabled", "dom_ground_motion", "dom_ground_position", "dom_ground_z",
+               "dom_ground_layers", "dom_ground_bcs")
+
+
+def ground_bc_text(motion: str) -> str:
+    """The ground's boundary conditions as the solver files write them (physics_case.initial_fields)."""
+    u = "fixedValue (U_inf, 0, 0)" if motion == "moving" else "noSlip"
+    return (f"U {u}; p zeroGradient; k kqRWallFunction; omega omegaWallFunction; "
+            "nut nutUSpaldingWallFunction (the parts' wall functions)")
 
 # The solver's cores are limited to the machine's physical cores (read at start-up, D-063).
 PHYSICAL_CORES = physical_cores()
@@ -567,6 +579,37 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         self.domain_warning.setObjectName("checkValue")
         _wrap(self.domain_warning)
         self._layout.addWidget(self.domain_warning)
+        self._section("dom_ground", "Ground plane")
+        self.ground_enabled = QCheckBox()
+        self.ground_enabled.setToolTip("The bottom face (z-min) of the box is a no-slip wall, the patch \"ground\", "
+                                       "instead of the slip far field")
+        self._layout.addWidget(self._make_row("dom_ground_enabled", "Ground plane", self.ground_enabled))
+        self.ground_motion = QComboBox()
+        for key, text in GROUND_MOTIONS.items():
+            self.ground_motion.addItem(text, key)
+        self._layout.addWidget(self._make_row("dom_ground_motion", "Motion", self.ground_motion))
+        self.ground_position = QComboBox()
+        for key, text in GROUND_POSITIONS.items():
+            self.ground_position.addItem(text, key)
+        self.ground_position.setToolTip("Where the ground plane lies: at the lowest z of the parts, or at a value "
+                                        "(e.g. below the lowest point when supports cross the plane)")
+        self._layout.addWidget(self._make_row("dom_ground_position", "Position", self.ground_position))
+        self.ground_z = QDoubleSpinBox()
+        self.ground_z.setRange(-1e6, 1e6)
+        self.ground_z.setDecimals(4)
+        self.ground_z.setSingleStep(0.01)
+        self.ground_z.setSuffix(" m")
+        self._layout.addWidget(self._make_row("dom_ground_z", "z", self.ground_z))
+        self.ground_layers = QCheckBox()
+        self.ground_layers.setToolTip("Prism layers on the ground (the parts' stack). Off by default: the ground "
+                                      "uses the same wall functions on the castellated cells")
+        self._layout.addWidget(self._make_row("dom_ground_layers", "Prism layers", self.ground_layers))
+        self.ground_bcs = self._ro_row("dom_ground_bcs", "Boundary conditions")
+        self.ground_enabled.toggled.connect(lambda _: self._commit_ground("enabled"))
+        self.ground_motion.currentIndexChanged.connect(lambda _: self._commit_ground("motion"))
+        self.ground_position.currentIndexChanged.connect(lambda _: self._commit_ground("position"))
+        self.ground_z.editingFinished.connect(lambda: self._commit_ground("z"))
+        self.ground_layers.toggled.connect(lambda _: self._commit_ground("layers"))
         self.domain_enabled.toggled.connect(lambda _: self._commit_domain("enabled"))
         self.domain_symmetry.currentTextChanged.connect(lambda _: self._commit_domain("symmetry"))
         # Surface Preparation node (D-093): its result and report; run / remove.
@@ -1025,8 +1068,9 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         self._refresh_regions(part)
         self._refresh_file_info(part)
         self._rows["name"].setVisible(show_name)
-        is_domain = self._kind in ("fluid_domain", "fluid_region")
+        is_domain = self._kind in ("fluid_domain", "fluid_region", "boundary_ground")
         self._refresh_domain(self._kind == "fluid_domain")
+        self._refresh_ground(self._kind in ("fluid_domain", "boundary_ground"))
         self._refresh_groups()
         self._refresh_run(self._kind == "solvers")
         self._refresh_stopping(self._kind == "stopping")
@@ -1861,6 +1905,51 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
             "the cells connected to locationInMesh " + format_vector(location)
             + " (snappyHexMesh removes the cells inside the parts and outside the domain)"
             if location is not None else "\u2014")
+
+    def _refresh_ground(self, show: bool) -> None:
+        """The ground plane rows (D-116): on the Fluid Domain node of a box domain and on its ground node."""
+        domain = self._project.sim.domain
+        show = show and domain.enabled and domain.shape == "box"
+        ground = domain.ground
+        self._sections["dom_ground"].setVisible(show)
+        for key in GROUND_ROWS:
+            on = key == "dom_ground_enabled" or ground.enabled
+            self._rows[key].setVisible(show and on and (key != "dom_ground_z" or ground.position == "value"))
+        if not show:
+            return
+        widgets = (self.ground_enabled, self.ground_motion, self.ground_position, self.ground_z, self.ground_layers)
+        for w in widgets:
+            w.blockSignals(True)
+        try:
+            self.ground_enabled.setChecked(ground.enabled)
+            self.ground_motion.setCurrentIndex(list(GROUND_MOTIONS).index(ground.motion))
+            self.ground_position.setCurrentIndex(list(GROUND_POSITIONS).index(ground.position))
+            self.ground_z.setValue(ground.z)
+            self.ground_layers.setChecked(ground.layers)
+        finally:
+            for w in widgets:
+                w.blockSignals(False)
+        self.ground_bcs.setText(ground_bc_text(ground.motion))
+
+    def _commit_ground(self, key: str) -> None:
+        if self._kind not in ("fluid_domain", "boundary_ground"):
+            return
+        value = {"enabled": self.ground_enabled.isChecked, "motion": self.ground_motion.currentData,
+                 "position": self.ground_position.currentData, "z": self.ground_z.value,
+                 "layers": self.ground_layers.isChecked}[key]()
+        ground = self._project.sim.domain.ground.model_dump()
+        if ground.get(key) == value:
+            return
+        if key == "position" and value == "value":
+            box = domain_box_for(self._project)
+            if box.parts_bounds is not None and ground["position"] == "parts_min":
+                ground["z"] = box.parts_bounds[4]  # start from the plane in use
+        ground[key] = value
+        try:
+            self._project.update_domain(label=f"Edit ground plane ({key})", ground=ground)
+        except (ValueError, TypeError) as exc:  # includes pydantic errors
+            self.message.emit(str(exc))
+        self.refresh()  # reverts a rejected value
 
     def _commit_domain(self, key: str) -> None:
         if self._kind != "fluid_domain":

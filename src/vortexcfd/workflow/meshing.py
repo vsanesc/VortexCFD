@@ -287,6 +287,8 @@ def readiness(project: Project) -> str | None:
         box, _, _ = _loaded_parts(project)
     except MeshingNotReady as exc:
         return str(exc)
+    if box.ground and box.parts_bounds is not None and box.bounds[4] >= box.parts_bounds[5]:
+        return "The ground plane is above every part: lower it (Fluid Domain > Ground plane)."
     return estimate_with_volumes(project, box).limit_message()
 
 
@@ -358,6 +360,8 @@ def mesh_inputs(project: Project) -> tuple[MeshCaseInput, DomainBox, list]:
         surface_length=length.value,
         extra_features=_junction_features(project, box, length.value),
         volumes=_volume_entries(project, box, union_bounds(bounds)),
+        ground=box.ground,
+        ground_layers=box.ground and project.sim.domain.ground.layers,
         **domain_fields(box),
     )
     return inputs, box, meshes
@@ -465,6 +469,17 @@ def _hash_file(path: Path) -> str:
     return digest
 
 
+def _domain_for_hash(domain) -> dict:
+    """The domain as the mesh hash sees it: without the ground plane when it is off (projects saved before
+    schema v16 keep their hash) and without the ground's motion, which only the solver reads (D-116)."""
+    data = domain.model_dump()
+    ground = data.pop("ground")
+    if ground["enabled"]:
+        ground.pop("motion")
+        data["ground"] = ground
+    return data
+
+
 def inputs_hash(project: Project) -> str:
     """Hash of everything a mesh depends on: part names, file contents and units, the domain
     and the mesh settings. A saved mesh whose hash differs from this one is out of date."""
@@ -486,7 +501,7 @@ def inputs_hash(project: Project) -> str:
             del mesh[key]
     payload = {
         "parts": parts,
-        "domain": project.sim.domain.model_dump(),
+        "domain": _domain_for_hash(project.sim.domain),
         "mesh": mesh,
         # Absolute (y+) layer sizes depend on the flow; relative sizes do not.
         "yplus_inputs": (

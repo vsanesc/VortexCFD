@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 15
+CURRENT_SCHEMA_VERSION: int = 16
 
 
 class StrictModel(BaseModel):
@@ -409,6 +409,24 @@ class Reports(StrictModel):
 DOMAIN_SHAPES = ("box", "bullet", "c_type")
 
 
+class Ground(StrictModel):
+    """The ground plane of a box domain (schema v16, D-116): its bottom face (z-min) becomes the no-slip
+    wall patch "ground" instead of the slip far field "bottom". [NUMERICS-REVIEW]
+
+    ``motion``: "stationary" (noSlip) or "moving" (fixed tangential velocity: the free-stream speed along
+    +x, the flow direction projected on the ground). ``position``: "parts_min" puts the plane at the
+    lowest z of the parts the domain is sized around; "value" at ``z`` (metres), e.g. below the parts'
+    lowest point when supports cross the plane. ``layers``: prism layers on the ground (off by default).
+    The same wall functions as the parts in every case.
+    """
+
+    enabled: bool = False
+    motion: Literal["stationary", "moving"] = "stationary"
+    position: Literal["parts_min", "value"] = "parts_min"
+    z: float = 0.0
+    layers: bool = False
+
+
 class Domain(StrictModel):
     """Far-field domain around the parts, in multiples of the reference length L.
 
@@ -431,6 +449,13 @@ class Domain(StrictModel):
     radius: float = Field(default=5.0, gt=0)
     symmetry: Literal["none", "y_min"] = "none"
     parts: list[str] | None = None
+    ground: Ground = Field(default_factory=Ground)
+
+    @model_validator(mode="after")
+    def _ground_on_a_box(self) -> "Domain":
+        if self.ground.enabled and self.shape != "box":
+            raise ValueError("the ground plane needs the box domain shape")
+        return self
 
     @field_validator("parts")
     @classmethod

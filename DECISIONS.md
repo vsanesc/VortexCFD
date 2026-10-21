@@ -130,6 +130,8 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-113 | 2026-10-21 | Every background run reports its end, also after an exception | Accepted |
 | D-114 | 2026-10-21 | Project files, presets and records written atomically with the umask's permissions | Accepted |
 | D-115 | 2026-10-21 | Edit > Add part (placeholder) disabled | Accepted |
+| D-116 | 2026-10-21 | Ground plane boundary of the box domain (schema v16) | Proposed |
+| D-117 | 2026-10-21 | Mesh study levels keep the refinement volumes and junction curves | Proposed |
 
 ---
 
@@ -1138,3 +1140,24 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Context: the Edit menu item "Add part (placeholder)" (from Phase 2, before geometry import existed) added a part with no surface file; File > Import Geometry is the way to add parts since Phase 3.
 - Decision: the item stays in the Edit menu, disabled, with the tooltip "Not built yet: an empty part without a surface. Add parts with File > Import Geometry." (D-039: features not built are omitted or disabled with a tooltip); the Edit menu shows its actions' tooltips (so Add Wake Volume's tooltip is shown there too). `MainWindow.add_placeholder_part` stays for the tests, which call it directly.
 - Consequences: the user can no longer add an empty part from the menu.
+
+## D-116 Ground plane boundary of the box domain (schema v16)
+- Status: Proposed (task validation-ahmed, Part A, owner decision V1). [NUMERICS-REVIEW]
+- Context: the Ahmed body validation needs the ground of the experiment; the box domain's bottom face was always the slip far field "bottom" (D-022), so a body in ground proximity could not be modelled.
+- Decision:
+  - Model (schema v16): `Domain.ground` = `Ground`: `enabled` (default False), `motion` "stationary" (default) or "moving", `position` "parts_min" (default: the lowest z of the parts the domain is sized around) or "value" (`z`, metres), `layers` (default False). Only the box shape takes it (validator: "the ground plane needs the box domain shape"). The v15 -> v16 migration fills nothing: older projects keep the slip bottom. A domain setting, so presets store it (`PresetDomain.ground`; preset files without it read it off).
+  - Geometry (`geometry/domain.compute_domain`): with the ground the box's z_min face is at the ground plane (the top keeps `vertical` x L above the parts) and its role is "ground", replacing "bottom" (`shape_roles(shape, symmetric, ground)`); a part wholly below the plane gets a warning; meshing is blocked when the plane is above every part. Parts that cross the plane (supports) are cut by the domain: the blockMesh face is the plane and snappyHexMesh removes the cells inside the parts, as the v2606 motorBike tutorial does with its wheels on the lowerWall.
+  - Mesh: the blockMesh z_min face is the patch `ground` of type wall (`mesh_case.GROUND_PATCH`; "ground" is now a reserved patch name: a part named "ground" gets the patch "ground_1"); the domain guard expects it instead of "bottom". Prism layers on the ground only with `layers` (the parts' stack, `layers.ground`). Off by default: the floor of an external-aerodynamics box is the largest wall of the domain (for the Ahmed case 13 m x 5.4 m against the body's 0.9 m2 half surface), so a stack on it multiplies the near-wall cells for a boundary layer whose effect on the body's forces is the gap flow under the body, which the wall functions on the castellated ground cells already carry; the user can turn them on where the ground boundary layer itself matters.
+  - Solver (`physics_case.initial_fields`): the ground gets the part walls' conditions (p zeroGradient, k kqRWallFunction, omega omegaWallFunction, nut nutUSpaldingWallFunction); U noSlip when stationary; when moving U fixedValue (U_inf, 0, 0): the free-stream speed along the flow direction projected on the ground, which is +x at every angle of attack since the app turns the free stream about y (the v2606 motorBike tutorial's lowerWall uses fixedValue at the free-stream velocity). The far-field slip patches lose "bottom" (`far_field_patches`).
+  - Forces and y+: the force, forceCoeffs and wallShearStress objects list the part patches only, so the ground is never in a part's or in all walls' forces; the yPlus function object writes every wall patch (v2606 yPlus.C has no patch selection), and the reports' y+ (`YPlusTail.series`) leave the ground out.
+  - Hashes: the mesh hash carries the ground only when it is on and without its motion (a solver input: the results hash carries it), so projects without the ground keep their mesh and results hashes.
+  - GUI: the tree lists "ground" among the domain boundaries; the Fluid Domain node and the ground node show a "Ground plane" section (enabled, motion, position, z when "value", prism layers, and the boundary conditions written); each edit is one undo step.
+- Alternatives considered: a separate slip section upstream of the ground (the ERCOFTAC 9.4 workshop practice, matching a measured boundary layer thickness; needs a split bottom face, left for later); a moving ground along the free stream at incidence (would push flow through the ground plane); layers on the ground by default.
+- Consequences: a validation case in ground proximity can be built through the app (docs/validation/ahmed/). Schema v16: an older app cannot open a project saved by this one.
+
+## D-117 Mesh study levels keep the refinement volumes and junction curves
+- Status: Proposed (task validation-ahmed, Part A). [NUMERICS-REVIEW]
+- Context: the mesh study (D-066) was written before the refinement volumes (D-103) and the junction curves (D-093, D-097): `workflow/mesh_study.prepare_study` built each level's MeshCaseInput without them, so every level of a project with a wake volume was meshed without the wake refinement, unlike Generate Mesh.
+- Decision: every level gets the project's enabled refinement volumes and junction curves at the refinement levels of the current settings (`_volume_entries`, `_junction_features` of the project). A level scales the base size and every target size by the same factor (D-066), so the level numbers are unchanged and the cells inside a volume scale like the rest; the junction curve file is written into each level case. The ground plane (D-116) is passed too.
+- Alternatives considered: recomputing the volume levels per level from the scaled target size (gives the same level numbers by construction, with rounding risk at a power of two).
+- Consequences: a study of a project with volumes meshes what Generate Mesh meshes at every level. The study's background-cell limit check still counts background cells only (as before).

@@ -448,3 +448,37 @@ def test_real_mesh_study_on_the_coarse_sphere_at_re_200(tmp_path: Path) -> None:
         assert layers["relativeSizes"] is False
         stacks.add((layers["firstLayerThickness"], layers["expansionRatio"], layers["layers"]['"Sphere.*"']["nSurfaceLayers"]))
     assert len(stacks) == 1
+
+
+def test_every_level_keeps_the_refinement_volumes_and_the_ground(tmp_path: Path) -> None:
+    """D-117: the level cases carry the project's refinement volumes at the current refinement level (the
+    level scales base and target sizes alike) and the domain's ground plane (D-116)."""
+    import pyvista as pv
+
+    from vortexcfd.core.model import Part
+    from vortexcfd.core.project import Project
+    from vortexcfd.foam.dictfile import read_foam_file
+    from vortexcfd.workflow import refinement
+    from vortexcfd.workflow.mesh_study import prepare_study
+    from vortexcfd.workflow.meshing import _loaded_parts, project_estimate
+
+    folder = tmp_path / "proj"
+    (folder / "geometry").mkdir(parents=True)
+    pv.Sphere(radius=0.5, theta_resolution=12, phi_resolution=12).save(str(folder / "geometry" / "sphere.stl"))
+    project = Project.new("study")
+    project.add_part(Part(name="Sphere", source_file="geometry/sphere.stl", units="m"))
+    project.save(folder / "p.json")
+    project.update_domain(ground={"enabled": True})
+    box, _, meshes = _loaded_parts(project)
+    est = project_estimate(project, box)
+    project.add_refinement_volume(refinement.wake_volume(project, [0], [m.bounds for m in meshes], est))
+    level = refinement.volume_entries(refinement.volume_infos(project, box, est))[0].level
+    study_dir, record, _ = prepare_study(project)
+    for lr in record.levels:
+        case = study_dir / f"level_{lr.index + 1}"
+        snappy = read_foam_file(case / "system" / "snappyHexMeshDict")
+        regions = snappy["castellatedMeshControls"]["refinementRegions"]
+        assert list(regions) == ["volume_wake"]
+        assert regions["volume_wake"]["levels"][0][1] == level
+        block = read_foam_file(case / "system" / "blockMeshDict")
+        assert [name for name, _ in block["boundary"]][-1] == "ground"
