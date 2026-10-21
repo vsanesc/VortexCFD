@@ -1,0 +1,942 @@
+{
+  "project": "run/validation/ahmed/ahmed25/ahmed25.vcfd",
+  "average_window": 1000,
+  "gci_window_means": {
+    "Cd@body": {
+      "values": [
+        0.3408988857,
+        0.34684252549999994,
+        0.32497175989999993
+      ],
+      "convergence": "oscillatory",
+      "order": null,
+      "extrapolated": null,
+      "approx_error": null,
+      "extrapolated_error": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null,
+      "applicable": false,
+      "in_asymptotic_range": null,
+      "text": "oscillatory, GCI not applicable"
+    },
+    "Cd": {
+      "values": [
+        0.3756049153,
+        0.3819320712,
+        0.35524842060000006
+      ],
+      "convergence": "oscillatory",
+      "order": null,
+      "extrapolated": null,
+      "approx_error": null,
+      "extrapolated_error": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null,
+      "applicable": false,
+      "in_asymptotic_range": null,
+      "text": "oscillatory, GCI not applicable"
+    },
+    "Cl@body": {
+      "values": [
+        0.3412939193,
+        0.3945551517,
+        0.38153029000000005
+      ],
+      "convergence": "oscillatory",
+      "order": null,
+      "extrapolated": null,
+      "approx_error": null,
+      "extrapolated_error": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null,
+      "applicable": false,
+      "in_asymptotic_range": null,
+      "text": "oscillatory, GCI not applicable"
+    },
+    "Cl": {
+      "values": [
+        0.3405546533,
+        0.3942169923,
+        0.3811522766
+      ],
+      "convergence": "oscillatory",
+      "order": null,
+      "extrapolated": null,
+      "approx_error": null,
+      "extrapolated_error": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null,
+      "applicable": false,
+      "in_asymptotic_range": null,
+      "text": "oscillatory, GCI not applicable"
+    },
+    "Cd_pressure@body": {
+      "values": [
+        0.29723469258216473,
+        0.3022486251903408,
+        0.2791029951921738
+      ],
+      "convergence": "oscillatory",
+      "order": null,
+      "extrapolated": null,
+      "approx_error": null,
+      "extrapolated_error": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null,
+      "applicable": false,
+      "in_asymptotic_range": null,
+      "text": "oscillatory, GCI not applicable"
+    },
+    "Cd_viscous@body": {
+      "values": [
+        0.04366419452718724,
+        0.044593899378279345,
+        0.04586876508720216
+      ],
+      "convergence": "divergent",
+      "order": null,
+      "extrapolated": null,
+      "approx_error": null,
+      "extrapolated_error": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null,
+      "applicable": false,
+      "in_asymptotic_range": null,
+      "text": "divergent (differences grow with refinement), GCI not applicable"
+    },
+    "Cd@stilt_front": {
+      "values": [
+        0.02344820878,
+        0.021720598289999997,
+        0.019582145619999998
+      ],
+      "convergence": "divergent",
+      "order": null,
+      "extrapolated": null,
+      "approx_error": null,
+      "extrapolated_error": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null,
+      "applicable": false,
+      "in_asymptotic_range": null,
+      "text": "divergent (differences grow with refinement), GCI not applicable"
+    },
+    "Cd@stilt_rear": {
+      "values": [
+        0.011257819430000001,
+        0.01336894768,
+        0.01069451506
+      ],
+      "convergence": "oscillatory",
+      "order": null,
+      "extrapolated": null,
+      "approx_error": null,
+      "extrapolated_error": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null,
+      "applicable": false,
+      "in_asymptotic_range": null,
+      "text": "oscillatory, GCI not applicable"
+    },
+    "Cl_pressure@body": {
+      "values": [
+        0.3404179015746067,
+        0.39400637135745464,
+        0.381070346600032
+      ],
+      "convergence": "oscillatory",
+      "order": null,
+      "extrapolated": null,
+      "approx_error": null,
+      "extrapolated_error": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null,
+      "applicable": false,
+      "in_asymptotic_range": null,
+      "text": "oscillatory, GCI not applicable"
+    },
+    "Cl_viscous@body": {
+      "values": [
+        0.0008760169221978042,
+        0.0005487795678397038,
+        0.0004599403689162993
+      ],
+      "convergence": "monotonic",
+      "order": 4.08756567261847,
+      "extrapolated": 0.0004255101039020423,
+      "approx_error": 0.193153732369101,
+      "extrapolated_error": 0.0809152701628521,
+      "gci_fine": 0.09357263283765682,
+      "gci_medium": 0.2807809163315735,
+      "asymptotic_ratio": 0.8381149661363597,
+      "applicable": true,
+      "in_asymptotic_range": false,
+      "text": "GCI 9.36 %"
+    }
+  },
+  "status": "finished",
+  "ratio": 1.4142135623730951,
+  "mesh_cores": 8,
+  "solver_cores": 4,
+  "domain_volume_m3": 388.01131984335194,
+  "study_wall_s": 7401.2,
+  "levels": [
+    {
+      "name": "coarse",
+      "factor": 2.0000000000000004,
+      "cells": 202717,
+      "h_m": 0.12416086850162059,
+      "state": "iteration_limit",
+      "state_label": "Iteration limit",
+      "criteria_met": false,
+      "iterations": 1500,
+      "solver_s": 534.9,
+      "values": {
+        "Cd@body": 0.3441109,
+        "Cd": 0.3788238,
+        "Cl@body": 0.346218,
+        "Cl": 0.3454783,
+        "Cd_pressure@body": 0.30023078925943414,
+        "Cd_viscous@body": 0.04388006083134005,
+        "Cd@stilt_front": 0.02345628,
+        "Cd@stilt_rear": 0.01125671,
+        "Cl_pressure@body": 0.3454112721923959,
+        "Cl_viscous@body": 0.0008067984786983439
+      },
+      "layers": {
+        "extruded_percent": 69.382022,
+        "patches": {
+          "body": {
+            "faces": 5938,
+            "mesh_layers": 6.33,
+            "thickness_percent": 79.0
+          },
+          "stilt_front": {
+            "faces": 235,
+            "mesh_layers": 2.33,
+            "thickness_percent": 16.8
+          },
+          "stilt_rear": {
+            "faces": 235,
+            "mesh_layers": 1.8,
+            "thickness_percent": 9.03
+          }
+        }
+      },
+      "check": {
+        "mesh_ok": true,
+        "failed_checks": 0,
+        "max_non_orthogonality": 73.519663,
+        "max_skewness": 2.3831966
+      },
+      "yplus_body": {
+        "min": 2.2722599506378174,
+        "mean": 87.6036790666419,
+        "max": 1360.97998046875,
+        "in_band_percent": 56.039998303829904,
+        "target": 50.0,
+        "band": [
+          25.0,
+          100.0
+        ]
+      },
+      "yplus_ground": {
+        "mean": 10782.163283225082,
+        "max": 11711.7998046875,
+        "mean_near_body": 1707.345315712966
+      },
+      "slant": {
+        "faces": 418,
+        "area_m2": 0.04357274093202458,
+        "reversed_area_percent": 30.814286243832033,
+        "centre_strip_reversed_percent": 89.84012779666398,
+        "centre_strip_reversed_from": 0.11175863604442479,
+        "centre_strip_reversed_to": 0.9828130334991482,
+        "mean_cf_downslope": 0.0013977685722501622
+      },
+      "window": {
+        "Cd@body": {
+          "mean": 0.3408988857,
+          "std": 0.006534451799694104,
+          "min": 0.3242463,
+          "max": 0.3579779,
+          "n": 1000,
+          "last": 0.3441109
+        },
+        "Cd": {
+          "mean": 0.3756049153,
+          "std": 0.006532573814071748,
+          "min": 0.3590313,
+          "max": 0.3926908,
+          "n": 1000,
+          "last": 0.3788238
+        },
+        "Cl@body": {
+          "mean": 0.3412939193,
+          "std": 0.03437890823194997,
+          "min": 0.2070823,
+          "max": 0.4053456,
+          "n": 1000,
+          "last": 0.346218
+        },
+        "Cl": {
+          "mean": 0.3405546533,
+          "std": 0.03438210467066391,
+          "min": 0.2063325,
+          "max": 0.4046183,
+          "n": 1000,
+          "last": 0.3454783
+        },
+        "Cd_pressure@body": {
+          "mean": 0.29723469258216473,
+          "std": 0.006385685709199413,
+          "min": 0.281341304492853,
+          "max": 0.3139550831281765,
+          "n": 1000,
+          "last": 0.30023078925943414
+        },
+        "Cd_viscous@body": {
+          "mean": 0.04366419452718724,
+          "std": 0.0002766500963343138,
+          "min": 0.042887122953532544,
+          "max": 0.04406819140109628,
+          "n": 1000,
+          "last": 0.04388006083134005
+        },
+        "Cd@stilt_front": {
+          "mean": 0.02344820878,
+          "std": 2.2007995077053242e-05,
+          "min": 0.02335369,
+          "max": 0.02350372,
+          "n": 1000,
+          "last": 0.02345628
+        },
+        "Cd@stilt_rear": {
+          "mean": 0.011257819430000001,
+          "std": 8.743752707605069e-05,
+          "min": 0.01095555,
+          "max": 0.01155608,
+          "n": 1000,
+          "last": 0.01125671
+        },
+        "Cl_pressure@body": {
+          "mean": 0.3404179015746067,
+          "std": 0.0344336357724366,
+          "min": 0.20608413793014113,
+          "max": 0.4043637354018061,
+          "n": 1000,
+          "last": 0.3454112721923959
+        },
+        "Cl_viscous@body": {
+          "mean": 0.0008760169221978042,
+          "std": 8.021418672255073e-05,
+          "min": 0.0006883400175265764,
+          "max": 0.0010713484194020367,
+          "n": 1000,
+          "last": 0.0008067984786983439
+        }
+      },
+      "mesh_s": 56.1
+    },
+    {
+      "name": "medium",
+      "factor": 1.4142135623730951,
+      "cells": 524785,
+      "h_m": 0.09042482166993361,
+      "state": "iteration_limit",
+      "state_label": "Iteration limit",
+      "criteria_met": false,
+      "iterations": 1500,
+      "solver_s": 1653.5,
+      "values": {
+        "Cd@body": 0.3434644,
+        "Cd": 0.3785873,
+        "Cl@body": 0.3730889,
+        "Cl": 0.3727485,
+        "Cd_pressure@body": 0.2987012619005519,
+        "Cd_viscous@body": 0.04476319852895933,
+        "Cd@stilt_front": 0.02169663,
+        "Cd@stilt_rear": 0.01342622,
+        "Cl_pressure@body": 0.3726217517379226,
+        "Cl_viscous@body": 0.0004671020459978717
+      },
+      "layers": {
+        "extruded_percent": 88.839247,
+        "patches": {
+          "body": {
+            "faces": 10620,
+            "mesh_layers": 7.65,
+            "thickness_percent": 86.9
+          },
+          "stilt_front": {
+            "faces": 390,
+            "mesh_layers": 1.07,
+            "thickness_percent": 9.76
+          },
+          "stilt_rear": {
+            "faces": 405,
+            "mesh_layers": 0.81,
+            "thickness_percent": 7.3
+          }
+        }
+      },
+      "check": {
+        "mesh_ok": true,
+        "failed_checks": 0,
+        "max_non_orthogonality": 64.790096,
+        "max_skewness": 3.2253935
+      },
+      "yplus_body": {
+        "min": 2.512809991836548,
+        "mean": 57.57065336965425,
+        "max": 1040.72998046875,
+        "in_band_percent": 90.1007530616454,
+        "target": 50.0,
+        "band": [
+          25.0,
+          100.0
+        ]
+      },
+      "yplus_ground": {
+        "mean": 7656.205772362152,
+        "max": 8540.6103515625,
+        "mean_near_body": 1240.0244751036837
+      },
+      "slant": {
+        "faces": 816,
+        "area_m2": 0.04357444041422623,
+        "reversed_area_percent": 26.476888351112965,
+        "centre_strip_reversed_percent": 87.87069751821211,
+        "centre_strip_reversed_from": 0.07185217695921381,
+        "centre_strip_reversed_to": 0.9398565812842912,
+        "mean_cf_downslope": 0.0017611878070282457
+      },
+      "window": {
+        "Cd@body": {
+          "mean": 0.34684252549999994,
+          "std": 0.004631797606264738,
+          "min": 0.3376814,
+          "max": 0.3601015,
+          "n": 1000,
+          "last": 0.3434644
+        },
+        "Cd": {
+          "mean": 0.3819320712,
+          "std": 0.004687764096791834,
+          "min": 0.3728094,
+          "max": 0.3953973,
+          "n": 1000,
+          "last": 0.3785873
+        },
+        "Cl@body": {
+          "mean": 0.3945551517,
+          "std": 0.044232003581326236,
+          "min": 0.3117341,
+          "max": 0.48168,
+          "n": 1000,
+          "last": 0.3730889
+        },
+        "Cl": {
+          "mean": 0.3942169923,
+          "std": 0.04423379608718599,
+          "min": 0.3113921,
+          "max": 0.4813451,
+          "n": 1000,
+          "last": 0.3727485
+        },
+        "Cd_pressure@body": {
+          "mean": 0.3022486251903408,
+          "std": 0.00458136023449278,
+          "min": 0.2933100260955568,
+          "max": 0.3154109353919612,
+          "n": 1000,
+          "last": 0.2987012619005519
+        },
+        "Cd_viscous@body": {
+          "mean": 0.044593899378279345,
+          "std": 0.00010184232735142151,
+          "min": 0.044345015450719935,
+          "max": 0.04486541260320181,
+          "n": 1000,
+          "last": 0.04476319852895933
+        },
+        "Cd@stilt_front": {
+          "mean": 0.021720598289999997,
+          "std": 2.5314013000231678e-05,
+          "min": 0.02166022,
+          "max": 0.02177669,
+          "n": 1000,
+          "last": 0.02169663
+        },
+        "Cd@stilt_rear": {
+          "mean": 0.01336894768,
+          "std": 0.00011232655840458034,
+          "min": 0.01316658,
+          "max": 0.01357477,
+          "n": 1000,
+          "last": 0.01342622
+        },
+        "Cl_pressure@body": {
+          "mean": 0.39400637135745464,
+          "std": 0.04418814209280514,
+          "min": 0.311252502524384,
+          "max": 0.48107213941465377,
+          "n": 1000,
+          "last": 0.3726217517379226
+        },
+        "Cl_viscous@body": {
+          "mean": 0.0005487795678397038,
+          "std": 6.115122072251554e-05,
+          "min": 0.00040619460199580164,
+          "max": 0.0006816731500750352,
+          "n": 1000,
+          "last": 0.0004671020459978717
+        }
+      },
+      "mesh_s": 60.4
+    },
+    {
+      "name": "fine",
+      "factor": 1.0,
+      "cells": 1338191,
+      "h_m": 0.06618741662712464,
+      "state": "iteration_limit",
+      "state_label": "Iteration limit",
+      "criteria_met": false,
+      "iterations": 1500,
+      "solver_s": 4564.4,
+      "values": {
+        "Cd@body": 0.3226685,
+        "Cd": 0.3527743,
+        "Cl@body": 0.4243719,
+        "Cl": 0.4239958,
+        "Cd_pressure@body": 0.2768780510395151,
+        "Cd_viscous@body": 0.04579037508557646,
+        "Cd@stilt_front": 0.01956122,
+        "Cd@stilt_rear": 0.01054459,
+        "Cl_pressure@body": 0.42382221859514063,
+        "Cl_viscous@body": 0.0005496366117617188
+      },
+      "layers": {
+        "extruded_percent": 90.167274,
+        "patches": {
+          "body": {
+            "faces": 17440,
+            "mesh_layers": 8.05,
+            "thickness_percent": 90.1
+          },
+          "stilt_front": {
+            "faces": 587,
+            "mesh_layers": 1.98,
+            "thickness_percent": 18.4
+          },
+          "stilt_rear": {
+            "faces": 625,
+            "mesh_layers": 1.72,
+            "thickness_percent": 16.4
+          }
+        }
+      },
+      "check": {
+        "mesh_ok": true,
+        "failed_checks": 0,
+        "max_non_orthogonality": 64.979233,
+        "max_skewness": 2.391784
+      },
+      "yplus_body": {
+        "min": 2.218709945678711,
+        "mean": 55.15051400142104,
+        "max": 850.1209716796875,
+        "in_band_percent": 91.73915619454475,
+        "target": 50.0,
+        "band": [
+          25.0,
+          100.0
+        ]
+      },
+      "yplus_ground": {
+        "mean": 5438.3595470215105,
+        "max": 6139.2998046875,
+        "mean_near_body": 1518.3104198434182
+      },
+      "slant": {
+        "faces": 1640,
+        "area_m2": 0.04353466535626466,
+        "reversed_area_percent": 7.779803791249725,
+        "centre_strip_reversed_percent": 51.426693111190914,
+        "centre_strip_reversed_from": 0.07175300885663026,
+        "centre_strip_reversed_to": 0.8034006796387873,
+        "mean_cf_downslope": 0.002219392880399084
+      },
+      "window": {
+        "Cd@body": {
+          "mean": 0.32497175989999993,
+          "std": 0.00156448424428052,
+          "min": 0.3223257,
+          "max": 0.3273427,
+          "n": 1000,
+          "last": 0.3226685
+        },
+        "Cd": {
+          "mean": 0.35524842060000006,
+          "std": 0.0016717290886610913,
+          "min": 0.3524894,
+          "max": 0.3577725,
+          "n": 1000,
+          "last": 0.3527743
+        },
+        "Cl@body": {
+          "mean": 0.38153029000000005,
+          "std": 0.040444652704575174,
+          "min": 0.3230608,
+          "max": 0.4415919,
+          "n": 1000,
+          "last": 0.4243719
+        },
+        "Cl": {
+          "mean": 0.3811522766,
+          "std": 0.040445862160441236,
+          "min": 0.3226812,
+          "max": 0.4412158,
+          "n": 1000,
+          "last": 0.4239958
+        },
+        "Cd_pressure@body": {
+          "mean": 0.2791029951921738,
+          "std": 0.0015132596441743988,
+          "min": 0.2765045749805206,
+          "max": 0.2813971680264984,
+          "n": 1000,
+          "last": 0.2768780510395151
+        },
+        "Cd_viscous@body": {
+          "mean": 0.04586876508720216,
+          "std": 5.8903979520369704e-05,
+          "min": 0.04577650635613666,
+          "max": 0.045953674719435525,
+          "n": 1000,
+          "last": 0.04579037508557646
+        },
+        "Cd@stilt_front": {
+          "mean": 0.019582145619999998,
+          "std": 1.5436956352066325e-05,
+          "min": 0.01955561,
+          "max": 0.01960744,
+          "n": 1000,
+          "last": 0.01956122
+        },
+        "Cd@stilt_rear": {
+          "mean": 0.01069451506,
+          "std": 0.00010645597416583251,
+          "min": 0.01053391,
+          "max": 0.01084494,
+          "n": 1000,
+          "last": 0.01054459
+        },
+        "Cl_pressure@body": {
+          "mean": 0.381070346600032,
+          "std": 0.04040271709416655,
+          "min": 0.32265254954690625,
+          "max": 0.4410677772013309,
+          "n": 1000,
+          "last": 0.42382221859514063
+        },
+        "Cl_viscous@body": {
+          "mean": 0.0004599403689162993,
+          "std": 6.208978165189036e-05,
+          "min": 0.0003729203382771751,
+          "max": 0.0005579022287768768,
+          "n": 1000,
+          "last": 0.0005496366117617188
+        }
+      },
+      "mesh_s": 166.5
+    }
+  ],
+  "gci": [
+    {
+      "quantity": "Cd@body",
+      "sizes": [
+        0.12416086850162059,
+        0.09042482166993361,
+        0.06618741662712464
+      ],
+      "values": [
+        0.3441109,
+        0.3434644,
+        0.3226685
+      ],
+      "reliable": false,
+      "note": "divergent (differences grow with refinement), GCI not applicable; unreliable: coarse, medium, fine did not meet the stopping criteria",
+      "convergence": "divergent",
+      "order": null,
+      "extrapolated": null,
+      "approx_error": null,
+      "extrapolated_error": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null,
+      "applicable": false,
+      "in_asymptotic_range": null,
+      "text": "divergent (differences grow with refinement), GCI not applicable"
+    },
+    {
+      "quantity": "Cd",
+      "sizes": [
+        0.12416086850162059,
+        0.09042482166993361,
+        0.06618741662712464
+      ],
+      "values": [
+        0.3788238,
+        0.3785873,
+        0.3527743
+      ],
+      "reliable": false,
+      "note": "divergent (differences grow with refinement), GCI not applicable; unreliable: coarse, medium, fine did not meet the stopping criteria",
+      "convergence": "divergent",
+      "order": null,
+      "extrapolated": null,
+      "approx_error": null,
+      "extrapolated_error": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null,
+      "applicable": false,
+      "in_asymptotic_range": null,
+      "text": "divergent (differences grow with refinement), GCI not applicable"
+    },
+    {
+      "quantity": "Cl@body",
+      "sizes": [
+        0.12416086850162059,
+        0.09042482166993361,
+        0.06618741662712464
+      ],
+      "values": [
+        0.346218,
+        0.3730889,
+        0.4243719
+      ],
+      "reliable": false,
+      "note": "divergent (differences grow with refinement), GCI not applicable; unreliable: coarse, medium, fine did not meet the stopping criteria",
+      "convergence": "divergent",
+      "order": null,
+      "extrapolated": null,
+      "approx_error": null,
+      "extrapolated_error": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null,
+      "applicable": false,
+      "in_asymptotic_range": null,
+      "text": "divergent (differences grow with refinement), GCI not applicable"
+    },
+    {
+      "quantity": "Cl",
+      "sizes": [
+        0.12416086850162059,
+        0.09042482166993361,
+        0.06618741662712464
+      ],
+      "values": [
+        0.3454783,
+        0.3727485,
+        0.4239958
+      ],
+      "reliable": false,
+      "note": "divergent (differences grow with refinement), GCI not applicable; unreliable: coarse, medium, fine did not meet the stopping criteria",
+      "convergence": "divergent",
+      "order": null,
+      "extrapolated": null,
+      "approx_error": null,
+      "extrapolated_error": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null,
+      "applicable": false,
+      "in_asymptotic_range": null,
+      "text": "divergent (differences grow with refinement), GCI not applicable"
+    },
+    {
+      "quantity": "Cd_pressure@body",
+      "sizes": [
+        0.12416086850162059,
+        0.09042482166993361,
+        0.06618741662712464
+      ],
+      "values": [
+        0.30023078925943414,
+        0.2987012619005519,
+        0.2768780510395151
+      ],
+      "reliable": false,
+      "note": "divergent (differences grow with refinement), GCI not applicable; unreliable: coarse, medium, fine did not meet the stopping criteria",
+      "convergence": "divergent",
+      "order": null,
+      "extrapolated": null,
+      "approx_error": null,
+      "extrapolated_error": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null,
+      "applicable": false,
+      "in_asymptotic_range": null,
+      "text": "divergent (differences grow with refinement), GCI not applicable"
+    },
+    {
+      "quantity": "Cd_viscous@body",
+      "sizes": [
+        0.12416086850162059,
+        0.09042482166993361,
+        0.06618741662712464
+      ],
+      "values": [
+        0.04388006083134005,
+        0.04476319852895933,
+        0.04579037508557646
+      ],
+      "reliable": false,
+      "note": "divergent (differences grow with refinement), GCI not applicable; unreliable: coarse, medium, fine did not meet the stopping criteria",
+      "convergence": "divergent",
+      "order": null,
+      "extrapolated": null,
+      "approx_error": null,
+      "extrapolated_error": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null,
+      "applicable": false,
+      "in_asymptotic_range": null,
+      "text": "divergent (differences grow with refinement), GCI not applicable"
+    },
+    {
+      "quantity": "Cd@stilt_front",
+      "sizes": [
+        0.12416086850162059,
+        0.09042482166993361,
+        0.06618741662712464
+      ],
+      "values": [
+        0.02345628,
+        0.02169663,
+        0.01956122
+      ],
+      "reliable": false,
+      "note": "divergent (differences grow with refinement), GCI not applicable; unreliable: coarse, medium, fine did not meet the stopping criteria",
+      "convergence": "divergent",
+      "order": null,
+      "extrapolated": null,
+      "approx_error": null,
+      "extrapolated_error": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null,
+      "applicable": false,
+      "in_asymptotic_range": null,
+      "text": "divergent (differences grow with refinement), GCI not applicable"
+    },
+    {
+      "quantity": "Cd@stilt_rear",
+      "sizes": [
+        0.12416086850162059,
+        0.09042482166993361,
+        0.06618741662712464
+      ],
+      "values": [
+        0.01125671,
+        0.01342622,
+        0.01054459
+      ],
+      "reliable": false,
+      "note": "oscillatory, GCI not applicable; unreliable: coarse, medium, fine did not meet the stopping criteria",
+      "convergence": "oscillatory",
+      "order": null,
+      "extrapolated": null,
+      "approx_error": null,
+      "extrapolated_error": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null,
+      "applicable": false,
+      "in_asymptotic_range": null,
+      "text": "oscillatory, GCI not applicable"
+    },
+    {
+      "quantity": "Cl_pressure@body",
+      "sizes": [
+        0.12416086850162059,
+        0.09042482166993361,
+        0.06618741662712464
+      ],
+      "values": [
+        0.3454112721923959,
+        0.3726217517379226,
+        0.42382221859514063
+      ],
+      "reliable": false,
+      "note": "divergent (differences grow with refinement), GCI not applicable; unreliable: coarse, medium, fine did not meet the stopping criteria",
+      "convergence": "divergent",
+      "order": null,
+      "extrapolated": null,
+      "approx_error": null,
+      "extrapolated_error": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null,
+      "applicable": false,
+      "in_asymptotic_range": null,
+      "text": "divergent (differences grow with refinement), GCI not applicable"
+    },
+    {
+      "quantity": "Cl_viscous@body",
+      "sizes": [
+        0.12416086850162059,
+        0.09042482166993361,
+        0.06618741662712464
+      ],
+      "values": [
+        0.0008067984786983439,
+        0.0004671020459978717,
+        0.0005496366117617188
+      ],
+      "reliable": false,
+      "note": "oscillatory, GCI not applicable; unreliable: coarse, medium, fine did not meet the stopping criteria",
+      "convergence": "oscillatory",
+      "order": null,
+      "extrapolated": null,
+      "approx_error": null,
+      "extrapolated_error": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null,
+      "applicable": false,
+      "in_asymptotic_range": null,
+      "text": "oscillatory, GCI not applicable"
+    }
+  ],
+  "verdict": {
+    "quantity": "Cd@body",
+    "basis": "fine",
+    "cd": 0.32497175989999993,
+    "experiment": 0.285,
+    "error": 0.14025178912280678,
+    "error_alt": 0.13033655617391293,
+    "published_sst": [
+      0.2839,
+      0.2915,
+      0.313
+    ],
+    "consistent_with_sst": false,
+    "verdict": "FAIL"
+  }
+}

@@ -246,6 +246,14 @@ def collect(args) -> None:
               "gci_window_means": means, "status": record.status, "ratio": record.ratio,
               "mesh_cores": record.mesh_cores, "solver_cores": record.cores, "domain_volume_m3": record.domain_volume,
               "study_wall_s": round(events["end"] - events["start"], 1), "levels": levels, "gci": rows}
+    values = [lv["window"]["Cd@body"]["mean"] for lv in levels]
+    cd, basis, _ = ac.judged_value(values, [lv["h_m"] for lv in levels])
+    error = cd / ac.CD_EXPERIMENT - 1.0
+    consistent = ac.consistent_with_sst(cd)
+    result["verdict"] = {"quantity": "Cd@body", "basis": basis, "cd": cd, "experiment": ac.CD_EXPERIMENT,
+                         "error": error, "error_alt": cd / ac.CD_EXPERIMENT_ALT - 1.0,
+                         "published_sst": list(ac.PUBLISHED_SST_CD), "consistent_with_sst": consistent,
+                         "verdict": ac.verdict(error, consistent)}
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "result.json").write_text(json.dumps(result, indent=2, default=str) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=1, default=str)[:6000])
