@@ -82,7 +82,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-064 | 2026-10-18 | mpirun binding and the recommended core count from a speedup study | Proposed |
 | D-066 | 2026-10-18 | Mesh independence study with the Celik GCI (schema v7) | Proposed |
 | D-067 | 2026-10-18 | Angle-of-attack sweep (polar) | Proposed |
-| D-068 | 2026-10-18 | Display guard and targeted testing for agents | Proposed |
+| D-068 | 2026-10-18 | Display guard and targeted testing for agents | Accepted |
 | D-069 | 2026-10-18 | Multi-solid STL import and self-intersection check | Proposed |
 | D-070 | 2026-10-18 | CAD import (STEP, IGES, BREP) through OCP | Proposed |
 | D-071 | 2026-10-18 | Surface regions and patch assignment (schema v8) | Proposed |
@@ -102,7 +102,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-085 | 2026-10-19 | Surface cell size from l_ref; curvature refinement (schema v10) | Accepted |
 | D-086 | 2026-10-19 | Absolute layer sizing from a default target y+ of 50 | Accepted |
 | D-087 | 2026-10-19 | Benchmark headline layer metric: strict coverage | Accepted |
-| D-088 | 2026-10-19 | y+ estimator: Reynolds number on l_ref | Proposed |
+| D-088 | 2026-10-19 | y+ estimator: Reynolds number on l_ref | Accepted |
 | D-089 | 2026-10-19 | Layers field disabled with absolute sizing | Accepted |
 | D-090 | 2026-10-19 | Preset files versioned with the project schema | Accepted |
 | D-091 | 2026-10-19 | Benchmark: fidelity in metres, layer diagnostics | Accepted |
@@ -119,8 +119,13 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-102 | 2026-10-20 | cfMesh evaluation case and the benchmark's mesher switch | Proposed |
 | D-103 | 2026-10-20 | User refinement volumes and the wake helper (schema v12) | Accepted |
 | D-104 | 2026-10-20 | NVIDIA adapter selected under WSL at start-up | Accepted |
-| D-105 | 2026-10-20 | Benchmark layer headline counted from the mesh; hard and soft checks per case | Proposed |
-| D-106 | 2026-10-20 | Robust prism-layer defaults: layer cap 12, expansion up to 1.3, featureAngle 130, nOuterIter 3 (schema v13) | Proposed |
+| D-105 | 2026-10-20 | Benchmark layer headline counted from the mesh; hard and soft checks per case | Accepted |
+| D-106 | 2026-10-20 | Robust prism-layer defaults: layer cap 12, expansion up to 1.3, featureAngle 130, nOuterIter 2, tet check on (schema v13) | Accepted |
+| D-107 | 2026-10-20 | Target y+ at the first cell centre (schema v14) | Accepted |
+| D-108 | 2026-10-20 | Placeholder fvSchemes written as token streams; regular-expression keywords quoted | Accepted |
+| D-109 | 2026-10-20 | The achieved first cell reported after meshing; y+ drift warning | Accepted |
+| D-110 | 2026-10-20 | Benchmark baseline after task 5.4b | Accepted |
+| D-111 | 2026-10-20 | Parallel snappyHexMesh with reconstruction to a serial mesh (schema v15) | Accepted |
 | D-112 | 2026-10-21 | A mesh or solver run is bound to the case folder it started in | Proposed |
 | D-113 | 2026-10-21 | Every background run reports its end, also after an exception | Proposed |
 | D-114 | 2026-10-21 | Project files, presets and records written atomically with the umask's permissions | Proposed |
@@ -643,7 +648,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: real sweep (tests/test_polar_sweep.py, marker `long`, 262 s): flattened ellipsoid (semi-axes 0.5 x 0.5 x 0.15 m, default mesh, 192,458 cells) at 20 m/s, 4 cores, Cd and Cl asymptotic (window 50, 1 %), limit 600: alpha 0: CL -0.0002199, CD 0.027736, CM 3.07e-5, 173 iterations; alpha 5: CL 0.023284, CD 0.030199, CM 0.0055368, L/D 0.771, 194 iterations (from point 1 at 173); alpha 10: CL 0.040787, CD 0.035768, CM 0.012481, L/D 1.14, 179 iterations (from point 2 at 194); all criteria met, CL increasing with alpha; case/ unchanged. The 10 deg value agrees with the separate slip run of Part B (0.0411). Each point keeps its time directories (about the size of the fields per written time).
 
 ## D-068 Display guard and targeted testing for agents
-- Status: Proposed (owner decision 2026-10-18, recorded in Task 3 Part 0).
+- Status: Accepted (2026-10-21, review follow-up R-39: an owner decision, as this line recorded, "owner decision 2026-10-18, recorded in Task 3 Part 0"; its rules are in CLAUDE.md). Was Proposed.
 - Context: agent test runs opened windows on the owner's WSLg desktop, and running the full suite before every commit cost several minutes per commit.
 - Decision:
   - `vortexcfd.core.display_guard.apply_display_guard()` (no Qt import) sets `QT_QPA_PLATFORM=offscreen` and `PYVISTA_OFF_SCREEN=true` when `WAYLAND_DISPLAY` is set, or `DISPLAY` is set on WSL (the /mnt/wslg mount or `WSL_DISTRO_NAME`), unless `VORTEXCFD_ALLOW_REAL_DISPLAY=1`. tests/conftest.py calls it before importing Qt, and so does every script that opens windows (scripts/screenshots.py). The application itself is not guarded.
@@ -847,7 +852,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: comparisons across a change of the layer count (D-086: absolute y+ sizing) carry a flag.
 
 ## D-088 y+ estimator: Reynolds number on l_ref
-- Status: Proposed (owner request in the review of task 5.1, docs/QUESTIONS.md item 95; [NUMERICS-REVIEW]).
+- Status: Accepted (2026-10-21, review follow-up R-39: docs/QUESTIONS.md item 95 records the owner's decision "Re on l_ref, the surface size length (D-088)" and item 103 the owner's acceptance of the reading for older projects, both 2026-10-19). Was Proposed (owner request in the review of task 5.1; [NUMERICS-REVIEW]).
 - Context: the first-layer thickness for the target y+ (D-024) took its Reynolds number from L, the parts' largest extent: the benchmark's 3 m span wing was sized for Re on 3 m while its surface cells follow its 1 m chord (D-085), and its mean y+ came out at 33.9 for a target of 50.
 - Decision: the Reynolds length of the y+ estimator is the surface size length of D-085 (`workflow/meshing.surface_length`): l_ref (the user's value, or its automatic value with the same Mesh-properties warning, which now names the y+ first layer too), or L for a project made before schema v10 (`surface_size_reference "largest_extent"`), so an existing project's layers do not change. Used by the Mesh properties, Generate Mesh and the mesh study's shared layer stack. The estimator itself (Cf = 0.026 / Re^(1/7)) is unchanged.
 - Alternatives considered: always l_ref (would change the layers of existing absolute-sizing projects behind an up-to-date mesh hash).
