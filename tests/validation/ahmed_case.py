@@ -63,10 +63,20 @@ PUBLISHED_SST_CD = (0.2839, 0.2915, 0.313)
 PASS_LIMIT, NOTE_LIMIT = 0.10, 0.20  # V6
 
 
-def consistent_with_sst(cd: float) -> bool:
+# The re-verdict of round 2 (RESULT.md, "Re-verdict with the verified references"): the owner's set after
+# the reference files were read: Guilmineau 2008 (the peer-reviewed one, read first hand) and the vendor
+# pages, with their near-wall treatment. Hachimy et al. 2022 is left out (full text never read).
+PUBLISHED_SST_VERIFIED = {
+    "SimScale [SS], wall functions": 0.2915,
+    "Guilmineau 2008 [G08], wall-resolved (y+ about 0.25), Table 1 p. 1212": 0.3074,
+    "SimFlow [SF], simpleFoam, wall functions": 0.313,
+}
+
+
+def consistent_with_sst(cd: float, published=PUBLISHED_SST_CD) -> bool:
     """V6's condition for PASS WITH NOTE: the value lies within the range of the published k-omega SST
     results (no widening: the study gives the fine value no grid uncertainty, RESULT.md)."""
-    return min(PUBLISHED_SST_CD) <= cd <= max(PUBLISHED_SST_CD)
+    return min(published) <= cd <= max(published)
 
 
 def verdict(error: float, consistent: bool) -> str:

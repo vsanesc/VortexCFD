@@ -6,7 +6,8 @@ Set-up and sources: [SETUP.md](SETUP.md). Numbers: [result.json](result.json) (w
 cores, simpleFoam on 4, nice -n 15.
 
 Round 2 (the set-up fixed after the owner's review): [below](#round-2); also **FAIL**, fine-grid body
-Cd 0.3246 (+13.9 %). The owner's reading of it: [Reading of round 2](#reading-of-round-2).
+Cd 0.3246 (+13.9 %). Re-verdict with the references read after round 2: still **FAIL**
+([Re-verdict](#re-verdict-with-the-verified-references)); the reading: [Reading of round 2](#reading-of-round-2).
 
 **Verdict (round 1): FAIL** (V6). The finest grid's body Cd is 0.3250, **14.0 % above** the experimental 0.285
 (13.0 % above the alternative reading 0.2875): inside the 10-20 % band, but above every published
@@ -143,9 +144,9 @@ length in the experiment is not taken from [LB03] here (not read); only the stat
 - **[SF]** SimFlow, "Flow around the Ahmed Body - Validation Case", https://help.sim-flow.com/validation/ahmed-body
   (read 2026-10-21): simpleFoam, k-omega SST with wall functions, 40 m/s, Re 2.784e6, Cd 0.313 and
   Cl 0.355 against Meile et al. (2011) 0.299; "the flow remains attached over the slant".
-- E. Guilmineau, "Computational study of flow around a simplified car body", J. Wind Eng. Ind.
-  Aerodyn. 96 (2008) 1207-1217, doi:10.1016/j.jweia.2007.06.041 (not read: paywalled; cited for the
-  over-predicted separation at 25 degrees as reported by secondary sources).
+- **[G08]** E. Guilmineau, "Computational study of flow around a simplified car body", J. Wind Eng. Ind.
+  Aerodyn. 96 (2008) 1207-1217, doi:10.1016/j.jweia.2007.06.041. Not read for round 1 (cited then from
+  secondary sources); read from the owner's copy after round 2 (SETUP.md, [G08]; the re-verdict above).
 - I. B. Celik, U. Ghia, P. J. Roache, C. J. Freitas, H. Coleman, P. E. Raad, "Procedure for estimation and
   reporting of uncertainty due to discretization in CFD applications", J. Fluids Eng. 130 (2008) 078001.
 
@@ -186,21 +187,66 @@ three levels stopped on the mean-stable criterion.
 Round 1 judged the means over iterations 501-1500 (1000 iterations); round 2 the 500 before the stop. On
 round 1's own histories the two differ by at most 0.21 % (D-118), far less than the changes below.
 
+### Re-verdict with the verified references
+
+The owner supplied three PDFs after round 2; only Guilmineau (2008) [G08] is the paper expected. The
+files named for Ahmed et al. (1984) and Lienhart & Becker (2003) hold other papers (SETUP.md, "Reference
+files supplied"), so [A84] Fig. 4 and [LB03] are still not read.
+
+| Source | Near-wall treatment | Cd (25 degrees, body) | Error vs 0.285 | This study's fine level against it |
+|---|---|---|---|---|
+| Ahmed et al. (1984), as quoted (also by [G08] Table 1, p. 1212) | experiment, 60 m/s | 0.285 | - | +13.9 % |
+| [SS] SimScale, k-omega SST | wall functions | 0.2915 | +2.3 % | +11.4 % |
+| **[G08] Guilmineau 2008, k-omega SST, steady (Table 1, p. 1212)** | **wall-resolved, low-Re, y+ about 0.25 (p. 1212)** | **0.3074** | **+7.9 %** | **+5.6 %** |
+| [SF] SimFlow, simpleFoam k-omega SST | wall functions | 0.313 | +9.8 % | +3.7 % |
+| This study, round 2, fine | wall functions, body y+ 56 | 0.3246 | +13.9 % | - |
+
+**Verdict (verified references): FAIL** (V6). The fine level's error (+13.9 %) is inside the 10-20 % band,
+but the value lies above the published SST range 0.2915-0.313 (3.7 % above its top), so the PASS WITH
+NOTE condition is not met. Hachimy et al. (2022) (0.2839) is no longer in the range: its full text was
+never read. The verdict is not decided by the unverified values: the highest of the range, SimFlow's, is
+a vendor page, and the one peer-reviewed SST result is 5.6 % below this study. The experimental 0.285 is
+still second hand (QUESTIONS 171).
+
+Of the three SST results, the one wall-resolved ([G08]) is not the closest to the experiment: the two
+wall-function results lie on either side of it. So the owner's expectation that the literature values used
+wall-resolved meshes holds for [G08] only, and wall functions alone do not explain why this study is
+higher. [G08] also differs in speed (40 m/s, Re_L 2.78e6, p. 1208, against [A84]'s 60 m/s used here), domain
+(2 L ahead, 3 L behind, 1.4 m high, p. 1212) and code (ISIS-CFD, 10,000 steady iterations, p. 1212).
+
+**The slant flow against the experiment.** [LB03] itself is not read; its 25 degree slant is known only
+from [G08]'s description: separation along the middle of the slant's top edge, two strong side-edge
+vortices, and reattachment "about half-way down the center of the face" (p. 1214, Fig. 7; p. 1217). This
+study's fine level separates at the slant's leading edge and reattaches at 0.7 of the slant length on the
+centre line and 0.6-0.7 further out, with the outer 35 mm of the half span attached and 40 % of the slant
+area reversed (below, "The slant flow on the fine level"). Along the centre line the bubble is therefore
+**longer than described** (reattachment at 0.6-0.7 against about 0.5); its width and area cannot be
+compared without [LB03]'s data. [G08]'s SST separates massively with no reattachment and a too-weak side
+vortex (p. 1215, Fig. 9 b; p. 1216, Fig. 10 b), a larger bubble than this study's, yet a lower Cd (0.3074).
+Within this study, round 1's fine level had a much smaller bubble (7.8 % of the slant) and the same Cd
+(0.3250). In neither comparison does a larger slant bubble go with more drag, so the drag excess cannot
+be attributed to the bubble's size from these data; where on the body the extra drag sits (slant, base or
+fore body) is not established.
+
 ### Reading of round 2
 
-The owner's review of round 2 (2026-10-21) records it as **FAIL** under V6, read as follows:
+The owner's review of round 2 (2026-10-21) records it as **FAIL** under V6; with the references read
+after it (above):
 
 - The medium and fine levels agree within 0.8 % (0.3272 and 0.3246), so the grid uncertainty is small,
   although no GCI can be computed (the three levels are oscillatory).
 - Steady k-omega SST with wall functions gives a body Cd of 0.325 (+14 %) on this case.
-- The remaining error is not the set-up: the set-up fixes of round 2 moved the fine level by -0.1 %. The
-  fine level reproduces a reattaching bubble on the slant, as in the experiment; why steady SST still
-  over-predicts the drag is not established. The literature's usual explanation (the separation's size
-  and the pressure recovery on the slant) can only be checked against Lienhart & Becker's data [LB03]
-  (QUESTIONS 171).
-- The verdict depends on unverified SST literature values, which probably used wall-resolved meshes,
-  unlike this study's wall functions (V3). It stays FAIL until verified references are read (QUESTIONS
-  171 and 172 stay open; the owner will supply the papers).
+- The remaining error is not the set-up: the set-up fixes of round 2 moved the fine level by -0.1 %.
+- The one peer-reviewed SST result read, [G08] (steady, wall-resolved), also over-predicts the drag
+  (0.3074, +7.9 %) with a different slant flow (no reattachment). This study is 5.6 % above it and 3.7 %
+  above the highest vendor result (wall functions). What causes the remaining gap is not established:
+  near-wall treatment, Reynolds number (60 against 40 m/s), domain and numerics all differ, and the slant
+  bubble's size does not track the drag in the results compared.
+- This study's slant bubble reattaches later on the centre line than the experiment as described by
+  [G08] (0.6-0.7 against about half-way); [LB03]'s own data are still needed to compare its width, its
+  area and the side vortices (QUESTIONS 171).
+- FAIL stands. It no longer rests on the unverified Hachimy et al. value; the experimental Cd and its
+  reading uncertainty are still second hand until [A84] is supplied.
 
 ### Grid convergence (Celik 2008, foam/gci.py)
 

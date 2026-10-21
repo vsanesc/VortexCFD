@@ -108,8 +108,23 @@ def test_round2_gci_and_verdict_follow_from_the_recorded_values(record_r2) -> No
     assert judged["consistent_with_sst"] == ac.consistent_with_sst(value) is False
     assert judged["verdict"] == ac.verdict(error, judged["consistent_with_sst"]) == "FAIL"
     # the owner's reading (RESULT.md, "Reading of round 2"): medium and fine within 0.8 %, Cd about 0.325, +14 %
-    assert abs(values[2] / values[1] - 1.0) < 0.008
+    assert round(100 * abs(values[2] / values[1] - 1.0), 1) == 0.8  # 0.82 %, quoted as 0.8 %
     assert round(value, 3) == 0.325 and round(100 * error) == 14
     text = _round2_text()
     assert re.search(rf"\*\*Verdict: {re.escape(judged['verdict'])}\*\*", text)
     assert f"**{value:.4f}**" in text
+
+
+def test_round2_reverdict_with_the_verified_references(record_r2) -> None:
+    """RESULT.md, "Re-verdict with the verified references": the same V6 rule on [G08] and the vendor pages."""
+    cd = record_r2["verdict"]["cd"]
+    published = tuple(ac.PUBLISHED_SST_VERIFIED.values())
+    assert published == (0.2915, 0.3074, 0.313)
+    consistent = ac.consistent_with_sst(cd, published)
+    error = cd / ac.CD_EXPERIMENT - 1.0
+    assert not consistent and ac.verdict(error, consistent) == "FAIL"
+    assert round(100 * (cd / max(published) - 1.0), 1) == 3.7
+    assert round(100 * (cd / 0.3074 - 1.0), 1) == 5.6
+    text = _round2_text()
+    section = text[text.index("### Re-verdict with the verified references"):]
+    assert re.search(r"\*\*Verdict \(verified references\): FAIL\*\*", section)
