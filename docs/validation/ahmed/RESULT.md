@@ -145,3 +145,72 @@ length in the experiment is not taken from [LB03] here (not read); only the stat
   over-predicted separation at 25 degrees as reported by secondary sources).
 - I. B. Celik, U. Ghia, P. J. Roache, C. J. Freitas, H. Coleman, P. E. Raad, "Procedure for estimation and
   reporting of uncertainty due to discretization in CFD applications", J. Fluids Eng. 130 (2008) 078001.
+
+## Round 2 (partial: coarse and medium)
+
+Set-up: SETUP.md, "Round 2" (inlet 5 L ahead with a slip strip to the ground wall 1.35 L ahead of the
+nose, D-118; prism layers on the ground wall; the mean-stable criterion on the body Cd, W 500, tol 0.5 %,
+with the 1500-iteration cap; round 1's level sizes; meshing and solver on 8 cores). Run on 2026-10-21,
+20:46-21:17, nice -n 15. Numbers: [result_round2.json](result_round2.json) (`--round 2 collect`).
+Values are means over the last 500 iterations at the stop (the criterion's window), standard deviation
+over the same iterations in brackets. **No verdict:** the fine level runs next (STATUS.md has the command).
+
+| | coarse r1 | coarse r2 | medium r1 | medium r2 |
+|---|---|---|---|---|
+| Cells (checkMesh) | 202,717 | 245,577 | 524,785 | 627,219 |
+| checkMesh / max non-orth. / skewness | OK / 73.5 / 2.38 | OK / 79.1 / 1.95 | OK / 64.8 / 3.23 | OK / 81.3 / 3.09 |
+| Ground layers (of 9) / thickness | none | 2.08 / 25.7 % | none | 2.68 / 28.8 % |
+| **Ground y+ mean under the body** (whole ground) | 1,707 (10,782) | **316** (10,696) | 1,240 (7,656) | **602** (7,558) |
+| Body y+ mean / in [25, 100] | 87.6 / 56.0 % | 66.4 / 90.5 % | 57.6 / 90.1 % | 58.1 / 89.3 % |
+| End state | 1500, iteration limit | **criteria met** (mean stable), 1164 | 1500, iteration limit | **criteria met** (mean stable), 1006 |
+| **Cd body** (mean) | 0.3409 (0.0065) | **0.3003** (0.0049) | 0.3468 (0.0046) | **0.3272** (0.0104) |
+| Cd body: pressure / viscous | 0.2972 / 0.0437 | 0.2576 / 0.0427 | 0.3023 / 0.0446 | 0.2854 / 0.0418 |
+| Pressure share of the body's drag | 87.2 % | 85.8 % | 87.1 % | 87.2 % |
+| Cd stilts (front + rear) | 0.0235 + 0.0113 | 0.0196 + 0.0105 | 0.0217 + 0.0134 | 0.0195 + 0.0121 |
+| **Cd body + stilts** (all walls, mean) | 0.3756 | **0.3305** | 0.3819 | **0.3589** |
+| Cl body (mean) | 0.341 (0.034) | 0.348 (0.018) | 0.395 (0.044) | 0.270 (0.061) |
+| Slant reversed area / centre strip reversed | 30.8 % / 89.8 % | 23.2 % / 96.0 % | 26.5 % / 87.9 % | 37.2 % / 95.7 % |
+| Centre strip reversed from / to (slant length) | 0.11 / 0.98 | 0.08 / 0.98 | 0.07 / 0.94 | 0.05 / 0.98 |
+| Meshing / solver time | 56 s / 535 s (4 cores) | 87 s / 400 s (8 cores) | 60 s / 1654 s (4 cores) | 187 s / 1128 s (8 cores) |
+
+Round 1 judged the means over iterations 501-1500 (1000 iterations); round 2 the 500 before the stop. On
+round 1's own histories the two differ by at most 0.21 % (D-118), far less than the changes below.
+
+**Body Cd.** It falls by 11.9 % on the coarse level (0.3409 to 0.3003) and by 5.7 % on the medium level
+(0.3468 to 0.3272); against the experimental 0.285 the medium level is now +14.8 % (round 1: +21.7 %)
+and the coarse level +5.4 %. The drop is almost all pressure drag (coarse -0.040, medium -0.017); the
+viscous drag changes by -0.001 and -0.003. The coarse-to-medium change is now +9.0 % (round 1 +1.7 %), so
+the two levels are further apart than in round 1: with the fine level still to run, nothing can be said
+on grid convergence yet.
+
+**Slant flow: unchanged.** Both levels still separate along the centre of the slant almost to the base
+(reversed on 96 % of the centre strip, from 5-8 % to 98 % of the slant length), as round 1's coarse and
+medium levels did; the medium level's reversed area grows (26.5 to 37.2 %). The drop in Cd therefore does
+not come from a change of the slant regime (round 1's fine-grid drop did, item (a)); it comes from the
+set-up.
+
+**Attribution.** Two set-up fixes changed at once, so this run cannot separate them:
+- (b) the inlet 5 L instead of 1.35 L ahead (fixed-value inlet no longer 1.4 m from the nose); the ground
+  wall still starts at the same place (within 3 cm, D-118), so the ground boundary layer's development
+  length is unchanged and the strip adds no boundary layer;
+- (c) the ground layers: the ground y+ under the body falls from 1,707 to 316 (coarse) and from 1,240 to
+  602 (medium), but the stacks are thin (2.1-2.7 of 9 layers, 26-29 % of the planned thickness; the
+  whole-ground mean y+ is unchanged at 7,600-10,700 because the large ground cells away from the body keep
+  almost no layers), so the ground boundary layer is still not in the wall-function range (30-300)
+  under the body on the medium level.
+A run with the round 1 inlet and the ground layers (or the round 2 inlet without them) would separate the
+two; not run tonight (QUESTIONS 177). The pressure-drag drop with a slant regime that did not change
+points at the underbody and base pressure, which both fixes act on.
+
+**Lift.** The medium level's Cl falls from 0.395 to 0.270 with a large swing (standard deviation 0.061
+over the window; range 0.10-0.40): Cl oscillates much more than Cd; its mean over 500 iterations is less
+certain than Cd's.
+
+**Stopping.** Both levels met the mean-stable criterion (the run then stopped cleanly through the app):
+coarse at iteration 1162 (written 1164), medium at 1004 (written 1006), i.e. 336 and 494 iterations
+before the cap; the oscillation is still present (Cd standard deviation 0.005-0.010).
+
+**Skipped tonight (deadline 23:15).** The fine level (estimated 6 min meshing and up to 113 min solving
+on 8 cores for 1.98 M estimated cells: past the deadline, and not to be run tonight in any case); no
+level was stopped at the deadline. References: none supplied (SETUP.md, "Round 2"): the experimental
+0.285 and the SST values stay unverified (item (d), QUESTIONS 171, 172).

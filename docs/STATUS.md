@@ -1,6 +1,6 @@
 # Status
 
-Updated 2026-10-21 (task/validation-ahmed: ground plane boundary and the Ahmed 25 degree force validation).
+Updated 2026-10-21 (task/validation-ahmed: ground plane boundary and the Ahmed 25 degree force validation; round 2 partial).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
@@ -24,12 +24,32 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
   base). tests/validation/test_ahmed.py (marker validation, not run) re-checks the verdict inputs.
   Machine time about 2 h 17 min.
 - QUESTIONS 163 to 166 are closed (accepted as implemented by the owner); 167 stays open.
+- Round 2 (owner review of round 1; QUESTIONS 168 b, 169, 170, 173 decided):
+  - Part A ([NUMERICS-REVIEW], D-118, schema v17): the ground's slip strip (`Ground.wall_start_x`: the
+    bottom face split into `ground_slip` and `ground` by two blockMesh blocks at a background cell face)
+    and the mean-stable stopping criterion (W 500, tol 0.5 %, from round 1's Cd histories: it would have
+    stopped them at 1002 / 1003 / 1036); windowed mean and oscillation in the report slots and the Forces
+    table; the oscillation warning suggests the criterion. D-116 and D-117 Accepted.
+  - Part B: no reference papers supplied (`~/vortexcfd-geometry/refs/` absent): 0.285 kept as quoted.
+  - Part C: SETUP.md "Round 2" (inlet 5 L, ground wall from 1.35 L ahead, ground layers, mean-stable stop,
+    8 + 8 cores; project run/validation/ahmed/ahmed25_r2, round 1 untouched); the driver runs one level
+    per command with a deadline guard (`prepare_study(only=...)`).
+  - Part D: coarse and medium run (RESULT.md "Round 2"): body Cd 0.3003 / 0.3272 (round 1 0.3409 /
+    0.3468), both stopped by the mean-stable criterion (1162 / 1004); ground y+ under the body 316 / 602
+    (round 1 1,707 / 1,240); the slant still separated on both. No verdict until the fine level.
 
-Next: the owner's review of D-116, D-117 and QUESTIONS 168 to 174 (the oscillating steady run, item 170,
-decides how the Ahmed study can be judged); a finer Ahmed level needs about 3 h of machine time. Then the
+Next: the Ahmed round 2 fine level (estimated 6 min meshing and up to 113 min solving on 8 cores), then
+collect and the verdict:
+
+```bash
+nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 2 study --level fine
+nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 2 collect
+```
+
+The owner's review of D-118 and QUESTIONS 175 to 178. Then the
 aircraft's zones (QUESTIONS 147); drag handles for the refinement volumes (item 132). The owner runs
 scripts/ship.sh (the slow tests, item 161). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75,
-82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147 and 167 to 174.
+82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 171, 172, 174 and 175 to 178.
 
 ### Previous branch (task/5.x-parallel-mesh, published in PR #26)
 

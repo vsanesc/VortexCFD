@@ -1,0 +1,337 @@
+{
+  "project": "run/validation/ahmed/ahmed25_r2/ahmed25_r2.vcfd",
+  "average_window": 500,
+  "mesh_cores": 8,
+  "solver_cores": 8,
+  "ground_wall_start_asked": -1.4094000000000002,
+  "levels": [
+    {
+      "name": "coarse",
+      "factor": 2.0000000000000004,
+      "cells": 245577,
+      "h_m": 0.12697062102268333,
+      "state": "criteria_met",
+      "state_label": "Criteria met: Cd (body) mean stable",
+      "criteria_met": true,
+      "iterations": 1164,
+      "solver_s": 399.7,
+      "values": {
+        "Cd@body": 0.3051268,
+        "Cd": 0.3352489,
+        "Cl@body": 0.3714689,
+        "Cl": 0.3709059,
+        "Cd_pressure@body": 0.2622184882712487,
+        "Cd_viscous@body": 0.04290828632700343,
+        "Cd@stilt_front": 0.01963962,
+        "Cd@stilt_rear": 0.0104825,
+        "Cl_pressure@body": 0.3708741946745374,
+        "Cl_viscous@body": 0.0005947394524790779
+      },
+      "layers": {
+        "extruded_percent": 58.932735,
+        "patches": {
+          "ground": {
+            "faces": 5082,
+            "mesh_layers": 2.08,
+            "thickness_percent": 25.7
+          },
+          "body": {
+            "faces": 6034,
+            "mesh_layers": 6.87,
+            "thickness_percent": 71.6
+          },
+          "stilt_front": {
+            "faces": 235,
+            "mesh_layers": 1.77,
+            "thickness_percent": 10.8
+          },
+          "stilt_rear": {
+            "faces": 230,
+            "mesh_layers": 2.03,
+            "thickness_percent": 13.4
+          }
+        }
+      },
+      "check": {
+        "mesh_ok": true,
+        "failed_checks": 0,
+        "max_non_orthogonality": 79.092813,
+        "max_skewness": 1.9509116
+      },
+      "yplus_body": {
+        "min": 4.999760150909424,
+        "mean": 66.35709112188917,
+        "max": 1430.1199951171875,
+        "in_band_percent": 90.5460175709658,
+        "target": 50.0,
+        "band": [
+          25.0,
+          100.0
+        ]
+      },
+      "yplus_ground": {
+        "mean": 10695.990297478354,
+        "max": 11618.5,
+        "mean_near_body": 316.0370803219185
+      },
+      "slant": {
+        "faces": 399,
+        "area_m2": 0.04251907596235954,
+        "reversed_area_percent": 23.20119430798547,
+        "centre_strip_reversed_percent": 95.97989630891117,
+        "centre_strip_reversed_from": 0.08492703580776016,
+        "centre_strip_reversed_to": 0.9791893614131076,
+        "mean_cf_downslope": 0.0014586196260495238
+      },
+      "window": {
+        "Cd@body": {
+          "mean": 0.3003182786,
+          "std": 0.004911828837066906,
+          "min": 0.2892271,
+          "max": 0.307013,
+          "n": 500,
+          "last": 0.3051268
+        },
+        "Cd": {
+          "mean": 0.3304550472,
+          "std": 0.004915085954370703,
+          "min": 0.3193199,
+          "max": 0.337162,
+          "n": 500,
+          "last": 0.3352489
+        },
+        "Cl@body": {
+          "mean": 0.3478951478,
+          "std": 0.018349836658669613,
+          "min": 0.3067753,
+          "max": 0.3808974,
+          "n": 500,
+          "last": 0.3714689
+        },
+        "Cl": {
+          "mean": 0.3473316624,
+          "std": 0.01835089894547911,
+          "min": 0.3062094,
+          "max": 0.3803357,
+          "n": 500,
+          "last": 0.3709059
+        },
+        "Cd_pressure@body": {
+          "mean": 0.25758653277554006,
+          "std": 0.004828369056364373,
+          "min": 0.24658212328061757,
+          "max": 0.26420949699502766,
+          "n": 500,
+          "last": 0.2622184882712487
+        },
+        "Cd_viscous@body": {
+          "mean": 0.04273174640416959,
+          "std": 0.00013026257191433357,
+          "min": 0.042443793188988437,
+          "max": 0.04298515940699806,
+          "n": 500,
+          "last": 0.04290828632700343
+        },
+        "Cd@stilt_front": {
+          "mean": 0.01963227852,
+          "std": 1.4506249970602285e-05,
+          "min": 0.01960275,
+          "max": 0.01965883,
+          "n": 500,
+          "last": 0.01963962
+        },
+        "Cd@stilt_rear": {
+          "mean": 0.010504490259999999,
+          "std": 1.7436037558241253e-05,
+          "min": 0.01046516,
+          "max": 0.01054369,
+          "n": 500,
+          "last": 0.0104825
+        },
+        "Cl_pressure@body": {
+          "mean": 0.3472896177703682,
+          "std": 0.018378613842182905,
+          "min": 0.3061097380016464,
+          "max": 0.380353021909516,
+          "n": 500,
+          "last": 0.3708741946745374
+        },
+        "Cl_viscous@body": {
+          "mean": 0.0006055294679330363,
+          "std": 3.250815416640837e-05,
+          "min": 0.0005269295426444404,
+          "max": 0.0006688912497303977,
+          "n": 500,
+          "last": 0.0005947394524790779
+        }
+      },
+      "mesh_s": 86.5,
+      "stopped_at_deadline": false,
+      "status": "finished"
+    },
+    {
+      "name": "medium",
+      "factor": 1.4142135623730951,
+      "cells": 627219,
+      "h_m": 0.09288795573153853,
+      "state": "criteria_met",
+      "state_label": "Criteria met: Cd (body) mean stable",
+      "criteria_met": true,
+      "iterations": 1006,
+      "solver_s": 1128.2,
+      "values": {
+        "Cd@body": 0.3260559,
+        "Cd": 0.3574119,
+        "Cl@body": 0.3888311,
+        "Cl": 0.3885523,
+        "Cd_pressure@body": 0.2837994618965362,
+        "Cd_viscous@body": 0.04225646413949755,
+        "Cd@stilt_front": 0.01955847,
+        "Cd@stilt_rear": 0.01179753,
+        "Cl_pressure@body": 0.38818913740874816,
+        "Cl_viscous@body": 0.000641925841078124
+      },
+      "layers": {
+        "extruded_percent": 62.1982,
+        "patches": {
+          "ground": {
+            "faces": 9660,
+            "mesh_layers": 2.68,
+            "thickness_percent": 28.8
+          },
+          "body": {
+            "faces": 10546,
+            "mesh_layers": 7.06,
+            "thickness_percent": 74.1
+          },
+          "stilt_front": {
+            "faces": 393,
+            "mesh_layers": 1.17,
+            "thickness_percent": 10.3
+          },
+          "stilt_rear": {
+            "faces": 400,
+            "mesh_layers": 1.1,
+            "thickness_percent": 8.78
+          }
+        }
+      },
+      "check": {
+        "mesh_ok": true,
+        "failed_checks": 0,
+        "max_non_orthogonality": 81.342351,
+        "max_skewness": 3.0920424
+      },
+      "yplus_body": {
+        "min": 3.684159994125366,
+        "mean": 58.12571164428377,
+        "max": 1068.06005859375,
+        "in_band_percent": 89.30588759667674,
+        "target": 50.0,
+        "band": [
+          25.0,
+          100.0
+        ]
+      },
+      "yplus_ground": {
+        "mean": 7557.726852350664,
+        "max": 8462.9404296875,
+        "mean_near_body": 602.1132734092191
+      },
+      "slant": {
+        "faces": 816,
+        "area_m2": 0.04356369874030393,
+        "reversed_area_percent": 37.173381404894826,
+        "centre_strip_reversed_percent": 95.68178033503837,
+        "centre_strip_reversed_from": 0.047674860238973424,
+        "centre_strip_reversed_to": 0.9781856824540245,
+        "mean_cf_downslope": 0.0011499640547958019
+      },
+      "window": {
+        "Cd@body": {
+          "mean": 0.32723160840000004,
+          "std": 0.01036270273423538,
+          "min": 0.3005196,
+          "max": 0.3512942,
+          "n": 500,
+          "last": 0.3260559
+        },
+        "Cd": {
+          "mean": 0.3588628658,
+          "std": 0.010462542464353984,
+          "min": 0.3319669,
+          "max": 0.3832345,
+          "n": 500,
+          "last": 0.3574119
+        },
+        "Cl@body": {
+          "mean": 0.26949165500000005,
+          "std": 0.06129631216490332,
+          "min": 0.103594,
+          "max": 0.3994651,
+          "n": 500,
+          "last": 0.3888311
+        },
+        "Cl": {
+          "mean": 0.2692078356,
+          "std": 0.06129937013933612,
+          "min": 0.1033041,
+          "max": 0.399187,
+          "n": 500,
+          "last": 0.3885523
+        },
+        "Cd_pressure@body": {
+          "mean": 0.285403135547278,
+          "std": 0.010215185294839594,
+          "min": 0.25852631350550315,
+          "max": 0.30890218602912933,
+          "n": 500,
+          "last": 0.2837994618965362
+        },
+        "Cd_viscous@body": {
+          "mean": 0.04182847453367712,
+          "std": 0.0002993508728950508,
+          "min": 0.041310467822280775,
+          "max": 0.04267028338518116,
+          "n": 500,
+          "last": 0.04225646413949755
+        },
+        "Cd@stilt_front": {
+          "mean": 0.019547810300000003,
+          "std": 2.6511785366323408e-05,
+          "min": 0.01946658,
+          "max": 0.01960582,
+          "n": 500,
+          "last": 0.01955847
+        },
+        "Cd@stilt_rear": {
+          "mean": 0.01208344552,
+          "std": 0.00017525293921052964,
+          "min": 0.01164675,
+          "max": 0.01246976,
+          "n": 500,
+          "last": 0.01179753
+        },
+        "Cl_pressure@body": {
+          "mean": 0.2687389158653083,
+          "std": 0.06126717454760939,
+          "min": 0.10296442674946775,
+          "max": 0.39872864312820244,
+          "n": 500,
+          "last": 0.38818913740874816
+        },
+        "Cl_viscous@body": {
+          "mean": 0.00075273917218987,
+          "std": 0.00011180831047677635,
+          "min": 0.00043011172382882506,
+          "max": 0.0009623837633691961,
+          "n": 500,
+          "last": 0.000641925841078124
+        }
+      },
+      "mesh_s": 187.1,
+      "stopped_at_deadline": false,
+      "status": "finished"
+    }
+  ]
+}
