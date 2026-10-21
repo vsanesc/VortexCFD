@@ -107,7 +107,7 @@ source of truth for the state of each sub-phase.
 - Automated repair pipeline (e.g., hole filling, normal fixing, optional robust remesh via fTetWild-style approaches, per 0.2). Always keep the original and show a before/after report.
 - Acceptance: a defined fraction of the broken-STL corpus ends up watertight and snappyHexMesh-ready; failures give actionable messages.
 
-### 3.4 Domain and boundary definition — *done*
+### 3.4 Domain and boundary definition — *done (ground plane boundary of the box domain added in task validation-ahmed, D-116)*
 - Box/cylinder far-field domain builder from body bounding box with size multipliers; symmetry planes; named boundaries (inlet, outlet, wall, symmetry, far-field).
 - Acceptance: domain generated for a wing and a VTOL STL; boundaries exported as patches consistent with the case writer.
 
@@ -190,7 +190,7 @@ Reality check: "as powerful as a commercial mesher" is not a deliverable that ca
 - CSV, VTK/EnSight, image sets, simple HTML/PDF run report (setup summary + results).
 - Acceptance: report generated automatically at end of run.
 
-### 6.4 Mesh independence study — *done (Task 6.4: Mesh Study node, three levels with the same absolute layer stack, Celik GCI with oscillatory / divergent cases, results window and CSV, D-066; flat plate Case B not reproduced through the workflow, docs/QUESTIONS.md item 72)*
+### 6.4 Mesh independence study — *done (Task 6.4: Mesh Study node, three levels with the same absolute layer stack, Celik GCI with oscillatory / divergent cases, results window and CSV, D-066; flat plate Case B not reproduced through the workflow, docs/QUESTIONS.md item 72; the levels keep the refinement volumes since D-117; first force validation through the study: Ahmed body 25 degrees, FAIL, docs/validation/ahmed/RESULT.md)*
 - Goal: a workflow that runs the same physics on a family of systematically refined meshes (at least three, constant refinement ratio, e.g. r = sqrt(2) in cell size) and judges grid convergence of chosen reports (Cd, Cl, Cm, a probe).
 - Deliverables: a "Mesh study" node defining the family from the current mesh settings; one case directory per grid; a table of each report per grid with the observed order p, the Richardson-extrapolated value and the Grid Convergence Index (Celik et al. 2008, as in the flat plate validation, D-036); warnings for oscillatory or divergent convergence (non-monotone ratios).
 - Acceptance: on the coarse sphere family the GCI table is reproduced by hand from the per-grid values; the flat plate Case B study (docs/validation/flat_plate) is reproduced through the workflow.
