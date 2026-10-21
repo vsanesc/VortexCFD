@@ -4,6 +4,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from vortexcfd.core.atomic_io import write_text_atomic
 from vortexcfd.foam.mesh_report import FirstCell, LayerCoverage, MeshReport
 
 RECORD_NAME = "vortexcfd_mesh.json"
@@ -24,7 +25,7 @@ def write_mesh_record(case_dir: Path, record: MeshRecord) -> None:
         "patches": list(record.patches),
         "cores": record.cores,
     }
-    (Path(case_dir) / RECORD_NAME).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    write_text_atomic(Path(case_dir) / RECORD_NAME, json.dumps(data, indent=2) + "\n")
 
 
 def read_mesh_record(case_dir: Path) -> MeshRecord | None:

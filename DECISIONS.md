@@ -123,6 +123,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-106 | 2026-10-20 | Robust prism-layer defaults: layer cap 12, expansion up to 1.3, featureAngle 130, nOuterIter 3 (schema v13) | Proposed |
 | D-112 | 2026-10-21 | A mesh or solver run is bound to the case folder it started in | Proposed |
 | D-113 | 2026-10-21 | Every background run reports its end, also after an exception | Proposed |
+| D-114 | 2026-10-21 | Project files, presets and records written atomically with the umask's permissions | Proposed |
 
 ---
 
@@ -1119,3 +1120,9 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Context: `MeshRun` ran its steps in try/finally only: an exception (a step that cannot start, a log or the decomposeParDict that cannot be read or written) ended the thread without `on_done`, so the top bar stayed in "Meshing". `SolverRun` caught only OSError, ValueError and RuntimeError, and nothing around the classification after the process; the mesh study and the polar sweep wrote their first and last record outside their exception handler.
 - Decision: `MeshRun` turns any exception into a failed `MeshRunResult` (`failed_step` = the step that was running, `error` = "<step> failed: <type>: <message>") after removing processor*/ as before; `SolverRun` reports any exception as a crashed run whose `crash` text is the error; the study and the sweep save their first record inside the handler and report a last record that cannot be written in the console. In each case `on_done` is called, so the state badge returns and the error appears in the console. The geometry worker, the overlap and intersection checks and the results loader already caught every exception.
 - Consequences: no change for runs without an exception.
+
+## D-114 Project files, presets and records written atomically with the umask's permissions
+- Status: Proposed (review follow-up, docs/REVIEW.md R-04, R-05).
+- Context: the project file and the presets were written through a temporary file created with mode 0600, so every .vcfd and preset file was readable by its owner only, unlike every other file the app writes (0644 under the usual umask 022). The mesh record, the run record, study.json and sweep.json were written in place (truncate, then write): a crash mid-write left half a file, which reads as no record.
+- Decision: one writer, `core/atomic_io.write_text_atomic`: a temporary file in the target's folder, chmod to 0666 minus the process umask (read from /proc/self/status, so the umask is never changed), then `os.replace`; on any failure the temporary file is removed and the old file is left whole. The project file, the presets and the four records use it; their names and content are unchanged.
+- Consequences: a file saved again gets the umask's mode (an older 0600 .vcfd becomes 0644 under umask 022 at its next save; a mode set by hand on one of these files is not kept).

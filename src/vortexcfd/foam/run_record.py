@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from vortexcfd.core.atomic_io import write_text_atomic
 from vortexcfd.foam.solver_run import CRITERIA_MET, STATE_LABELS, state_label
 
 RUN_RECORD_NAME = "vortexcfd_run.json"
@@ -53,7 +54,7 @@ def _data(record: RunRecord) -> dict:
 
 
 def write_run_record(case_dir: Path, record: RunRecord) -> None:
-    (Path(case_dir) / RUN_RECORD_NAME).write_text(json.dumps(_data(record), indent=2) + "\n", encoding="utf-8")
+    write_text_atomic(Path(case_dir) / RUN_RECORD_NAME, json.dumps(_data(record), indent=2) + "\n")
 
 
 def read_run_record(case_dir: Path) -> RunRecord | None:

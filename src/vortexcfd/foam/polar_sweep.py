@@ -22,6 +22,8 @@ import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from vortexcfd.core.atomic_io import write_text_atomic
+
 SWEEP_DIR_NAME = "case_sweep"
 SWEEP_JSON = "sweep.json"
 MESH_DIR = "mesh"
@@ -123,7 +125,7 @@ class SweepRecord:
 
 def write_record(sweep_dir: Path, record: SweepRecord) -> None:
     Path(sweep_dir).mkdir(parents=True, exist_ok=True)
-    (Path(sweep_dir) / SWEEP_JSON).write_text(json.dumps(asdict(record), indent=2) + "\n", encoding="utf-8")
+    write_text_atomic(Path(sweep_dir) / SWEEP_JSON, json.dumps(asdict(record), indent=2) + "\n")
 
 
 def read_record(sweep_dir: Path) -> SweepRecord | None:

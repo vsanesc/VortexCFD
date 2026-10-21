@@ -12,15 +12,14 @@ and is migrated like a project: a preset written before schema v10 keeps the v9 
 """
 
 import json
-import os
 import re
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, ValidationError, field_serializer, field_validator
 
+from vortexcfd.core.atomic_io import write_text_atomic
 from vortexcfd.core.model import CURRENT_SCHEMA_VERSION, Mesh, Simulation, StrictModel
 from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR, V13_MESH_FIELDS, V14_MESH_FIELDS
 
@@ -285,16 +284,7 @@ class PresetStore:
 
     def _write(self, path: Path, preset: Preset) -> None:
         self.folder.mkdir(parents=True, exist_ok=True)
-        text = preset.model_dump_json(indent=2) + "\n"
-        fd, tmp = tempfile.mkstemp(dir=self.folder, prefix=f".{path.name}.", suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                fh.write(text)
-            os.replace(tmp, path)
-        except BaseException:
-            if os.path.exists(tmp):
-                os.remove(tmp)
-            raise
+        write_text_atomic(path, preset.model_dump_json(indent=2) + "\n")
 
 
 def _short_error(exc: Exception) -> str:

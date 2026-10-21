@@ -1,12 +1,11 @@
 """Simulation project persistence and validation."""
 
 import json
-import os
 from pathlib import Path
-import tempfile
 from typing import Any
 from pydantic import ValidationError
 
+from vortexcfd.core.atomic_io import write_text_atomic
 from vortexcfd.core.model import CURRENT_SCHEMA_VERSION, Simulation
 
 
@@ -128,24 +127,7 @@ def save_simulation(sim: Simulation, path: Path) -> None:
     """
     file_path = Path(path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    json_text = sim.model_dump_json(indent=2)
-
-    tmp_file = tempfile.NamedTemporaryFile(
-        mode="w",
-        dir=file_path.parent,
-        prefix=f".{file_path.name}.",
-        suffix=".tmp",
-        encoding="utf-8",
-        delete=False,
-    )
-    try:
-        with tmp_file:
-            tmp_file.write(json_text + "\n")
-        os.replace(tmp_file.name, file_path)
-    except BaseException:
-        if os.path.exists(tmp_file.name):
-            os.remove(tmp_file.name)
-        raise
+    write_text_atomic(file_path, sim.model_dump_json(indent=2) + "\n")
 
 
 def load_simulation(path: Path) -> Simulation:

@@ -27,6 +27,7 @@ import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from vortexcfd.core.atomic_io import write_text_atomic
 from vortexcfd.core.model import Mesh
 from vortexcfd.foam import gci
 from vortexcfd.foam.yplus import layer_cap, plan_layers
@@ -157,7 +158,7 @@ class StudyRecord:
 def write_record(study_dir: Path, record: StudyRecord) -> None:
     Path(study_dir).mkdir(parents=True, exist_ok=True)
     data = asdict(record)
-    (Path(study_dir) / STUDY_JSON).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    write_text_atomic(Path(study_dir) / STUDY_JSON, json.dumps(data, indent=2) + "\n")
 
 
 def read_record(study_dir: Path) -> StudyRecord | None:
