@@ -106,6 +106,11 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
 
 - Results at angle of attack != 0 are biased by the angled-inlet method with slip far field (QUESTIONS 71, open).
 
+## Notes for the user manual (draft)
+
+- Bluff bodies with strong separation: steady SST can over-predict drag by 10-15 %; use the mean-stable
+  criterion (Ahmed body 25 degrees, docs/validation/ahmed/RESULT.md).
+
 ## Known debts
 
 - GPU environment variables (GALLIUM_DRIVER=d3d12, MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA) are set in

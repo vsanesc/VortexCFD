@@ -6,7 +6,7 @@ Set-up and sources: [SETUP.md](SETUP.md). Numbers: [result.json](result.json) (w
 cores, simpleFoam on 4, nice -n 15.
 
 Round 2 (the set-up fixed after the owner's review): [below](#round-2); also **FAIL**, fine-grid body
-Cd 0.3246 (+13.9 %).
+Cd 0.3246 (+13.9 %). The owner's reading of it: [Reading of round 2](#reading-of-round-2).
 
 **Verdict (round 1): FAIL** (V6). The finest grid's body Cd is 0.3250, **14.0 % above** the experimental 0.285
 (13.0 % above the alternative reading 0.2875): inside the 10-20 % band, but above every published
@@ -185,6 +185,20 @@ three levels stopped on the mean-stable criterion.
 
 Round 1 judged the means over iterations 501-1500 (1000 iterations); round 2 the 500 before the stop. On
 round 1's own histories the two differ by at most 0.21 % (D-118), far less than the changes below.
+
+### Reading of round 2
+
+The owner's review of round 2 (2026-10-21) records it as **FAIL** under V6, read as follows:
+
+- The medium and fine levels agree within 0.8 % (0.3272 and 0.3246), so the grid uncertainty is small,
+  although no GCI can be computed (the three levels are oscillatory).
+- Steady k-omega SST with wall functions gives a body Cd of 0.325 (+14 %) on this case.
+- The remaining error is the model's known limit at 25 degrees (the over-predicted slant separation of
+  RANS models near the critical angle), not the set-up: the set-up fixes of round 2 moved the fine level
+  by -0.1 %.
+- The verdict depends on unverified SST literature values, which probably used wall-resolved meshes,
+  unlike this study's wall functions (V3). It stays FAIL until verified references are read (QUESTIONS
+  171 and 172 stay open; the owner will supply the papers).
 
 ### Grid convergence (Celik 2008, foam/gci.py)
 
