@@ -158,15 +158,38 @@ window costs, about 300 windows in the fast suite), R-25 (the layer walk, only i
 R-17 (docstrings, unused parameters, dead code), R-37 / R-38 (the DECISIONS index rows for D-107 to D-111, the
 stale GPU notes in ARCHITECTURE and STATUS).
 
+## 8b. Follow-up (2026-10-21)
+
+| commit | finding | result |
+|---|---|---|
+| f2bb6a1 a mesh or solver run is bound to the case it started in | R-01 | record to the run's own case folder, open project untouched; results of a closed case ignored (D-112) |
+| 946e992 every background run reports its end after an exception | R-02 | MeshRun, SolverRun, mesh study and polar sweep always call on_done; the badge returns, the error is in the console (D-113) |
+| 0284468 project files, presets and records written atomically with the umask's mode | R-04, R-05 | one writer, core/atomic_io.py (D-114) |
+| 2ef3e3a Edit > Add part (placeholder) disabled with a not-built tooltip | R-18 | D-115 |
+| 1cd8b77 numpy declared in pyproject.toml | R-40 | numpy>=2.5.4 (the installed version) |
+| c2fb76f DECISIONS statuses and index rows | R-39, R-37 | D-068, D-088 Accepted; D-105, D-106 index rows corrected; rows for D-107 to D-111; 16 entries for the owner in QUESTIONS 162 |
+| ba0a337 the layer walk steps all wall faces together | R-25 | bitwise identical (below); Ahmed walk 3.23 s -> 1.35 s, the rest is face_geometry |
+
+Still not applied: R-03, R-06, R-07, R-12, R-14 to R-17, R-23, R-38 and the reported-only findings.
+
 ## 9. Verification
 
-1. Benchmark (`--no-solve --compare benchmarks/baseline.json`): **not run** (stopped early; the three applied
-   commits touch the surface preparation's hidden-segment filter, which the public cases never exercise, and the
-   monitors, which the benchmark does not use). To be run by the owner or the next task before publishing.
-2. Dictionaries: the meshing case of the three public benchmark cases as `prepare_job` writes it, their solver
-   files as `prepare_solver_case` writes them, the mesh and results hashes, and the cavity reference case were
-   generated at e41f7f2 (before the first Part B commit) and again at 6c55b01: `diff -r` of the 61 files is empty
-   (identical). Mesh cores of the cases: sphere 8, wing 7, ahmed 7 (QUESTIONS 155).
-3. Fast suite (`-m "not slow and not validation and not long"`, offscreen, `-n 8`), last line at 6c55b01:
-   `974 passed, 1 skipped in 67.83s (0:01:07)` (971 passed, 1 skipped in 68.61 s before Part B; the three new tests
-   are the equality pins of R-24, R-19 and R-26).
+Re-run on 2026-10-21 at ba0a337 (supersedes the partial verification of db3bca8).
+
+1. Hidden-segment filter (773ed53, 1d06183) on the owner's untrimmed aircraft (local, not committed): Surface
+   Preparation only, both strategies, from a frozen export of e41f7f2 and of the branch head: the junction feature
+   file of intersection features (262 segments, 13.32 m; the filter drops the tail pairs inside the fuselage) and
+   the 12 prepared surface and region-id files of the CAD union are byte-identical (SHA-256), and so are the
+   reports apart from the times. No revert.
+2. Benchmark (`--no-solve --compare benchmarks/baseline.json`, serial meshing): "no regressions"; every mesh metric of
+   the three cases is equal to baseline.json at full JSON precision (cells 233,534 / 300,025 / 231,606, quality,
+   strict coverage 99.59 / 94.37 / 96.55 %, zones, first cell, fidelity); only the times, the y+ block (not run)
+   and the new `mesh_cores` key differ.
+3. Layer walk (R-25): every output array bitwise equal to the previous implementation on every patch at max_layers
+   0, 1, 3, 12 and 30 on the three meshes the benchmark regenerated (40-54 s each), the three cfMesh meshes in
+   run/bench, tests/data/results_case and the column fixtures (pinned in tests/test_layer_walk_equality.py).
+4. Dictionaries: the meshing case of the three public cases as `prepare_job` writes it, their solver files as
+   `prepare_solver_case` writes them, the mesh and results hashes with the mesh cores (sphere 8, wing 7, ahmed 7)
+   and the cavity reference case, generated at e41f7f2 and at ba0a337: `diff -r` of the 59 files is empty.
+5. Fast suite (`-m "not slow and not validation and not long"`, offscreen, `-n 8`, nice 15) at ba0a337:
+   `1039 passed, 1 skipped in 58.93s`.

@@ -1,6 +1,6 @@
 # Status
 
-Updated 2026-10-20 (task/5.x-parallel-mesh: parallel snappyHexMesh; owner review applied; whole-codebase review).
+Updated 2026-10-21 (task/5.x-parallel-mesh: parallel snappyHexMesh; owner review applied; whole-codebase review and its follow-up).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
@@ -29,10 +29,17 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
   monitors' force breakdown cached per time); the dictionaries of the public cases and the cavity are
   byte-identical before and after; the benchmark compare was not run (stopped early). The remaining
   SAFE fixes are listed in REVIEW.md section 8; the FROZEN findings for the owner in section 7.
+- Review follow-up (2026-10-21, REVIEW.md sections 8b and 9): runs bound to the case they started in (R-01,
+  D-112); every background run reports its end after an exception (R-02, D-113); atomic project, preset and
+  record files with the umask's mode (R-04/R-05, D-114); the placeholder Add part item disabled (R-18, D-115);
+  numpy declared (R-40); DECISIONS statuses (R-39: D-068, D-088 accepted, 16 entries for the owner in
+  QUESTIONS 162); the layer walk vectorised, bitwise identical (R-25). Verified: the aircraft surface
+  preparation byte-identical before and after 773ed53; the benchmark mesh metrics equal to baseline.json;
+  the dictionaries of the public cases and the cavity identical.
 
 Next: the aircraft's zones (QUESTIONS 147); drag handles for the refinement volumes (item 132). The owner
 runs scripts/ship.sh (the slow tests, item 161). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73,
-75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131 and 147.
+75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147 and 162.
 
 ## Phases
 
