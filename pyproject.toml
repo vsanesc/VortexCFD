@@ -13,6 +13,7 @@ dependencies = [
     "PySide6",
     "pyvista",
     "pyvistaqt",
+    "numpy>=2.5.4",  # imported directly by geometry/, foam/, workflow/, bench/ and gui/ (installed with PyVista)
     "pydantic>=2.0",
     "foamlib>=1.8.1",
     "matplotlib",  # colormaps of the Results Scene (already installed with PyVista; D-054)

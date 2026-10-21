@@ -279,6 +279,18 @@ class SolverRun:
         return ok
 
     def _run(self) -> None:
+        try:
+            result = self._execute()
+        except Exception as exc:  # noqa: BLE001 - the GUI must always hear of the end of a run
+            with self._lock:
+                self._runner = None
+            result = SolverRunResult(CRASHED, None, 0, {}, f"Could not run {SOLVER}: {type(exc).__name__}: {exc}",
+                                     self.case_dir / LOG_NAME, cores=self.cores)
+        self._result = result
+        if self._on_done is not None:
+            self._on_done(result)
+
+    def _execute(self) -> SolverRunResult:
         log_file = self.case_dir / LOG_NAME
         res: RunResult | None = None
         error: str | None = None
@@ -293,7 +305,7 @@ class SolverRun:
                 res = self._step(solver_command(SOLVER, self.cores, self.binding), LOG_NAME, self._line, clean_stop=True)
                 if self.cores > 1 and res.exit_code == 0:
                     reconstructed = self._reconstruct()
-        except (OSError, ValueError, RuntimeError) as exc:
+        except Exception as exc:  # noqa: BLE001 - classified as crashed below
             error = f"Could not run {SOLVER}: {exc}"
         self._forward(self.parser.close())
         with self._lock:
@@ -319,6 +331,4 @@ class SolverRun:
                 self.parser.crash or self.parser.fatal_error, res.log_file, res.duration_s,
                 met, met_iteration, self.cores, decomposition, reconstructed,
             )
-        self._result = result
-        if self._on_done is not None:
-            self._on_done(result)
+        return result

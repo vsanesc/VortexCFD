@@ -23,7 +23,7 @@ incomplete last line for the next poll.
 """
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from vortexcfd.core.reports import BREAKDOWN, MASS, split_part, split_probe
@@ -301,6 +301,36 @@ def _last_per_time(rows):
     return {t: v for t, v in rows}
 
 
+class _Breakdown:
+    """The force rows of one wall set, kept up to date incrementally: the row of a time is
+    ``breakdown`` of the last force and moment rows written for that time (writeAndEnd repeats the
+    final row, a truncated file is re-read), computed again only when one of them changes, with the
+    axes and rho the rows were read with. ``rows`` keeps the times in order of first appearance."""
+
+    def __init__(self, axes: CoeffAxes, rho: float) -> None:
+        self.axes, self.rho = axes, rho
+        self.force: dict[float, tuple] = {}
+        self.moment: dict[float, tuple] = {}
+        self.rows: dict[float, ForceRow] = {}
+        self.done_force = self.done_moment = 0
+
+    def update(self, forces: ForceVectorTail, moments: ForceVectorTail | None) -> list[tuple[float, ForceRow]]:
+        changed: set[float] = set()
+        for t, f in forces.rows[self.done_force:]:
+            self.force[t] = f
+            changed.add(t)
+        self.done_force = len(forces.rows)
+        if moments is not None:
+            for t, m in moments.rows[self.done_moment:]:
+                self.moment[t] = m
+                changed.add(t)
+            self.done_moment = len(moments.rows)
+        for t in changed:
+            if t in self.force:
+                self.rows[t] = breakdown("", ForceSample(t, self.force[t], self.moment.get(t)), self.axes, self.rho)
+        return [(t, self.rows[t]) for t in self.force]
+
+
 class ReportMonitor:
     """All report series of a run, polled from the case's postProcessing files (D-048, D-060).
 
@@ -321,6 +351,7 @@ class ReportMonitor:
         self._yplus: YPlusTail | None = None
         self._face_counts: dict[str, int] = {}
         self._rho: float | None = None
+        self._breakdowns: dict[str | None, _Breakdown] = {}
 
     # -- discovery --------------------------------------------------------------------------
 
@@ -399,24 +430,26 @@ class ReportMonitor:
         """Part patches with their own force objects, sorted."""
         return sorted(k for k in self._force if k is not None)
 
-    def _samples(self, key: str | None) -> list[ForceSample]:
+    def _breakdown(self, key: str | None) -> list[tuple[float, ForceRow]]:
+        """(time, force row) of every time written for the wall set ``key`` (the last rows of each
+        time), in order of first appearance; empty without the files, the axes or rho."""
         forces = self._force.get(key)
-        if forces is None:
+        axes, rho = self.axes(key), self.rho()
+        if forces is None or axes is None or rho is None:
             return []
-        moments = _last_per_time(self._moment[key].rows) if key in self._moment else {}
-        return [ForceSample(t, f, moments.get(t)) for t, f in _last_per_time(forces.rows).items()]
+        cache = self._breakdowns.get(key)
+        if cache is None or cache.axes != axes or cache.rho != rho:
+            cache = self._breakdowns[key] = _Breakdown(axes, rho)
+        return cache.update(forces, self._moment.get(key))
 
     def _breakdown_series(self, base: str, key: str | None) -> list[tuple[float, float]]:
-        axes, rho = self.axes(key), self.rho()
-        if axes is None or rho is None:
-            return []
+        attr = {"Cd_pressure": "cd_pressure", "Cd_viscous": "cd_viscous", "Cl_pressure": "cl_pressure",
+                "Cl_viscous": "cl_viscous", "x_cp": "x_cp"}[base]
         out = []
-        for sample in self._samples(key):
-            row = breakdown("", sample, axes, rho)
-            value = {"Cd_pressure": row.cd_pressure, "Cd_viscous": row.cd_viscous,
-                     "Cl_pressure": row.cl_pressure, "Cl_viscous": row.cl_viscous, "x_cp": row.x_cp}[base]
+        for t, row in self._breakdown(key):
+            value = getattr(row, attr)
             if value is not None:
-                out.append((sample.time, value))
+                out.append((t, value))
         return out
 
     def mass_series(self) -> list[tuple[float, float]]:
@@ -467,13 +500,11 @@ class ReportMonitor:
 
     def breakdown_rows(self) -> list[ForceRow]:
         """The latest force breakdown of all walls ("All walls") and of each part."""
-        rho = self.rho()
         rows = []
         for key in (None, *self.part_keys()):
-            axes, samples = self.axes(key), self._samples(key)
-            if axes is None or rho is None or not samples:
-                continue
-            rows.append(breakdown("All walls" if key is None else key, samples[-1], axes, rho))
+            computed = self._breakdown(key)
+            if computed:
+                rows.append(replace(computed[-1][1], name="All walls" if key is None else key))
         return rows
 
     def mass_balance(self) -> tuple[float, float, float | None] | None:

@@ -26,28 +26,47 @@ MAX_GROWTH = 3.0
 MIN_TOP_COS = 0.7  # the top face's normal within about 45 degrees of the wall normal
 
 
+def _dot3(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Row-wise dot products of (m, 3) arrays, summed in np.dot's order for 3-vectors
+    ((a0 b0 + a1 b1) + a2 b2), so every value is the one the per-face walk computed with np.dot."""
+    return (a[:, 0] * b[:, 0] + a[:, 1] * b[:, 1]) + a[:, 2] * b[:, 2]
+
+
+def _padded_rows(values: np.ndarray, first: np.ndarray) -> np.ndarray:
+    """CSR rows (``values[first[i]:first[i + 1]]``) as a -1 padded (rows, width) array, order kept.
+    ``first[0]`` may be above 0 (cfMesh pads neighbour with -1: those entries sort first)."""
+    sizes = np.diff(first)
+    out = np.full((len(sizes), max(int(sizes.max(initial=0)), 1)), -1, dtype=np.int64)
+    rows = np.repeat(np.arange(len(sizes)), sizes)
+    out[rows, np.arange(first[0], first[-1]) - np.repeat(first[:-1], sizes)] = values[first[0]:first[-1]]
+    return out
+
+
 def walk_layers(mesh: PolyMesh, patches: tuple[str, ...], max_layers: int,
                 max_aspect: float = MAX_ASPECT, max_growth: float = MAX_GROWTH) -> dict[str, dict[str, np.ndarray]]:
     """Per wall patch: the layer count, the stack thickness (m), the first layer's height (m; 0 without a
     layer), the wall-adjacent cell's height (m, ``first_cell``, every face: see ``first_cell_height``),
-    the face area and centre of every face (in the patch's face order)."""
+    the face area and centre of every face (in the patch's face order).
+
+    All faces of a patch are walked together, one layer per step (docs/REVIEW.md R-25); each step makes,
+    per face, the decisions and the floating-point operations of the face-by-face walk, in its order."""
     n_faces = len(mesh.faces)
     n_internal = len(mesh.neighbour)
     n_cells = int(max(mesh.owner.max(initial=-1), mesh.neighbour.max(initial=-1))) + 1
+    n_points = len(mesh.points)
     cell_of = np.concatenate([mesh.owner, mesh.neighbour])
     face_of = np.concatenate([np.arange(n_faces), np.arange(n_internal)])
     order = np.argsort(cell_of, kind="stable")
     cell_faces = face_of[order]
     first = np.searchsorted(cell_of[order], np.arange(n_cells + 1))
+    faces_of_cell = _padded_rows(cell_faces, first)  # in the order the per-face walk tried them
     centre, vec, area = face_geometry(mesh.points, mesh.faces)
-    face_sets = {}
-
-    def pts(f: int) -> frozenset:
-        s = face_sets.get(f)
-        if s is None:
-            row = mesh.faces[f]
-            s = face_sets[f] = frozenset(int(v) for v in row[row >= 0])
-        return s
+    owner = np.asarray(mesh.owner, dtype=np.int64)
+    neighbour = np.asarray(mesh.neighbour, dtype=np.int64)
+    sorted_pts = np.sort(mesh.faces, axis=1)
+    distinct = (sorted_pts >= 0) & np.concatenate(
+        [np.ones((n_faces, 1), dtype=bool), sorted_pts[:, 1:] != sorted_pts[:, :-1]], axis=1)
+    n_distinct = distinct.sum(axis=1)  # points per face (the size of its point set)
 
     out = {}
     for name in patches:
@@ -58,41 +77,61 @@ def walk_layers(mesh: PolyMesh, patches: tuple[str, ...], max_layers: int,
         thick = np.zeros(count)
         first_h = np.zeros(count)
         first_cell = np.zeros(count)
-        for k in range(count):
-            f0 = start + k
-            normal = vec[f0] / max(area[f0], 1e-300)
-            f, c, n, total, last = f0, int(mesh.owner[f0]), 0, 0.0, 0.0
-            while n < max_layers:
-                fp = pts(f)
-                tops = [int(g) for g in cell_faces[first[c]:first[c + 1]] if g != f and pts(int(g)).isdisjoint(fp)]
-                if not tops:
-                    break
-                # a split side face (hanging points of a refinement step) can also miss the bottom face:
-                # the top is the candidate most parallel to the wall
-                cos = [abs(float(np.dot(vec[g], normal))) / max(area[g], 1e-300) for g in tops]
-                g = tops[int(np.argmax(cos))]
-                if max(cos) < MIN_TOP_COS or len(pts(g)) < len(pts(f0)):
-                    break
-                h = abs(float(np.dot(centre[g] - centre[f], normal)))
-                if n == 0:
-                    first_cell[k] = h  # a prism on the wall face: its height, a layer or not
-                if h > max_aspect * np.sqrt(area[f]) or (n > 0 and h > max_growth * last):
-                    break
-                last = h
-                n += 1
-                total += h
-                if n == 1:
-                    first_h[k] = h
-                if g >= n_internal:
-                    break
-                c = int(mesh.neighbour[g]) if int(mesh.owner[g]) == c else int(mesh.owner[g])
-                f = g
-            layers[k], thick[k] = n, total
-            if first_cell[k] == 0.0:  # not a prism on the wall face (a snapped polyhedron): twice the centre distance
-                c0 = int(mesh.owner[f0])
-                own = cell_faces[first[c0]:first[c0 + 1]]
-                cc = (centre[own] * area[own, None]).sum(axis=0) / max(float(area[own].sum()), 1e-300)
-                first_cell[k] = 2.0 * abs(float(np.dot(cc - centre[f0], normal)))
+        last = np.zeros(count)
+        f0 = start + np.arange(count)
+        normal = vec[f0] / np.maximum(area[f0], 1e-300)[:, None]
+        size0 = n_distinct[f0]
+        k = np.arange(count)  # the faces still walking
+        f, c = f0.copy(), owner[f0]
+        n = 0
+        while n < max_layers and len(k):
+            # candidate tops: the cell's faces other than the current one with no point in common with it
+            # (cell -1: a -1 entry of a padded neighbour list, which has no faces: the walk ends)
+            cand = np.where((c >= 0)[:, None], faces_of_cell[np.maximum(c, 0)], -1)
+            valid = (cand >= 0) & (cand != f[:, None])
+            row, slot = np.nonzero(valid)
+            g_pts = mesh.faces[cand[row, slot]]
+            f_pts = mesh.faces[f]
+            fr, fc = np.nonzero(f_pts >= 0)
+            f_keys = fr * n_points + f_pts[fr, fc]
+            gr, gc = np.nonzero(g_pts >= 0)
+            shared = np.zeros(len(row), dtype=bool)
+            shared[gr[np.isin(row[gr] * n_points + g_pts[gr, gc], f_keys)]] = True
+            tops = valid.copy()
+            tops[row[shared], slot[shared]] = False
+            has = tops.any(axis=1)
+            # the top is the candidate most parallel to the wall (a split side face can also qualify)
+            cos = np.full(cand.shape, -np.inf)
+            tr, ts = np.nonzero(tops)
+            g_all = cand[tr, ts]
+            cos[tr, ts] = np.abs(_dot3(vec[g_all], normal[k[tr]])) / np.maximum(area[g_all], 1e-300)
+            pick = np.argmax(cos, axis=1)
+            g = cand[np.arange(len(k)), pick]
+            best = cos[np.arange(len(k)), pick]
+            go = has & ~(best < MIN_TOP_COS) & ~(n_distinct[np.where(has, g, 0)] < size0[k])
+            k, f, c, g = k[go], f[go], c[go], g[go]
+            h = np.abs(_dot3(centre[g] - centre[f], normal[k]))
+            if n == 0:
+                first_cell[k] = h  # a prism on the wall face: its height, a layer or not
+            thin = ~(h > max_aspect * np.sqrt(area[f]))
+            if n > 0:
+                thin &= ~(h > max_growth * last[k])
+            k, f, c, g, h = k[thin], f[thin], c[thin], g[thin], h[thin]
+            last[k] = h
+            n += 1
+            layers[k] = n
+            thick[k] += h
+            if n == 1:
+                first_h[k] = h
+            inside = g < n_internal
+            k, c, g = k[inside], c[inside], g[inside]
+            c = np.where(owner[g] == c, neighbour[np.minimum(g, n_internal - 1)], owner[g])
+            f = g
+        for j in np.flatnonzero(first_cell == 0.0):  # not a prism on the wall face (a snapped polyhedron): twice the centre distance
+            c0 = int(mesh.owner[start + j])
+            own = cell_faces[first[c0]:first[c0 + 1]]
+            cc = (centre[own] * area[own, None]).sum(axis=0) / max(float(area[own].sum()), 1e-300)
+            first_cell[j] = 2.0 * abs(float(np.dot(cc - centre[start + j], normal[j])))
         out[name] = {"layers": layers, "thickness": thick, "first": first_h, "first_cell": first_cell,
                      "area": area[start:start + count].copy(), "centre": centre[start:start + count].copy()}
     return out

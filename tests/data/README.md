@@ -77,3 +77,10 @@ Real output (ESI OpenFOAM v2606) of the slow test `test_asymptotic_cd_criterion_
 ## `parallel/log.decomposePar`
 Real `decomposePar -force` log (ESI OpenFOAM v2606) of the shared coarse sphere mesh (192220 cells) with the app's solver files and `system/decomposeParDict` (numberOfSubdomains 4, method scotch), written while checking the clean stop in parallel (D-063): cells per processor 47575, 47582, 48530 and 48533, 6396 processor faces in total, "Max number of cells = 48533 (0.994694% above average 48055)". Only the Host, PID and Case lines were sanitized.
 
+
+## `snappyHexMesh_sphere_parallel.log`
+Real `mpirun -np 4 snappyHexMesh -overwrite -parallel` log (ESI OpenFOAM v2606, D-111): the benchmark sphere
+(`python -m vortexcfd.bench --cases sphere --no-solve --mesh-cores 4`, task 5.x-parallel-mesh, default y+
+layers), the master rank's output. It has the parallel header (`nProcs : 4`, Hosts, Pstream), the
+balancing lines and the final layer table (`sphere 10636 6 6 0.0179 100`); 233569 cells. The `Case`,
+`Host`, `PID` and host-list lines were sanitized.

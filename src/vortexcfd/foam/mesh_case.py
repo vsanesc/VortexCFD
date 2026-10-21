@@ -17,6 +17,7 @@ from vortexcfd.core.model import BoxShape, ConeShape, CylinderShape, Mesh, Spher
 from vortexcfd.foam.case_writer import FoamFileSpec
 from vortexcfd.foam.dictfile import write_foam_file
 from vortexcfd.foam.mesh_estimate import CELLS_BETWEEN_LEVELS, estimate_mesh
+from vortexcfd.foam.parallel import DECOMPOSE_COMMAND, parallel_command
 
 Bounds = tuple[float, float, float, float, float, float]  # xmin, xmax, ymin, ymax, zmin, zmax
 
@@ -762,6 +763,34 @@ MESH_COMMANDS: tuple[tuple[str, list[str]], ...] = (
 )
 
 
+# Parallel meshing (D-111) [NUMERICS-REVIEW]: blockMesh and surfaceFeatureExtract stay serial, decomposePar
+# splits the background mesh once (system/decomposeParDict, scotch: written by MeshRun), every
+# snappyHexMesh pass runs on the decomposed case through mpirun with -parallel (snappyHexMesh rebalances
+# with the same method, its own maxLoadUnbalance), and reconstructParMesh -constant (with -overwrite the
+# passes write the mesh to processor*/constant, as in the v2606 motorBike tutorial) merges it once into
+# constant/polyMesh; createPatch and checkMesh then run on that serial mesh.
+DECOMPOSE_STEP = "decomposePar"
+RECONSTRUCT_STEP = "reconstructParMesh"
+SNAPPY_STEPS = ("snappyHexMesh.castellate", "snappyHexMesh")
+
+
+def mesh_commands(cores: int = 1) -> tuple[tuple[str, list[str]], ...]:
+    """The meshing steps on ``cores`` ranks: MESH_COMMANDS unchanged for 1 (serial)."""
+    if cores <= 1:
+        return MESH_COMMANDS
+    steps: list[tuple[str, list[str]]] = []
+    for name, command in MESH_COMMANDS:
+        if name in SNAPPY_STEPS:
+            if not any(step == DECOMPOSE_STEP for step, _ in steps):
+                steps.append((DECOMPOSE_STEP, list(DECOMPOSE_COMMAND)))
+            steps.append((name, parallel_command(command, cores)))
+            if name == "snappyHexMesh":
+                steps.append((RECONSTRUCT_STEP, ["reconstructParMesh", "-constant"]))
+        else:
+            steps.append((name, command))
+    return tuple(steps)
+
+
 # Generated dictionaries that only some set-ups have (a run skips a step whose dictionary is missing).
 OPTIONAL_DICTS = ("system/surfaceFeatureExtractDict", "system/createPatchDict", CASTELLATE_DICT)
 # The step that runs only when its dictionary was written.
@@ -773,7 +802,8 @@ def prepare_case_dir(case_dir: Path, files: dict[str, FoamFileSpec]) -> None:
     """Create or refresh the meshing case directory.
 
     A new or empty directory gets the marker file. An existing non-empty directory must carry
-    the marker (it is ours); then only ``constant/polyMesh`` is removed and the generated
+    the marker (it is ours); then only ``constant/polyMesh`` and the mesh record (it described that
+    mesh: a stopped or failed run leaves the mesh not generated, D-111) are removed and the generated
     dictionaries are overwritten. Nothing else is ever deleted.
 
     Raises:
@@ -791,6 +821,7 @@ def prepare_case_dir(case_dir: Path, files: dict[str, FoamFileSpec]) -> None:
     poly_mesh = case_dir / "constant" / "polyMesh"
     if poly_mesh.is_dir():
         shutil.rmtree(poly_mesh)
+    (case_dir / MESH_RECORD_FILE).unlink(missing_ok=True)
     (case_dir / TRI_SURFACE).mkdir(parents=True, exist_ok=True)
     for rel in OPTIONAL_DICTS:  # a dictionary of an earlier set-up that this one does not use
         if rel not in files:
@@ -802,6 +833,7 @@ def prepare_case_dir(case_dir: Path, files: dict[str, FoamFileSpec]) -> None:
 
 
 RUN_RECORD_FILE = "vortexcfd_run.json"  # foam/run_record.RUN_RECORD_NAME (kept in sync by a test)
+MESH_RECORD_FILE = "vortexcfd_mesh.json"  # foam/mesh_record.RECORD_NAME (kept in sync by a test)
 
 
 def _is_result_time(name: str) -> bool:

@@ -83,6 +83,29 @@ def test_crashed_when_the_runner_cannot_start(tmp_path: Path) -> None:
     assert result.state == CRASHED and "stopAtWriteNowSignal" in result.crash and result.exit_code is None
 
 
+@pytest.mark.parametrize("error", [KeyError("unexpected"), TypeError("bad value")])
+def test_any_exception_in_the_run_is_reported_as_a_crash(tmp_path: Path, error: Exception) -> None:
+    """R-02: an exception that is not an I/O or value error still ends the run with on_done."""
+    class Broken(FakeRunner):
+        def start(self, *a, **k):
+            raise error
+
+    result, _, _ = _run(tmp_path, Broken([]))
+    assert result.state == CRASHED and str(error.args[0]) in result.crash and result.exit_code is None
+
+
+def test_an_exception_after_the_solver_ended_is_reported_as_a_crash(tmp_path: Path, monkeypatch) -> None:
+    """R-02: a failure while classifying the end state (after the process) still calls on_done."""
+    from vortexcfd.foam import solver_run
+
+    def broken(*a, **k):
+        raise RuntimeError("classify failed")
+
+    monkeypatch.setattr(solver_run, "classify", broken)
+    result, _, _ = _run(tmp_path, FakeRunner(iteration(1) + ["End\n"]))
+    assert result.state == CRASHED and "RuntimeError: classify failed" in result.crash
+
+
 def test_classify_priorities() -> None:
     crash = parse_log_text("".join(iteration(1) + CRASH_BLOCK))
     assert classify(-8, True, crash) == CRASHED  # a crash block wins over a stop

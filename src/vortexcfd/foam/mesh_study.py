@@ -27,6 +27,7 @@ import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from vortexcfd.core.atomic_io import write_text_atomic
 from vortexcfd.core.model import Mesh
 from vortexcfd.foam import gci
 from vortexcfd.foam.yplus import layer_cap, plan_layers
@@ -151,12 +152,13 @@ class StudyRecord:
     levels: list[LevelResult]
     status: str = "not run"  # not run, running, finished, stopped, failed
     inputs_hash: str = ""
+    mesh_cores: int = 1  # snappyHexMesh ranks of every level (D-111; records before it: 1)
 
 
 def write_record(study_dir: Path, record: StudyRecord) -> None:
     Path(study_dir).mkdir(parents=True, exist_ok=True)
     data = asdict(record)
-    (Path(study_dir) / STUDY_JSON).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    write_text_atomic(Path(study_dir) / STUDY_JSON, json.dumps(data, indent=2) + "\n")
 
 
 def read_record(study_dir: Path) -> StudyRecord | None:
@@ -251,7 +253,9 @@ class StudyRun:
     """Meshes and solves the levels of ``record`` in order on a worker thread (no Qt).
 
     Every level directory must already hold its meshing case (dictionaries and surfaces, written by
-    the caller). Per level: MeshRun (blockMesh, surfaceFeatureExtract, snappyHexMesh, checkMesh), then
+    the caller). Per level: MeshRun (blockMesh, surfaceFeatureExtract, snappyHexMesh, checkMesh; on
+    ``record.mesh_cores`` ranks, decomposed and reconstructed within the level, its processor*/ removed
+    by MeshRun after the level, a stop or a failure, D-111), then
     ``write_solver(level_dir)`` writes the solver files, then SolverRun with the run's stopping
     criteria and cores, then the final values of the study quantities. The record is written to
     study.json after every step. ``on_line`` / ``on_level`` / ``on_done`` are called from worker
@@ -328,16 +332,16 @@ class StudyRun:
         from vortexcfd.foam.solver_run import CRITERIA_MET, state_label
 
         self.record.status = "running"
-        self._save()
         failed = False
         try:
+            self._save()
             for level in self.record.levels:
                 if self._stopped():
                     break
                 case = level_dir(self.study_dir, level.index)
                 self._say(f"Mesh study: meshing level {level.index + 1} ({level.name}) in {case}")
                 mesh_run = self._mesh_factory(case, on_line=self._on_line, step_timeout_s=self._mesh_timeout,
-                                              parts=self._parts)
+                                              parts=self._parts, cores=self.record.mesh_cores)
                 mesh_run.start()
                 self._attach(mesh_run)
                 mesh = mesh_run.wait()
@@ -393,7 +397,10 @@ class StudyRun:
             self._say(f"Mesh study failed: {exc}")
             failed = True
         self.record.status = "stopped" if self._stopped() else ("failed" if failed else "finished")
-        self._save()
+        try:
+            self._save()
+        except Exception as exc:  # noqa: BLE001 - the end is still reported (R-02)
+            self._say(f"Mesh study: could not save the record: {exc}")
         self._say(f"Mesh study {self.record.status}")
         if self._on_done is not None:
             self._on_done(self.record)

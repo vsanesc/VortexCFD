@@ -102,6 +102,25 @@ def _sweep(tmp_path: Path, alphas, states, init=True, hold=None):
     return run, calls
 
 
+def test_a_record_that_cannot_be_written_still_ends_the_sweep(tmp_path: Path, monkeypatch) -> None:
+    """R-02: on_done is called even when sweep.json cannot be written."""
+    from vortexcfd.foam import polar_sweep
+
+    def broken(*a, **k):
+        raise OSError(28, "No space left on device")
+
+    (tmp_path / "mesh" / "polyMesh").mkdir(parents=True)
+    FakeSolver.states, FakeSolver.alphas, FakeSolver.created, FakeSolver.hold_index = [CRITERIA_MET], [0.0], [], None
+    monkeypatch.setattr(polar_sweep, "write_record", broken)
+    done, said = [], []
+    run = SweepRun(tmp_path, new_record([0.0], 1, True), _writer([]), solver_run_factory=FakeSolver,
+                   on_done=done.append, on_line=said.append)
+    run.start()
+    out = run.wait(10)
+    assert done == [out] and out.status == "failed" and FakeSolver.created == []
+    assert any("No space left on device" in line for line in said)
+
+
 def test_points_run_in_order_and_flagged_points_are_kept(tmp_path: Path) -> None:
     run, calls = _sweep(tmp_path, [0.0, 5.0, 10.0], [CRITERIA_MET, ITERATION_LIMIT, CRASHED])
     run.start()

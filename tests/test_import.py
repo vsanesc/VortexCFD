@@ -171,7 +171,7 @@ def test_missing_file_warns_without_crashing(make_window, tmp_path: Path) -> Non
 
 def test_placeholder_part_without_file_is_not_a_warning(make_window) -> None:
     w = make_window()
-    w.act_add_part.trigger()
+    w.add_placeholder_part()
     assert w._items[("part", 0)].toolTip(0) == ""
     assert not w.properties._rows["status"].isVisible()
 

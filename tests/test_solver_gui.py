@@ -182,6 +182,26 @@ def test_stop_button_stops_the_run(make_window, qtbot: QtBot) -> None:
     assert "Stopped after 2 iterations" in w.statusBar().currentMessage()
 
 
+def test_a_run_ending_after_a_project_switch_stays_in_its_own_case(make_window, qtbot: QtBot) -> None:
+    """R-01: the run record goes to the case the run started in; the open project is untouched."""
+    w = make_window()
+    case_a = w.project.path.parent / "case"
+    other = make_window()
+    case_b = other.project.path.parent / "case"
+    (case_b / "100").mkdir()
+    runner = use_runner(w, FakeRunner(iteration(1), hold=True, stop_lines=iteration(2) + ["End\n"]))
+    w.run_solver()
+    qtbot.waitUntil(lambda: "Time = 1" in w.console.text(), timeout=5000)
+    w.set_project(Project.open(other.project.path))
+    qtbot.waitUntil(lambda: not w.solver_worker.is_running() and read_run_record(case_a) is not None, timeout=10000)
+    qtbot.waitUntil(lambda: w.top_bar.state_badge.text() != "Solving", timeout=5000)
+    assert runner.stop_requested
+    assert read_run_record(case_a).state == "stopped" and read_run_record(case_a).iterations == 2
+    assert read_run_record(case_b) is None and (case_b / "100").is_dir()
+    assert w.run_record is None and w.top_bar.run_button.text() == "Run Solver"
+    assert "after the project changed" in w.console.text()
+
+
 def test_iteration_limit_end_state(make_window, qtbot: QtBot) -> None:
     w = make_window()
     use_runner(w, FakeRunner(iteration(1) + iteration(2) + ["End\n"]))

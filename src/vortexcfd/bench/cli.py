@@ -41,13 +41,14 @@ def git_sha(root: Path) -> str:
         return "nogit"
 
 
-def _worker(name: str, out_file: Path, root: Path, solve: bool, mesher: str = "snappy") -> int:
+def _worker(name: str, out_file: Path, root: Path, solve: bool, mesher: str = "snappy", mesh_cores: int = 1) -> int:
     from vortexcfd.bench.runner import run_case
 
     case = CASES.get(name) or load_local_cases(root)[0][name]
     work = local_work_root() if case.local else root / "run" / "bench"
     try:
-        result = run_case(case, work, root / "benchmarks" / "geometries", solve=solve, mesher=mesher)
+        result = run_case(case, work, root / "benchmarks" / "geometries", solve=solve, mesher=mesher,
+                          mesh_cores=mesh_cores)
     except Exception as exc:  # a crash is a benchmark result, not a reason to lose the others
         result = {"case": name if mesher == "snappy" else f"{name}_{mesher}", "mesher": mesher,
                   "description": case.description, "failed": True,
@@ -58,13 +59,14 @@ def _worker(name: str, out_file: Path, root: Path, solve: bool, mesher: str = "s
     return 0
 
 
-def run_cases(names: list[str], root: Path, solve: bool, mesher: str = "snappy") -> list[dict]:
+def run_cases(names: list[str], root: Path, solve: bool, mesher: str = "snappy", mesh_cores: int = 1) -> list[dict]:
     results = []
     with tempfile.TemporaryDirectory() as tmp:
         for name in names:
             out = Path(tmp) / f"{name}.json"
             code = subprocess.run([sys.executable, "-m", "vortexcfd.bench", "--worker", name, "--worker-out", str(out)]
-                                  + ([] if solve else ["--no-solve"]) + ["--mesher", mesher], cwd=root).returncode
+                                  + ([] if solve else ["--no-solve"]) + ["--mesher", mesher]
+                                  + ["--mesh-cores", str(mesh_cores)], cwd=root).returncode
             if out.is_file():
                 results.append(json.loads(out.read_text(encoding="utf-8")))
             else:
@@ -99,12 +101,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mesher", choices=("snappy", "cfmesh"), default="snappy",
                         help="evaluation only (phase 5.3, D-102): mesh with cfMesh's cartesianMesh instead of "
                              "snappyHexMesh; the app always uses snappyHexMesh")
+    parser.add_argument("--mesh-cores", type=int, default=1,
+                        help="snappyHexMesh ranks (D-111; default 1: serial, comparable with the baseline)")
     parser.add_argument("--worker", help=argparse.SUPPRESS)
     parser.add_argument("--worker-out", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     root = repo_root()
     if args.worker:
-        return _worker(args.worker, args.worker_out, root, not args.no_solve, args.mesher)
+        return _worker(args.worker, args.worker_out, root, not args.no_solve, args.mesher, args.mesh_cores)
     if args.generate:
         from vortexcfd.bench.geometries import GEOMETRIES, ensure_geometry
 
@@ -136,11 +140,14 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         now = datetime.now(timezone.utc)
         start = time.monotonic()
-        cases = run_cases(names, root, not args.no_solve, args.mesher)
+        if not 1 <= args.mesh_cores <= physical_cores():
+            print(f"--mesh-cores must be between 1 and the {physical_cores()} physical cores")
+            return 2
+        cases = run_cases(names, root, not args.no_solve, args.mesher, args.mesh_cores)
         new = {"meta": {"stamp": now.strftime("%Y%m%dT%H%M%SZ"), "utc": now.strftime("%Y-%m-%d %H:%M:%S"),
                         "git_sha": git_sha(root), "cases": names, "solve": not args.no_solve,
                         "physical_cores": physical_cores(), "wall_s": time.monotonic() - start,
-                        "local": bool(args.local), "mesher": args.mesher},
+                        "local": bool(args.local), "mesher": args.mesher, "mesh_cores": args.mesh_cores},
                "cases": cases}
         # Local results never go next to the public ones (D-094): benchmarks/results/local/, git-ignored.
         folder = args.out or root / "benchmarks" / "results" / ("local" if args.local else "")

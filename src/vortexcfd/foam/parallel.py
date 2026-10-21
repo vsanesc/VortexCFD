@@ -51,12 +51,18 @@ BINDINGS = {
 DEFAULT_BINDING = "default"
 
 
+def parallel_command(command: list[str], cores: int, binding: str = DEFAULT_BINDING) -> list[str]:
+    """``command`` (an OpenFOAM application and its arguments) as it is: serial, or through mpirun on
+    ``cores`` ranks with ``binding`` (a key of BINDINGS) and ``-parallel``."""
+    if cores <= 1:
+        return list(command)
+    return ["mpirun", "-np", str(cores), *BINDINGS[binding], *command, "-parallel"]
+
+
 def solver_command(solver: str, cores: int, binding: str = DEFAULT_BINDING) -> list[str]:
     """The solver command line: serial, or through mpirun on ``cores`` ranks with ``binding``
     (a key of BINDINGS)."""
-    if cores <= 1:
-        return [solver]
-    return ["mpirun", "-np", str(cores), *BINDINGS[binding], solver, "-parallel"]
+    return parallel_command([solver], cores, binding)
 
 
 # Recommended core count (D-064, docs/validation/parallel/README.md): at least CELLS_PER_CORE cells
@@ -71,6 +77,20 @@ def recommended_cores(cells: int, physical: int, cells_per_core: int = CELLS_PER
                       efficient: int = EFFICIENT_CORES) -> int:
     """min(physical cores, cells / cells_per_core rounded down, ``efficient``), at least 1 (D-064)."""
     return max(1, min(physical, int(cells) // cells_per_core, efficient))
+
+
+# Recommended meshing cores (D-111, benchmarks/RESULT_parallel_mesh.md): from the estimated background
+# cells (the only cell count known before meshing, foam/mesh_estimate), at least MESH_CELLS_PER_CORE
+# background cells per rank and no more than MESH_EFFICIENT_CORES ranks. Measured on the development
+# machine with 100,000 background cells: 8 ranks mesh 1.85-2.13 times faster than serial on the public
+# cases and 4.13 times on the aircraft, still faster than 4 ranks everywhere; above 8 was not measured.
+MESH_CELLS_PER_CORE = 12_500
+MESH_EFFICIENT_CORES = 8
+
+
+def recommended_mesh_cores(background_cells: int, physical: int) -> int:
+    """The meshing recommendation: recommended_cores with the meshing constants (D-111)."""
+    return recommended_cores(background_cells, physical, MESH_CELLS_PER_CORE, MESH_EFFICIENT_CORES)
 
 
 DECOMPOSE_COMMAND = ["decomposePar", "-force"]

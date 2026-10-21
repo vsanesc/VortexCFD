@@ -1,12 +1,11 @@
 """Simulation project persistence and validation."""
 
 import json
-import os
 from pathlib import Path
-import tempfile
 from typing import Any
 from pydantic import ValidationError
 
+from vortexcfd.core.atomic_io import write_text_atomic
 from vortexcfd.core.model import CURRENT_SCHEMA_VERSION, Simulation
 
 
@@ -51,7 +50,7 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
     before; D-093); v11 -> v12 adds the user refinement volumes (none; D-103); v12 -> v13 keeps the
     layer controls of the project (V13_MESH_FIELDS: "legacy", no layer cap; D-106); v13 -> v14 keeps
     the project's first-layer convention (V14_MESH_FIELDS: the target y+ distance as the first-layer
-    height; D-107).
+    height; D-107); v14 -> v15 adds the meshing cores (unset: automatic, D-111).
     Data already at the current version (or not a dict /
     without a version) is returned unchanged.
     """
@@ -114,6 +113,8 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
             mesh.setdefault(key, value)  # the first-layer convention the project had (D-107)
         data["mesh"] = mesh
         data["schema_version"] = 14
+    if data.get("schema_version") == 14:
+        data["schema_version"] = 15  # Mesh.cores defaults to None: automatic meshing cores (D-111)
     return data
 
 
@@ -126,24 +127,7 @@ def save_simulation(sim: Simulation, path: Path) -> None:
     """
     file_path = Path(path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    json_text = sim.model_dump_json(indent=2)
-
-    tmp_file = tempfile.NamedTemporaryFile(
-        mode="w",
-        dir=file_path.parent,
-        prefix=f".{file_path.name}.",
-        suffix=".tmp",
-        encoding="utf-8",
-        delete=False,
-    )
-    try:
-        with tmp_file:
-            tmp_file.write(json_text + "\n")
-        os.replace(tmp_file.name, file_path)
-    except BaseException:
-        if os.path.exists(tmp_file.name):
-            os.remove(tmp_file.name)
-        raise
+    write_text_atomic(file_path, sim.model_dump_json(indent=2) + "\n")
 
 
 def load_simulation(path: Path) -> Simulation:

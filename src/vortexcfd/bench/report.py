@@ -267,6 +267,9 @@ def markdown_report(result: dict) -> str:
                    f"case total {_fmt(t.get('case_total'), '.1f')}")
         out.append(f"- peak memory of a child process: mesh {_fmt(case.get('mesh_peak_mb'), '.0f')} MiB, "
                    f"with the solver {_fmt(case.get('solve_peak_mb'), '.0f')} MiB")
+        if case.get("mesh_peak_total_mb") is not None:  # D-111
+            out.append(f"- meshing on {case.get('mesh_cores', 1)} core(s): peak memory of all processes together "
+                       f"{_fmt(case.get('mesh_peak_total_mb'), '.0f')} MiB")
         y = case.get("yplus") or {}
         if y:
             out.append(f"- y+ ({y.get('label')}, {y.get('iterations')} iterations on {y.get('cores')} cores, "

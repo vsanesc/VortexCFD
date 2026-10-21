@@ -43,7 +43,7 @@ def test_title_follows_dirty(make_window, tmp_path: Path) -> None:
     window.save()
     assert window.windowTitle() == "Demo[*] - demo.vcfd - VortexCFD"
     assert not window.isWindowModified()
-    window.act_add_part.trigger()
+    window.add_placeholder_part()
     assert window.isWindowModified()
     window.project.undo()
     assert not window.isWindowModified()
@@ -52,12 +52,12 @@ def test_title_follows_dirty(make_window, tmp_path: Path) -> None:
 
 def test_tree_updates_after_add_part(make_window) -> None:
     window, _ = make_window()
-    window.act_add_part.trigger()
-    window.act_add_part.trigger()
+    window.add_placeholder_part()
+    window.add_placeholder_part()
     assert [i.text(0) for i in _part_items(window)] == ["Part 1", "Part 2"]
     assert window.node_badge.text() == f"{window.node_count()} Nodes"
     window.project.remove_part(0)
-    window.act_add_part.trigger()
+    window.add_placeholder_part()
     assert [i.text(0) for i in _part_items(window)] == ["Part 2", "Part 1"]
     assert not window.project.observer_errors
 
@@ -104,7 +104,7 @@ def test_undo_redo_actions_follow_labels(make_window) -> None:
     window, _ = make_window()
     assert not window.act_undo.isEnabled() and not window.act_redo.isEnabled()
     assert window.act_undo.text() == "Undo"
-    window.act_add_part.trigger()
+    window.add_placeholder_part()
     assert window.act_undo.isEnabled()
     assert window.act_undo.text() == "Undo Add part 'Part 1'"
     window.act_undo.trigger()
@@ -118,7 +118,7 @@ def test_undo_redo_actions_follow_labels(make_window) -> None:
 def test_remove_part_and_selection_fallback(make_window) -> None:
     window, _ = make_window()
     assert not window.act_remove_part.isEnabled()
-    window.act_add_part.trigger()
+    window.add_placeholder_part()
     _select_part(window, 0)
     window.act_remove_part.trigger()
     assert _part_items(window) == []
@@ -228,8 +228,8 @@ def test_new_project_asks_when_dirty(make_window, tmp_path: Path) -> None:
 
 def test_add_part_selects_new_part(make_window) -> None:
     window, _ = make_window()
-    window.act_add_part.trigger()
-    window.act_add_part.trigger()
+    window.add_placeholder_part()
+    window.add_placeholder_part()
     assert window.tree.currentItem().text(0) == "Part 2"
     assert window.properties.name_edit.text() == "Part 2"
     assert not window.project.observer_errors
@@ -237,7 +237,7 @@ def test_add_part_selects_new_part(make_window) -> None:
 
 def test_delete_key_only_applies_with_tree_focus(make_window, qtbot: QtBot) -> None:
     window, _ = make_window()
-    window.act_add_part.trigger()
+    window.add_placeholder_part()
     _select_part(window, 0)
     edit = window.properties.name_edit
     focus_widget(qtbot, window, edit)
@@ -260,8 +260,8 @@ def test_pending_edit_commits_when_selection_changes(
     make_window, qtbot: QtBot, use_click: bool
 ) -> None:
     window, _ = make_window()
-    window.act_add_part.trigger()
-    window.act_add_part.trigger()
+    window.add_placeholder_part()
+    window.add_placeholder_part()
     _select_part(window, 0)
     edit = window.properties.name_edit
     focus_widget(qtbot, window, edit)
@@ -336,3 +336,17 @@ def test_save_shortcut_key_event(make_window, qtbot: QtBot, tmp_path: Path) -> N
     _type_name(window, "Keyed", qtbot)
     qtbot.keyClick(window.properties.name_edit, Qt.Key.Key_S, Qt.KeyboardModifier.ControlModifier)
     assert target.exists() and Project.open(target).sim.name == "Keyed"
+
+
+def test_the_placeholder_add_part_item_is_disabled_with_a_tooltip(make_window) -> None:
+    """R-18: an empty part is not built; the Edit menu item says so and does nothing."""
+    from vortexcfd.gui.main_window import ADD_PART_NOT_BUILT
+
+    window, _ = make_window()
+    act = window.act_add_part
+    assert act in window.edit_menu.actions() and window.edit_menu.toolTipsVisible()
+    assert not act.isEnabled() and act.toolTip() == ADD_PART_NOT_BUILT and "Not built yet" in act.toolTip()
+    act.trigger()
+    assert window.project.sim.geometry.parts == []
+    window._update_actions()
+    assert not act.isEnabled()

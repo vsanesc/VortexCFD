@@ -12,6 +12,7 @@ from pytestqt.qtbot import QtBot
 from tests.fakes import FakeDialogs
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
+from vortexcfd.foam.mesh_record import read_mesh_record
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.foam.mesh_run import MeshRunResult
 from vortexcfd.geometry.loader import clear_cache
@@ -28,8 +29,8 @@ def _fresh_cache():
 def make_window(qtbot: QtBot, tmp_path: Path):
     made: list[MainWindow] = []
 
-    def make(with_part=True, save=True, with_viewer=False, domain_enabled=True) -> MainWindow:
-        folder = tmp_path / "proj"
+    def make(with_part=True, save=True, with_viewer=False, domain_enabled=True, folder_name="proj") -> MainWindow:
+        folder = tmp_path / folder_name
         (folder / "geometry").mkdir(parents=True, exist_ok=True)
         project = Project.new("m")
         if with_part:
@@ -65,6 +66,7 @@ class FakeRun:
 
     def __init__(self, case_dir, *, on_line=None, on_step=None, on_done=None, **kwargs) -> None:
         self.case_dir, self.on_line, self.on_step, self.on_done = case_dir, on_line, on_step, on_done
+        self.kwargs = kwargs
         self.started = False
         self.stop_requested = False
         self.alive = False
@@ -221,6 +223,34 @@ def test_report_shown_on_the_mesh_node_and_telemetry(make_window, fake_run) -> N
     assert v["non_ortho"].startswith("30.5") and v["skewness"] == "0.5"
     assert dict(w.telemetry_rows)["Cells"] == "1234"
     assert "1234 cells" in w.console.text() and "Mesh OK" in w.console.text()
+
+
+def test_a_mesh_ending_after_a_project_switch_stays_in_its_own_case(make_window, fake_run) -> None:
+    """R-01: the record goes to the case the run started in; the open project's results are kept."""
+    other = make_window(folder_name="other")
+    other.top_bar.mesh_button.click()
+    fake_run.instances[-1].finish(MeshRunResult(True, False, exit_codes={}, report=_ready_report()))
+    case_b = other.project.path.parent / "case"
+    record_b = read_mesh_record(case_b)
+    (case_b / "100").mkdir()
+    (case_b / "postProcessing").mkdir()
+    w = make_window()
+    case_a = w.project.path.parent / "case"
+    w.top_bar.mesh_button.click()
+    run = fake_run.instances[-1]
+    (case_a / "100").mkdir()  # results of an earlier mesh of A: out of date once A's mesh is new
+    w.set_project(Project.open(other.project.path))
+    assert run.stop_requested
+    a_report = MeshReport(points=10, faces=40, cells=777, max_non_orthogonality=30.5,
+                          avg_non_orthogonality=10.0, max_skewness=0.5, failed_checks=0, mesh_ok=True)
+    run.finish(MeshRunResult(True, False, exit_codes={}, report=a_report))  # it ended before the stop arrived
+    assert read_mesh_record(case_a).report.cells == 777 and read_mesh_record(case_a).patches == ("Ball",)
+    assert not (case_a / "100").exists()
+    assert read_mesh_record(case_b) == record_b
+    assert (case_b / "100").is_dir() and (case_b / "postProcessing").is_dir()
+    assert w.mesh_report == record_b.report  # B's mesh is still the one shown
+    assert w.top_bar.state_badge.text() != "Meshing" and w.top_bar.mesh_button.text() == "Generate Mesh"
+    assert "after the project changed" in w.console.text()
 
 
 def test_failed_checks_are_warned(make_window, fake_run) -> None:
@@ -473,7 +503,7 @@ def test_every_meshing_input_makes_the_mesh_stale(make_window, fake_run, change)
         w.project.update_part(0, name="Ball")  # no-op edit; force a refresh below
         w._refresh()
     else:
-        w.act_add_part.trigger()
+        w.add_placeholder_part()
     assert w.mesh_stale
 
 
@@ -549,3 +579,75 @@ def test_mesh_properties_state_the_surface_length_and_warn_when_l_ref_is_auto(ma
     assert p.mesh_surface_length.text().startswith("L = ") and p.mesh_curvature.text() == "off"
     assert p.mesh_fields["curvature_levels"].specialValueText() == "off"
     assert p.mesh_fields["surface_size_reference"].currentText() == "largest_extent"
+
+
+# -- parallel meshing (D-111) ----------------------------------------------------------------------
+
+
+def test_the_mesh_cores_reach_the_run_and_the_record(make_window, fake_run, monkeypatch) -> None:
+    from vortexcfd.foam.mesh_record import read_mesh_record
+    from vortexcfd.workflow import meshing
+
+    monkeypatch.setattr(meshing, "physical_cores", lambda: 12)
+    w = make_window(with_viewer=False)
+    w.project.update_mesh(cores=3)
+    w.top_bar.mesh_button.click()
+    run = fake_run.instances[-1]
+    assert run.kwargs["cores"] == 3
+    run.finish(MeshRunResult(True, False, exit_codes={}, report=_ready_report(), cores=3))
+    assert read_mesh_record(w.project.path.parent / "case").cores == 3
+
+
+def test_an_exception_in_the_meshing_thread_resets_the_state_badge(make_window, qtbot, monkeypatch) -> None:
+    """R-02: the real MeshRun with a step that cannot start: the badge leaves "Meshing" and the
+    console shows the error."""
+    from vortexcfd.foam import mesh_run
+
+    class Unstartable:
+        def start(self, *a, **k):
+            raise OSError(28, "No space left on device")
+
+        def request_stop(self, *a, **k):
+            return False
+
+    monkeypatch.setattr(mesh_run, "FoamRun", Unstartable)
+    w = make_window()
+    w.top_bar.mesh_button.click()
+    qtbot.waitUntil(lambda: not w.mesh_worker.is_running() and w.top_bar.state_badge.text() != "Meshing",
+                    timeout=10000)
+    assert w.top_bar.state_badge.text() in ("Saved", "Modified")
+    assert w.top_bar.mesh_button.text() == "Generate Mesh" and w.mesh_report is None
+    assert "Meshing failed in blockMesh" in w.statusBar().currentMessage()
+    assert "blockMesh failed: OSError: [Errno 28] No space left on device" in w.console.text()
+
+
+def test_a_failed_parallel_step_reports_its_log(make_window, fake_run) -> None:
+    w = make_window()
+    w.top_bar.mesh_button.click()
+    error = "reconstructParMesh failed (exit code 1): see /x/logs/log.reconstructParMesh"
+    fake_run.instances[-1].finish(MeshRunResult(False, False, "reconstructParMesh", {"reconstructParMesh": 1},
+                                                cores=4, error=error))
+    assert "Meshing failed in reconstructParMesh" in w.statusBar().currentMessage()
+    assert error in w.console.text() and w.mesh_report is None
+
+
+def test_the_mesh_cores_field_shows_auto_and_the_cores_used(make_window) -> None:
+    from vortexcfd.gui import properties_panel
+
+    if properties_panel.PHYSICAL_CORES < 2:
+        pytest.skip("needs two physical cores")
+    w = make_window(with_viewer=False)
+    _mesh_node(w)
+    p = w.properties
+    spin = p.mesh_fields["cores"]
+    assert spin.value() == 0 and spin.specialValueText() == "auto" and spin.maximum() == properties_panel.PHYSICAL_CORES
+    assert "Meshing scales better than the solver; it can use more cores" in spin.toolTip()
+    assert p._rows["mset_cores_used"].isVisible() and w.project.sim.solvers.cores == 1
+    used = p.mesh_cores_used.text()  # the recommendation, whatever the Solvers cores (owner review of D-111)
+    assert used.startswith(f"{used.split(' ')[0]} (automatic; recommended {used.split(' ')[0]} for ")
+    spin.setValue(2)
+    spin.editingFinished.emit()
+    assert w.project.sim.mesh.cores == 2 and p.mesh_cores_used.text().startswith("2 (set; recommended ")
+    spin.setValue(0)
+    spin.editingFinished.emit()
+    assert w.project.sim.mesh.cores is None  # back to automatic

@@ -44,6 +44,7 @@ from vortexcfd.workflow.meshing import (
     case_dir_for,
     domain_fields,
     estimate_for,
+    mesh_cores,
     readiness,
     surface_length,
     write_domain_surface,
@@ -190,8 +191,9 @@ def prepare_study(project: Project) -> tuple[Path, StudyRecord, MeshCaseInput]:
         write_domain_guard(case, inputs)
         write_seed_edge_meshes(case, inputs)
         levels.append(LevelResult(lp.level.index, lp.level.name, lp.level.factor, estimated_cells=lp.estimated_cells))
+    # every level meshes on the project's meshing cores (Mesh.cores, else automatic), one level at a time (D-111)
     record = StudyRecord(settings.ratio, settings.current_as, list(settings.quantities), settings.cores,
-                         plan.domain_volume, levels)
+                         plan.domain_volume, levels, mesh_cores=mesh_cores(project, box).used)
     return study, record, inputs
 
 

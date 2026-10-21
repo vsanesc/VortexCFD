@@ -14,6 +14,7 @@ import numpy as np
 from vortexcfd.core.project import Project
 from vortexcfd.core.project_io import V10_MESH_FIELDS, V13_MESH_FIELDS, V14_MESH_FIELDS
 from vortexcfd.foam.mesh_estimate import estimate_mesh
+from vortexcfd.foam.parallel import MESH_CELLS_PER_CORE, physical_cores, recommended_mesh_cores
 from vortexcfd.foam.yplus import LayerPlan, first_layer_thickness, layer_cap, plan_layers
 from vortexcfd.foam.mesh_case import (
     DOMAIN_SURFACE,
@@ -53,6 +54,7 @@ class MeshJob:
     case_dir: Path
     inputs: MeshCaseInput
     box: DomainBox
+    cores: int = 1  # snappyHexMesh ranks (mesh_cores, D-111)
 
 
 def case_dir_for(project: Project) -> Path | None:
@@ -294,6 +296,34 @@ def estimate_with_volumes(project: Project, box: DomainBox, parts_bounds=None) -
     return refinement.with_volumes(est, refinement.volume_infos(project, box, est))
 
 
+@dataclass(frozen=True)
+class MeshCores:
+    """The meshing cores of a project (D-111)."""
+
+    used: int
+    recommended: int  # foam/parallel.recommended_mesh_cores of ``cells``
+    cells: int  # estimated background cells, refinement volumes included
+    automatic: bool  # Mesh.cores unset: the Solvers cores capped by the recommendation
+
+    def describe(self) -> str:
+        how = "automatic" if self.automatic else "set"
+        return (f"{self.used} ({how}; recommended {self.recommended} for {self.cells:,} background cells, "
+                f"{MESH_CELLS_PER_CORE:,} per core)")
+
+
+def mesh_cores(project: Project, box: DomainBox, physical: int | None = None) -> MeshCores:
+    """The snappyHexMesh ranks of ``project`` (D-111): Mesh.cores when set, else the meshing recommendation
+    from the estimated background cells, min(physical, cells / 12,500, 8); never more than the physical
+    cores, at least 1. The Solvers cores do not enter: their cap (D-064) measured the solver's efficiency,
+    and meshing scales better (owner review of D-111). [NUMERICS-REVIEW]"""
+    physical = physical or physical_cores()
+    cells = estimate_with_volumes(project, box).budget_cells
+    recommended = recommended_mesh_cores(cells, physical)
+    chosen = project.sim.mesh.cores
+    used = recommended if chosen is None else chosen
+    return MeshCores(max(1, min(used, physical)), recommended, cells, chosen is None)
+
+
 def mesh_inputs(project: Project) -> tuple[MeshCaseInput, DomainBox, list]:
     """(the meshing case input, the domain box, the parts' loaded surfaces in metres) of ``project``:
     everything the meshing dictionaries depend on.
@@ -356,7 +386,7 @@ def prepare_job(project: Project) -> MeshJob:
     write_domain_surface(case_dir, box, inputs)
     write_domain_guard(case_dir, inputs)
     write_seed_edge_meshes(case_dir, inputs)
-    return MeshJob(case_dir, inputs, box)
+    return MeshJob(case_dir, inputs, box, mesh_cores(project, box).used)
 
 
 def junction_level(project: Project, box: DomainBox, length: float) -> int:
@@ -449,6 +479,7 @@ def inputs_hash(project: Project) -> str:
             entry.append(_hash_file(ids) if ids is not None and ids.is_file() else None)
         parts.append(entry)
     mesh = project.sim.mesh.model_dump()
+    mesh.pop("cores", None)  # a parallel run meshes the same inputs (D-111)
     for key, legacy in {**V10_MESH_FIELDS, **V13_MESH_FIELDS, **V14_MESH_FIELDS}.items():  # a project meshed
         # before v10 / v13 / v14 keeps its hash (D-085, D-106, D-107)
         if mesh.get(key) == legacy:

@@ -4,6 +4,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from vortexcfd.core.atomic_io import write_text_atomic
 from vortexcfd.foam.mesh_report import FirstCell, LayerCoverage, MeshReport
 
 RECORD_NAME = "vortexcfd_mesh.json"
@@ -14,6 +15,7 @@ class MeshRecord:
     report: MeshReport
     inputs_hash: str  # hash of the meshing inputs the mesh was made from
     patches: tuple[str, ...]  # part patch names present in the mesh
+    cores: int = 1  # snappyHexMesh ranks the mesh was made with (D-111; records before it: 1)
 
 
 def write_mesh_record(case_dir: Path, record: MeshRecord) -> None:
@@ -21,8 +23,9 @@ def write_mesh_record(case_dir: Path, record: MeshRecord) -> None:
         "report": asdict(record.report),
         "inputs_hash": record.inputs_hash,
         "patches": list(record.patches),
+        "cores": record.cores,
     }
-    (Path(case_dir) / RECORD_NAME).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    write_text_atomic(Path(case_dir) / RECORD_NAME, json.dumps(data, indent=2) + "\n")
 
 
 def read_mesh_record(case_dir: Path) -> MeshRecord | None:
@@ -38,6 +41,7 @@ def read_mesh_record(case_dir: Path) -> MeshRecord | None:
         report["warning_lines"] = tuple(report.get("warning_lines", ()))  # absent before D-100
         first_cell = report.get("first_cell")  # absent before D-109
         report["first_cell"] = FirstCell(**first_cell) if isinstance(first_cell, dict) else None
-        return MeshRecord(MeshReport(**report), str(data["inputs_hash"]), tuple(data["patches"]))
+        return MeshRecord(MeshReport(**report), str(data["inputs_hash"]), tuple(data["patches"]),
+                          int(data.get("cores", 1)))
     except (OSError, ValueError, KeyError, TypeError):
         return None

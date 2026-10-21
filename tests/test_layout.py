@@ -129,7 +129,7 @@ def test_tree_structure_and_node_count(make_window) -> None:
         "Reference Values", "Probes", "Mesh Study", "Polar Sweep"]
     stopping = w._items[("stopping", None)]
     assert stopping.text(0) == "Stopping Criteria" and stopping.parent() is w._items[("solvers", None)]
-    w.act_add_part.trigger()
+    w.add_placeholder_part()
     assert w.node_badge.text() == "32 Nodes"  # a part and its wall
 
 

@@ -243,7 +243,7 @@ def prepare(project: Project, strategy: str, cell_size: float | None = None) -> 
     folder = project.folder / GEOMETRY_DIR
     folder.mkdir(parents=True, exist_ok=True)
     all_curves = prep_geometry.intersection_curves(meshes, drop_hidden=False)
-    curves = prep_geometry.intersection_curves(meshes)
+    curves = prep_geometry.intersection_curves(meshes, curves=all_curves)  # the same segments, filtered
     sewing = _sewing(project, parts)
     diagnostics = prep_geometry.diagnose(names, meshes, cell_size, all_curves, sewing, curves)
     report = [("Strategy", STRATEGY_LABELS[strategy])] + diagnostics.rows()
