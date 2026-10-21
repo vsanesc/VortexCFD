@@ -80,7 +80,7 @@ def test_every_change_path_renders(window: MainWindow, qtbot: QtBot) -> None:
         "zoom reset": w.act_zoom_reset.trigger,
         "viewer resize": lambda: (w.resize(w.width() + 80, w.height() + 40), qtbot.wait(50)),
         "remove the part": lambda: (w.tree.setCurrentItem(w._items[("part", 0)]), w.act_remove_part.trigger()),
-        "new part (placeholder)": w.act_add_part.trigger,
+        "new part (placeholder)": w.add_placeholder_part,
     }
     silent = [name for name, action in steps.items() if renders_after(w, action) < 1]
     assert not silent, f"changes that did not render: {silent}"

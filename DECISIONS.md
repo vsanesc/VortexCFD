@@ -124,6 +124,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-112 | 2026-10-21 | A mesh or solver run is bound to the case folder it started in | Proposed |
 | D-113 | 2026-10-21 | Every background run reports its end, also after an exception | Proposed |
 | D-114 | 2026-10-21 | Project files, presets and records written atomically with the umask's permissions | Proposed |
+| D-115 | 2026-10-21 | Edit > Add part (placeholder) disabled | Proposed |
 
 ---
 
@@ -1126,3 +1127,9 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Context: the project file and the presets were written through a temporary file created with mode 0600, so every .vcfd and preset file was readable by its owner only, unlike every other file the app writes (0644 under the usual umask 022). The mesh record, the run record, study.json and sweep.json were written in place (truncate, then write): a crash mid-write left half a file, which reads as no record.
 - Decision: one writer, `core/atomic_io.write_text_atomic`: a temporary file in the target's folder, chmod to 0666 minus the process umask (read from /proc/self/status, so the umask is never changed), then `os.replace`; on any failure the temporary file is removed and the old file is left whole. The project file, the presets and the four records use it; their names and content are unchanged.
 - Consequences: a file saved again gets the umask's mode (an older 0600 .vcfd becomes 0644 under umask 022 at its next save; a mode set by hand on one of these files is not kept).
+
+## D-115 Edit > Add part (placeholder) disabled
+- Status: Proposed (review follow-up, docs/REVIEW.md R-18).
+- Context: the Edit menu item "Add part (placeholder)" (from Phase 2, before geometry import existed) added a part with no surface file; File > Import Geometry is the way to add parts since Phase 3.
+- Decision: the item stays in the Edit menu, disabled, with the tooltip "Not built yet: an empty part without a surface. Add parts with File > Import Geometry." (D-039: features not built are omitted or disabled with a tooltip); the Edit menu shows its actions' tooltips (so Add Wake Volume's tooltip is shown there too). `MainWindow.add_placeholder_part` stays for the tests, which call it directly.
+- Consequences: the user can no longer add an empty part from the menu.

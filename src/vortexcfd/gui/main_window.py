@@ -159,6 +159,7 @@ _LOGGED_LEVELS = {"warning": logging.WARNING, "error": logging.ERROR}
 MESSAGE_TIMEOUT_MS = 8000
 EMPTY = "\u2014"
 NO_PROJECT = "No project open"
+ADD_PART_NOT_BUILT = "Not built yet: an empty part without a surface. Add parts with File > Import Geometry."
 
 
 class _RowDelegate(QStyledItemDelegate):
@@ -2110,6 +2111,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.act_undo = action("Undo", self._undo, S.Undo)
         self.act_redo = action("Redo", self._redo, S.Redo)
         self.act_add_part = action("Add part (placeholder)", self.add_placeholder_part)
+        # An empty part without a surface is not built (D-039: disabled with a tooltip, docs/REVIEW.md R-18).
+        self.act_add_part.setEnabled(False)
+        self.act_add_part.setToolTip(ADD_PART_NOT_BUILT)
         self.act_remove_part = action("&Remove part", self.remove_selected_part, S.Delete)
         # Delete applies only while the tree has focus, so text fields keep their Delete key.
         self.act_remove_part.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
@@ -2148,6 +2152,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         file_menu.addAction(self.act_quit)
         edit_menu = self.menuBar().addMenu("&Edit")
         self.edit_menu = edit_menu
+        edit_menu.setToolTipsVisible(True)  # the disabled placeholder says why
         edit_menu.addActions([self.act_undo, self.act_redo])
         edit_menu.addSeparator()
         edit_menu.addActions([self.act_add_part, self.act_remove_part, self.act_repair_part])
@@ -2424,7 +2429,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._project.redo()
 
     def add_placeholder_part(self) -> None:
-        # PLACEHOLDER: real geometry import comes in Phase 3; this only adds an empty part.
+        # PLACEHOLDER: adds an empty part (no surface); its menu item is disabled (ADD_PART_NOT_BUILT),
+        # tests call it directly.
         taken = {p.name for p in self._project.sim.geometry.parts}
         n = 1
         while f"Part {n}" in taken:

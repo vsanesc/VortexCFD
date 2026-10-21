@@ -126,7 +126,7 @@ def test_an_existing_project_is_overwritten_only_after_confirmation(make_window,
 def test_saving_to_its_own_file_does_not_ask(make_window, tmp_path: Path) -> None:
     w = make_window(saved=False, save_path=tmp_path / "mine.vcfd")
     assert w.save()
-    w.act_add_part.trigger()
+    w.add_placeholder_part()
     assert w.save() and w.dialogs.overwrite_asked == []
 
 
@@ -144,7 +144,7 @@ def test_a_legacy_json_project_is_saved_as_vcfd(make_window, tmp_path: Path) -> 
     legacy = w.project.path
     assert legacy.suffix == ".json"
     before = _digest(legacy)
-    w.act_add_part.trigger()
+    w.add_placeholder_part()
     assert w.save()
     assert w.project.path == legacy.with_suffix(".vcfd") and Project.open(legacy.with_suffix(".vcfd"))
     assert _digest(legacy) == before  # the old file is left as it was

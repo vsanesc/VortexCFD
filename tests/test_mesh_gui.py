@@ -503,7 +503,7 @@ def test_every_meshing_input_makes_the_mesh_stale(make_window, fake_run, change)
         w.project.update_part(0, name="Ball")  # no-op edit; force a refresh below
         w._refresh()
     else:
-        w.act_add_part.trigger()
+        w.add_placeholder_part()
     assert w.mesh_stale
 
 
