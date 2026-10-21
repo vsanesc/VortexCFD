@@ -6,9 +6,9 @@ layer and the three-level mesh study run as the GUI's Mesh Study node runs it.
     .venv/bin/python scripts/validation/ahmed_study.py collect # per-level numbers -> result.json
 
 Round 2 (SETUP.md, "Round 2"): ``--round 2`` before the command; its project is ahmed25_r2 next to round
-1's, and ``study`` runs one level per command, refusing to start when the level's estimated end (round 1's
-measured rates) is after ``--deadline`` and stopping it cleanly at the deadline (the app's stop: the
-solver's clean stop, D-058; the meshing stop, D-111):
+1's, and ``study`` runs one level per command, refusing to start when the level's estimated end (the solver
+rate measured on this round's levels at the same core count, else round 1's) is after ``--deadline`` and
+stopping it cleanly at the deadline (the app's stop: the solver's clean stop, D-058; the meshing stop, D-111):
 
     .venv/bin/python scripts/validation/ahmed_study.py --round 2 setup
     .venv/bin/python scripts/validation/ahmed_study.py --round 2 study --level coarse --deadline 23:15
@@ -74,21 +74,6 @@ def project_path() -> Path:
     return WORK / name / f"{name}.vcfd"
 
 
-# Round 1's measured levels (RESULT.md, "Per level"): cells, meshing seconds (8 cores), solver seconds for
-# 1500 iterations on 4 cores. The round 2 estimates scale them by the cells and assume no solver speed-up
-# from 4 to 8 ranks (an upper bound: the measured 4 -> 8 speed-up on this machine is 1.0 to 1.2, D-064).
-ROUND1_LEVELS = {"coarse": (202_717, 56.0, 535.0), "medium": (524_785, 60.0, 1654.0), "fine": (1_338_191, 167.0, 4564.0)}
-
-
-def estimate_level(name: str, cells: int, iterations: int) -> tuple[float, float]:
-    """(meshing seconds, solver seconds) of a level of ``cells`` cells run for ``iterations``, from the
-    same level of round 1 scaled by the cells (meshing at least round 1's time plus 50 % for the ground
-    layers and the longer domain)."""
-    cells1, mesh1, solve1 = ROUND1_LEVELS[name]
-    rate = solve1 / (cells1 * ac.ITERATIONS)  # seconds per cell-iteration on 4 cores
-    return 1.5 * mesh1 * max(1.0, cells / cells1), rate * cells * iterations
-
-
 def setup(args) -> None:
     start = time.monotonic()
     project = ac.build_project(WORK, WORK / "geometry_src", ROUND)
@@ -123,9 +108,10 @@ def setup(args) -> None:
           f"total {plan.total * 1000:.1f} mm (planned {plan.planned_count})")
     print(f"surface preparation: {prep.strategy}, features {prep.features_file}, report {prep.report}")
     print(f"mesh cores {meshing.mesh_cores(project, box)}")
-    from vortexcfd.workflow.mesh_study import plan_study
+    from vortexcfd.workflow.mesh_study import plan_study, study_dir_for
 
     sp = plan_study(project)
+    measured = ac.measured_rates(study_dir_for(project), project.sim.studies.mesh.cores) if ROUND >= 2 else {}
     if ROUND >= 2:
         from vortexcfd.foam.mesh_case import ground_split_x
 
@@ -136,13 +122,13 @@ def setup(args) -> None:
               f"estimated cells {lp.estimated_cells} ({'measured ratio' if sp.measured else 'assumed ratio'} "
               f"{sp.cells_per_background:.2f})")
         if ROUND >= 2:
-            mesh_s, solve_s = estimate_level(lp.level.name, lp.estimated_cells, ac.ITERATIONS)
+            mesh_s, solve_s, source = ac.estimate_level(lp.level.name, lp.estimated_cells, ac.ITERATIONS, measured)
             from vortexcfd.workflow.mesh_study import prepare_study  # noqa: F401 (the split is per level)
 
             inp = meshing.mesh_inputs(project)[0]
             inp = dataclasses.replace(inp, mesh=lp.level.mesh)
             print(f"  ground wall starts at x = {ground_split_x(inp):.4f} m on this level; estimate (1500 "
-                  f"iterations, round 1 rates): meshing {mesh_s / 60:.1f} min, solver {solve_s / 60:.1f} min")
+                  f"iterations, solver rate {source}): meshing {mesh_s / 60:.1f} min, solver {solve_s / 60:.1f} min")
 
 
 def deadline_today(text: str) -> datetime.datetime:
@@ -151,7 +137,7 @@ def deadline_today(text: str) -> datetime.datetime:
 
 
 def study(args) -> None:
-    from vortexcfd.workflow.mesh_study import plan_study, prepare_study, solver_writer
+    from vortexcfd.workflow.mesh_study import plan_study, prepare_study, solver_writer, study_dir_for
     from vortexcfd.foam.mesh_study import StudyRun
 
     project = Project.open(project_path())
@@ -160,10 +146,12 @@ def study(args) -> None:
         if not args.level:
             raise SystemExit("round 2 runs one level per command: --level coarse|medium|fine")
         planned = {lp.level.name: lp.estimated_cells for lp in plan_study(project).levels}
-        mesh_s, solve_s = estimate_level(args.level, planned[args.level], ac.ITERATIONS)
+        measured = ac.measured_rates(study_dir_for(project), project.sim.studies.mesh.cores)
+        mesh_s, solve_s, source = ac.estimate_level(args.level, planned[args.level], ac.ITERATIONS, measured)
         end = datetime.datetime.now() + datetime.timedelta(seconds=mesh_s + solve_s + 60)
         print(f"{args.level}: {planned[args.level]} cells estimated, meshing {mesh_s / 60:.1f} min, solver "
-              f"{solve_s / 60:.1f} min (1500 iterations): estimated end {end:%H:%M}", flush=True)
+              f"{solve_s / 60:.1f} min (1500 iterations, solver rate {source}): estimated end {end:%H:%M}",
+              flush=True)
         if args.deadline:
             deadline = deadline_today(args.deadline)
             if end > deadline:

@@ -125,6 +125,55 @@ BASE_SIZE_ROUND1 = (12.893 * 5.415 * 5.558 / BACKGROUND_CELLS) ** (1.0 / 3.0)
 STUDY_QUANTITIES = ["Cd@body", "Cd", "Cl@body", "Cl", "Cd_pressure@body", "Cd_viscous@body", "Cd@stilt_front",
                     "Cd@stilt_rear", "Cl_pressure@body", "Cl_viscous@body"]
 
+# Round 1's measured levels (RESULT.md, "Per level"): cells, meshing seconds (8 cores), solver seconds for
+# ITERATIONS iterations on SOLVER_CORES cores. The fallback of the later rounds' estimates.
+ROUND1_LEVELS = {"coarse": (202_717, 56.0, 535.0), "medium": (524_785, 60.0, 1654.0), "fine": (1_338_191, 167.0, 4564.0)}
+LEVELS = ("coarse", "medium", "fine")
+
+
+def measured_rates(study_dir: Path, cores: int) -> dict[str, tuple[int, float]]:
+    """Level name -> (cells, solver seconds per cell-iteration) of the levels of one round already solved on
+    ``cores`` ranks, from the per-level records ``study_<level>.json`` the driver keeps in the round's
+    case_study/ (a level that crashed or has no cells, iterations or time is left out)."""
+    import json
+
+    out = {}
+    for name in LEVELS:
+        try:
+            data = json.loads((Path(study_dir) / f"study_{name}.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if data.get("cores") != cores:
+            continue
+        for lv in data.get("levels", []):
+            if lv.get("name") != name or lv.get("state") in (None, "crashed"):
+                continue
+            cells, iterations, seconds = lv.get("cells"), lv.get("iterations"), lv.get("duration_s")
+            if cells and iterations and seconds:
+                out[name] = (int(cells), seconds / (cells * iterations))
+    return out
+
+
+def solver_rate(name: str, cells: int, measured: dict[str, tuple[int, float]] | None = None) -> tuple[float, str]:
+    """(solver seconds per cell-iteration, its source) for a level of ``cells`` cells: the same level of the
+    round if measured, else the measured level nearest in cells (the rate grows with the cells), else
+    round 1's same level on SOLVER_CORES cores."""
+    if measured:
+        source = name if name in measured else min(measured, key=lambda n: abs(math.log(measured[n][0] / cells)))
+        return measured[source][1], f"measured, {source} of this round"
+    cells1, _, solve1 = ROUND1_LEVELS[name]
+    return solve1 / (cells1 * ITERATIONS), f"round 1's {name} on {SOLVER_CORES} cores"
+
+
+def estimate_level(name: str, cells: int, iterations: int,
+                   measured: dict[str, tuple[int, float]] | None = None) -> tuple[float, float, str]:
+    """(meshing seconds, solver seconds, the solver rate's source) of a level of ``cells`` cells run for
+    ``iterations``: meshing from round 1's same level scaled by the cells, at least round 1's time plus 50 %
+    (the ground layers and the longer domain); the solver at ``solver_rate``."""
+    cells1, mesh1, _ = ROUND1_LEVELS[name]
+    rate, source = solver_rate(name, cells, measured)
+    return 1.5 * mesh1 * max(1.0, cells / cells1), rate * cells * iterations, source
+
 
 def _half_body_shape():
     from OCP.BRepAlgoAPI import BRepAlgoAPI_Common

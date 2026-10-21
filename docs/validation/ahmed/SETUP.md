@@ -207,6 +207,12 @@ times scale round 1's same level by the cells: meshing 1.5 x round 1's (ground l
 solver at round 1's 4-core rate (no gain from 8 ranks assumed), for the full 1500 iterations (the
 criterion cannot stop before iteration 1000).
 
+Since the owner's review of round 2, the driver's solver estimate (`setup` and the `--deadline` guard of
+`study`) uses the rate measured on the round's own levels at the same core count when one exists (the
+same level if it was run before, else the measured level nearest in cells; from the per-level records
+`case_study/study_<level>.json`), and falls back to round 1's rate otherwise; it prints the rate's source
+(`tests/validation/ahmed_case.estimate_level`).
+
 | Level | Base | Background cells | Estimated cells | Meshing | Solver (1500 it.) | Runs |
 |---|---|---|---|---|---|---|
 | coarse | 157.1 mm | 126,140 | 239,666 | 1.7 min | 10.5 min | tonight, if its estimated end is before 23:15 |
