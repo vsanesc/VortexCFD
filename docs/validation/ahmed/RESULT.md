@@ -193,9 +193,11 @@ The owner's review of round 2 (2026-10-21) records it as **FAIL** under V6, read
 - The medium and fine levels agree within 0.8 % (0.3272 and 0.3246), so the grid uncertainty is small,
   although no GCI can be computed (the three levels are oscillatory).
 - Steady k-omega SST with wall functions gives a body Cd of 0.325 (+14 %) on this case.
-- The remaining error is the model's known limit at 25 degrees (the over-predicted slant separation of
-  RANS models near the critical angle), not the set-up: the set-up fixes of round 2 moved the fine level
-  by -0.1 %.
+- The remaining error is not the set-up: the set-up fixes of round 2 moved the fine level by -0.1 %. The
+  fine level reproduces a reattaching bubble on the slant, as in the experiment; why steady SST still
+  over-predicts the drag is not established. The literature's usual explanation (the separation's size
+  and the pressure recovery on the slant) can only be checked against Lienhart & Becker's data [LB03]
+  (QUESTIONS 171).
 - The verdict depends on unverified SST literature values, which probably used wall-resolved meshes,
   unlike this study's wall functions (V3). It stays FAIL until verified references are read (QUESTIONS
   171 and 172 stay open; the owner will supply the papers).

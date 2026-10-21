@@ -23,8 +23,10 @@ did not meet the criteria is flagged and every GCI that uses it is marked unreli
 The value recorded for a quantity, and used by the GCI, is (D-119):
 
 - the mean over the last W iterations when a mean-stable criterion watches it (W its window; D-118);
-- else the mean over the oscillation window when the oscillation warning applies at the end of the
-  run (D-059);
+- else, when the oscillation warning applies at the end of the run (D-059), the mean over the D-118
+  window (the mean-stable criterion's default, 500 iterations) or over the whole history if it is
+  shorter, never over the warning's own short window (a 100-iteration mean of round 1's Ahmed Cd swings
+  by 2.6 % with the 167-iteration period);
 - else the last iteration's value.
 
 The last value, the basis, the window and the oscillation amplitude (max - min) / max(|mean|, floor)
@@ -271,8 +273,9 @@ class RecordedValue:
 
 def recorded_value(quantity: str, series, stopping=None) -> RecordedValue | None:
     """The recorded value of a scalar series (one row per iteration) at the end of a run: the mean over
-    the window of a mean-stable criterion on ``quantity`` (from W values on), else the mean over the
-    oscillation window when the oscillation warning applies, else the last value. None: no scalar value."""
+    the window of a mean-stable criterion on ``quantity`` (from W values on), else, when the oscillation
+    warning applies, the mean over the D-118 default window (all the history if shorter), else the last
+    value. None: no scalar value."""
     from vortexcfd.core.model import AsymptoticCriterion, MeanStableCriterion
     from vortexcfd.foam.convergence import oscillation, unique_by_iteration, window_stats
 
@@ -290,7 +293,7 @@ def recorded_value(quantity: str, series, stopping=None) -> RecordedValue | None
     floor = next((c.effective_floor for c in stopping.criteria
                   if isinstance(c, AsymptoticCriterion) and c.quantity == quantity), None)
     if oscillation(quantity, rows, stopping.oscillation_window, stopping.oscillation_threshold, floor) is not None:
-        stats = window_stats(rows, stopping.oscillation_window, floor, quantity)
+        stats = window_stats(rows, MeanStableCriterion.model_fields["window"].default, floor, quantity)
         return RecordedValue(stats.mean, last, BASIS_OSCILLATION, stats.n, stats.amplitude)
     return RecordedValue(last, last)
 

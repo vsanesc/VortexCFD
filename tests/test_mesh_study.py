@@ -528,7 +528,8 @@ def _round1() -> dict[str, list[tuple[float, float]]]:
 
 def test_recorded_value_of_the_round1_histories() -> None:
     """A mean-stable criterion: the mean over its window at the stop (D-118's means); the oscillation
-    warning alone: the mean over the oscillation window; no stopping criteria: the last value."""
+    warning alone: the mean over the D-118 window of 500 (all the history if shorter), not the warning's
+    100; no stopping criteria: the last value."""
     from vortexcfd.core.model import MeanStableCriterion, StoppingCriteria
     from vortexcfd.foam.mesh_study import BASIS_LAST, BASIS_MEAN_STABLE, BASIS_OSCILLATION, recorded_value
 
@@ -545,14 +546,22 @@ def test_recorded_value_of_the_round1_histories() -> None:
         assert v.amplitude == pytest.approx((max(c for _, c in at_stop[-500:]) - min(c for _, c in at_stop[-500:]))
                                             / v.value, rel=1e-12)
         o = recorded_value("Cd@body", series, plain)
-        assert o.basis == BASIS_OSCILLATION and o.window == 100 and o.amplitude > 0.01
-        assert o.value == pytest.approx(sum(c for _, c in series[-100:]) / 100, rel=1e-12)
+        assert o.basis == BASIS_OSCILLATION and o.window == 500 and o.amplitude > 0.01
+        assert o.value == pytest.approx(sum(c for _, c in series[-500:]) / 500, rel=1e-12)
+        # the means of the last 500 of 1500 iterations: within 0.25 % of RESULT.md's 1000-iteration means
+        assert o.value == pytest.approx({"coarse": 0.3409, "medium": 0.3468, "fine": 0.3250}[level], rel=2.5e-3)
         n = recorded_value("Cd@body", series, None)
         assert n.basis == BASIS_LAST and n.value == n.last == pytest.approx(lasts[level], abs=5e-5)
         assert n.window is None and n.amplitude is None
-    # a series shorter than the mean-stable window falls back to the oscillation check, then the last value
+    # a series shorter than the mean-stable window falls back to the oscillation check: the whole history
     short = _round1()["coarse"][300:700]
-    assert recorded_value("Cd@body", short, stable).basis == BASIS_OSCILLATION
+    o = recorded_value("Cd@body", short, stable)
+    assert o.basis == BASIS_OSCILLATION and o.window == 400
+    assert o.value == pytest.approx(sum(c for _, c in short) / 400, rel=1e-12)
+    # a 100-iteration mean would depend on the phase: it swings by more than 2 % over the stationary part
+    coarse = [c for _, c in _round1()["coarse"][300:]]
+    means = [sum(coarse[i:i + 100]) / 100 for i in range(len(coarse) - 99)]
+    assert (max(means) - min(means)) / (sum(coarse) / len(coarse)) > 0.02
     steady = [(float(i), 0.3 + 1e-7 * i) for i in range(1, 300)]
     assert recorded_value("Cd@body", steady, plain).basis == BASIS_LAST
     assert recorded_value("Cd@body", [], stable) is None

@@ -46,19 +46,19 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
     the inlet and the ground layers, but that run converged steady (indicative only). D-118 Accepted;
     QUESTIONS 176 and 178 accepted.
 - Owner review of round 2: recorded as FAIL under V6 (RESULT.md, "Reading of round 2": medium and fine
-  within 0.8 %, steady SST with wall functions gives 0.325, +14 %, the model's limit at 25 degrees; FAIL
+  within 0.8 %, steady SST with wall functions gives 0.325, +14 %, not the set-up, cause not established; FAIL
   until verified references are read, QUESTIONS 171 and 172 open). QUESTIONS 177 closed (the round 3 split
   is indicative).
-  - [NUMERICS-REVIEW] D-119 (QUESTIONS 175): the mesh study records the windowed mean of a quantity watched
-    by a mean-stable criterion (its window) or showing the D-059 oscillation warning (the oscillation
-    window), with the last value, the basis, the window and the oscillation amplitude; the last value
+  - [NUMERICS-REVIEW] D-119 (QUESTIONS 175; accepted with the owner's change of the oscillation window): the mesh study records the
+    windowed mean of a quantity watched by a mean-stable criterion (its window) or showing the D-059
+    oscillation warning (the D-118 window of 500, or the whole history if shorter), with the last value, the basis, the window and the oscillation amplitude; the last value
     otherwise. The GCI uses the recorded value; tests on round 1's recorded Cd histories.
   - The driver's deadline estimate uses the solver rate measured on the round's own levels at the same
     core count, else round 1's (`ahmed_case.estimate_level`, tests/test_ahmed_driver.py).
   - tests/validation/test_ahmed.py checks round 2's recorded verdict inputs (marker validation, not run).
   - docs/validation/README.md: the index of the validation cases; a manual note (below).
 
-Next: the owner's review of D-119; the reference papers (QUESTIONS 171, 172). Then the
+Next: the reference papers (QUESTIONS 171, 172). Then the
 aircraft's zones (QUESTIONS 147); drag handles for the refinement volumes (item 132). The owner runs
 scripts/ship.sh (the slow tests, item 161). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75,
 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 171, 172 and 174.
@@ -113,7 +113,7 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
 
 - The Ahmed body 25 degree validation FAILS V6 in both rounds (round 2: body Cd +13.9 % on the finest of
   three grids, above the published SST range; no GCI, oscillatory, but medium and fine within 0.8 %; the
-  steady run oscillates; read by the owner as the steady SST model's limit at 25 degrees, FAIL until the
+  steady run oscillates; not the set-up, the cause of the over-prediction not established; FAIL until the
   references are verified; docs/validation/ahmed/RESULT.md).
 
 - Results at angle of attack != 0 are biased by the angled-inlet method with slip far field (QUESTIONS 71, open).

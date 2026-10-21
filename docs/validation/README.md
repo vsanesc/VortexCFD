@@ -13,6 +13,8 @@ the marker `validation` (or `long`) and are not part of the default test run.
 
 Recorded as FAIL under V6. The medium and fine levels agree within 0.8 %, so the grid uncertainty is small
 even though no GCI can be computed (oscillatory). Steady k-omega SST with wall functions gives a body Cd of
-0.325 (+14 %) on this case; the remaining error is the model's known limit at 25 degrees, not the set-up.
+0.325 (+14 %) on this case. The remaining error is not the set-up (the round 2 fixes moved the fine level by
+-0.1 %); the fine level reproduces a reattaching slant bubble, as in the experiment, and why steady SST still
+over-predicts the drag is not established (to be checked against Lienhart & Becker's data, QUESTIONS 171).
 The verdict depends on unverified SST literature values, which probably used wall-resolved meshes, unlike
 this study (V3); it stays FAIL until verified references are read (QUESTIONS 171 and 172).
