@@ -79,24 +79,24 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-061 | 2026-10-17 | Wall shear stress, skin friction Cf / Cf_x, separation highlight, y+ histogram | Accepted |
 | D-062 | 2026-10-17 | Cp on wall sections | Accepted (revised 2026-10-18) |
 | D-063 | 2026-10-18 | Parallel solver runs: decomposePar, mpirun, reconstructPar; clean stop through mpirun | Accepted (converged cases only are comparable) |
-| D-064 | 2026-10-18 | mpirun binding and the recommended core count from a speedup study | Proposed |
-| D-066 | 2026-10-18 | Mesh independence study with the Celik GCI (schema v7) | Proposed |
-| D-067 | 2026-10-18 | Angle-of-attack sweep (polar) | Proposed |
+| D-064 | 2026-10-18 | mpirun binding and the recommended core count from a speedup study | Accepted |
+| D-066 | 2026-10-18 | Mesh independence study with the Celik GCI (schema v7) | Accepted |
+| D-067 | 2026-10-18 | Angle-of-attack sweep (polar) | Accepted |
 | D-068 | 2026-10-18 | Display guard and targeted testing for agents | Accepted |
-| D-069 | 2026-10-18 | Multi-solid STL import and self-intersection check | Proposed |
-| D-070 | 2026-10-18 | CAD import (STEP, IGES, BREP) through OCP | Proposed |
-| D-071 | 2026-10-18 | Surface regions and patch assignment (schema v8) | Proposed |
-| D-072 | 2026-10-18 | Geometry repair: pymeshfix with a fidelity check, fTetWild envelope fallback | Proposed (fidelity heuristic accepted, D-074) |
-| D-073 | 2026-10-18 | Geometry work on background threads; per-part forces over all patches | Proposed |
+| D-069 | 2026-10-18 | Multi-solid STL import and self-intersection check | Accepted |
+| D-070 | 2026-10-18 | CAD import (STEP, IGES, BREP) through OCP | Accepted |
+| D-071 | 2026-10-18 | Surface regions and patch assignment (schema v8) | Accepted |
+| D-072 | 2026-10-18 | Geometry repair: pymeshfix with a fidelity check, fTetWild envelope fallback | Accepted |
+| D-073 | 2026-10-18 | Geometry work on background threads; per-part forces over all patches | Accepted |
 | D-074 | 2026-10-18 | Keep pymeshfix (AGPL-3), third-party licence list, fidelity metrics in the repair report | Accepted |
 | D-075 | 2026-10-18 | No third-party product names in the repository; design mockup kept local | Accepted |
-| D-076 | 2026-10-18 | Import without saving first; .vcfd project files; save targets never overwrite non-project files | Proposed |
-| D-077 | 2026-10-18 | Start screen, New simulation dialog, presets, project folders; no untitled projects (schema v9) | Proposed |
+| D-076 | 2026-10-18 | Import without saving first; .vcfd project files; save targets never overwrite non-project files | Accepted |
+| D-077 | 2026-10-18 | Start screen, New simulation dialog, presets, project folders; no untitled projects (schema v9) | Accepted |
 | D-078 | 2026-10-18 | The domain as an operation; bullet and C-type domain shapes | Accepted |
 | D-079 | 2026-10-18 | Save As duplicates the project folder with its geometry | Accepted |
-| D-080 | 2026-10-19 | Save As warns in a dialog about missing geometry files | Proposed |
-| D-081 | 2026-10-19 | Meshing benchmark: generated geometries and case definitions | Proposed |
-| D-082 | 2026-10-19 | Meshing benchmark: runner, metrics, result files and regression rules | Proposed |
+| D-080 | 2026-10-19 | Save As warns in a dialog about missing geometry files | Accepted |
+| D-081 | 2026-10-19 | Meshing benchmark: generated geometries and case definitions | Accepted |
+| D-082 | 2026-10-19 | Meshing benchmark: runner, metrics, result files and regression rules | Accepted |
 | D-083 | 2026-10-19 | Qt-free orchestration in the workflow package | Accepted |
 | D-084 | 2026-10-19 | Seed lines refine in a castellation-only run, never as snap features | Accepted |
 | D-085 | 2026-10-19 | Surface cell size from l_ref; curvature refinement (schema v10) | Accepted |
@@ -114,9 +114,9 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-097 | 2026-10-19 | Junction curves refine to the finest surface level | Accepted |
 | D-098 | 2026-10-19 | Component names from the STEP entities | Accepted |
 | D-099 | 2026-10-19 | The import checks report parts that cross each other | Accepted |
-| D-100 | 2026-10-19 | checkMesh failures: hard ones block the solver, soft ones warn | Proposed |
+| D-100 | 2026-10-19 | checkMesh failures: hard ones block the solver, soft ones warn | Accepted |
 | D-101 | 2026-10-19 | The CAD union's junction edges refine at the junction level | Rejected |
-| D-102 | 2026-10-20 | cfMesh evaluation case and the benchmark's mesher switch | Proposed |
+| D-102 | 2026-10-20 | cfMesh evaluation case and the benchmark's mesher switch | Accepted |
 | D-103 | 2026-10-20 | User refinement volumes and the wake helper (schema v12) | Accepted |
 | D-104 | 2026-10-20 | NVIDIA adapter selected under WSL at start-up | Accepted |
 | D-105 | 2026-10-20 | Benchmark layer headline counted from the mesh; hard and soft checks per case | Accepted |
@@ -126,10 +126,10 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-109 | 2026-10-20 | The achieved first cell reported after meshing; y+ drift warning | Accepted |
 | D-110 | 2026-10-20 | Benchmark baseline after task 5.4b | Accepted |
 | D-111 | 2026-10-20 | Parallel snappyHexMesh with reconstruction to a serial mesh (schema v15) | Accepted |
-| D-112 | 2026-10-21 | A mesh or solver run is bound to the case folder it started in | Proposed |
-| D-113 | 2026-10-21 | Every background run reports its end, also after an exception | Proposed |
-| D-114 | 2026-10-21 | Project files, presets and records written atomically with the umask's permissions | Proposed |
-| D-115 | 2026-10-21 | Edit > Add part (placeholder) disabled | Proposed |
+| D-112 | 2026-10-21 | A mesh or solver run is bound to the case folder it started in | Accepted |
+| D-113 | 2026-10-21 | Every background run reports its end, also after an exception | Accepted |
+| D-114 | 2026-10-21 | Project files, presets and records written atomically with the umask's permissions | Accepted |
+| D-115 | 2026-10-21 | Edit > Add part (placeholder) disabled | Accepted |
 
 ---
 
@@ -613,7 +613,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: the coarse sphere (192220 cells) at Re = 200 (0.003 m/s, steady, converged), alpha 4 deg, 300 iterations: serial Cd 0.6420303, Cl -0.02335689 in 188.8 s; 4 cores Cd 0.6420300, Cl -0.0233531 in 94.5 s (dCd -4.7e-5 %, dCl -0.016 %, speedup 2.00). At 20 m/s the same sphere oscillates and never converges: after 100 iterations serial Cd 0.15672, Cl -0.05975 against 4 cores Cd 0.16280, Cl -0.08752 (3.9 % and 46 %); the paths separate from iteration 2 (Cd -3.3 %) because the linear solves stop at relTol 0.01 and their result depends on the partition, so only converged solutions are comparable (item 66); the windowed mean of Cd over iterations 51-100 agrees to 0.5 % (0.16789 against 0.16703). A clean stop at about iteration 8 on 4 cores leaves U and p of that iteration in every processor directory and, reconstructed, in the case directory; a 20 s timeout kills every rank. Each parallel run keeps a decomposed copy of the mesh and of the written fields in the processor directories (about the size of the mesh and fields again).
 
 ## D-064 mpirun binding and the recommended core count from a speedup study
-- Status: Proposed (review chat decision of 2026-10-18 asked for the study; numbers below)
+- Status: Accepted (owner, as implemented, QUESTIONS 162). Was Proposed (review chat decision of 2026-10-18 asked for the study; numbers below).
 - Context: Task 6.6 measured a speedup of only 2.0 on 4 cores (192k cells) and left the binding untried (docs/QUESTIONS.md item 66). The review asked for a study on about one million cells at 1, 2, 4 and 8 cores with Open MPI's default binding and with `--bind-to core --map-by core`, adopting the better binding if clearly better, and for a recommended core count in the Solvers properties: min(physical cores, cells / 50,000), at least 1, adjusted if the study shows a different efficient range.
 - Decision:
   - Study (tests/test_parallel_speedup.py, marker `long`; table in docs/validation/parallel/README.md, raw numbers in speedup.json): the sphere with a 900,000 background budget (989,835 cells), 100 iterations at 20 m/s. Speedup with the default binding 1.64 / 2.53 / 3.0 at 2 / 4 / 8 cores, with `--bind-to core --map-by core` 1.93 / 2.7 / 2.89 (serial 443.9 s). A 565k-cell run gave 1.81 / 2.09 / 2.27 (default) and 1.61 / 2.06 / 2.24 (core).
@@ -623,7 +623,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: the recommendation is machine-specific (EFFICIENT_CORES = 4 is a constant in foam/parallel.py; docs/QUESTIONS.md item 69). Every real run above 60 s, including this study, carries the `long` marker (D-043).
 
 ## D-066 Mesh independence study with the Celik GCI (schema v7)
-- Status: Proposed (Task 6.4, [NUMERICS-REVIEW]). D-065 was not used: the freestream far field of Part B was not applied (docs/QUESTIONS.md item 71).
+- Status: Accepted (owner, as implemented, QUESTIONS 162). Was Proposed (Task 6.4, [NUMERICS-REVIEW]). D-065 was not used: the freestream far field of Part B was not applied (docs/QUESTIONS.md item 71).
 - Context: PLAN 6.4: judge grid convergence of chosen reports on a family of systematically refined meshes with the Celik et al. (2008) procedure already used by the flat plate study (D-036), without touching the user's case.
 - Decision:
   - GCI (foam/gci.py, no Qt; the flat plate study now imports it): Celik, Ghia, Roache, Freitas, Coleman, Raad, J. Fluids Eng. 130 (2008) 078001: apparent order p by fixed-point iteration of p = |ln|eps32/eps21| + q(p)| / ln r21 with q(p) = ln((r21^p - s) / (r32^p - s)), phi_ext^21, e_a^21, e_ext^21, GCI_fine^21 = 1.25 e_a^21 / (r21^p - 1), GCI_medium^32, and the asymptotic-range ratio GCI_medium^32 / (r21^p GCI_fine^21) (in range within 0.1 of 1). Oscillatory convergence (eps21 and eps32 of opposite sign) gets no number: "oscillatory, GCI not applicable". A p > 0 that does not reproduce the data (the change grows with refinement: phi = phi0 + C h^p requires eps32 / eps21 = r21^p (r32^p - 1) / (r21^p - 1)) is "divergent", equal solutions on two grids "undefined"; none of them gets a GCI. Tested against Table 1, first column, of the paper (p 1.534, phi_ext 6.1685, GCI_fine 2.175 %, GCI_medium 4.113 %; the third, oscillatory column gets no number), exact power laws with equal and unequal ratios, and the divergent and undefined cases.
@@ -636,7 +636,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: real study (tests/test_mesh_study.py, marker `long`, 293 s): the coarse sphere (24 x 24 STL, default domain and mesh as the fine level, r = sqrt(2)) at Re 200 (0.003 m/s), alpha 4 deg, 4 cores, Cd and Cl asymptotic (window 50, 1e-4), all levels met the criteria: coarse 36,995 cells, h 0.37400 m, Cd 0.665034, Cl -0.0274491 (337 iterations); medium 82,567 cells, h 0.28619 m, Cd 0.657493, Cl -0.0222605 (429); fine 192,220 cells, h 0.21593 m, Cd 0.643797, Cl -0.0235317 (449). Cd: "divergent" (the change grows with refinement, 0.0075 then 0.0137: these meshes are not in the asymptotic range), Cl: "oscillatory"; no GCI for either. The actual size ratios are 1.307 and 1.325, not 1.414: the background cells scale with r^3 but the surface and layer cells with about r^2 (docs/QUESTIONS.md item 72). Three meshes and runs cost about three times a normal run plus the meshing.
 
 ## D-067 Angle-of-attack sweep (polar)
-- Status: Proposed (Task 6.5, [NUMERICS-REVIEW] for the initialisation from the previous point). The far field is still slip (D-022; the freestream change of Part B was not applied, docs/QUESTIONS.md item 71), which channels the flow at high incidence.
+- Status: Accepted (owner, as implemented, QUESTIONS 162). Was Proposed (Task 6.5, [NUMERICS-REVIEW] for the initialisation from the previous point). The far field is still slip (D-022; the freestream change of Part B was not applied, docs/QUESTIONS.md item 71), which channels the flow at high incidence.
 - Context: PLAN 6.5: Cl, Cd, Cm and L/D for a list of angles of attack on one mesh, each run judged by its stopping criteria, without touching the user's case.
 - Decision:
   - Model (schema v7, `Simulation.studies.polar` = `PolarSweepSettings`, added in the same schema version as D-066 on the unpublished branch): `mode` "range" (`start`, `end`, `step` > 0; start, start + step, ... up to end inclusive within 1e-9, descending when end < start; at most 1000 points) or "list" (`values` in the order given), every angle within -90..90 deg; `cores`; `init_from_previous` (default on).
@@ -657,7 +657,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: tests that need a real OpenGL viewer render offscreen unless the owner sets `VORTEXCFD_ALLOW_REAL_DISPLAY=1`; regressions in slow tests surface only when ship.sh runs.
 
 ## D-069 Multi-solid STL import and self-intersection check
-- Status: Proposed (Task 3.1 missing items).
+- Status: Accepted (owner, as implemented, QUESTIONS 162). Was Proposed (Task 3.1 missing items).
 - Context: PLAN 3.1 lists multi-solid STL splitting and self-intersection detection; both were missing (D-056 era checks covered edges, duplicates, orientation only).
 - Decision:
   - Loader: an STL is read with pv.read; when it is ASCII with more than one `solid` block (geometry/loader.stl_solid_names: names in file order, "solid_<n>" for an unnamed block, repeated names suffixed _2, ...), it is read again with vtkSTLReader's scalar tags and every triangle keeps its block index in the cell array `solid` (0 for binary and single-solid files).
@@ -668,7 +668,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: importing or first selecting a 1M-triangle part takes about 8 s more (the report is cached); surfaces above 2M triangles are not checked for self-intersections.
 
 ## D-071 Surface regions and patch assignment (schema v8)
-- Status: Proposed (Task 3.1 introduced the model; Task 3.5 completed it). [NUMERICS-REVIEW] for the wall BC on every patch and the snappyHexMesh region entries.
+- Status: Accepted (owner, as implemented, QUESTIONS 162). Was Proposed (Task 3.1 introduced the model; Task 3.5 completed it). [NUMERICS-REVIEW] for the wall BC on every patch and the snappyHexMesh region entries.
 - Context: PLAN 3.5: group triangles into named patches from CAD faces, STL solids or an angle-based split; the assignment must persist and reach the meshing dictionary.
 - Decision:
   - Model (schema v8): `Part.regions` (list of `SurfaceRegion`: `name`, unique in the part; `members`, base ids; `patch`, a name matching `[A-Za-z][A-Za-z0-9_]{0,63}` or None; `color` "#rrggbb" or None), `Part.region_ids` (a .npy file of one int per triangle of the loaded surface, relative to the project folder; None = every triangle has base id 0) and `Part.cad` (D-070). A base id belongs to at most one region; triangles outside every region, and regions with `patch` None, are on the part's own patch, named after the part. A part without regions is one region: v7 projects migrate with nothing to fill and mesh exactly as before.
@@ -681,7 +681,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: a project folder accumulates small region id files (4 bytes per triangle) as regions are edited. Per-wall reports (forces, y+) follow the patches, so splitting a part into patches changes its per-part report ids from the part name to the patch names. Triangles outside every region (not produced by any edit) fall on the part's first patch.
 
 ## D-070 CAD import (STEP, IGES, BREP) through OCP
-- Status: Proposed (Task 3.2).
+- Status: Accepted (owner, as implemented, QUESTIONS 162). Was Proposed (Task 3.2).
 - Context: PLAN 3.2: STEP/IGES/BREP with part and face names and colours, tessellation with controllable deflection. The survey (docs/reference/oss_survey.md) chose OpenCASCADE through OCP with a spike for VTK conflicts first.
 - Decision:
   - Dependency: `cadquery-ocp-novtk` 8.0.1.1.0 (OCCT 8 bindings without a bundled VTK; Apache-2.0 bindings, OCCT LGPL-2.1 with exception). Spike: OCP, PyVista 0.49.1 / VTK 9.7.1 and PySide6 6.12 import in one process in either order; a box tessellated by BRepMesh rendered off-screen in a PyVista plotter (17,440 non-background pixels of 200 x 200) and was added to a QtInteractor; no library conflict (`pip check`: no broken requirements).
@@ -693,7 +693,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: STEP/IGES parts are always in millimetres; a repaired CAD part (D-072) loses the repair when its deflection is changed (the tessellation comes from the CAD again). OCCT writes its transfer messages to stdout. The Python loop over the triangulation nodes takes a few seconds per million triangles.
 
 ## D-072 Geometry repair: pymeshfix with a fidelity check, fTetWild envelope fallback
-- Status: Proposed (Task 3.3).
+- Status: Accepted (owner, as implemented, QUESTIONS 162). The fTetWild envelope fallback and its parameters are QUESTIONS 163. Was Proposed (Task 3.3).
 - Context: PLAN 3.3: an automated repair keeping the original, with a before / after report; the survey chose pymeshfix first and pytetwild's envelope as the fallback.
 - Decision:
   - Dependencies: `pymeshfix` 0.18.1 (wheel metadata AGPL-3; MeshFix GPL-3; docs/QUESTIONS.md item 74) and `pytetwild` 0.4.2 (MPL-2.0).
@@ -704,7 +704,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: repair runs on the GUI thread (item 77); changing a CAD part's deflection re-tessellates from the CAD and drops the repair; the fidelity thresholds are a heuristic (item 76).
 
 ## D-073 Geometry work on background threads; per-part forces over all patches
-- Status: Proposed. [NUMERICS-REVIEW] for the per-part force objects.
+- Status: Accepted (owner, as implemented, QUESTIONS 162). The per-part force objects ([NUMERICS-REVIEW]) are QUESTIONS 164. Was Proposed ([NUMERICS-REVIEW] for the per-part force objects).
 - Context: docs/QUESTIONS.md item 77: CAD tessellation and repair froze the window (the fTetWild envelope took 6.5 s on 1,440 triangles; the self-intersection check about 8 s per million triangles). Review of D-071: a part split into several patches had per-patch force objects but none for the part.
 - Decision:
   - gui/geometry_worker.py: `GeometryWorker` runs one job at a time on a Python thread and reports only through signals (job id, result or exception); slots run in the GUI thread. Jobs receive plain data or `snapshot(project)` (a Project over a deep copy of the state, no history) and never touch the live Project. Jobs: reading a CAD file and tessellating it at import (two jobs, the parts-or-regions question in between), re-tessellation after a deflection edit (the properties panel emits `retessellate_requested`), Edit > Repair part. While a job runs, Import Geometry, Repair part, Generate Mesh, the CAD deflection rows, the units and the region edits are disabled, and the status bar and the console show "<label>...". The result is applied with one `update_part` (one undoable step) only if the part still equals the snapshot's part; otherwise it is discarded with a warning ("changed during the repair: the result was discarded").
@@ -729,7 +729,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: the earlier commits still hold the old wording and the mockup in the history; this change covers the current tree only.
 
 ## D-076 Import without saving first; .vcfd project files; save targets never overwrite non-project files
-- Status: Proposed (bug fix reported by the owner, 2026-10-18). The temporary workspace of untitled projects is superseded by D-077; the .vcfd files and the save target rules stay.
+- Status: Accepted (owner, as implemented, QUESTIONS 162). Was Proposed (bug fix reported by the owner, 2026-10-18). The temporary workspace of untitled projects is superseded by D-077; the .vcfd files and the save target rules stay.
 - Context: on an unsaved project, Import Geometry opened "Save project as" first without saying so; the owner took it for the import picker, picked a STEP file, and the dialog offered to replace the STEP file with the project file.
 - Decision:
   - Import never asks to save. An untitled project gets a temporary workspace, <XDG cache>/vortexcfd/workspaces/untitled-<12 hex>/ (~/.cache by default), created on the first import (`Project.ensure_folder`); imported files go to its geometry/. Part paths stay relative ("geometry/..."); `Project.folder` is the project file's folder once saved, the workspace before. The first save moves every file of the workspace's geometry/ to <project folder>/geometry/ (a name already taken there gets _2, _3, ...; the parts' source, region-id and CAD paths are renamed in the current state and the whole undo / redo history), then deletes the workspace; the project file is written before anything moves. Closing, New or Open after the discard confirmation deletes the workspace. Meshing still needs a saved project (the case lives next to the project file).
@@ -739,7 +739,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: an untitled project with imports leaves its workspace behind only if the app is killed (the cache folder can be cleared at any time). Tests point XDG_CACHE_HOME at a temporary folder (tests/conftest.py).
 
 ## D-077 Start screen, New simulation dialog, presets, project folders; no untitled projects (schema v9)
-- Status: Proposed (task qol-start-domain, 2026-10-18). Supersedes the temporary workspace of D-076.
+- Status: Accepted (owner, as implemented, QUESTIONS 162). The New simulation dialog's default core count is QUESTIONS 165. Was Proposed (task qol-start-domain, 2026-10-18). Supersedes the temporary workspace of D-076.
 - Context: the app opened an untitled project; imports went to a hidden workspace in the cache moved on the first save (D-076). The owner asked for a start screen, a New simulation dialog with analysis presets, and a project folder from the start.
 - Decision:
   - Start state: `vortexcfd` without a path shows the main window with no project (no tree content, the muted viewer message "No project open", only the File and Help menus active; Import, Save, Save As and Save as Preset disabled) and opens the modal Start dialog: "New simulation", "Open project..." and the recent projects (last 10, QSettings key recent/projects, most recent first; a missing file is greyed with "(not found)", cannot be opened and can be removed from the list). Closing the dialog leaves the empty window; File > New Simulation, Open, Open Recent (with "Start screen...") reopen the flows. `vortexcfd <path>` opens that project without the dialog. Every project created or opened goes to the front of the recent list. Help > About.
@@ -772,14 +772,14 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: the undo history does not follow into the duplicate (it starts clean).
 
 ## D-080 Save As warns in a dialog about missing geometry files
-- Status: Proposed (task 5.0, Part A; requested in the review of D-079).
+- Status: Accepted (owner, as implemented, QUESTIONS 162). Was Proposed (task 5.0, Part A; requested in the review of D-079).
 - Context: D-079 reports a referenced geometry file that is missing only in the console and the status bar; the duplicate is created without it, so a part of the new project has no surface and the user may not notice.
 - Decision: after a duplicate that skipped missing files, a warning dialog (`Dialogs.show_warning`) titled "Save As" lists every missing file (path relative to the project folder) and says that the parts using them have no surface in the duplicate. The console message per file stays. The duplicate itself is unchanged.
 - Alternatives considered: refusing the duplicate when a file is missing (the user may want to duplicate exactly to repair the project); a status bar message only (the D-079 behaviour, easy to miss).
 - Consequences: one more modal dialog, only in that case; the tests use the fake dialog's `warnings` list.
 
 ## D-081 Meshing benchmark: generated geometries and case definitions
-- Status: Proposed (task 5.0, Part B).
+- Status: Accepted (owner, as implemented, QUESTIONS 162). Was Proposed (task 5.0, Part B).
 - Context: Phase 5.0 (docs/PLAN.md) needs a reproducible benchmark that measures the current mesher as the baseline against which surface preparation, an alternative volume mesher and prism-layer work (5.2-5.4) are judged. It must measure what a user gets, so it runs the app's own defaults.
 - Decision:
   - Geometries are generated by code (src/vortexcfd/bench/geometries.py; `benchmarks/geometries/generate.py` or `python -m vortexcfd.bench --generate`), written to benchmarks/geometries/ and git-ignored; a missing file is generated when a case needs it. The files are byte-identical from run to run: the STEP header's time stamp is fixed and its product is named after the file. Axes: x along the flow from the nose or leading edge at x = 0, y spanwise, z up.
@@ -793,7 +793,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: the benchmark measures exactly the New simulation defaults; a change to a default changes the benchmark, which is then visible in a comparison. A STEP written by a newer OCP may differ in bytes; the geometry does not.
 
 ## D-082 Meshing benchmark: runner, metrics, result files and regression rules
-- Status: Proposed (task 5.0, Part C).
+- Status: Accepted (owner, as implemented, QUESTIONS 162). Was Proposed (task 5.0, Part C).
 - Context: the benchmark of D-081 needs one command that runs the cases through the app's own pipeline, measures the mesh and writes comparable result files, and a comparison that flags regressions. The meshing orchestration the app uses (`prepare_job`, `prepare_solver_case`, the CAD import) lives in the Qt-free modules gui/meshing.py, gui/solving.py and gui/part_ops.py, but importing any gui module imported Qt through gui/__init__.py.
 - Decision:
   - Command: `.venv/bin/python -m vortexcfd.bench [--cases ...] [--compare <file>] [--no-solve] [--result <file>] [--out <folder>] [--generate]`. Each case runs in its own Python process (so the peak memory belongs to that case); a crash is recorded as a failed case. Project folders go to run/bench/<case>/ (an earlier one is removed only when it holds <case>.vcfd).
@@ -959,7 +959,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: one more background check after imports and part edits (0.1 s on the aircraft); tests/test_surface_prep.py.
 
 ## D-100 checkMesh failures: hard ones block the solver, soft ones warn
-- Status: Proposed (owner review of 5.2, docs/QUESTIONS.md item 120). [NUMERICS-REVIEW] Changes D-096: only hard failures block.
+- Status: Accepted (owner, as implemented, QUESTIONS 162). The classification of each checkMesh line as hard or soft ([NUMERICS-REVIEW]) is QUESTIONS 166. Was Proposed (owner review of 5.2, docs/QUESTIONS.md item 120). [NUMERICS-REVIEW] Changes D-096: only hard failures block.
 - Context: D-096 blocked Run Solver and the polar sweep for every failed checkMesh check, so a mesh failing only the skewness check (4.23 on the as-imported aircraft) could not be solved. The owner asked for two classes.
 - Decision: `foam/mesh_report.py` classifies every line checkMesh prints with "***" (a failed check) by the start of its text (`HARD_CHECKS`, `SOFT_CHECKS`, `check_class`); the mapping comes from the v2606 sources (src/OpenFOAM/meshes/primitiveMesh/primitiveMeshCheck/primitiveMeshCheck.C, src/OpenFOAM/meshes/polyMesh/polyMeshCheck/polyMeshCheck.C, applications/utilities/mesh/manipulation/checkMesh/checkTopology.C and checkGeometry.C):
   - HARD (block Run Solver and the polar sweep; the badge reads "Mesh invalid: checkMesh failed"):
@@ -999,7 +999,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: the CAD union and its fallback refine all junctions the same way; the layer collapse at refined junctions is a 5.4 input (docs/QUESTIONS.md item 122).
 
 ## D-102 cfMesh evaluation case and the benchmark's mesher switch
-- Status: Proposed (task 5.3, Part B; evaluation only: the app keeps snappyHexMesh, no default changes). [NUMERICS-REVIEW]
+- Status: Accepted (owner, as implemented, QUESTIONS 162). Was Proposed (task 5.3, Part B; evaluation only: the app keeps snappyHexMesh, no default changes). [NUMERICS-REVIEW].
 - Context: PLAN 5.3 compares cfMesh with the snappyHexMesh pipeline on the benchmark, prism layers first. cfMesh is in the v2606 installation (benchmarks/RESULT_5.3.md, Part A); its sources were read from the community integration repository (cfMesh v1.1).
 - Decision:
   - `foam/cfmesh_case.py` (no Qt, no pyvista) writes system/meshDict and the steps from the same `MeshCaseInput` snappyHexMesh gets; `workflow/meshing.mesh_inputs` (split out of `prepare_job`, unchanged behaviour) builds it. `workflow/cfmesh.prepare_cfmesh_job` writes the case into <project>/case: the parts' STLs (surfaceFeatureExtract's input, as for snappyHexMesh), the combined surface constant/triSurface/vortexcfd_cfmesh.stl and the domain guard (expected domain patches, no background box).
@@ -1116,25 +1116,25 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: a parallel mesh is not bit-identical to the serial one (snappyHexMesh's decisions depend on the partition); measured in benchmarks/RESULT_parallel_mesh.md. The benchmark's secondary layer figure from snappyHexMesh's layer fields is not available for parallel runs (the fields stay in processor*/); the headline walk is unaffected (D-105).
 
 ## D-112 A mesh or solver run is bound to the case folder it started in
-- Status: Proposed (review follow-up, docs/REVIEW.md R-01).
+- Status: Accepted (owner, as implemented, QUESTIONS 162). The owner also accepted the behaviour after a project switch: the mesh record goes to the run's own case folder and that case's out-of-date results are removed (D-051). Was Proposed (review follow-up, docs/REVIEW.md R-01).
 - Context: switching projects only requests a stop of a running mesh or solver; a run that ended normally in the meantime wrote its record into the newly opened project's case/ and, for a mesh, deleted that project's results (D-051).
 - Decision: the window remembers the case folder (and, for a mesh, the part patches) of the run it starts. When the run ends and that folder is not the open project's case/, the mesh record (with the removal of the results it makes out of date, D-051) or the run record goes to the run's own case folder, the console says so, and nothing is shown or changed in the open project; a stopped or failed mesh writes nothing. Results read for a case that is no longer open are ignored.
 - Consequences: the open project's records and results are never touched by another project's run; a project whose run finished after a switch shows that run when it is reopened.
 
 ## D-113 Every background run reports its end, also after an exception
-- Status: Proposed (review follow-up, docs/REVIEW.md R-02).
+- Status: Accepted (owner, as implemented, QUESTIONS 162). Was Proposed (review follow-up, docs/REVIEW.md R-02).
 - Context: `MeshRun` ran its steps in try/finally only: an exception (a step that cannot start, a log or the decomposeParDict that cannot be read or written) ended the thread without `on_done`, so the top bar stayed in "Meshing". `SolverRun` caught only OSError, ValueError and RuntimeError, and nothing around the classification after the process; the mesh study and the polar sweep wrote their first and last record outside their exception handler.
 - Decision: `MeshRun` turns any exception into a failed `MeshRunResult` (`failed_step` = the step that was running, `error` = "<step> failed: <type>: <message>") after removing processor*/ as before; `SolverRun` reports any exception as a crashed run whose `crash` text is the error; the study and the sweep save their first record inside the handler and report a last record that cannot be written in the console. In each case `on_done` is called, so the state badge returns and the error appears in the console. The geometry worker, the overlap and intersection checks and the results loader already caught every exception.
 - Consequences: no change for runs without an exception.
 
 ## D-114 Project files, presets and records written atomically with the umask's permissions
-- Status: Proposed (review follow-up, docs/REVIEW.md R-04, R-05).
+- Status: Accepted (owner, as implemented, QUESTIONS 162). The owner also accepted that a file saved again gets the umask's mode (a mode set by hand is not kept). Was Proposed (review follow-up, docs/REVIEW.md R-04, R-05).
 - Context: the project file and the presets were written through a temporary file created with mode 0600, so every .vcfd and preset file was readable by its owner only, unlike every other file the app writes (0644 under the usual umask 022). The mesh record, the run record, study.json and sweep.json were written in place (truncate, then write): a crash mid-write left half a file, which reads as no record.
 - Decision: one writer, `core/atomic_io.write_text_atomic`: a temporary file in the target's folder, chmod to 0666 minus the process umask (read from /proc/self/status, so the umask is never changed), then `os.replace`; on any failure the temporary file is removed and the old file is left whole. The project file, the presets and the four records use it; their names and content are unchanged.
 - Consequences: a file saved again gets the umask's mode (an older 0600 .vcfd becomes 0644 under umask 022 at its next save; a mode set by hand on one of these files is not kept).
 
 ## D-115 Edit > Add part (placeholder) disabled
-- Status: Proposed (review follow-up, docs/REVIEW.md R-18).
+- Status: Accepted (owner, as implemented, QUESTIONS 162). The owner also accepted that the Edit menu shows its actions' tooltips (Add Wake Volume's too). Was Proposed (review follow-up, docs/REVIEW.md R-18).
 - Context: the Edit menu item "Add part (placeholder)" (from Phase 2, before geometry import existed) added a part with no surface file; File > Import Geometry is the way to add parts since Phase 3.
 - Decision: the item stays in the Edit menu, disabled, with the tooltip "Not built yet: an empty part without a surface. Add parts with File > Import Geometry." (D-039: features not built are omitted or disabled with a tooltip); the Edit menu shows its actions' tooltips (so Add Wake Volume's tooltip is shown there too). `MainWindow.add_placeholder_part` stays for the tests, which call it directly.
 - Consequences: the user can no longer add an empty part from the menu.
