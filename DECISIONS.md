@@ -121,6 +121,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-104 | 2026-10-20 | NVIDIA adapter selected under WSL at start-up | Accepted |
 | D-105 | 2026-10-20 | Benchmark layer headline counted from the mesh; hard and soft checks per case | Proposed |
 | D-106 | 2026-10-20 | Robust prism-layer defaults: layer cap 12, expansion up to 1.3, featureAngle 130, nOuterIter 3 (schema v13) | Proposed |
+| D-112 | 2026-10-21 | A mesh or solver run is bound to the case folder it started in | Proposed |
 
 ---
 
@@ -1105,3 +1106,9 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Alternatives considered: keeping the decomposed mesh for the solver (P1: always reconstruct); hierarchical decomposition (needs per-direction counts); ptscotch (not used by most snappyHexMesh tutorials, same balancing role); a schema-free optional field (an older app would reject the file with an unknown-field error instead of the version message).
 - Measured (benchmarks/RESULT_parallel_mesh.md; mesh only, nice 15, one run per point): mesh wall-clock 1 / 4 / 8 cores: sphere 52 / 33 / 25 s, half wing 63 / 43 / 32 s, Ahmed body 46 / 29 / 25 s, aircraft (CAD union) 497 / 189 / 120 s (speedup 8 cores 2.13 / 1.97 / 1.85 / 4.13). Validity, hard and soft checks, strict coverage overall and per zone, the walked first cell and the fidelity are the same to the noise (cells within 0.1 % on the public cases, -0.9 % on the aircraft; aircraft strict coverage 2.4 / 2.5 / 2.7 %). Every case has about 100,000 background cells, so the background estimate cannot separate the aircraft's speedup from the public cases'; the cap rule takes the larger core count that was still faster everywhere. The summed memory grows with the ranks (sphere 460 -> 1027 MiB at 8).
 - Consequences: a parallel mesh is not bit-identical to the serial one (snappyHexMesh's decisions depend on the partition); measured in benchmarks/RESULT_parallel_mesh.md. The benchmark's secondary layer figure from snappyHexMesh's layer fields is not available for parallel runs (the fields stay in processor*/); the headline walk is unaffected (D-105).
+
+## D-112 A mesh or solver run is bound to the case folder it started in
+- Status: Proposed (review follow-up, docs/REVIEW.md R-01).
+- Context: switching projects only requests a stop of a running mesh or solver; a run that ended normally in the meantime wrote its record into the newly opened project's case/ and, for a mesh, deleted that project's results (D-051).
+- Decision: the window remembers the case folder (and, for a mesh, the part patches) of the run it starts. When the run ends and that folder is not the open project's case/, the mesh record (with the removal of the results it makes out of date, D-051) or the run record goes to the run's own case folder, the console says so, and nothing is shown or changed in the open project; a stopped or failed mesh writes nothing. Results read for a case that is no longer open are ignored.
+- Consequences: the open project's records and results are never touched by another project's run; a project whose run finished after a switch shows that run when it is reopened.

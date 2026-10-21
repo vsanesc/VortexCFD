@@ -12,6 +12,7 @@ from pytestqt.qtbot import QtBot
 from tests.fakes import FakeDialogs
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
+from vortexcfd.foam.mesh_record import read_mesh_record
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.foam.mesh_run import MeshRunResult
 from vortexcfd.geometry.loader import clear_cache
@@ -28,8 +29,8 @@ def _fresh_cache():
 def make_window(qtbot: QtBot, tmp_path: Path):
     made: list[MainWindow] = []
 
-    def make(with_part=True, save=True, with_viewer=False, domain_enabled=True) -> MainWindow:
-        folder = tmp_path / "proj"
+    def make(with_part=True, save=True, with_viewer=False, domain_enabled=True, folder_name="proj") -> MainWindow:
+        folder = tmp_path / folder_name
         (folder / "geometry").mkdir(parents=True, exist_ok=True)
         project = Project.new("m")
         if with_part:
@@ -222,6 +223,34 @@ def test_report_shown_on_the_mesh_node_and_telemetry(make_window, fake_run) -> N
     assert v["non_ortho"].startswith("30.5") and v["skewness"] == "0.5"
     assert dict(w.telemetry_rows)["Cells"] == "1234"
     assert "1234 cells" in w.console.text() and "Mesh OK" in w.console.text()
+
+
+def test_a_mesh_ending_after_a_project_switch_stays_in_its_own_case(make_window, fake_run) -> None:
+    """R-01: the record goes to the case the run started in; the open project's results are kept."""
+    other = make_window(folder_name="other")
+    other.top_bar.mesh_button.click()
+    fake_run.instances[-1].finish(MeshRunResult(True, False, exit_codes={}, report=_ready_report()))
+    case_b = other.project.path.parent / "case"
+    record_b = read_mesh_record(case_b)
+    (case_b / "100").mkdir()
+    (case_b / "postProcessing").mkdir()
+    w = make_window()
+    case_a = w.project.path.parent / "case"
+    w.top_bar.mesh_button.click()
+    run = fake_run.instances[-1]
+    (case_a / "100").mkdir()  # results of an earlier mesh of A: out of date once A's mesh is new
+    w.set_project(Project.open(other.project.path))
+    assert run.stop_requested
+    a_report = MeshReport(points=10, faces=40, cells=777, max_non_orthogonality=30.5,
+                          avg_non_orthogonality=10.0, max_skewness=0.5, failed_checks=0, mesh_ok=True)
+    run.finish(MeshRunResult(True, False, exit_codes={}, report=a_report))  # it ended before the stop arrived
+    assert read_mesh_record(case_a).report.cells == 777 and read_mesh_record(case_a).patches == ("Ball",)
+    assert not (case_a / "100").exists()
+    assert read_mesh_record(case_b) == record_b
+    assert (case_b / "100").is_dir() and (case_b / "postProcessing").is_dir()
+    assert w.mesh_report == record_b.report  # B's mesh is still the one shown
+    assert w.top_bar.state_badge.text() != "Meshing" and w.top_bar.mesh_button.text() == "Generate Mesh"
+    assert "after the project changed" in w.console.text()
 
 
 def test_failed_checks_are_warned(make_window, fake_run) -> None:

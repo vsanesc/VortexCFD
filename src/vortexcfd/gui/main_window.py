@@ -335,6 +335,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.mesh_stale = False
         self._mesh_hash: str | None = None  # inputs hash of the mesh being shown
         self._run_hash: str | None = None  # inputs hash at the start of the running mesh
+        # The running mesh's case folder and part patches: its record goes there, whatever project is
+        # open when it ends (R-01).
+        self._mesh_run: tuple[Path, tuple[str, ...]] | None = None
         self.mesh_view: MeshView | None = None
         self._scene_mode = "geometry"
         self._mesh_patches: tuple[str, ...] = ()
@@ -358,6 +361,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.results_stale = False
         self._solve_hash: str | None = None  # results hash at the start of the running solver
         self._solve_stopping: StoppingCriteria | None = None  # the running solver's stopping criteria
+        self._solve_case_dir: Path | None = None  # the running solver's case folder (R-01)
         self.solver_worker = SolverWorker(self)
         self.solver_timeout_s: float | None = None  # wall-clock limit of a solver run (tests set one)
         self.solver_worker.line.connect(self._on_solver_line)
@@ -1247,6 +1251,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             log.info("snappyHexMesh on %d cores (decomposed, reconstructed afterwards)", job.cores)
         planned = job.inputs.first_layer_thickness
         first_layer = (planned, job.inputs.layer_count or 1) if planned is not None else None  # y+ layers (D-109)
+        self._mesh_run = (job.case_dir, job.inputs.patches)
         self.mesh_worker.start(job.case_dir, job.inputs.patches, first_layer, job.cores)
         self._update_mesh_stale()
         self._update_mesh_button()
@@ -1302,9 +1307,17 @@ class MainWindow(StudyControlMixin, QMainWindow):
     def _on_mesh_step(self, name: str) -> None:
         log.info("Running %s", name)
 
+    def _is_current_case(self, case_dir: Path | None) -> bool:
+        """True when ``case_dir`` is the case folder of the open project."""
+        current = case_dir_for(self._project) if self.has_project else None
+        return case_dir is not None and current is not None and Path(case_dir).resolve() == current.resolve()
+
     def _on_mesh_done(self, result) -> None:
         self.top_bar.set_run_state(None)
-        if result.stopped:
+        bound, self._mesh_run = self._mesh_run, None
+        if bound is not None and not self._is_current_case(bound[0]):
+            self._finish_other_project_mesh(result, *bound)
+        elif result.stopped:
             log.warning("Meshing stopped")
             self.show_message("Meshing stopped", "warning", log_it=False)
         elif not result.success:
@@ -1315,6 +1328,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self.show_message(f"Meshing failed in {step}; see the console", "error", log_it=False)
         else:
             report = result.report
+            if bound is not None:
+                self._mesh_patches = bound[1]
             self.mesh_report = report
             self._mesh_hash = self._run_hash
             self.properties.set_mesh_report(report)
@@ -1344,6 +1359,22 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._update_mesh_button()
         self._update_run_button()
         self._update_telemetry()
+
+    def _finish_other_project_mesh(self, result, case_dir: Path, patches: tuple[str, ...]) -> None:
+        """A mesh that ends after the window switched projects (R-01): its record and the removal of
+        the results it makes out of date (D-051) go to the case folder it ran in, never to the open
+        project; nothing is shown."""
+        if result.stopped or not result.success or result.report is None:
+            log.warning("Meshing of %s ended (%s) after the project changed", case_dir,
+                        "stopped" if result.stopped else "failed")
+            return
+        try:
+            write_mesh_record(case_dir, MeshRecord(result.report, self._run_hash or "", patches, result.cores))
+            remove_results(case_dir)
+        except (OSError, CaseDirectoryNotOursError) as exc:
+            log.warning("Could not save the mesh record of %s: %s", case_dir, exc)
+            return
+        log.info("Meshing of %s finished after the project changed; its mesh record was saved there", case_dir)
 
     # -- solving ---------------------------------------------------------------------
 
@@ -1402,6 +1433,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         cores = self._project.sim.solvers.cores
         if cores > 1:
             log.info("Running simpleFoam on %d cores (decomposePar, mpirun, reconstructPar)", cores)
+        self._solve_case_dir = case_dir
         self.solver_worker.start(case_dir, timeout_s=self.solver_timeout_s, stopping=self._solve_stopping,
                                  cores=cores)
         self._update_results_stale()
@@ -1457,20 +1489,35 @@ class MainWindow(StudyControlMixin, QMainWindow):
 
     def _on_solver_done(self, result) -> None:
         self.top_bar.set_run_state(None)
+        case_dir, self._solve_case_dir = self._solve_case_dir, None
         stopping = self._solve_stopping or StoppingCriteria(criteria=[])
         criteria, stopped_by = convergence.criteria_outcome(stopping, result.criteria_met)
         labels = convergence.met_labels(stopping, result.criteria_met)
+        record = RunRecord(result.state, result.iterations, result.final_residuals,
+                           self._solve_hash or "", result.exit_code, criteria, stopped_by, labels,
+                           result.met_iteration, round(result.duration_s, 1), result.cores)
+        if case_dir is None:
+            case_dir = case_dir_for(self._project)
+        elif not self._is_current_case(case_dir):
+            # The run ended after the window switched projects (R-01): its record goes to the case
+            # folder it ran in; the open project and its monitors are left alone.
+            try:
+                write_run_record(case_dir, record)
+                log.info("The solver run of %s ended (%s) after the project changed; its record was saved there",
+                         case_dir, record.label)
+            except (OSError, TypeError) as exc:
+                log.warning("Could not save the run record of %s: %s", case_dir, exc)
+            self._update_run_button()
+            self._update_mesh_button()
+            return
         met_at = result.met_iteration or result.iterations
         self.monitors.set_outcome(result.state, stopped_by, met_at)
         self.monitors.end_run()
         if result.crash:
             self.console.append_error(result.crash)
-        record = RunRecord(result.state, result.iterations, result.final_residuals,
-                           self._solve_hash or "", result.exit_code, criteria, stopped_by, labels,
-                           result.met_iteration, round(result.duration_s, 1), result.cores)
         self.run_record = record
         try:
-            write_run_record(case_dir_for(self._project), record)
+            write_run_record(case_dir, record)
         except (OSError, TypeError) as exc:
             log.warning("Could not save the run record: %s", exc)
         residuals = ", ".join(f"{k} {v:.3g}" for k, v in result.final_residuals.items()) or "none"
@@ -1678,6 +1725,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
 
     def _on_results_loaded(self, data) -> None:
         if self.results_view is None:
+            return
+        if not self._is_current_case(data.case_dir):  # read for a project that is no longer open (R-01)
+            log.info("Ignored the results of %s: the project changed while they were read", data.case_dir)
             return
         self._results_shown_time = data.time
         self._apply_results_controls(data)
