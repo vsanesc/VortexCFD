@@ -83,8 +83,6 @@ runs scripts/ship.sh (the slow tests, item 161). Open: docs/QUESTIONS.md items 3
 
 - GPU environment variables (GALLIUM_DRIVER=d3d12, MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA) are set in
   the user's ~/.bashrc; the app should set them at startup when they are not set.
-- numpy is imported directly (geometry/checks.py, gui/scene.py, gui/viewport.py) but is not declared in
-  pyproject.toml (it arrives through pyvista).
 - Courant number: parsed from logs (foam/logparse.py) but no warning in the GUI.
 - Parallel speedup saturates at about 3 on 8 cores (memory-bandwidth bound, docs/validation/parallel/README.md); the recommended-core cap of 4 is a constant for this machine (item 69).
 - Location of user projects and run outputs in the released app (run/ is development only).
