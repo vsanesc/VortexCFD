@@ -57,11 +57,18 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
     core count, else round 1's (`ahmed_case.estimate_level`, tests/test_ahmed_driver.py).
   - tests/validation/test_ahmed.py checks round 2's recorded verdict inputs (marker validation, not run).
   - docs/validation/README.md: the index of the validation cases; a manual note (below).
+  - D-119 accepted with the owner's change (the oscillation case's mean over the D-118 window).
+- References read after round 2 (owner's ~/vortexcfd-geometry/refs/): Guilmineau 2008 recorded in SETUP.md
+  (k-omega SST 0.3074 at 25 degrees, wall-resolved, y+ about 0.25, 1.8 M points, no slant reattachment);
+  the files named for Ahmed 1984 and Lienhart & Becker 2003 are other papers (Grandemange et al. 2013,
+  Becker et al. 2002), so neither is read. Re-verdict of round 2 against Guilmineau and the vendor pages
+  (SST range 0.2915-0.313): **FAIL**, 3.7 % above the range; the fine slant bubble reattaches later on the
+  centre line than the experiment as described by Guilmineau. QUESTIONS 172 closed; 171 open.
 
-Next: the reference papers (QUESTIONS 171, 172). Then the
+Next: the real Ahmed 1984 and Lienhart & Becker 2003 papers (QUESTIONS 171). Then the
 aircraft's zones (QUESTIONS 147); drag handles for the refinement volumes (item 132). The owner runs
 scripts/ship.sh (the slow tests, item 161). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75,
-82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 171, 172 and 174.
+82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 171 and 174.
 
 ### Previous branch (task/5.x-parallel-mesh, published in PR #26)
 
@@ -113,8 +120,9 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
 
 - The Ahmed body 25 degree validation FAILS V6 in both rounds (round 2: body Cd +13.9 % on the finest of
   three grids, above the published SST range; no GCI, oscillatory, but medium and fine within 0.8 %; the
-  steady run oscillates; not the set-up, the cause of the over-prediction not established; FAIL until the
-  references are verified; docs/validation/ahmed/RESULT.md).
+  steady run oscillates; not the set-up, the cause of the over-prediction not established; re-verdicted
+  FAIL against Guilmineau 2008 and the vendor pages, 3.7 % above the SST range 0.2915-0.313; the
+  experimental Cd still second hand, QUESTIONS 171; docs/validation/ahmed/RESULT.md).
 
 - Results at angle of attack != 0 are biased by the angled-inlet method with slip far field (QUESTIONS 71, open).
 

@@ -6,15 +6,17 @@ the marker `validation` (or `long`) and are not part of the default test run.
 | Case | What it checks | Verdict | Where |
 |---|---|---|---|
 | Flat plate (TMR), zero pressure gradient | k-omega SST with wall functions: skin friction | Case B: **PASS WITH NOTE** (Cf(0.97) 3.3 % below the TMR reference) | [flat_plate/README.md](flat_plate/README.md) |
-| Ahmed body, 25 degree slant, in ground proximity | external aerodynamics with a ground plane: body drag against Ahmed et al. (1984) | **FAIL** (V6) in rounds 1 and 2: fine-grid body Cd 0.325, +14 % | [ahmed/RESULT.md](ahmed/RESULT.md), [ahmed/SETUP.md](ahmed/SETUP.md) |
+| Ahmed body, 25 degree slant, in ground proximity | external aerodynamics with a ground plane: body drag against Ahmed et al. (1984) | **FAIL** (V6) in rounds 1 and 2, and in the re-verdict with the verified references: fine-grid body Cd 0.325, +14 %, above the SST range 0.2915-0.313 | [ahmed/RESULT.md](ahmed/RESULT.md), [ahmed/SETUP.md](ahmed/SETUP.md) |
 | Parallel speedup (D-064) | solver speed-up with the number of MPI ranks | measurement, no verdict | [parallel/README.md](parallel/README.md) |
 
-## Ahmed body: reading of round 2 (owner review, 2026-10-21)
+## Ahmed body: reading of round 2 (owner review and the references read after it, 2026-10-21)
 
 Recorded as FAIL under V6. The medium and fine levels agree within 0.8 %, so the grid uncertainty is small
 even though no GCI can be computed (oscillatory). Steady k-omega SST with wall functions gives a body Cd of
-0.325 (+14 %) on this case. The remaining error is not the set-up (the round 2 fixes moved the fine level by
--0.1 %); the fine level reproduces a reattaching slant bubble, as in the experiment, and why steady SST still
-over-predicts the drag is not established (to be checked against Lienhart & Becker's data, QUESTIONS 171).
-The verdict depends on unverified SST literature values, which probably used wall-resolved meshes, unlike
-this study (V3); it stays FAIL until verified references are read (QUESTIONS 171 and 172).
+0.325 (+14 %) on this case; the round 2 set-up fixes moved the fine level by -0.1 %. The one peer-reviewed
+SST result read (Guilmineau 2008, steady, wall-resolved) also over-predicts: 0.3074 (+7.9 %), with no
+slant reattachment; this study is 5.6 % above it and 3.7 % above the highest vendor result. The fine
+level's slant bubble reattaches later on the centre line (0.6-0.7 of the slant) than the experiment as
+Guilmineau describes it (about half-way); the bubble's size does not track the drag in the results
+compared, and the cause of the gap is not established. Still missing: the real Ahmed et al. (1984) and
+Lienhart & Becker (2003) papers (the files supplied under their names are other papers; QUESTIONS 171).
