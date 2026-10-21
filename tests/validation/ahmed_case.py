@@ -24,6 +24,7 @@ from vortexcfd.bench import geometries as bench_geo
 from vortexcfd.core.model import (
     AsymptoticCriterion,
     Ground,
+    MeanStableCriterion,
     ResidualCriterion,
     Simulation,
     StoppingCriteria,
@@ -101,6 +102,22 @@ AVERAGE_WINDOW = 1000  # iterations averaged for the judged values (the oscillat
 BACKGROUND_CELLS = 800_000
 SURFACE_SIZE = 0.005
 STUDY_RATIO = math.sqrt(2.0)  # the mesh study's default ratio in linear cell size (D-066)
+# -- round 2 (owner review of round 1, 2026-10-21; SETUP.md "Round 2") ------------------------------------
+# The inlet at the app default 5 L ahead of the nose; the ground wall from 1.35 L ahead of the nose (where
+# Ahmed's ground board started) with the slip strip upstream of it (D-118); prism layers on the ground wall
+# (the body's shared stack, the same y+ rule); the mean-stable criterion on the body Cd with the 1500
+# iteration cap; 8 cores for meshing and for the solver (to fit the evening's deadline). Everything else
+# as round 1, the three level sizes included (the base size pinned to round 1's, BASE_SIZE_ROUND1).
+PROJECT_NAME_R2 = "ahmed25_r2"
+UPSTREAM_R2 = 5.0  # L, the app default
+GROUND_WALL_START = -UPSTREAM_BOARD * LENGTH  # m: -1.4094, 1.35 L ahead of the nose (L = 1.044 m, the body)
+DOMAIN_R2 = {"upstream": UPSTREAM_R2, "downstream": 10.0, "lateral": 5.0, "vertical": 5.0, "symmetry": "y_min",
+             "ground": Ground(enabled=True, motion="stationary", position="value", z=0.0, layers=True,
+                              wall_start_x=GROUND_WALL_START).model_dump()}
+CORES_R2 = 8
+# Round 1's fine background cell size: (domain volume 388.1 m3 / 800,000 cells)^(1/3) (SETUP.md, "Mesh":
+# 78.6 mm). Round 2's longer domain keeps it as an explicit base size, so its levels have round 1's sizes.
+BASE_SIZE_ROUND1 = (12.893 * 5.415 * 5.558 / BACKGROUND_CELLS) ** (1.0 / 3.0)
 STUDY_QUANTITIES = ["Cd@body", "Cd", "Cl@body", "Cl", "Cd_pressure@body", "Cd_viscous@body", "Cd@stilt_front",
                     "Cd@stilt_rear", "Cl_pressure@body", "Cl_viscous@body"]
 
@@ -149,27 +166,44 @@ def stopping() -> StoppingCriteria:
     return StoppingCriteria(criteria=[*residuals, AsymptoticCriterion(quantity="Cd@body")], combine="all")
 
 
-def build_project(work_root: Path, geometry_dir: Path) -> Project:
-    """A fresh project <work_root>/ahmed25/ made as the New simulation dialog does (preset "External
-    flow"), the three parts imported as File > Import Geometry does, and the validation inputs set."""
+def stopping_round2() -> StoppingCriteria:
+    """Round 2: the mean-stable criterion on the body's Cd with its defaults (window 500, tolerance 0.5 %,
+    D-118) alone; the iteration limit ITERATIONS stays as the safety cap."""
+    return StoppingCriteria(criteria=[MeanStableCriterion(quantity="Cd@body")], combine="all")
+
+
+def project_name(round_: int) -> str:
+    return PROJECT_NAME if round_ == 1 else PROJECT_NAME_R2
+
+
+def build_project(work_root: Path, geometry_dir: Path, round_: int = 1) -> Project:
+    """A fresh project <work_root>/ahmed25/ (round 2: ahmed25_r2/) made as the New simulation dialog does
+    (preset "External flow"), the three parts imported as File > Import Geometry does, and the validation
+    inputs set."""
     from vortexcfd.bench.runner import import_geometry
 
-    folder = work_root / PROJECT_NAME
+    name = project_name(round_)
+    folder = work_root / name
     if folder.exists():
-        if not (folder / f"{PROJECT_NAME}.vcfd").is_file():
+        if not (folder / f"{name}.vcfd").is_file():
             raise RuntimeError(f"{folder} exists and is not the validation project: not touching it")
         shutil.rmtree(folder)
-    sim = apply_preset(Simulation(name=PROJECT_NAME), BUILTIN_PRESETS[0])
-    project = Project.create(work_root, PROJECT_NAME, sim)
+    sim = apply_preset(Simulation(name=name), BUILTIN_PRESETS[0])
+    project = Project.create(work_root, name, sim)
     for name, path in write_geometry(geometry_dir).items():
         import_geometry(project, path, "mm", mode="parts")
     for index in range(len(project.sim.geometry.parts)):  # the deflection rows of the part properties
         project.update_part(index, **part_ops.retessellate(project, index, LINEAR_DEFLECTION, ANGULAR_DEFLECTION))
-    project.update_domain(**DOMAIN)
+    project.update_domain(**(DOMAIN if round_ == 1 else DOMAIN_R2))
     project.update_physics(nu=NU)
     project.update_inflow(speed=SPEED, turbulence_intensity=TURBULENCE_INTENSITY)
     project.update_reports(reference_area_basis="custom", reference_area=A_REF_HALF, reference_length=LENGTH)
-    project.update_solver(cores=SOLVER_CORES, iterations=ITERATIONS, write_interval=ITERATIONS,
-                          stopping=stopping())
+    if round_ == 1:
+        project.update_solver(cores=SOLVER_CORES, iterations=ITERATIONS, write_interval=ITERATIONS,
+                              stopping=stopping())
+    else:
+        project.update_solver(cores=CORES_R2, iterations=ITERATIONS, write_interval=ITERATIONS,
+                              stopping=stopping_round2())
+        project.update_mesh(cores=CORES_R2)
     project.save()
     return project

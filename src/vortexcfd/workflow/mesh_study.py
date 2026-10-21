@@ -7,6 +7,7 @@ own, <project dir>/case_study/level_<n>/.
 
 import dataclasses
 import shutil
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -152,9 +153,11 @@ def study_readiness(project: Project, *, busy: str | None = None) -> str | None:
     return physics_problem(project)
 
 
-def prepare_study(project: Project) -> tuple[Path, StudyRecord, MeshCaseInput]:
+def prepare_study(project: Project, only: Collection[str] | None = None) -> tuple[Path, StudyRecord, MeshCaseInput]:
     """Write the meshing case of every level into <project dir>/case_study/level_<n>/ and return
-    (study dir, the initial record, the inputs of the last level).
+    (study dir, the initial record, the inputs of the last level). ``only``: the names of the levels to
+    prepare (and record); the other levels' directories are left as they are, so a level can be run on
+    its own after another one (None: every level).
 
     Raises:
         MeshingNotReady: see ``study_readiness``.
@@ -181,6 +184,8 @@ def prepare_study(project: Project) -> tuple[Path, StudyRecord, MeshCaseInput]:
     features = _junction_features(project, box, length)
     levels, inputs = [], None
     for lp in plan.levels:
+        if only is not None and lp.level.name not in only:
+            continue
         inputs = MeshCaseInput(
             domain_bounds=box.bounds, symmetric=project.sim.domain.symmetry == "y_min", parts=tuple(safe),
             parts_bounds=union_bounds(bounds), reference_length=box.reference_length, mesh=lp.level.mesh,

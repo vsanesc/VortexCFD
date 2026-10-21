@@ -482,3 +482,29 @@ def test_every_level_keeps_the_refinement_volumes_and_the_ground(tmp_path: Path)
         assert regions["volume_wake"]["levels"][0][1] == level
         block = read_foam_file(case / "system" / "blockMeshDict")
         assert [name for name, _ in block["boundary"]][-1] == "ground"
+
+
+def test_one_level_can_be_prepared_without_touching_the_others(tmp_path: Path) -> None:
+    """``prepare_study(only=...)``: the named level is written and recorded; another level's directory
+    (a finished run) is left as it is (one level per command, the Ahmed round 2 driver)."""
+    import pyvista as pv
+
+    from vortexcfd.core.model import Part
+    from vortexcfd.core.project import Project
+    from vortexcfd.workflow.mesh_study import prepare_study
+
+    folder = tmp_path / "proj"
+    (folder / "geometry").mkdir(parents=True)
+    pv.Sphere(radius=0.5, theta_resolution=12, phi_resolution=12).save(str(folder / "geometry" / "sphere.stl"))
+    project = Project.new("study")
+    project.add_part(Part(name="Sphere", source_file="geometry/sphere.stl", units="m"))
+    project.save(folder / "p.json")
+    study_dir, record, _ = prepare_study(project, only=["coarse"])
+    assert [lv.name for lv in record.levels] == ["coarse"] and record.levels[0].index == 0
+    assert (study_dir / "level_1" / "system" / "blockMeshDict").is_file() and not (study_dir / "level_2").exists()
+    done = study_dir / "level_1" / "constant" / "polyMesh"
+    done.mkdir(parents=True)
+    (done / "points").write_text("kept")
+    _, record, _ = prepare_study(project, only=["medium"])
+    assert [lv.name for lv in record.levels] == ["medium"] and record.levels[0].index == 1
+    assert (done / "points").read_text() == "kept" and (study_dir / "level_2" / "system" / "blockMeshDict").is_file()

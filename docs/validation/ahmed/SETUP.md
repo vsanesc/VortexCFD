@@ -165,3 +165,71 @@ off the same figure, https://www.simscale.com/docs/validation-cases/aerodynamics
 The two readings differ by 0.9 %; the verdict is also given against 0.2875. [A84]'s values exclude the
 stilts ("Total drag value has been corrected for tare drag of stilts"): the comparison uses the body
 alone (V2).
+
+## Round 2 (owner review of round 1, 2026-10-21)
+
+The owner read round 1's FAIL as inconclusive: (a) the grids are not converged and the slant regime
+changes between levels; (b) the inlet 1.35 L ahead of the nose was where Ahmed's ground board started, not
+where the free stream started; (c) the ground boundary layer was unresolved (y+ 1,200-1,700 under the
+body); (d) the reference Cd and the SST literature values are unverified. Round 2 fixes (b) and (c) in the
+set-up and repeats the three levels; round 1's project, cases and numbers are kept as they are.
+
+### What changes
+
+| Item | Round 1 | Round 2 | Reason |
+|---|---|---|---|
+| Inlet | 1.35 L ahead of the nose | 5 L ahead (the app default) | (b): the free stream starts well ahead of the board |
+| Ground | no-slip wall from the inlet | slip strip `ground_slip` from the inlet to x = -1.4094 m (1.35 L ahead of the nose), the no-slip wall `ground` from there (D-118) | (b): the board's boundary layer starts at its leading edge, as in [A84] |
+| Ground prism layers | off (D-116 default) | on: the body's shared stack (9 layers, first 0.635 mm, ratio 1.2, 13.2 mm: the same y+ 50 rule, D-066, D-107) | (c) |
+| Base sizes | from the background target 800,000 on 388.1 m3 | pinned to round 1's (base size 78.6 mm on the fine level, `BASE_SIZE_ROUND1`; the study scales it to 111.1 and 157.1 mm) | the three level sizes of round 1 in the longer domain |
+| Stopping | 4 residual criteria + the asymptotic criterion on body Cd ("all"); never met, every level to 1500 | the mean-stable criterion on the body Cd alone (W 500, tol 0.5 %, D-118); the 1500-iteration limit kept as the safety cap | QUESTIONS 170; round 1's histories would have stopped at 1002-1036 |
+| Judged values | means over the last 1000 iterations | means over the last 500 (the criterion's window) at the stop | the criterion's own mean |
+| Cores | meshing 8, solver 4 | meshing 8, solver 8 | to fit the evening's deadline (owner); the solver speed-up from 4 to 8 ranks on this machine is small (1.0-1.2, D-064), so the estimates below assume none |
+
+Unchanged: the geometry and the stilts, the half model, the flow and reference values, the downstream,
+lateral and vertical sizes (10, 5, 5 L), the two refinement volumes, the wall functions on the body, the
+surface target sizes, the numerics. The wall start is placed on the background cell face nearest to
+-1.4094 m (D-118): -1.4380 m (coarse), -1.4338 m (medium), -1.3773 m (fine) (QUESTIONS 176).
+
+Domain 16.704 x 5.415 x 5.558 m (x from -5.220 to 11.484 m), 502.7 m3.
+
+### References (QUESTIONS 171, 172)
+
+The owner's reference folder `~/vortexcfd-geometry/refs/` does not exist on this machine (checked
+2026-10-21 20:33): no papers were supplied. The experimental Cd stays **0.285** as quoted (with 0.2875 as
+SimScale's reading), and the SST values of RESULT.md stay as cited; both items stay open.
+
+### Plan (app estimate; times from round 1's measured rates)
+
+`setup` output (`--round 2`): background cells and the study's cell estimate (assumed ratio 1.90 cells
+per background cell, the app's default before a study has run; the ground layers are not in it). The
+times scale round 1's same level by the cells: meshing 1.5 x round 1's (ground layers, longer domain), the
+solver at round 1's 4-core rate (no gain from 8 ranks assumed), for the full 1500 iterations (the
+criterion cannot stop before iteration 1000).
+
+| Level | Base | Background cells | Estimated cells | Meshing | Solver (1500 it.) | Runs |
+|---|---|---|---|---|---|---|
+| coarse | 157.1 mm | 126,140 | 239,666 | 1.7 min | 10.5 min | tonight, if its estimated end is before 23:15 |
+| medium | 111.1 mm | 367,500 | 698,250 | 2.0 min | 36.7 min | tonight, if its estimated end is before 23:15 |
+| fine | 78.6 mm | 1,043,487 | 1,982,625 | 6.2 min | 112.7 min | tomorrow |
+
+Deadline rules of the evening (owner): no OpenFOAM process may run after 23:15; a level is started only
+if its estimated end is before 23:15 (the driver refuses otherwise), and a level still running at 23:15 is
+stopped through the app's stop (the solver's clean stop, D-058; the meshing stop, D-111) and recorded as
+partial.
+
+### Commands
+
+One level per command (the record of each level is kept as `case_study/study_<level>.json`; a later
+level never touches an earlier level's directory), all at nice -n 15:
+
+```bash
+nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 2 setup
+nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 2 study --level coarse --deadline 23:15
+nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 2 study --level medium --deadline 23:15
+nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 2 study --level fine
+nice -n 15 .venv/bin/python scripts/validation/ahmed_study.py --round 2 collect
+```
+
+`collect` writes `docs/validation/ahmed/result_round2.json` from the levels run so far (round 1's
+`result.json` is not touched).

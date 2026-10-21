@@ -5,12 +5,25 @@ layer and the three-level mesh study run as the GUI's Mesh Study node runs it.
     .venv/bin/python scripts/validation/ahmed_study.py study   # mesh and solve the three levels
     .venv/bin/python scripts/validation/ahmed_study.py collect # per-level numbers -> result.json
 
+Round 2 (SETUP.md, "Round 2"): ``--round 2`` before the command; its project is ahmed25_r2 next to round
+1's, and ``study`` runs one level per command, refusing to start when the level's estimated end (round 1's
+measured rates) is after ``--deadline`` and stopping it cleanly at the deadline (the app's stop: the
+solver's clean stop, D-058; the meshing stop, D-111):
+
+    .venv/bin/python scripts/validation/ahmed_study.py --round 2 setup
+    .venv/bin/python scripts/validation/ahmed_study.py --round 2 study --level coarse --deadline 23:15
+    .venv/bin/python scripts/validation/ahmed_study.py --round 2 collect   # -> result_round2.json
+
 Run with nice -n 15. The project goes to run/validation/ahmed/ (git-ignored); the numbers to
-docs/validation/ahmed/result.json (RESULT.md is written from them).
+docs/validation/ahmed/result.json (round 2: result_round2.json; RESULT.md is written from them).
 """
 
 import argparse
+import dataclasses
+import datetime
 import json
+import shutil
+import threading
 import math
 import sys
 import time
@@ -49,17 +62,38 @@ def slant_box() -> BoxShape:
     return BoxShape(centre=((x0 + x1) / 2, y1 / 2, (z0 + z1) / 2), size=(x1 - x0, y1, z1 - z0))
 
 
+ROUND = 1  # set from --round
+
+
 def project_path() -> Path:
-    return WORK / ac.PROJECT_NAME / f"{ac.PROJECT_NAME}.vcfd"
+    name = ac.project_name(ROUND)
+    return WORK / name / f"{name}.vcfd"
+
+
+# Round 1's measured levels (RESULT.md, "Per level"): cells, meshing seconds (8 cores), solver seconds for
+# 1500 iterations on 4 cores. The round 2 estimates scale them by the cells and assume no solver speed-up
+# from 4 to 8 ranks (an upper bound: the measured 4 -> 8 speed-up on this machine is 1.0 to 1.2, D-064).
+ROUND1_LEVELS = {"coarse": (202_717, 56.0, 535.0), "medium": (524_785, 60.0, 1654.0), "fine": (1_338_191, 167.0, 4564.0)}
+
+
+def estimate_level(name: str, cells: int, iterations: int) -> tuple[float, float]:
+    """(meshing seconds, solver seconds) of a level of ``cells`` cells run for ``iterations``, from the
+    same level of round 1 scaled by the cells (meshing at least round 1's time plus 50 % for the ground
+    layers and the longer domain)."""
+    cells1, mesh1, solve1 = ROUND1_LEVELS[name]
+    rate = solve1 / (cells1 * ac.ITERATIONS)  # seconds per cell-iteration on 4 cores
+    return 1.5 * mesh1 * max(1.0, cells / cells1), rate * cells * iterations
 
 
 def setup(args) -> None:
     start = time.monotonic()
-    project = ac.build_project(WORK, WORK / "geometry_src")
+    project = ac.build_project(WORK, WORK / "geometry_src", ROUND)
     box, names, meshes = meshing.loaded_parts(project)
     est = meshing.project_estimate(project, box)
     bounds = [tuple(float(b) for b in m.bounds) for m in meshes]
     project.update_mesh(target_surface_size=args.surface_size, background_cells_target=args.background)
+    if ROUND == 2:  # round 1's level sizes in the longer domain (SETUP.md, "Round 2")
+        project.update_mesh(base_size=ac.BASE_SIZE_ROUND1)
     est = meshing.project_estimate(project, box)
     project.add_refinement_volume(refinement.wake_volume(project, [names.index(ac.BODY)], bounds, est))
     project.add_refinement_volume(RefinementVolume(id="new", name="slant", shape=slant_box(),
@@ -67,7 +101,7 @@ def setup(args) -> None:
     prep = surface_prep.prepare(project, "intersection_features")  # the stilts cross the body
     project.set_surface_prep(prep)
     project.update_study("mesh", ratio=ac.STUDY_RATIO, current_as="fine", quantities=ac.STUDY_QUANTITIES,
-                         cores=ac.SOLVER_CORES)
+                         cores=ac.SOLVER_CORES if ROUND == 1 else ac.CORES_R2)
     project.save()
     box, _, _ = meshing.loaded_parts(project)
     est = meshing.estimate_with_volumes(project, box)
@@ -88,20 +122,53 @@ def setup(args) -> None:
     from vortexcfd.workflow.mesh_study import plan_study
 
     sp = plan_study(project)
+    if ROUND == 2:
+        from vortexcfd.foam.mesh_case import ground_split_x
+
+        print(f"ground wall start asked {ac.GROUND_WALL_START:.4f} m")
     for lp in sp.levels:
-        print(f"level {lp.level.name}: factor {lp.level.factor:.3f}, background {lp.estimate.total_cells}, "
+        print(f"level {lp.level.name}: factor {lp.level.factor:.3f}, base {lp.estimate.base_size * 1000:.1f} mm, "
+              f"background {lp.estimate.total_cells}, "
               f"estimated cells {lp.estimated_cells} ({'measured ratio' if sp.measured else 'assumed ratio'} "
               f"{sp.cells_per_background:.2f})")
+        if ROUND == 2:
+            mesh_s, solve_s = estimate_level(lp.level.name, lp.estimated_cells, ac.ITERATIONS)
+            from vortexcfd.workflow.mesh_study import prepare_study  # noqa: F401 (the split is per level)
+
+            inp = meshing.mesh_inputs(project)[0]
+            inp = dataclasses.replace(inp, mesh=lp.level.mesh)
+            print(f"  ground wall starts at x = {ground_split_x(inp):.4f} m on this level; estimate (1500 "
+                  f"iterations, round 1 rates): meshing {mesh_s / 60:.1f} min, solver {solve_s / 60:.1f} min")
+
+
+def deadline_today(text: str) -> datetime.datetime:
+    hours, minutes = (int(x) for x in text.split(":"))
+    return datetime.datetime.now().replace(hour=hours, minute=minutes, second=0, microsecond=0)
 
 
 def study(args) -> None:
-    from vortexcfd.workflow.mesh_study import prepare_study, solver_writer
+    from vortexcfd.workflow.mesh_study import plan_study, prepare_study, solver_writer
     from vortexcfd.foam.mesh_study import StudyRun
 
     project = Project.open(project_path())
-    study_dir, record, inputs = prepare_study(project)
-    if args.levels:
-        record.levels = [lv for lv in record.levels if lv.name in args.levels]
+    deadline = None
+    if ROUND == 2:
+        if not args.level:
+            raise SystemExit("round 2 runs one level per command: --level coarse|medium|fine")
+        planned = {lp.level.name: lp.estimated_cells for lp in plan_study(project).levels}
+        mesh_s, solve_s = estimate_level(args.level, planned[args.level], ac.ITERATIONS)
+        end = datetime.datetime.now() + datetime.timedelta(seconds=mesh_s + solve_s + 60)
+        print(f"{args.level}: {planned[args.level]} cells estimated, meshing {mesh_s / 60:.1f} min, solver "
+              f"{solve_s / 60:.1f} min (1500 iterations): estimated end {end:%H:%M}", flush=True)
+        if args.deadline:
+            deadline = deadline_today(args.deadline)
+            if end > deadline:
+                raise SystemExit(f"not started: the estimated end {end:%H:%M} is after the deadline {deadline:%H:%M}")
+        study_dir, record, inputs = prepare_study(project, only=[args.level])
+    else:
+        study_dir, record, inputs = prepare_study(project)
+        if args.levels:
+            record.levels = [lv for lv in record.levels if lv.name in args.levels]
     log = (study_dir / "study_console.log").open("a", encoding="utf-8")
     events = []
 
@@ -116,10 +183,26 @@ def study(args) -> None:
                    parts=inputs.patches, on_line=on_line, solver_timeout_s=args.solver_timeout)
     start = time.time()
     run.start()
+    stopped_at_deadline = threading.Event()
+    if deadline is not None:  # the app's stop at the deadline: a clean solver stop, or the meshing stop
+        def watchdog() -> None:
+            while run.is_running():
+                if datetime.datetime.now() >= deadline:
+                    print(f"{time.strftime('%H:%M:%S')} deadline {deadline:%H:%M}: stopping the level", flush=True)
+                    stopped_at_deadline.set()
+                    run.request_stop()
+                    return
+                time.sleep(5)
+
+        threading.Thread(target=watchdog, daemon=True).start()
     result = run.wait()
     log.close()
-    (study_dir / "study_events.json").write_text(json.dumps({"start": start, "end": time.time(), "events": events},
-                                                            indent=1), encoding="utf-8")
+    suffix = f"_{args.level}" if ROUND == 2 else ""
+    (study_dir / f"study_events{suffix}.json").write_text(
+        json.dumps({"start": start, "end": time.time(), "events": events,
+                    "stopped_at_deadline": stopped_at_deadline.is_set()}, indent=1), encoding="utf-8")
+    if ROUND == 2:  # keep this level's record: the next level's run rewrites study.json
+        shutil.copy(study_dir / "study.json", study_dir / f"study_{args.level}.json")
     print(f"study {result.status} in {time.time() - start:.0f} s")
 
 
@@ -173,7 +256,7 @@ def window_stats(case_dir: Path, quantities: list[str], window: int) -> dict:
     return out
 
 
-def level_metrics(case_dir: Path, level, project: Project) -> dict:
+def level_metrics(case_dir: Path, level, project: Project, window: int = ac.AVERAGE_WINDOW) -> dict:
     """The numbers RESULT.md reports for one level."""
     import numpy as np
 
@@ -205,14 +288,50 @@ def level_metrics(case_dir: Path, level, project: Project) -> dict:
         out["yplus_ground"] = {"mean": float((ga * gv).sum() / ga.sum()), "max": float(gv.max()),
                                "mean_near_body": float((ga[under] * gv[under]).sum() / ga[under].sum())}
         out["slant"] = slant_flow(case_dir, t)
-        out["window"] = window_stats(case_dir, ac.STUDY_QUANTITIES, ac.AVERAGE_WINDOW)
+        out["window"] = window_stats(case_dir, ac.STUDY_QUANTITIES, window)
     return out
 
 
-def collect(args) -> None:
-    import dataclasses
+def collect_round2() -> None:
+    """Round 2: the levels run so far (one record per level, study_<level>.json), each judged on the
+    windowed means over the mean-stable criterion's window -> result_round2.json. No verdict until the
+    three levels exist."""
+    from vortexcfd.foam.mesh_study import LevelResult, StudyRecord
 
+    project = Project.open(project_path())
+    study_dir = project.folder / "case_study"
+    window = ac.stopping_round2().criteria[0].window
+    levels = []
+    for name in ("coarse", "medium", "fine"):
+        path = study_dir / f"study_{name}.json"
+        if not path.is_file():
+            continue
+        data = json.loads(path.read_text(encoding="utf-8"))
+        record = StudyRecord(levels=[LevelResult(**lv) for lv in data.pop("levels")], **data)
+        level = record.levels[0]
+        entry = level_metrics(study_dir / f"level_{level.index + 1}", level, project, window)
+        events = json.loads((study_dir / f"study_events_{name}.json").read_text(encoding="utf-8"))
+        starts = [t for t, text in events["events"] if text.startswith(f"Mesh study: meshing level {level.index + 1} ")]
+        solves = [t for t, text in events["events"] if text.startswith(f"Mesh study: solving level {level.index + 1} ")]
+        if starts and solves:
+            entry["mesh_s"] = round(solves[0] - starts[0], 1)
+        entry["stopped_at_deadline"] = events.get("stopped_at_deadline", False)
+        entry["status"] = record.status
+        levels.append(entry)
+    result = {"project": str(project_path().relative_to(ROOT)), "average_window": window,
+              "mesh_cores": ac.CORES_R2, "solver_cores": ac.CORES_R2, "ground_wall_start_asked": ac.GROUND_WALL_START,
+              "levels": levels}
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "result_round2.json").write_text(json.dumps(result, indent=2, default=str) + "\n", encoding="utf-8")
+    print(json.dumps(result, indent=1, default=str)[:8000])
+
+
+def collect(args) -> None:
     from vortexcfd.foam.mesh_study import quantity_rows, read_record
+
+    if ROUND == 2:
+        collect_round2()
+        return
 
     project = Project.open(project_path())
     study_dir = project.folder / "case_study"
@@ -261,18 +380,23 @@ def collect(args) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--round", type=int, choices=(1, 2), default=1, help="1: the first study; 2: SETUP.md round 2")
     sub = parser.add_subparsers(dest="command", required=True)
     s = sub.add_parser("setup")
     s.add_argument("--surface-size", type=float, default=ac.SURFACE_SIZE, help="target surface size (x l_ref)")
     s.add_argument("--background", type=int, default=ac.BACKGROUND_CELLS, help="background cell target")
     s.set_defaults(func=setup)
     s = sub.add_parser("study")
-    s.add_argument("--levels", nargs="*", default=None, help="only these levels (coarse, medium, fine)")
+    s.add_argument("--levels", nargs="*", default=None, help="only these levels (coarse, medium, fine); round 1")
+    s.add_argument("--level", choices=("coarse", "medium", "fine"), help="round 2: the one level to run")
+    s.add_argument("--deadline", help="round 2: HH:MM today; not started if estimated to end later, stopped there")
     s.add_argument("--solver-timeout", type=float, default=3 * 3600)
     s.set_defaults(func=study)
     s = sub.add_parser("collect")
     s.set_defaults(func=collect)
     args = parser.parse_args()
+    global ROUND
+    ROUND = args.round
     args.func(args)
 
 
