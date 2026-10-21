@@ -26,6 +26,25 @@ The project and its cases live in `run/validation/ahmed/` (git-ignored); only nu
   in New Results in Numerical and Experimental Fluid Mechanics III, Notes on Numerical Fluid Mechanics
   77, Springer (2002), pp. 323-330. Not read directly: their set-up is taken from [ERC]. No force data
   (LDA and hot wire only).
+- **[G08]** E. Guilmineau, "Computational study of flow around a simplified car body", J. Wind Eng.
+  Ind. Aerodyn. 96 (2008) 1207-1217, doi:10.1016/j.jweia.2007.06.041. Read from the owner's copy on
+  2026-10-21 (see "Reference files supplied"). Values taken, in this project's words:
+  - k-omega SST (Menter 1993), steady, 25 degrees, body without stilts: **Cd 0.3074** (p. 1212, Table 1;
+    with stilts not computed at 25 degrees). The same table lists the experiment of [A84] as 0.285 at 25
+    degrees (0.260 at 35), in its "with stilts" column.
+  - Near-wall treatment: low-Reynolds formulation for every model (p. 1211), first point 0.005 mm from
+    the wall, y+ about 0.25, about 30 points in the boundary layer (p. 1212, section 3): wall-resolved.
+  - Mesh: half body, unstructured, 1.8 million points without stilts (3.6 million with), 15,300 points on
+    the body; domain 2 L ahead, 3 L behind, 0.935 m wide, 1.4 m high, body 50 mm above the ground plane
+    (p. 1212, section 3). Steady solution, 10,000 non-linear iterations (p. 1212, section 4). Flow at
+    [LB03]'s conditions, 40 m/s, Re_L 2.784e6 (p. 1208), compared with [A84]'s 60 m/s drag.
+  - Slant flow at 25 degrees: every model except Spalart-Allmaras separates just past the slant's top
+    edge, none reattaches on the slant as the experiment does (p. 1215, Fig. 8); the SST side-edge vortex
+    is too weak against the measured one at x = 80 mm (p. 1216, Fig. 10 b); "all simulations predict
+    massive separation, whereas the experiment shows reattachment about half-way down the center of the
+    face" (p. 1217, Conclusions). [G08] describes the experiment ([LB03], p. 1214, Fig. 7) as two strong
+    counter-rotating side vortices, separation on the middle of the slant's top edge and reattachment on
+    the slant.
 - **[ERC]** ERCOFTAC Knowledge Base Wiki, Application Challenge AC1-05 "Flow around a simplified car
   body (Ahmed body)", Description, https://www.kbwiki.ercoftac.org/w/index.php/Description_AC1-05
   (read 2026-10-21). Also the ERCOFTAC classic database case 082 (http://cfd.mace.manchester.ac.uk/ercoftac/,
@@ -193,11 +212,31 @@ surface target sizes, the numerics. The wall start is placed on the background c
 
 Domain 16.704 x 5.415 x 5.558 m (x from -5.220 to 11.484 m), 502.7 m3.
 
+### Reference files supplied (2026-10-21, after round 2)
+
+The owner's folder `~/vortexcfd-geometry/refs/` holds three PDFs (and three Windows `Zone.Identifier`
+download records). Read on 2026-10-21 (text and page renders, not copied into the repository):
+
+| File | Expected | Actual content | Used |
+|---|---|---|---|
+| `guilmineau_2008_jweia.pdf` | [G08] | [G08], J. Wind Eng. Ind. Aerodyn. 96 (2008) 1207-1217 | yes: the values above |
+| `ahmed_1984_sae840300.pdf` | [A84] | **another paper**: M. Grandemange, M. Gohlke, O. Cadot, "Turbulent wake past a three-dimensional blunt body. Part 1. Global modes and bi-stability", J. Fluid Mech. 722 (2013) 51-84 (the square-back body, no slant) | no |
+| `lienhart_becker_2003_sae2003-01-0656.pdf` | [LB03] | **another paper**: S. Becker, H. Lienhart, F. Durst, "Flow around three-dimensional obstacles in boundary layers", J. Wind Eng. Ind. Aerodyn. 90 (2002) 265-279 (building-like blocks, no Ahmed body) | no |
+
+So [A84] Fig. 4 and [LB03] are still not read. What changed: the peer-reviewed SST result is now read
+first hand ([G08]: 0.3074, wall-resolved; it was cited from secondary sources only for the over-predicted
+separation); the experimental 0.285 is unchanged and still second hand (now also quoted by [G08] Table 1);
+[A84]'s stilt correction is kept from [A84]'s own text read in round 1 ("Total drag value has been
+corrected for tare drag of stilts"), although [G08] tabulates 0.285 under "with stilts"; [LB03]'s slant
+flow is known only from [G08]'s description (reattachment about half-way down the slant's centre). The
+reading uncertainty of Fig. 4 and [LB03]'s inlet, ground and bubble data are still missing.
+
 ### References (QUESTIONS 171, 172)
 
 The owner's reference folder `~/vortexcfd-geometry/refs/` does not exist on this machine (checked
 2026-10-21 20:33): no papers were supplied. The experimental Cd stays **0.285** as quoted (with 0.2875 as
-SimScale's reading), and the SST values of RESULT.md stay as cited; both items stay open.
+SimScale's reading), and the SST values of RESULT.md stay as cited; both items stay open. (Superseded
+by "Reference files supplied" above.)
 
 ### Plan (app estimate; times from round 1's measured rates)
 
