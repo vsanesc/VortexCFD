@@ -17,9 +17,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from vortexcfd.core.model import REPORT_SLOTS, AsymptoticCriterion, StoppingCriteria
+from vortexcfd.core.model import REPORT_SLOTS, AsymptoticCriterion, MeanStableCriterion, StoppingCriteria
 from vortexcfd.core.reports import YPLUS, available_reports, report_label
-from vortexcfd.foam.convergence import CriterionStatus, evaluate, oscillation
+from vortexcfd.foam.convergence import CriterionStatus, evaluate, oscillation, window_stats
 from vortexcfd.foam.forces import MASS_WARNING
 from vortexcfd.foam.logparse import TimeStep
 from vortexcfd.foam.postprocessing import ReportMonitor
@@ -238,7 +238,8 @@ class Sparkline(QWidget):
 
 
 class ReportSlots(QWidget):
-    """Report slot cards: title, chevron menu to assign a report, last value, sparkline, name."""
+    """Report slot cards: title, chevron menu to assign a report, last value, its windowed mean and
+    oscillation (D-118), sparkline, name."""
 
     NOT_ASSIGNED = "Not assigned"
     ASSIGN_TOOLTIP = ("Assign a report: force coefficients of all walls or of one part (with their pressure "
@@ -252,6 +253,8 @@ class ReportSlots(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.titles: dict[int, QLabel] = {}
         self.values: dict[int, QLabel] = {}
+        self.means: dict[int, QLabel] = {}  # windowed mean and oscillation (D-118)
+        self.window_of = lambda _report_id: 100  # iterations averaged for a report (set by the panel)
         self.subtitles: dict[int, QLabel] = {}
         self.sparks: dict[int, Sparkline] = {}
         self.assign_buttons: dict[int, QToolButton] = {}
@@ -284,14 +287,19 @@ class ReportSlots(QWidget):
             head.addWidget(button)
             value = QLabel(EMPTY)
             value.setObjectName("kpiValue")
+            mean = QLabel("")
+            mean.setObjectName("kpiSub")
+            mean.setToolTip("Mean over the last iterations and the half range of the oscillation (max - min) / 2 "
+                            "as a share of |mean| (the oscillation check's scale, D-059)")
             spark = Sparkline()
             sub = QLabel(self.NOT_ASSIGNED)
             sub.setObjectName("kpiSub")
             box.addLayout(head)
             box.addWidget(value)
+            box.addWidget(mean)
             box.addWidget(spark)
             box.addWidget(sub)
-            self.titles[slot], self.values[slot] = title, value
+            self.titles[slot], self.values[slot], self.means[slot] = title, value, mean
             self.subtitles[slot], self.assign_buttons[slot] = sub, button
             self.sparks[slot], self.menus[slot] = spark, menu
             self._layouts.append(box)
@@ -371,6 +379,10 @@ class ReportSlots(QWidget):
             report_id = self.assignments[slot - 1]
             points = series_of(report_id) if (report_id and series_of is not None) else []
             self.values[slot].setText(f"{points[-1][1]:.4g}" if points else EMPTY)
+            stats = None
+            if points and not report_id.startswith("yplus"):
+                stats = window_stats(points, self.window_of(report_id), quantity=report_id)
+            self.means[slot].setText(stats.text() if stats is not None else "")
             self.sparks[slot].set_values([v for _, v in points])
 
     def configure(self, m: Metrics, t: Theme) -> None:
@@ -380,7 +392,7 @@ class ReportSlots(QWidget):
         small = mono_font(QApplication.font(), 0.75)
         big = mono_font(QApplication.font(), 1.5)
         big.setBold(True)
-        for label in (*self.titles.values(), *self.subtitles.values()):
+        for label in (*self.titles.values(), *self.subtitles.values(), *self.means.values()):
             label.setFont(small)
         for label in self.values.values():
             label.setFont(big)
@@ -639,9 +651,21 @@ class MonitorsPanel(QWidget):
             return
         self._dirty = False
         self.chart.set_series(self.history.decimated())
+        self.kpis.window_of = self.mean_window
         self.kpis.set_series(self.reports.series if self.reports is not None else None)
         self._update_convergence()
         self.updated.emit()
+
+    def mean_window(self, quantity: str) -> int:
+        """The iterations a report's mean is taken over: the window of a mean-stable criterion watching
+        it, else the oscillation window (D-059, D-118)."""
+        stop = self.stopping
+        if stop is None:
+            return 100
+        for c in stop.criteria:
+            if isinstance(c, MeanStableCriterion) and c.quantity == quantity:
+                return c.window
+        return stop.oscillation_window
 
     def monitored_quantities(self) -> list[str]:
         """Quantities checked for oscillation: the asymptotic criteria's and the assigned report
@@ -669,7 +693,8 @@ class MonitorsPanel(QWidget):
                 osc = oscillation(name, series_of(name), stop.oscillation_window, stop.oscillation_threshold,
                                   floors.get(name))
                 if osc is not None:
-                    warnings.append(osc.message())
+                    stable = any(isinstance(c, MeanStableCriterion) and c.quantity == name for c in stop.criteria)
+                    warnings.append(osc.message(suggest_mean_stable=not stable))
         if self.reports is not None:
             balance = self.reports.mass_balance()
             if balance is not None and balance[2] is not None and abs(balance[2]) > MASS_WARNING:

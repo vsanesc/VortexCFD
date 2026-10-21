@@ -119,6 +119,17 @@ def ground_z(domain: Domain, parts_union: Bounds) -> float:
     return parts_union[4] if domain.ground.position == "parts_min" else domain.ground.z
 
 
+def ground_wall_start(domain: Domain, bounds: Bounds) -> float | None:
+    """x where the ground wall starts when a slip strip lies upstream of it (D-118): the user's
+    ``wall_start_x`` when the ground is on and the value lies strictly inside the box's x range (at or
+    ahead of the inlet: no strip, the wall starts at the inlet). A value at or behind the outlet is
+    returned too; meshing refuses it (workflow/meshing.meshing_problem)."""
+    g = domain.ground
+    if not g.enabled or domain.shape != "box" or g.wall_start_x is None or g.wall_start_x <= bounds[0]:
+        return None
+    return g.wall_start_x
+
+
 def ground_warnings(parts_bounds: Sequence[Bounds], z: float, names: Sequence[str] | None) -> list[str]:
     """A part wholly below the ground plane is outside the fluid; one that crosses it is cut by the
     domain (the part of it below the plane is not meshed; its supports may do so on purpose)."""

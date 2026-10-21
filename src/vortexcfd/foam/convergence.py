@@ -24,13 +24,18 @@ Asymptotic criterion (app-side): over the last W iterations (one value per itera
 r = (max - min) / max(|mean|, floor) <= tolerance; for a vector (a probe's U) max - min is the
 length of the vector of per-component ranges and |mean| the length of the mean vector. Evaluated
 only once W values exist and from the minimum iterations on.
+
+Mean-stable criterion (app-side, D-118): over the last two windows of W iterations,
+d = |mean(last W) - mean(previous W)| / max(|mean(last W)|, floor) <= tolerance. Evaluated only once
+2 W values exist (scalar quantities; a probe's U uses the length of the difference of the mean
+vectors over the length of the last mean). For a steady run that oscillates about a stationary mean.
 """
 
 import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from vortexcfd.core.model import AsymptoticCriterion, ResidualCriterion, StoppingCriteria
+from vortexcfd.core.model import AsymptoticCriterion, MeanStableCriterion, ResidualCriterion, StoppingCriteria
 from vortexcfd.core.reports import default_floor, report_label
 
 FUNCTION_NAME = "runTimeControl1"
@@ -65,6 +70,9 @@ def describe(criterion) -> str:
     if isinstance(criterion, ResidualCriterion):
         return f"{criterion.field} initial residual < {criterion.threshold:.3g}"
     label = quantity_label(criterion.quantity)
+    if isinstance(criterion, MeanStableCriterion):
+        return (f"{label}: |mean of the last {criterion.window} - mean of the {criterion.window} before| / "
+                f"max(|mean|, {criterion.effective_floor:.3g}) <= {criterion.tolerance:.3g}")
     return (f"{label}: (max - min) / max(|mean|, {criterion.effective_floor:.3g}) over the last "
             f"{criterion.window} <= {criterion.tolerance:.3g}")
 
@@ -73,6 +81,8 @@ def short_label(criterion) -> str:
     """A few words naming the criterion (tables, the run state; ``describe`` states it exactly)."""
     if isinstance(criterion, ResidualCriterion):
         return f"{criterion.field} residual"
+    if isinstance(criterion, MeanStableCriterion):
+        return f"{quantity_label(criterion.quantity)} mean stable"
     return f"{quantity_label(criterion.quantity)} asymptotic"
 
 
@@ -91,6 +101,8 @@ def earliest_iteration(criterion, min_iterations: int) -> int:
     """The first iteration at which the criterion may be considered met."""
     if isinstance(criterion, ResidualCriterion):
         return max(min_iterations, FIRST_RESIDUAL_CHECK)
+    if isinstance(criterion, MeanStableCriterion):
+        return max(min_iterations, 2 * criterion.window)
     return max(min_iterations, criterion.window)
 
 
@@ -155,15 +167,90 @@ def asymptotic_range(series, window: int, floor: float) -> float | None:
     return relative_range(values[-window:], floor)
 
 
+def _mean(values: Sequence):
+    n = len(values)
+    if isinstance(values[0], tuple):
+        return tuple(sum(v[i] for v in values) / n for i in range(len(values[0])))
+    return sum(values) / n
+
+
+def _norm(value) -> float:
+    return math.sqrt(sum(c * c for c in value)) if isinstance(value, tuple) else abs(value)
+
+
+def mean_change(values: Sequence, window: int, floor: float) -> float | None:
+    """The mean-stable criterion's value: |mean(last window) - mean(window before)| /
+    max(|mean(last window)|, floor); None until 2 ``window`` values exist."""
+    if len(values) < 2 * window:
+        return None
+    last, previous = _mean(values[-window:]), _mean(values[-2 * window:-window])
+    if isinstance(last, tuple):
+        diff = tuple(a - b for a, b in zip(last, previous))
+    else:
+        diff = last - previous
+    return _norm(diff) / max(_norm(last), floor)
+
+
+def criterion_value(series, criterion: AsymptoticCriterion) -> float | None:
+    """The value an asymptotic or mean-stable criterion compares with its tolerance at the last
+    iteration of ``series`` (None: not enough values yet)."""
+    values = [v for _, v in unique_by_iteration(series)]
+    if isinstance(criterion, MeanStableCriterion):
+        return mean_change(values, criterion.window, criterion.effective_floor)
+    if len(values) < criterion.window:
+        return None
+    return relative_range(values[-criterion.window:], criterion.effective_floor)
+
+
 def first_met_iteration(series, criterion: AsymptoticCriterion, min_iterations: int = 0) -> int | None:
-    """The first iteration of ``series`` at which ``criterion`` alone is met (None: never)."""
+    """The first iteration of ``series`` at which ``criterion`` (asymptotic or mean-stable) alone is
+    met (None: never)."""
     rows = unique_by_iteration(series)
+    values = [v for _, v in rows]
     w, floor = criterion.window, criterion.effective_floor
-    for i in range(w, len(rows) + 1):
+    stable = isinstance(criterion, MeanStableCriterion)
+    for i in range(2 * w if stable else w, len(rows) + 1):
         it = rows[i - 1][0]
-        if it >= min_iterations and relative_range([v for _, v in rows[i - w:i]], floor) <= criterion.tolerance:
+        if it < min_iterations:
+            continue
+        value = mean_change(values[:i], w, floor) if stable else relative_range(values[i - w:i], floor)
+        if value <= criterion.tolerance:
             return int(it)
     return None
+
+
+@dataclass(frozen=True)
+class WindowStats:
+    """A quantity over its last ``n`` iterations: mean, max - min, and the amplitude
+    (max - min) / max(|mean|, floor) (the oscillation check's normalisation, D-059)."""
+
+    mean: float
+    spread: float
+    amplitude: float | None  # None: no floor and |mean| < MEAN_FLOOR
+    n: int
+
+    def text(self) -> str:
+        """e.g. "mean 0.3409 \u00b1 3.2% (500 it.)": the half range as a share of the scale."""
+        half = "" if self.amplitude is None else f" \u00b1 {50 * self.amplitude:.2g}%"
+        return f"mean {self.mean:.4g}{half} ({self.n} it.)"
+
+
+def window_stats(series, window: int, floor: float | None = None, quantity: str | None = None) -> WindowStats | None:
+    """The windowed mean and oscillation of a scalar series over its last ``window`` iterations (all of
+    them when fewer exist; None: fewer than 2 values or a vector). ``floor`` None: the quantity's
+    default (core/reports.default_floor)."""
+    values = [v for _, v in unique_by_iteration(series)][-window:]
+    if len(values) < 2 or isinstance(values[-1], tuple):
+        return None
+    mean = sum(values) / len(values)
+    spread = max(values) - min(values)
+    if floor is None and quantity is not None:
+        floor = default_floor(quantity)
+    if floor is None:
+        amplitude = None if abs(mean) < MEAN_FLOOR else spread / abs(mean)
+    else:
+        amplitude = spread / max(abs(mean), floor)
+    return WindowStats(mean, spread, amplitude, len(values))
 
 
 @dataclass(frozen=True)
@@ -204,7 +291,7 @@ def evaluate(stopping: StoppingCriteria, residuals: dict[str, Series],
             threshold = c.threshold
         else:
             series = unique_by_iteration(quantity(c.quantity))
-            value = asymptotic_range(series, c.window, c.effective_floor)
+            value = criterion_value(series, c)
             it = series[-1][0] if series else None
             met = value is not None and value <= c.tolerance
             threshold = c.tolerance
@@ -238,9 +325,13 @@ class Oscillation:
     spread: float = 0.0  # max - min
     floor: float = 0.0
 
-    def message(self) -> str:
+    def message(self, suggest_mean_stable: bool = False) -> str:
+        """The warning; ``suggest_mean_stable`` adds the hint to judge the windowed mean with the
+        mean-stable criterion (D-118: the quantity has no mean-stable criterion yet)."""
         label = quantity_label(self.quantity)
         tail = " - the flow may be unsteady; a steady solution may not exist"
+        if suggest_mean_stable:
+            tail += f". If its mean is steady, stop on it with a \"mean stable\" criterion on {label}"
         if abs(self.mean) >= self.floor:
             return f"{label} oscillates by {100 * self.amplitude:.2g}%{tail}"
         return (f"{label} oscillates with a range of {self.spread:.2g} around a mean near zero "

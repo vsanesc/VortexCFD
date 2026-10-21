@@ -12,10 +12,18 @@ from vortexcfd.core.model import Domain, Ground, Inflow, Mesh, Part, Physics, Si
 from vortexcfd.core.presets import DEFAULT_BOUNDARY_TYPES, apply_preset, preset_from_simulation
 from vortexcfd.core.project import Project
 from vortexcfd.core.project_io import load_simulation, migrate
-from vortexcfd.foam.mesh_case import GROUND_PATCH, MeshCaseInput, block_mesh_dict, safe_part_names, snappy_hex_mesh_dict
+from vortexcfd.foam.mesh_case import (
+    GROUND_PATCH,
+    MeshCaseInput,
+    block_mesh_dict,
+    ground_split,
+    ground_split_x,
+    safe_part_names,
+    snappy_hex_mesh_dict,
+)
 from vortexcfd.foam.physics_case import SolverCaseInput, build_solver_files, far_field_patches
 from vortexcfd.foam.postprocessing import YPlusTail
-from vortexcfd.geometry.domain import compute_domain, shape_roles
+from vortexcfd.geometry.domain import compute_domain, ground_wall_start, shape_roles
 from vortexcfd.geometry.loader import clear_cache
 from vortexcfd.gui.main_window import MainWindow
 from vortexcfd.workflow import meshing, solving
@@ -34,11 +42,11 @@ def _ground(**kw) -> Domain:
 
 def test_ground_defaults_off_and_a_v15_project_migrates_unchanged(tmp_path: Path) -> None:
     assert Domain().ground == Ground() and not Ground().enabled
-    assert migrate({"schema_version": 15, "x": 1}) == {"schema_version": 16, "x": 1}
+    assert migrate({"schema_version": 15, "x": 1}) == {"schema_version": 17, "x": 1}
     path = tmp_path / "old.vcfd"
     path.write_text('{"schema_version": 15, "name": "old", "domain": {"upstream": 3.0}}', encoding="utf-8")
     sim = load_simulation(path)
-    assert sim.schema_version == 16 and sim.domain.upstream == 3.0 and not sim.domain.ground.enabled
+    assert sim.schema_version == 17 and sim.domain.upstream == 3.0 and not sim.domain.ground.enabled
 
 
 def test_the_ground_needs_the_box_shape() -> None:
@@ -264,3 +272,122 @@ def test_tree_lists_the_ground_and_its_properties_edit_it(window: MainWindow) ->
     assert w.project.sim.domain.ground.layers
     w.project.undo()
     assert not w.project.sim.domain.ground.layers
+
+
+# -- the slip strip ahead of the ground wall (D-118) ---------------------------------------------------
+
+
+def _strip_input(start: float | None, layers: bool = False) -> MeshCaseInput:
+    domain = _ground(wall_start_x=start, layers=layers)
+    box = compute_domain([BODY], domain)
+    return MeshCaseInput(box.bounds, True, tuple(safe_part_names(["body"])), BODY, box.reference_length,
+                         Mesh(layer_sizing="relative", layers=3), ground=True, ground_layers=layers,
+                         ground_wall_start=ground_wall_start(domain, box.bounds))
+
+
+def test_a_v16_project_migrates_without_a_slip_strip(tmp_path: Path) -> None:
+    assert migrate({"schema_version": 16, "x": 1}) == {"schema_version": 17, "x": 1}
+    path = tmp_path / "v16.vcfd"
+    path.write_text('{"schema_version": 16, "name": "v16", "domain": {"ground": {"enabled": true}}}',
+                    encoding="utf-8")
+    sim = load_simulation(path)
+    assert sim.schema_version == 17 and sim.domain.ground.enabled and sim.domain.ground.wall_start_x is None
+    # no slip strip: the mesh hash of schema v16
+    assert "wall_start_x" not in meshing._domain_for_hash(_ground())["ground"]
+    assert meshing._domain_for_hash(_ground(wall_start_x=-1.0))["ground"]["wall_start_x"] == -1.0
+
+
+def test_the_wall_start_inside_the_box_only_makes_a_strip() -> None:
+    box = compute_domain([BODY], _ground())
+    x0, x1 = box.bounds[0], box.bounds[1]
+    assert ground_wall_start(_ground(wall_start_x=-1.0), box.bounds) == -1.0
+    assert ground_wall_start(_ground(wall_start_x=x0), box.bounds) is None  # at the inlet: no strip
+    assert ground_wall_start(_ground(wall_start_x=None), box.bounds) is None
+    assert ground_wall_start(Domain(ground=Ground(wall_start_x=-1.0)), box.bounds) is None  # ground off
+    assert ground_wall_start(_ground(wall_start_x=x1 + 1), box.bounds) == x1 + 1  # meshing refuses it
+
+
+def test_block_mesh_splits_the_ground_into_the_slip_strip_and_the_wall() -> None:
+    one, two = _mesh_input(True), _strip_input(-1.32)
+    est = two.estimate()
+    x0, x1 = est.background_bounds[0], est.background_bounds[1]
+    nx, ny, nz = est.cells
+    step = (x1 - x0) / nx
+    blocks = block_mesh_dict(two).content["blocks"]
+    n_up = blocks[2][0]
+    assert blocks[0] == "hex" and blocks[5] == "hex"
+    assert blocks[2] == [n_up, ny, nz] and blocks[7] == [nx - n_up, ny, nz]  # the same cells as one block
+    split = ground_split_x(two)
+    assert split == pytest.approx(x0 + n_up * step) and abs(split - (-1.32)) <= step / 2
+    vertices = block_mesh_dict(two).content["vertices"]
+    assert sorted({v[0] for v in vertices}) == pytest.approx([x0, split, x1])
+    patches = _patches(two)
+    assert patches["ground_slip"]["type"] == "patch" and patches[GROUND_PATCH]["type"] == "wall"
+    assert len(patches["ground_slip"]["faces"]) == 1 and len(patches[GROUND_PATCH]["faces"]) == 1
+
+    def xs(face):
+        return {vertices[i][0] for i in face}
+
+    def zs(face):
+        return {vertices[i][2] for i in face}
+
+    assert xs(patches["ground_slip"]["faces"][0]) == {x0, split} and zs(patches["ground_slip"]["faces"][0]) == {est.background_bounds[4]}
+    assert xs(patches[GROUND_PATCH]["faces"][0]) == {split, x1}
+    assert xs(patches["inlet"]["faces"][0]) == {x0} and xs(patches["outlet"]["faces"][0]) == {x1}
+    assert len(patches["top"]["faces"]) == 2 and len(patches["symmetry"]["faces"]) == 2
+    assert two.expected_domain_patches() == ("inlet", "outlet", "sides", "top", "ground", "ground_slip", "symmetry")
+    # without a strip: the single block as before
+    assert ground_split_x(one) is None and len(block_mesh_dict(one).content["blocks"]) == 5
+
+
+def test_the_split_keeps_both_patches_non_empty() -> None:
+    assert ground_split(0.0, 10.0, 10, -5.0) == 1 and ground_split(0.0, 10.0, 10, 3.4) == 3
+    assert ground_split(0.0, 10.0, 10, 9.9) == 9
+
+
+def test_prism_layers_go_on_the_ground_wall_only() -> None:
+    layers = snappy_hex_mesh_dict(_strip_input(-1.32, layers=True)).content["addLayersControls"]["layers"]
+    assert layers[GROUND_PATCH] == {"nSurfaceLayers": 3} and "ground_slip" not in layers
+
+
+def test_the_slip_strip_is_reserved_and_takes_the_far_field_conditions() -> None:
+    assert safe_part_names(["ground_slip"]) == ["ground_slip_1"]
+    assert far_field_patches("box", True, True) == ("sides", "top", "ground_slip")
+    inp = SolverCaseInput(Physics(), Inflow(speed=40.0), Solvers(), ("body", "stilt"), BODY, True,
+                          far_field=far_field_patches("box", True, True), ground="stationary")
+    files = build_solver_files(inp)
+    for field in ("U", "p", "k", "omega", "nut"):
+        assert _bc(files, field, "ground_slip") == _bc(files, field, "top")
+    assert _bc(files, "U", "ground_slip") == {"type": "slip"} and _bc(files, "U", GROUND_PATCH) == {"type": "noSlip"}
+    for name, entry in files["system/controlDict"].content["functions"].items():
+        if entry.get("type") in ("forces", "forceCoeffs", "wallShearStress"):
+            assert GROUND_PATCH not in entry["patches"] and "ground_slip" not in entry["patches"], name
+
+
+def test_workflow_inputs_carry_the_wall_start(ground_project: Project) -> None:
+    ground = {"enabled": True, "position": "value", "z": 0.0}
+    ground_project.update_domain(ground=ground)
+    mesh_hash = meshing.inputs_hash(ground_project)
+    ground_project.update_domain(ground={**ground, "wall_start_x": -0.5})
+    inp, box, _ = meshing.mesh_inputs(ground_project)
+    assert inp.ground_wall_start == -0.5 and "ground_slip" in inp.expected_domain_patches()
+    assert solving.solver_input(ground_project).far_field == ("sides", "top", "ground_slip")
+    assert meshing.inputs_hash(ground_project) != mesh_hash
+    ground_project.update_domain(ground={**ground, "wall_start_x": box.bounds[1] + 1.0})
+    assert "behind the outlet" in meshing.readiness(ground_project)
+
+
+def test_the_wall_start_is_edited_in_the_ground_properties(window: MainWindow) -> None:
+    w = window
+    p = w.properties
+    w.tree.setCurrentItem(w._items[("fluid_domain", None)])
+    p.ground_enabled.setChecked(True)
+    w.tree.setCurrentItem(w._items[("boundary_ground", None)])
+    assert p._rows["dom_ground_start"].isVisible() and p.ground_start.text() == "inlet"
+    p.ground_start.setValue(-0.4)
+    p.ground_start.editingFinished.emit()
+    assert w.project.sim.domain.ground.wall_start_x == pytest.approx(-0.4)
+    assert "ground_slip ahead of the wall start: slip" in p.ground_bcs.text()
+    p.ground_start.setValue(p.ground_start.minimum())
+    p.ground_start.editingFinished.emit()
+    assert w.project.sim.domain.ground.wall_start_x is None

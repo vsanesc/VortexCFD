@@ -61,10 +61,14 @@ class SolverCaseInput:
     ground: str | None = None
 
 
-def far_field_patches(shape: str, ground: bool) -> tuple[str, ...]:
-    """The far-field (slip) patches of a domain shape; the ground plane replaces the box's bottom (D-116)."""
+def far_field_patches(shape: str, ground: bool, slip_strip: bool = False) -> tuple[str, ...]:
+    """The far-field (slip) patches of a domain shape; the ground plane replaces the box's bottom (D-116),
+    and its slip strip ahead of the wall start, "ground_slip", takes the far field's slip conditions
+    (D-118). [NUMERICS-REVIEW]"""
     names = FAR_FIELD_BY_SHAPE[shape]
-    return tuple(n for n in names if n != "bottom") if ground and shape == "box" else names
+    if not (ground and shape == "box"):
+        return names
+    return tuple(n for n in names if n != "bottom") + (("ground_slip",) if slip_strip else ())
 
 
 def flow_direction(alpha_deg: float) -> tuple[float, float, float]:

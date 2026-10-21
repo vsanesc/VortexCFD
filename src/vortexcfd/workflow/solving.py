@@ -18,6 +18,7 @@ from vortexcfd.foam.case_writer import enable_clean_stop
 from vortexcfd.foam.dictfile import write_foam_file
 from vortexcfd.foam.mesh_case import MARKER_NAME, part_force_groups, remove_results
 from vortexcfd.foam.mesh_report import lost_part_message
+from vortexcfd.geometry.domain import ground_wall_start
 from vortexcfd.foam.parallel import physical_cores
 from vortexcfd.foam.physics_case import SolverCaseInput, far_field_patches, build_solver_files, reference_values
 from vortexcfd.workflow.meshing import MeshingNotReady, case_dir_for, inputs_hash, parts_layout
@@ -93,12 +94,13 @@ def readiness(project: Project, *, has_mesh: bool, mesh_stale: bool, meshing: bo
 
 
 def solver_input(project: Project) -> SolverCaseInput:
-    _box, names, bounds = parts_layout(project)
+    box, names, bounds = parts_layout(project)
     sim = project.sim
     ground = sim.domain.ground.enabled and sim.domain.shape == "box"
+    strip = ground_wall_start(sim.domain, box.bounds) is not None  # the slip strip (D-118)
     return SolverCaseInput(sim.physics, sim.inflow, sim.solvers, names, bounds,
                            sim.domain.symmetry == "y_min", sim.reports,
-                           part_force_groups(sim.geometry.parts), far_field_patches(sim.domain.shape, ground),
+                           part_force_groups(sim.geometry.parts), far_field_patches(sim.domain.shape, ground, strip),
                            ground=sim.domain.ground.motion if ground else None)
 
 

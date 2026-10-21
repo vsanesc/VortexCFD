@@ -36,7 +36,7 @@ from vortexcfd.foam.mesh_study import (
 )
 from vortexcfd.foam.run_record import read_run_record
 from vortexcfd.foam.yplus import first_layer_thickness
-from vortexcfd.geometry.domain import union_bounds
+from vortexcfd.geometry.domain import ground_wall_start, union_bounds
 from vortexcfd.workflow.meshing import (
     MeshingNotReady,
     _junction_features,
@@ -190,6 +190,7 @@ def prepare_study(project: Project) -> tuple[Path, StudyRecord, MeshCaseInput]:
             layer_expansion=plan.layers.expansion if plan.layers is not None else None,
             surface_length=length, volumes=volumes, extra_features=features,
             ground=box.ground, ground_layers=box.ground and project.sim.domain.ground.layers,
+            ground_wall_start=ground_wall_start(project.sim.domain, box.bounds),
             **domain_fields(box),
         )
         case = level_dir(study, lp.level.index)

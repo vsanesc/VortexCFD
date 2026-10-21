@@ -51,7 +51,8 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
     layer controls of the project (V13_MESH_FIELDS: "legacy", no layer cap; D-106); v13 -> v14 keeps
     the project's first-layer convention (V14_MESH_FIELDS: the target y+ distance as the first-layer
     height; D-107); v14 -> v15 adds the meshing cores (unset: automatic, D-111); v15 -> v16 adds the
-    domain's ground plane (off: the bottom face stays slip far field, D-116).
+    domain's ground plane (off: the bottom face stays slip far field, D-116); v16 -> v17 adds the ground's
+    wall start (unset: no slip strip) and the mean-stable criterion kind (D-118).
     Data already at the current version (or not a dict /
     without a version) is returned unchanged.
     """
@@ -118,6 +119,8 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
         data["schema_version"] = 15  # Mesh.cores defaults to None: automatic meshing cores (D-111)
     if data.get("schema_version") == 15:
         data["schema_version"] = 16  # Domain.ground defaults to off: the bottom face stays far field (D-116)
+    if data.get("schema_version") == 16:
+        data["schema_version"] = 17  # Ground.wall_start_x defaults to None: the wall starts at the inlet (D-118)
     return data
 
 
