@@ -56,6 +56,37 @@ ANGULAR_DEFLECTION = 5.0  # degrees: chord error 0.1 mm on R100, 0.014 mm on the
 
 # The experimental value compared against and the published k-omega SST results (RESULT.md, references).
 CD_EXPERIMENT = 0.285  # Ahmed et al. 1984 Fig. 4, 25 degrees, stilt tare removed (as quoted, see SETUP.md)
+CD_EXPERIMENT_ALT = 0.2875  # the same figure as read by SimScale (SETUP.md)
+# Published k-omega SST Cd of the 25 degree body (RESULT.md, references): Hachimy et al. 2022, SimScale, SimFlow.
+PUBLISHED_SST_CD = (0.2839, 0.2915, 0.313)
+PASS_LIMIT, NOTE_LIMIT = 0.10, 0.20  # V6
+
+
+def consistent_with_sst(cd: float) -> bool:
+    """V6's condition for PASS WITH NOTE: the value lies within the range of the published k-omega SST
+    results (no widening: the study gives the fine value no grid uncertainty, RESULT.md)."""
+    return min(PUBLISHED_SST_CD) <= cd <= max(PUBLISHED_SST_CD)
+
+
+def verdict(error: float, consistent: bool) -> str:
+    """The V6 band of a relative error: PASS within 10 %; PASS WITH NOTE within 10-20 % when consistent
+    with the published k-omega SST results; FAIL otherwise (above 20 %, or 10-20 % and not consistent)."""
+    if abs(error) <= PASS_LIMIT:
+        return "PASS"
+    if abs(error) <= NOTE_LIMIT and consistent:
+        return "PASS WITH NOTE"
+    return "FAIL"
+
+
+def judged_value(values: list[float], sizes: list[float]):
+    """(value, basis, GCI result) of three levels, coarse first: the extrapolated value when the GCI applies
+    and is in the asymptotic range, else the finest grid's (V6)."""
+    from vortexcfd.foam import gci
+
+    result = gci.study(values, sizes)
+    if result.applicable and result.in_asymptotic_range:
+        return result.extrapolated, "extrapolated", result
+    return values[-1], "fine", result
 
 # -- app set-up ----------------------------------------------------------------------------------------
 PROJECT_NAME = "ahmed25"
