@@ -39,11 +39,12 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
 - Owner review of the Proposed decisions (2026-10-21, QUESTIONS 162): D-064, D-066, D-067, D-069 to D-073,
   D-076, D-077, D-080 to D-082, D-100, D-102 and D-112 to D-115 accepted as implemented, with the follow-up's
   open doubts (Edit menu tooltips, umask permissions, project-switch behaviour); no DECISIONS entry is
-  Proposed any more. Open points moved to QUESTIONS 163 to 166; the results loader's missing test is 167.
+  Proposed any more. Their open points (QUESTIONS 163 to 166) were then accepted as implemented too; the
+  results loader's missing test (QUESTIONS 167) stays open.
 
 Next: the aircraft's zones (QUESTIONS 147); drag handles for the refinement volumes (item 132). The owner
 runs scripts/ship.sh (the slow tests, item 161). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73,
-75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147 and 163 to 167.
+75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147 and 167.
 
 ## Phases
 

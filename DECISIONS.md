@@ -693,7 +693,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: STEP/IGES parts are always in millimetres; a repaired CAD part (D-072) loses the repair when its deflection is changed (the tessellation comes from the CAD again). OCCT writes its transfer messages to stdout. The Python loop over the triangulation nodes takes a few seconds per million triangles.
 
 ## D-072 Geometry repair: pymeshfix with a fidelity check, fTetWild envelope fallback
-- Status: Accepted (owner, as implemented, QUESTIONS 162). The fTetWild envelope fallback and its parameters are QUESTIONS 163. Was Proposed (Task 3.3).
+- Status: Accepted (owner, as implemented, QUESTIONS 162). The fTetWild envelope fallback and its parameters: accepted as implemented (owner, QUESTIONS 163). Was Proposed (Task 3.3).
 - Context: PLAN 3.3: an automated repair keeping the original, with a before / after report; the survey chose pymeshfix first and pytetwild's envelope as the fallback.
 - Decision:
   - Dependencies: `pymeshfix` 0.18.1 (wheel metadata AGPL-3; MeshFix GPL-3; docs/QUESTIONS.md item 74) and `pytetwild` 0.4.2 (MPL-2.0).
@@ -704,7 +704,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: repair runs on the GUI thread (item 77); changing a CAD part's deflection re-tessellates from the CAD and drops the repair; the fidelity thresholds are a heuristic (item 76).
 
 ## D-073 Geometry work on background threads; per-part forces over all patches
-- Status: Accepted (owner, as implemented, QUESTIONS 162). The per-part force objects ([NUMERICS-REVIEW]) are QUESTIONS 164. Was Proposed ([NUMERICS-REVIEW] for the per-part force objects).
+- Status: Accepted (owner, as implemented, QUESTIONS 162). The per-part force objects ([NUMERICS-REVIEW]): accepted as implemented (owner, QUESTIONS 164). Was Proposed ([NUMERICS-REVIEW] for the per-part force objects).
 - Context: docs/QUESTIONS.md item 77: CAD tessellation and repair froze the window (the fTetWild envelope took 6.5 s on 1,440 triangles; the self-intersection check about 8 s per million triangles). Review of D-071: a part split into several patches had per-patch force objects but none for the part.
 - Decision:
   - gui/geometry_worker.py: `GeometryWorker` runs one job at a time on a Python thread and reports only through signals (job id, result or exception); slots run in the GUI thread. Jobs receive plain data or `snapshot(project)` (a Project over a deep copy of the state, no history) and never touch the live Project. Jobs: reading a CAD file and tessellating it at import (two jobs, the parts-or-regions question in between), re-tessellation after a deflection edit (the properties panel emits `retessellate_requested`), Edit > Repair part. While a job runs, Import Geometry, Repair part, Generate Mesh, the CAD deflection rows, the units and the region edits are disabled, and the status bar and the console show "<label>...". The result is applied with one `update_part` (one undoable step) only if the part still equals the snapshot's part; otherwise it is discarded with a warning ("changed during the repair: the result was discarded").
@@ -739,7 +739,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: an untitled project with imports leaves its workspace behind only if the app is killed (the cache folder can be cleared at any time). Tests point XDG_CACHE_HOME at a temporary folder (tests/conftest.py).
 
 ## D-077 Start screen, New simulation dialog, presets, project folders; no untitled projects (schema v9)
-- Status: Accepted (owner, as implemented, QUESTIONS 162). The New simulation dialog's default core count is QUESTIONS 165. Was Proposed (task qol-start-domain, 2026-10-18). Supersedes the temporary workspace of D-076.
+- Status: Accepted (owner, as implemented, QUESTIONS 162). The New simulation dialog's default core count: accepted as implemented (owner, QUESTIONS 165). Was Proposed (task qol-start-domain, 2026-10-18). Supersedes the temporary workspace of D-076.
 - Context: the app opened an untitled project; imports went to a hidden workspace in the cache moved on the first save (D-076). The owner asked for a start screen, a New simulation dialog with analysis presets, and a project folder from the start.
 - Decision:
   - Start state: `vortexcfd` without a path shows the main window with no project (no tree content, the muted viewer message "No project open", only the File and Help menus active; Import, Save, Save As and Save as Preset disabled) and opens the modal Start dialog: "New simulation", "Open project..." and the recent projects (last 10, QSettings key recent/projects, most recent first; a missing file is greyed with "(not found)", cannot be opened and can be removed from the list). Closing the dialog leaves the empty window; File > New Simulation, Open, Open Recent (with "Start screen...") reopen the flows. `vortexcfd <path>` opens that project without the dialog. Every project created or opened goes to the front of the recent list. Help > About.
@@ -959,7 +959,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Consequences: one more background check after imports and part edits (0.1 s on the aircraft); tests/test_surface_prep.py.
 
 ## D-100 checkMesh failures: hard ones block the solver, soft ones warn
-- Status: Accepted (owner, as implemented, QUESTIONS 162). The classification of each checkMesh line as hard or soft ([NUMERICS-REVIEW]) is QUESTIONS 166. Was Proposed (owner review of 5.2, docs/QUESTIONS.md item 120). [NUMERICS-REVIEW] Changes D-096: only hard failures block.
+- Status: Accepted (owner, as implemented, QUESTIONS 162). The classification of each checkMesh line as hard or soft ([NUMERICS-REVIEW]): accepted as implemented (owner, QUESTIONS 166; the policy, item 120). Was Proposed (owner review of 5.2, docs/QUESTIONS.md item 120). [NUMERICS-REVIEW] Changes D-096: only hard failures block.
 - Context: D-096 blocked Run Solver and the polar sweep for every failed checkMesh check, so a mesh failing only the skewness check (4.23 on the as-imported aircraft) could not be solved. The owner asked for two classes.
 - Decision: `foam/mesh_report.py` classifies every line checkMesh prints with "***" (a failed check) by the start of its text (`HARD_CHECKS`, `SOFT_CHECKS`, `check_class`); the mapping comes from the v2606 sources (src/OpenFOAM/meshes/primitiveMesh/primitiveMeshCheck/primitiveMeshCheck.C, src/OpenFOAM/meshes/polyMesh/polyMeshCheck/polyMeshCheck.C, applications/utilities/mesh/manipulation/checkMesh/checkTopology.C and checkGeometry.C):
   - HARD (block Run Solver and the polar sweep; the badge reads "Mesh invalid: checkMesh failed"):
