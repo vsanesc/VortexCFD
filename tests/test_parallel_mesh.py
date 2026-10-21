@@ -73,6 +73,7 @@ class FakeFoamRun:
     calls: list[tuple[str, list[str], bool]] = []  # (step, command, processor dirs present at start)
     block: set[str] = set()
     fail: set[str] = set()
+    raising: set[str] = set()  # steps whose start raises OSError (log not writable, disk full)
     started = threading.Event()
 
     def __init__(self) -> None:
@@ -81,6 +82,8 @@ class FakeFoamRun:
 
     def start(self, command, case_dir, log_file, on_line=None, timeout_s=None) -> None:
         name = Path(log_file).name.removeprefix("log.")
+        if name in FakeFoamRun.raising:
+            raise OSError(28, "No space left on device")
         case_dir = Path(case_dir)
         FakeFoamRun.calls.append((name, list(command), any(case_dir.glob("processor*"))))
         self._log = Path(log_file)
@@ -111,10 +114,11 @@ class FakeFoamRun:
 
 @pytest.fixture
 def fake(monkeypatch):
-    FakeFoamRun.calls, FakeFoamRun.block, FakeFoamRun.fail = [], set(), set()
+    FakeFoamRun.calls, FakeFoamRun.block, FakeFoamRun.fail, FakeFoamRun.raising = [], set(), set(), set()
     FakeFoamRun.started = threading.Event()
     monkeypatch.setattr(mesh_run, "FoamRun", FakeFoamRun)
-    return FakeFoamRun
+    yield FakeFoamRun
+    FakeFoamRun.block, FakeFoamRun.fail, FakeFoamRun.raising = set(), set(), set()  # class state other files reuse
 
 
 def _case(tmp_path: Path) -> Path:
@@ -193,6 +197,22 @@ def test_a_failed_decomposition_or_reconstruction_is_reported_with_its_log(tmp_p
     assert result.error == f"{step} failed (exit code 1): see {case / 'logs' / f'log.{step}'}"
     assert "checkMesh" not in [name for name, _, _ in fake.calls]
     assert not list(case.glob("processor*"))
+
+
+@pytest.mark.parametrize("cores", [1, 3])
+def test_an_exception_in_a_step_is_reported_and_cleaned(tmp_path, fake, cores) -> None:
+    """R-02: a step that cannot start ends the run with a failed result through on_done."""
+    case = _case(tmp_path)
+    fake.raising = {"snappyHexMesh"}
+    done = []
+    run = MeshRun(case, cores=cores, on_done=done.append)
+    run.start()
+    result = run.wait(10)
+    assert done == [result] and not run.is_running()
+    assert not result.success and not result.stopped and result.failed_step == "snappyHexMesh"
+    assert result.error == "snappyHexMesh failed: OSError: [Errno 28] No space left on device"
+    assert result.report is None and result.cores == cores
+    assert not list(case.glob("processor*")) and not (case / DECOMPOSE_DICT).exists()
 
 
 def test_serial_run_writes_no_decomposition(tmp_path, fake) -> None:

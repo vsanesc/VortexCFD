@@ -122,6 +122,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-105 | 2026-10-20 | Benchmark layer headline counted from the mesh; hard and soft checks per case | Proposed |
 | D-106 | 2026-10-20 | Robust prism-layer defaults: layer cap 12, expansion up to 1.3, featureAngle 130, nOuterIter 3 (schema v13) | Proposed |
 | D-112 | 2026-10-21 | A mesh or solver run is bound to the case folder it started in | Proposed |
+| D-113 | 2026-10-21 | Every background run reports its end, also after an exception | Proposed |
 
 ---
 
@@ -1112,3 +1113,9 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Context: switching projects only requests a stop of a running mesh or solver; a run that ended normally in the meantime wrote its record into the newly opened project's case/ and, for a mesh, deleted that project's results (D-051).
 - Decision: the window remembers the case folder (and, for a mesh, the part patches) of the run it starts. When the run ends and that folder is not the open project's case/, the mesh record (with the removal of the results it makes out of date, D-051) or the run record goes to the run's own case folder, the console says so, and nothing is shown or changed in the open project; a stopped or failed mesh writes nothing. Results read for a case that is no longer open are ignored.
 - Consequences: the open project's records and results are never touched by another project's run; a project whose run finished after a switch shows that run when it is reopened.
+
+## D-113 Every background run reports its end, also after an exception
+- Status: Proposed (review follow-up, docs/REVIEW.md R-02).
+- Context: `MeshRun` ran its steps in try/finally only: an exception (a step that cannot start, a log or the decomposeParDict that cannot be read or written) ended the thread without `on_done`, so the top bar stayed in "Meshing". `SolverRun` caught only OSError, ValueError and RuntimeError, and nothing around the classification after the process; the mesh study and the polar sweep wrote their first and last record outside their exception handler.
+- Decision: `MeshRun` turns any exception into a failed `MeshRunResult` (`failed_step` = the step that was running, `error` = "<step> failed: <type>: <message>") after removing processor*/ as before; `SolverRun` reports any exception as a crashed run whose `crash` text is the error; the study and the sweep save their first record inside the handler and report a last record that cannot be written in the console. In each case `on_done` is called, so the state badge returns and the error appears in the console. The geometry worker, the overlap and intersection checks and the results loader already caught every exception.
+- Consequences: no change for runs without an exception.

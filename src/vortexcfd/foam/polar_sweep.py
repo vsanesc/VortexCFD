@@ -238,11 +238,11 @@ class SweepRun:
         from vortexcfd.foam.solver_run import CRASHED, state_label
 
         self.record.status = "running"
-        self._save()
         failed = False
         source: Path | None = None  # the last point that met its criteria
         source_name = ""
         try:
+            self._save()
             for point in self.record.points:
                 if self._stopped():
                     break
@@ -289,7 +289,10 @@ class SweepRun:
             self._say(f"Polar sweep failed: {exc}")
             failed = True
         self.record.status = "stopped" if self._stopped() else ("failed" if failed else "finished")
-        self._save()
+        try:
+            self._save()
+        except Exception as exc:  # noqa: BLE001 - the end is still reported (R-02)
+            self._say(f"Polar sweep: could not save the record: {exc}")
         self._say(f"Polar sweep {self.record.status}")
         if self._on_done is not None:
             self._on_done(self.record)

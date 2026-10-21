@@ -116,6 +116,7 @@ class MeshRun:
         self._current: FoamRun | None = None
         self._thread: threading.Thread | None = None
         self._result: MeshRunResult | None = None
+        self._step_name: str | None = None  # the step running or last started
 
     def start(self) -> None:
         if self._thread is not None:
@@ -150,8 +151,16 @@ class MeshRun:
     def _run(self) -> None:
         try:
             self._run_steps()
-        finally:
+        except Exception as exc:  # noqa: BLE001 - a step that cannot start, a log or dictionary I/O error
+            with self._lock:
+                stopped = self._stop
+            step = self._step_name
+            self._result = MeshRunResult(success=False, stopped=stopped, failed_step=step, log_dir=self.case_dir / "logs",
+                                         cores=self.cores, error=f"{step or 'Meshing'} failed: {type(exc).__name__}: {exc}")
+        try:
             self._clean_processors()  # also after a stop, a failure or an exception (D-111)
+        except OSError:
+            pass
         if self._on_done is not None and self._result is not None:
             self._on_done(self._result)
 
@@ -172,6 +181,7 @@ class MeshRun:
             with self._lock:
                 if self._stop:
                     break
+            self._step_name = name
             if name in STEP_DICTS and not (self.case_dir / STEP_DICTS[name]).is_file():
                 continue
             if self._on_step is not None:

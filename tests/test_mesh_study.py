@@ -196,6 +196,26 @@ def test_study_run_meshes_and_solves_every_level_in_order(tmp_path: Path) -> Non
     assert read_record(tmp_path).status == "finished"
 
 
+def test_a_record_that_cannot_be_written_still_ends_the_study(tmp_path: Path, monkeypatch) -> None:
+    """R-02: on_done is called even when study.json cannot be written."""
+    from vortexcfd.foam import mesh_study
+
+    def broken(*a, **k):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(mesh_study, "write_record", broken)
+    FakeMeshRun.calls, FakeSolverRun.n = [], 0
+    rec = StudyRecord(math.sqrt(2), "fine", ["Cd"], 1, 8.0,
+                      [LevelResult(i, n, 1.0) for i, n in enumerate(("coarse", "medium", "fine"))])
+    done, said = [], []
+    run = StudyRun(tmp_path, rec, lambda case: None, mesh_run_factory=FakeMeshRun, solver_run_factory=FakeSolverRun,
+                   on_done=done.append, on_line=said.append)
+    run.start()
+    out = run.wait(10)
+    assert done == [out] and out.status == "failed" and FakeMeshRun.calls == []
+    assert any("No space left on device" in line for line in said)
+
+
 def test_level_labels_name_the_criteria(tmp_path: Path) -> None:
     from vortexcfd.core.model import AsymptoticCriterion, StoppingCriteria
 
@@ -262,7 +282,7 @@ def _real_mesh_run_with_fake_foam(monkeypatch, tmp_path: Path, n_levels: int):
     from tests.test_parallel_mesh import FakeFoamRun
     from vortexcfd.foam import mesh_run
 
-    FakeFoamRun.calls, FakeFoamRun.block, FakeFoamRun.fail = [], set(), set()
+    FakeFoamRun.calls, FakeFoamRun.block, FakeFoamRun.fail, FakeFoamRun.raising = [], set(), set(), set()
     monkeypatch.setattr(mesh_run, "FoamRun", FakeFoamRun)
     for i in range(n_levels):
         (tmp_path / f"level_{i + 1}" / "system").mkdir(parents=True)

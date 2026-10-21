@@ -598,6 +598,29 @@ def test_the_mesh_cores_reach_the_run_and_the_record(make_window, fake_run, monk
     assert read_mesh_record(w.project.path.parent / "case").cores == 3
 
 
+def test_an_exception_in_the_meshing_thread_resets_the_state_badge(make_window, qtbot, monkeypatch) -> None:
+    """R-02: the real MeshRun with a step that cannot start: the badge leaves "Meshing" and the
+    console shows the error."""
+    from vortexcfd.foam import mesh_run
+
+    class Unstartable:
+        def start(self, *a, **k):
+            raise OSError(28, "No space left on device")
+
+        def request_stop(self, *a, **k):
+            return False
+
+    monkeypatch.setattr(mesh_run, "FoamRun", Unstartable)
+    w = make_window()
+    w.top_bar.mesh_button.click()
+    qtbot.waitUntil(lambda: not w.mesh_worker.is_running() and w.top_bar.state_badge.text() != "Meshing",
+                    timeout=10000)
+    assert w.top_bar.state_badge.text() in ("Saved", "Modified")
+    assert w.top_bar.mesh_button.text() == "Generate Mesh" and w.mesh_report is None
+    assert "Meshing failed in blockMesh" in w.statusBar().currentMessage()
+    assert "blockMesh failed: OSError: [Errno 28] No space left on device" in w.console.text()
+
+
 def test_a_failed_parallel_step_reports_its_log(make_window, fake_run) -> None:
     w = make_window()
     w.top_bar.mesh_button.click()
