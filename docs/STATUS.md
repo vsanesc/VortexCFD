@@ -5,8 +5,8 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
 
 ## Current branch
 
-**task/w3-internal** (not yet published). Workstream W3, internal flow, **closed by the I5 verdicts**; then the first
-W4 slice. Done on it:
+**task/w3-internal** (not yet published). Workstream W3, internal flow (**not closed**, owner review below); the
+first W4 slice. Done on it:
 - Part 0 ([NUMERICS-REVIEW], D-127, QUESTIONS 204): every 3D study level, the current one included, is meshed with
   the distance shells and nCellsBetweenLevels 1. The check (docs/validation/study3d/RESULT.md, Round 2) does **not
   pass**: valid levels, layers and quality as before, the cell size shrinks with the ratio at 6/6 sphere points but
@@ -31,9 +31,18 @@ W4 slice. Done on it:
   (D-133); the HTML report (D-134).
 - Machine time about 1 h 10 min (3D check 6 min, benchmark 3 min, pipe 10 min, step 50 min, the rest tests and
   trials). No OpenFOAM process left running.
+- Owner review of W3 (2026-10-22): D-129 to D-134 accepted; QUESTIONS 205, 207, 208 closed. Follow-up:
+  - QUESTIONS 204, round 3 ([NUMERICS-REVIEW]): shell distances rounded to whole coarse cells, sizes averaged over a
+    cube of 2 coarse cells: 2/6 sphere and 1/6 wing points pass: **not passed**, the rounding reverted, D-127 stays
+    Proposed, the pipe's study not run (docs/validation/study3d/RESULT.md, Round 3).
+  - QUESTIONS 209, round 2: the inlet moved to x/H = -131 for TMR's 1.5 H boundary layer; the finer family: 6.468
+    (valid) / 5.637 (step face kept 69 % of its layers: not counted) / 6.434 H (valid): two valid levels, no GCI:
+    **PASS WITH NOTE** (docs/validation/bfs/RESULT.md, Round 2).
+  - QUESTIONS 206: no reserved domain patch names in internal projects (closed).
+  - Machine time about 1 h 22 min (3D check 13 min, boundary-layer calibration 16 min, step study 53 min).
 
-Next: the owner's review of D-129 to D-134 and QUESTIONS 204 to 209. Open: docs/QUESTIONS.md items 30, 67, 69, 70,
-72, 73, 75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 204 to 209.
+Next: QUESTIONS 204 (the 3D study's check) and 209 (the step face's layers). Open: docs/QUESTIONS.md items 30, 67, 69, 70,
+72, 73, 75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 204, 209.
 
 ### Previous branch (task/w2-naca-r2)
 
@@ -135,8 +144,8 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
   wall-resolved). Import ONE closed surface whose solids (multi-solid STL) or CAD faces separate the inlets, the
   outlets and the walls: in an internal project each solid becomes its own patch. Set each patch's role under
   Regions > Fluid Region (a patch is a wall until set); an open geometry is refused with the number of open edges
-  (use Surface Preparation or Repair). A region named "inlet" or "outlet" becomes the mesh patch "inlet_1" /
-  "outlet_1" (the reports use the mesh names). Add cutting planes and pressure drops under Reports & Monitors >
+  (use Surface Preparation or Repair). A region keeps its name as the mesh patch (no domain name is reserved in
+  internal projects). Add cutting planes and pressure drops under Reports & Monitors >
   Planes & Pressure Drops; the Internal flow table shows the mass flow and the area- and mass-averaged static and
   total pressure per inlet, outlet and plane.
 - Which inlet: a mass-flow inlet when the flow rate is known (the most robust: the pipe converged in 502
