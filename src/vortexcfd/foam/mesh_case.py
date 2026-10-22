@@ -1041,6 +1041,10 @@ MESH_COMMANDS: tuple[tuple[str, list[str]], ...] = (
 # passes write the mesh to processor*/constant, as in the v2606 motorBike tutorial) merges it once into
 # constant/polyMesh; createPatch and checkMesh then run on that serial mesh.
 DECOMPOSE_STEP = "decomposePar"
+# The meshing decomposition splits the mesh only (D-130): a case that was solved before has 0/ fields, and their
+# patches are those of the previous mesh (no "background" patch of a rounded domain or of internal flow, D-078,
+# D-129), which decomposePar -force would read and fail on.
+MESH_DECOMPOSE_COMMAND = [*DECOMPOSE_COMMAND, "-no-fields"]
 RECONSTRUCT_STEP = "reconstructParMesh"
 SNAPPY_STEPS = ("snappyHexMesh.castellate", "snappyHexMesh")
 
@@ -1053,7 +1057,7 @@ def mesh_commands(cores: int = 1) -> tuple[tuple[str, list[str]], ...]:
     for name, command in MESH_COMMANDS:
         if name in SNAPPY_STEPS:
             if not any(step == DECOMPOSE_STEP for step, _ in steps):
-                steps.append((DECOMPOSE_STEP, list(DECOMPOSE_COMMAND)))
+                steps.append((DECOMPOSE_STEP, list(MESH_DECOMPOSE_COMMAND)))
             steps.append((name, parallel_command(command, cores)))
             if name == "snappyHexMesh":
                 steps.append((RECONSTRUCT_STEP, ["reconstructParMesh", "-constant"]))

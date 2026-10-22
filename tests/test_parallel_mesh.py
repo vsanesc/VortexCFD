@@ -49,7 +49,7 @@ def test_n_cores_decompose_once_run_every_snappy_pass_in_parallel_and_reconstruc
         "reconstructParMesh", "extrudeMesh", "createPatch", "checkMesh"]
     cmd = dict(steps)
     assert cmd["blockMesh"] == ["blockMesh"] and cmd["surfaceFeatureExtract"] == ["surfaceFeatureExtract"]
-    assert cmd["decomposePar"] == ["decomposePar", "-force"]
+    assert cmd["decomposePar"] == ["decomposePar", "-force", "-no-fields"]  # the mesh only (D-130)
     assert cmd["snappyHexMesh.castellate"] == ["mpirun", "-np", "4", "snappyHexMesh", "-overwrite", "-dict",
                                                "system/snappyHexMeshDict.castellate", "-parallel"]
     assert cmd["snappyHexMesh"] == ["mpirun", "-np", "4", "snappyHexMesh", "-overwrite", "-parallel"]

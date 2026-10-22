@@ -230,6 +230,8 @@ def test_planes_and_pressure_drops_reach_the_case(tmp_path: Path) -> None:
     plane = files["system/controlDict"].content["functions"]["planeFlow_a"]
     assert plane["regionType"] == "sampledSurface" and plane["operation"] == "areaNormalIntegrate"
     assert plane["sampledSurfaceDict"]["pointAndNormalDict"]["normal"] == [1.0, 0.0, 0.0]  # unit normal
+    # off any layer of mesh faces: 1e-6 of the parts' largest extent (the pipe's 0.6 m) along the normal
+    assert plane["sampledSurfaceDict"]["pointAndNormalDict"]["point"] == [pytest.approx(0.2 + 0.6e-6), 0.0, 0.0]
     reports = files[INTERNAL_REPORTS_FILE].content
     assert reports == {"rho": RHO, "pressureDrops": {"dp1": {"upstream": "patch:inlet_1", "downstream": "plane:a"}}}
     project.update_reports(pressure_drops=[{"name": "dp1", "upstream": "patch:inlet_1", "downstream": "plane:b"}])

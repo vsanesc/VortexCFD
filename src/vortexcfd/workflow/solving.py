@@ -217,12 +217,23 @@ def internal_setup(project: Project) -> InternalSetup:
     first = inlets[0] if inlets else None
     k0, omega0 = internal_turbulence(speed, first.intensity if first else 0.05,
                                      first.length_scale if first else 0.07 * max(ref.hydraulic_diameter if ref else 1.0, 1e-9))
+    bounds = [m.bounds for m in meshes]
+    extent = max((b[2 * a + 1] - b[2 * a] for b in bounds for a in range(3)), default=1.0)
     planes = []
     for plane in sim.reports.planes:
         n = plane.normal
         length = sum(c * c for c in n) ** 0.5
-        planes.append((plane.name, tuple(plane.point), tuple(c / length for c in n)))
+        unit = tuple(c / length for c in n)
+        point = tuple(p + PLANE_NUDGE * extent * c for p, c in zip(plane.point, unit))
+        planes.append((plane.name, point, unit))
     return InternalSetup(tuple(inlets), tuple(outlets), k0, omega0, tuple(planes))
+
+
+# A cutting plane is written this fraction of the parts' largest extent along its normal from the user's point
+# (D-129): a plane that lies on a layer of mesh faces (a round coordinate on a regular background) is sampled with
+# the faces of both neighbouring cells (the pipe validation: 368 faces and 105 % of the pipe's area at x = 40 D
+# against 336 elsewhere), so the plane never lies on one. [NUMERICS-REVIEW]
+PLANE_NUDGE = 1e-6
 
 
 def solver_input(project: Project) -> SolverCaseInput:
