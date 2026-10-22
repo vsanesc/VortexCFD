@@ -115,8 +115,14 @@ def cmd_angle(args) -> None:
     from vortexcfd.foam.mesh_run import MeshRun
     from vortexcfd.foam.solver_run import SolverRun
 
-    folder = WORK / f"alpha_{args.alpha:g}_base_{args.base:g}"
+    folder = WORK / (f"alpha_{args.alpha:g}_base_{args.base:g}" + (f"_mc{args.mesh_cores}" if args.mesh_cores else ""))
     project = nc.build_project(folder, alpha=args.alpha, base_size=args.base)
+    if args.radius:  # diagnostic: the domain size (radius and wake in chords)
+        folder = folder.with_name(folder.name + f"_R{args.radius:g}")
+        project = nc.build_project(folder, alpha=args.alpha, base_size=args.base)
+        project.update_domain(radius=args.radius, downstream=args.radius)
+    if args.mesh_cores:  # a set-up choice: the meshing ranks (D-111; a parallel mesh is not bit-identical)
+        project.update_mesh(cores=args.mesh_cores)
     job = meshing.prepare_job(project)
     plan = meshing.plan_layers_for(project, job.box)
     say(f"alpha {args.alpha:g}: meshing in {job.case_dir} on {job.cores} cores, {plan.count} layers x {plan.first:.3g} m")
@@ -224,6 +230,8 @@ def main() -> None:
     an = sub.add_parser("angle")
     an.add_argument("--alpha", type=float, required=True)
     an.add_argument("--base", type=float, default=nc.FINE_BASE)
+    an.add_argument("--mesh-cores", type=int, default=None)
+    an.add_argument("--radius", type=float, default=None)
     sub.add_parser("collect")
     args = parser.parse_args()
     {"setup": cmd_setup, "study": cmd_study, "angle": cmd_angle, "collect": cmd_collect}[args.command](args)

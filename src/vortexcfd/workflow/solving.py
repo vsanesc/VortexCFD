@@ -4,6 +4,7 @@ Lives in workflow/ for the same reason as workflow/meshing.py: it joins core, ge
 foam (solver files).
 """
 
+import dataclasses
 import hashlib
 import json
 import shutil
@@ -101,6 +102,30 @@ def section_span(project: Project, box=None) -> float | None:
     return project_estimate(project, box).span
 
 
+def case_span(case_dir: Path) -> float | None:
+    """The span of a meshed 2D case (D-121): the extrusion thickness in its system/extrudeMeshDict (the mesh in that
+    case was made with it); None when the case has none (3D)."""
+    from vortexcfd.foam.dictfile import read_foam_file
+    from vortexcfd.foam.mesh_case import EXTRUDE_DICT
+
+    path = Path(case_dir) / EXTRUDE_DICT
+    if not path.is_file():
+        return None
+    try:
+        return float(read_foam_file(path)["linearDirectionCoeffs"]["thickness"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def for_case(inp: SolverCaseInput, case_dir: Path) -> SolverCaseInput:
+    """``inp`` with the span of the 2D mesh in ``case_dir`` (a mesh study level or a sweep point has its own span:
+    the reference area chord x span must be that mesh's, D-121); unchanged in 3D."""
+    if inp.span is None:
+        return inp
+    span = case_span(case_dir)
+    return dataclasses.replace(inp, span=span) if span is not None else inp
+
+
 def solver_input(project: Project) -> SolverCaseInput:
     box, names, bounds = parts_layout(project)
     sim = project.sim
@@ -142,7 +167,7 @@ def prepare_solver_case(project: Project) -> Path:
     reason = physics_problem(project)
     if reason is not None:
         raise SolvingNotReady(reason)
-    files = enable_clean_stop(build_solver_files(solver_input(project)))
+    files = enable_clean_stop(build_solver_files(for_case(solver_input(project), case_dir)))
     clear_results(case_dir)
     for rel, spec in files.items():
         write_foam_file(case_dir / rel, spec.content, object_name=Path(rel).name, class_name=spec.class_name)

@@ -26,7 +26,7 @@ from vortexcfd.workflow.meshing import (
     write_junction_features,
     write_part_surfaces,
 )
-from vortexcfd.workflow.solving import clear_results, physics_problem, results_hash, solver_input
+from vortexcfd.workflow.solving import clear_results, for_case, physics_problem, results_hash, solver_input
 
 
 def sweep_dir_for(project: Project) -> Path | None:
@@ -124,7 +124,7 @@ def point_writer(project: Project):
         point = dataclasses.replace(inp, inflow=inp.inflow.model_copy(update={"alpha_deg": alpha}), solvers=solvers)
         if (case / "0").is_dir():
             shutil.rmtree(case / "0")
-        for rel, spec in enable_clean_stop(build_solver_files(point)).items():
+        for rel, spec in enable_clean_stop(build_solver_files(for_case(point, case))).items():
             write_foam_file(case / rel, spec.content, object_name=Path(rel).name, class_name=spec.class_name)
 
     return write

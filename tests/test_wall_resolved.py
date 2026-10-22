@@ -120,3 +120,20 @@ def test_a_level_can_be_left_unsolved(tmp_path: Path) -> None:
     assert out.levels[0].error == "layers collapsed" and out.levels[0].state is None
     assert out.levels[1].state is not None and FakeSolverRun.n == 2
     assert out.levels[0].h == pytest.approx((100.0 / 1000) ** 0.5)  # 2D: (A / N)^(1/2)
+
+
+def test_each_2d_level_uses_its_own_span_for_the_reference_area(tmp_path: Path) -> None:
+    """A 2D level's slab is one of its own surface cells thick: the study writes chord x that span (the coarse
+    level's span is twice the fine one's), not the project's."""
+    from vortexcfd.foam.dictfile import read_foam_file
+    from vortexcfd.workflow import mesh_study
+
+    project = airfoil_project(tmp_path)
+    study_dir, record, _inputs = mesh_study.prepare_study(project)
+    writer = mesh_study.solver_writer(project)
+    areas = []
+    for n in (1, 3):
+        case = study_dir / f"level_{n}"
+        writer(case)
+        areas.append(float(read_foam_file(case / "system" / "controlDict")["functions"]["forceCoeffs1"]["Aref"]))
+    assert areas[0] == pytest.approx(2 * areas[1])

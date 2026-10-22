@@ -56,7 +56,7 @@ from vortexcfd.workflow.meshing import (
     write_junction_features,
     write_part_surfaces,
 )
-from vortexcfd.workflow.solving import clear_results, physics_problem, solver_input
+from vortexcfd.workflow.solving import clear_results, for_case, physics_problem, solver_input
 from vortexcfd.foam.physics_case import build_solver_files
 
 # Background cells per total cell of a meshed case, used for the estimate when the current case
@@ -250,17 +250,17 @@ def prepare_study(project: Project, only: Collection[str] | None = None) -> tupl
 
 def solver_writer(project: Project):
     """A callable writing the project's solver files (clean stop, the study's cores) into a meshed
-    level directory, run on the study's worker thread (it uses only plain data captured here)."""
+    level directory, run on the study's worker thread (it uses only plain data captured here). A 2D level's
+    reference area uses that level's own span (D-121)."""
     inp = solver_input(project)
     cores = project.sim.studies.mesh.cores
     inp = dataclasses.replace(inp, solvers=inp.solvers.model_copy(update={"cores": cores}))
-    files = enable_clean_stop(build_solver_files(inp))
 
     def write(case: Path) -> None:
         for name in ("0",):
             if (case / name).is_dir():
                 shutil.rmtree(case / name)
-        for rel, spec in files.items():
+        for rel, spec in enable_clean_stop(build_solver_files(for_case(inp, case))).items():
             write_foam_file(case / rel, spec.content, object_name=Path(rel).name, class_name=spec.class_name)
 
     return write
