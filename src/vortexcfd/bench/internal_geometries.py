@@ -60,8 +60,8 @@ def write_pipe(path: Path, diameter: float, length: float, n_theta: int = 64, ax
 
 def extruded_outline_solids(outline: list[tuple[float, float]], segment_names: list[str], y0: float, y1: float,
                             cap_name: str) -> list[tuple[str, np.ndarray, np.ndarray]]:
-    """A closed polygon in x-z (counter-clockwise seen from +y... any orientation) extruded from y0 to y1, one solid
-    per segment name (segment i joins point i to point i + 1) plus the two caps as ``cap_name``. For the 2D mode
+    """A closed polygon in x-z extruded from y0 to y1, one solid per segment name (segment i joins point i to point
+    i + 1); the two caps belong to the solid ``cap_name`` (a segment's name, or a solid of their own). For the 2D mode
     (D-121): the section is cut at mid y, so the caps never reach the mesh."""
     pts = np.asarray(outline, dtype=float)
     n = len(pts)
@@ -72,15 +72,13 @@ def extruded_outline_solids(outline: list[tuple[float, float]], segment_names: l
     for i, name in enumerate(segment_names):
         j = (i + 1) % n
         solids.setdefault(name, []).extend([(i, j, n + j), (i, n + j, n + i)])
-    out = [(name, allp, np.array(t)) for name, t in solids.items()]
     import pyvista as pv
 
-    cap_tris = []
     for offset in (0, n):
         poly = pv.PolyData(allp[offset:offset + n], np.hstack([[n], np.arange(n)])).triangulate()
-        cap_tris += [tuple(int(v) + offset for v in tri) for tri in poly.faces.reshape(-1, 4)[:, 1:]]
-    out.append((cap_name, allp, np.array(cap_tris)))
-    return out
+        solids.setdefault(cap_name, []).extend(tuple(int(v) + offset for v in tri)
+                                               for tri in poly.faces.reshape(-1, 4)[:, 1:])
+    return [(name, allp, np.array(t)) for name, t in solids.items()]
 
 
 def write_solids(path: Path, solids) -> Path:

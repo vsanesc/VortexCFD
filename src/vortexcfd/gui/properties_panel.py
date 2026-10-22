@@ -65,6 +65,7 @@ from vortexcfd.foam.physics_case import (
 )
 from vortexcfd.workflow.refinement import OVERLAP_NOTE
 from vortexcfd.workflow.meshing import (
+    flow_speed,
     MeshingNotReady,
     estimate_with_volumes,
     fluid_location,
@@ -1464,7 +1465,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, QWidge
             for w in widgets:
                 w.blockSignals(False)
         self.ref_area.setEnabled(rep.reference_area_basis == "custom")
-        self.ref_u.setText(f"{sim.inflow.speed:.4g} m/s (inflow speed)")
+        self.ref_u.setText(f"{flow_speed(self._project):.4g} m/s (the first inlet's bulk speed)" if sim.internal
+                           else f"{sim.inflow.speed:.4g} m/s (inflow speed)")
         try:
             _box, _names, bounds = parts_layout(self._project)
         except MeshingNotReady:
@@ -1705,7 +1707,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, QWidge
     def _probe_floor(self, quantity: str) -> float:
         """Suggested scale floor of a probe criterion: 1% of the free-stream dynamic pressure
         (kinematic, 0.5 U^2) for p, 1% of the free-stream speed for U."""
-        speed = self._project.sim.inflow.speed
+        speed = flow_speed(self._project)  # internal flow: the reference inlet's bulk speed (D-129)
         return 0.01 * (0.5 * speed ** 2 if quantity.endswith(":p") else speed)
 
     def _add_criterion(self, kind: str) -> None:

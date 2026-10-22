@@ -44,9 +44,16 @@ def closure_problem(meshes: Sequence[pv.PolyData]) -> str | None:
     return None
 
 
+def oriented_surface(meshes: Sequence[pv.PolyData]) -> pv.PolyData:
+    """``merged_surface`` with consistent outward normals (an STL's triangles need not be oriented alike: the
+    signed volume and the signed distance need it; the surface must be closed, ``closure_problem``)."""
+    return merged_surface(meshes).compute_normals(consistent_normals=True, auto_orient_normals=True, cell_normals=True,
+                                                  point_normals=False)
+
+
 def enclosed_volume(meshes: Sequence[pv.PolyData]) -> float:
-    """The volume inside the closed geometry (m3)."""
-    return abs(float(merged_surface(meshes).volume))
+    """The volume inside the closed geometry (m3), whatever the orientation of its triangles."""
+    return abs(float(oriented_surface(meshes).volume))
 
 
 def inside_point(meshes: Sequence[pv.PolyData], background: Bounds, cells: tuple[int, int, int],
@@ -54,8 +61,10 @@ def inside_point(meshes: Sequence[pv.PolyData], background: Bounds, cells: tuple
     """A point inside the fluid for locationInMesh: among the points at the fraction ``offset`` of the background
     cells (so on no cell face of any refinement level up to 4, mesh_case.LOCATION_OFFSET), the one inside the closed
     geometry farthest from its surface; None when no candidate is inside. At most ``max_candidates`` points are
-    tested (every n-th background cell along each axis)."""
-    surface = merged_surface(meshes)
+    tested (every n-th background cell along each axis). Inside: a negative signed distance to the consistently
+    oriented surface (the ray-casting test of vtkSelectEnclosedPoints misjudged points of the axis-aligned 2D
+    backward-facing step on a regular grid: a point below its upstream wall came out inside)."""
+    surface = oriented_surface(meshes)
     total = cells[0] * cells[1] * cells[2]
     stride = max(1, int(np.ceil((total / max_candidates) ** (1.0 / 3.0))))
     axes = []
@@ -65,13 +74,11 @@ def inside_point(meshes: Sequence[pv.PolyData], background: Bounds, cells: tuple
         index = np.arange(0, n, stride if n > stride else 1)
         axes.append(lo + (index + offset[axis]) * step)
     grid = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1).reshape(-1, 3)
-    points = pv.PolyData(grid)
-    inside = points.select_interior_points(surface, method="cell_locator", check_surface=False)["selected_points"].astype(bool)
+    distance = np.asarray(pv.PolyData(grid).compute_implicit_distance(surface)["implicit_distance"])
+    inside = distance < 0
     if not inside.any():
         return None
-    candidates = pv.PolyData(grid[inside])
-    distance = np.abs(candidates.compute_implicit_distance(surface)["implicit_distance"])
-    best = grid[inside][int(np.argmax(distance))]
+    best = grid[inside][int(np.argmin(distance[inside]))]
     return float(best[0]), float(best[1]), float(best[2])
 
 

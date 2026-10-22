@@ -53,6 +53,7 @@ from vortexcfd.workflow.meshing import (
     domain_fields,
     internal_fields,
     estimate_for,
+    flow_speed,
     mesh_cores,
     readiness,
     surface_length,
@@ -157,8 +158,9 @@ def plan_study(project: Project) -> StudyPlan:
     current = estimate_for(box, mesh, length)
     yplus_first = None
     if mesh.layer_sizing == "absolute_yplus":
-        yplus_first = first_layer_thickness(mesh.target_yplus, project.sim.inflow.speed, project.sim.physics.nu,
-                                            length, mesh.yplus_at)  # Re on the surface size length (D-088)
+        yplus_first = first_layer_thickness(mesh.target_yplus, flow_speed(project), project.sim.physics.nu,
+                                            length, mesh.yplus_at)  # Re on the surface size length (D-088); the
+        # internal-flow speed is the reference inlet's (D-129)
     layers = reference_layers(mesh, current.surface_size, yplus_first)
     if mesh.layer_controls == "wall_resolved" and yplus_first is not None:  # D-122: the stack of the current level
         plan = plan_wall_resolved(yplus_first, current.surface_size)

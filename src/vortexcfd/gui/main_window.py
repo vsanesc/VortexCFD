@@ -1817,7 +1817,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             range_mode=self.range_combo.currentText(),
             fixed_range=(self.range_min.value(), self.range_max.value()) if fixed else None,
             display=self.display_combo.currentText(),
-            u_ref=self._project.sim.inflow.speed,
+            u_ref=meshing.flow_speed(self._project),  # internal flow: the first inlet's bulk speed (D-129)
             flow_direction=flow_direction(),
             highlight_separation=self.separation_toggle.isChecked(),
             font_size=self._point_size,
@@ -1889,7 +1889,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
 
     def _feed_section_tool(self) -> None:
         view = self.results_view
-        self.section_tool.set_results(view.data.patches, self._project.sim.inflow.speed, view.parts_bounds())
+        self.section_tool.set_results(view.data.patches, meshing.flow_speed(self._project), view.parts_bounds())
 
     def open_sections(self) -> None:
         """The Sections tool (D-062): Cp against x/c on wall sections of the shown results."""

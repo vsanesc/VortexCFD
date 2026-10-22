@@ -172,6 +172,11 @@ def test_a_2d_internal_section_keeps_a_patch_per_segment(tmp_path: Path) -> None
     assert set(job.inputs.expected_domain_patches()) == {"inlet_1", "outlet_1", "frontAndBack"}
     m = internal.inlet_measures(project, meshing._body_parts(project)[1])["inlet_1"]
     assert m.hydraulic_diameter == pytest.approx(1.0)  # 2 x the inlet's height
+    # a patch the section does not cut (the end caps on a patch of their own) is refused before meshing
+    solids = extruded_outline_solids(outline, ["lower", "outlet", "upper", "inlet"], -0.5, 0.5, "caps")
+    capped = pipe_project(tmp_path / "caps", solids, preset="2D internal flow")
+    assert meshing.readiness(capped) == ("Part 'pipe': patch 'caps' is not on the 2D section (the cut at mid y): "
+                                         "assign its regions to another patch.")
 
 
 # -- solver dictionaries ------------------------------------------------------------------------------------

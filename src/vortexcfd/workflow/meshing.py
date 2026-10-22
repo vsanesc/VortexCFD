@@ -477,6 +477,25 @@ def readiness(project: Project) -> str | None:
     return estimate_with_volumes(project, box).limit_message()
 
 
+def internal_section_problem(project: Project, names, meshes) -> str | None:
+    """A 2D internal-flow patch the section does not cut (D-129), or None: the section at mid y carries a patch per
+    segment, so a patch with no segment (e.g. the slab's end caps on a patch of their own) would be a patch with no
+    face, which snappyHexMesh refuses."""
+    if project.sim.dimension != "2d":
+        return None
+    for i, (part, name, mesh) in enumerate(zip(project.sim.geometry.parts, names, meshes)):
+        patches = part.patch_names()
+        if len(patches) < 2:
+            continue
+        y = (mesh.bounds[2] + mesh.bounds[3]) / 2
+        cut = internal_geometry.labelled_section(mesh, part_patch_labels(project, i, mesh), section.section_loops(mesh), y)
+        missing = [p for k, p in enumerate(patches) if not any((seg == k).any() for seg in cut)]
+        if missing:
+            return (f"Part '{name}': patch '{missing[0]}' is not on the 2D section (the cut at mid y): assign its "
+                    "regions to another patch.")
+    return None
+
+
 def internal_readiness(project: Project) -> str | None:
     """Why an internal-flow project cannot be meshed (D-129), or None: the roles (an inlet and an outlet), the closed
     geometry, a 2D section of every part, an inlet that sizes the mesh and the background cell limit."""
@@ -487,7 +506,8 @@ def internal_readiness(project: Project) -> str | None:
         box, names, meshes = _loaded_parts(project)
     except MeshingNotReady as exc:
         return str(exc)
-    problem = internal_geometry.closure_problem(meshes) or section_problem(project, names, meshes)
+    problem = (internal_geometry.closure_problem(meshes) or section_problem(project, names, meshes)
+               or internal_section_problem(project, names, meshes))
     if problem is not None:
         return problem
     inlet = internal.reference_inlet(project, meshes)
