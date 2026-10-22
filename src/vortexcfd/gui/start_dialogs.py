@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 
 from vortexcfd.core.presets import BUILTIN_PRESETS, Preset, PresetError, PresetStore
 from vortexcfd.core.project import check_new_project_folder
+from vortexcfd.core.model import DIMENSION_LABELS, DIMENSIONS
 from vortexcfd.foam.parallel import physical_cores, recommended_cores
 from vortexcfd.gui.recent import RecentProjects
 from vortexcfd.gui.settings_store import settings
@@ -142,6 +143,7 @@ class NewSimulationSpec:
     parent: Path
     preset: Preset
     cores: int  # 1 = serial
+    dimension: str = "3d"  # "3d" or "2d" (D-121); the preset's unless changed in the dialog
 
 
 def default_cores(preset: Preset, physical: int) -> int:
@@ -176,6 +178,12 @@ class NewSimulationDialog(QDialog):
             builtin = i < len(BUILTIN_PRESETS)
             self.preset_combo.addItem(preset.name if builtin else f"{preset.name} (user)")
         form.addRow("Analysis preset", self.preset_combo)
+        self.dimension_combo = QComboBox()
+        for key in DIMENSIONS:
+            self.dimension_combo.addItem(DIMENSION_LABELS[key], key)
+        self.dimension_combo.setToolTip("2D section: the parts' section in the x-z plane meshed as one cell across "
+                                        "the span (y), with empty front and back; forces per unit span")
+        form.addRow("Analysis", self.dimension_combo)
         self.parallel_check = QCheckBox("Run in parallel")
         self.cores_spin = QSpinBox()
         self.cores_spin.setRange(1, self.physical)
@@ -213,7 +221,12 @@ class NewSimulationDialog(QDialog):
         index = next(i for i, p in enumerate(self.presets) if p.name == name)
         self.preset_combo.setCurrentIndex(index)
 
+    @property
+    def dimension(self) -> str:
+        return self.dimension_combo.currentData()
+
     def _preset_changed(self, *_args) -> None:
+        self.dimension_combo.setCurrentIndex(DIMENSIONS.index(self.preset.dimension))
         cores = default_cores(self.preset, self.physical)
         self.cores_spin.setValue(cores)
         self.parallel_check.setChecked(cores > 1)
@@ -243,7 +256,7 @@ class NewSimulationDialog(QDialog):
             return None
         cores = self.cores_spin.value() if self.parallel_check.isChecked() else 1
         return NewSimulationSpec(self.name_edit.text().strip(), Path(self.parent_edit.text().strip()),
-                                 self.preset, cores)
+                                 self.preset, cores, self.dimension)
 
     def _create(self) -> None:
         self.result_spec = self.spec()

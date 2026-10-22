@@ -29,8 +29,9 @@ from vortexcfd.core.model import Inflow, Physics, Reports, Solvers
 from vortexcfd.foam.case_writer import FoamFileSpec
 from vortexcfd.foam.convergence import FUNCTION_NAME as RUN_TIME_CONTROL
 from vortexcfd.foam.convergence import force_coeffs_name, probe_function_name, run_time_control
-from vortexcfd.foam.mesh_case import GROUND_PATCH
+from vortexcfd.foam.mesh_case import FRONT_AND_BACK, GROUND_PATCH
 from vortexcfd.foam.parallel import DECOMPOSE_DICT, decompose_par_dict
+from vortexcfd.foam.postprocessing import BODY_COEFFS
 
 Bounds = tuple[float, float, float, float, float, float]  # xmin, xmax, ymin, ymax, zmin, zmax
 
@@ -59,22 +60,41 @@ class SolverCaseInput:
     # The ground plane's motion ("stationary" or "moving"; None: no ground, D-116). Its patch is
     # GROUND_PATCH and replaces "bottom" in ``far_field`` (far_field_patches).
     ground: str | None = None
+    # The 2D mode (D-121): the span of the one-cell mesh (metres); the empty patch "frontAndBack" gets every
+    # field and the reference area is chord x span. None: 3D.
+    span: float | None = None
 
 
-def far_field_patches(shape: str, ground: bool, slip_strip: bool = False) -> tuple[str, ...]:
+def far_field_patches(shape: str, ground: bool, slip_strip: bool = False, two_d: bool = False) -> tuple[str, ...]:
     """The far-field (slip) patches of a domain shape; the ground plane replaces the box's bottom (D-116),
     and its slip strip ahead of the wall start, "ground_slip", takes the far field's slip conditions
-    (D-118). [NUMERICS-REVIEW]"""
-    names = FAR_FIELD_BY_SHAPE[shape]
+    (D-118). In 2D the spanwise "sides" are not in the mesh (the empty "frontAndBack" is, D-121). [NUMERICS-REVIEW]"""
+    names = tuple(n for n in FAR_FIELD_BY_SHAPE[shape] if not (two_d and n == "sides"))
     if not (ground and shape == "box"):
         return names
     return tuple(n for n in names if n != "bottom") + (("ground_slip",) if slip_strip else ())
 
 
-def flow_direction(alpha_deg: float) -> tuple[float, float, float]:
-    """Unit flow direction: +x rotated by the angle of attack about +y (z up)."""
+# The free stream is always along +x; the angle of attack rotates the parts (D-120).
+FLOW_DIRECTION = (1.0, 0.0, 0.0)
+# Wind axes of the force coefficients (D-120): drag along the free stream, lift +z normal to it.
+DRAG_DIR = (1.0, 0.0, 0.0)
+LIFT_DIR = (0.0, 0.0, 1.0)
+# The body-axis coefficients of all walls (D-120): a second forceCoeffs object (postprocessing.BODY_COEFFS)
+# whose drag and lift directions are the parts' own x and z axes at the angle of attack, so its Cd and Cl are
+# the axial and normal force coefficients (C_A, C_N) and its header carries the body axes (foam/forces.py).
+
+
+def flow_direction() -> tuple[float, float, float]:
+    """Unit flow direction: always +x (the angle of attack turns the parts, D-120)."""
+    return FLOW_DIRECTION
+
+
+def body_axes(alpha_deg: float) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """(x_body, z_body) in the wind axes: the parts' x and z axes turned nose up by alpha about +y,
+    (cos a, 0, -sin a) and (sin a, 0, cos a) (geometry/attitude.py, D-120)."""
     a = math.radians(alpha_deg)
-    return math.cos(a), 0.0, math.sin(a)
+    return (math.cos(a), 0.0, -math.sin(a)), (math.sin(a), 0.0, math.cos(a))
 
 
 # A_ref bases: label of the auto value (stated exactly in the GUI).
@@ -123,11 +143,21 @@ def auto_reference(parts_bounds: Bounds) -> ReferenceValues:
                            ((b[0] + b[1]) / 2, (b[2] + b[3]) / 2, (b[4] + b[5]) / 2))
 
 
-def reference_values(parts_bounds: Bounds, reports: Reports) -> ReferenceValues:
-    """The user's choices where set, the bounding-box values otherwise."""
+SECTION_AREA_LABEL = "auto: 2D section, chord (x extent) * span"
+
+
+def reference_values(parts_bounds: Bounds, reports: Reports, span: float | None = None) -> ReferenceValues:
+    """The user's choices where set, the bounding-box values otherwise. ``span``: a 2D section's mesh span
+    (D-121): the automatic area is then the chord (x extent) times the span, whatever the basis, so the
+    coefficients are those of the section per unit span."""
     auto = auto_reference(parts_bounds)
     basis = reports.reference_area_basis
-    area = reports.reference_area if basis == "custom" else bounding_box_area(parts_bounds, basis)
+    if basis == "custom":
+        area = reports.reference_area
+    elif span is not None:
+        area = (parts_bounds[1] - parts_bounds[0]) * span
+    else:
+        area = bounding_box_area(parts_bounds, basis)
     return ReferenceValues(
         l_ref=reports.reference_length if reports.reference_length is not None else auto.l_ref,
         a_ref=area,
@@ -138,26 +168,28 @@ def reference_values(parts_bounds: Bounds, reports: Reports) -> ReferenceValues:
     )
 
 
-def _force_coeffs(inp: SolverCaseInput, patches: tuple[str, ...] | None = None) -> dict:
-    """The motorBike tutorial's forceCoeffs entry for the part walls (incompressible: rhoInf).
+def _force_coeffs(inp: SolverCaseInput, patches: tuple[str, ...] | None = None, body: bool = False) -> dict:
+    """The motorBike tutorial's forceCoeffs entry for the part walls (incompressible: rhoInf), in the wind
+    axes: drag along the free stream (+x), lift +z (D-120); ``body``: the body axes (BODY_COEFFS).
 
     v2606 (forces::setCoordinateSystem): with CofR, liftDir is e3 and dragDir e1 of the coefficient
-    axes and the pitch axis is e2 = e3 x e1 (+y at any angle of attack); the `pitchAxis` entry is
-    not read and is kept only as documentation. Output: postProcessing/forceCoeffs1/<start
-    time>/coefficient.dat (foam/postprocessing.py)."""
-    ref = reference_values(inp.parts_bounds, inp.reports)
-    a = math.radians(inp.inflow.alpha_deg)
+    axes and the pitch axis is e2 = e3 x e1 (+y in both axis sets: a positive pitching moment is nose up);
+    the `pitchAxis` entry is not read and is kept only as documentation. Output:
+    postProcessing/forceCoeffs1/<start time>/coefficient.dat (foam/postprocessing.py). The CofR is the
+    rotation centre of the parts, so the moment is about the same point at every angle."""
+    ref = reference_values(inp.parts_bounds, inp.reports, inp.span)
+    drag, lift = body_axes(inp.inflow.alpha_deg) if body else (DRAG_DIR, LIFT_DIR)
     return {
         "type": "forceCoeffs",
         "libs": ["forces"],
         "writeControl": "timeStep",
         "writeInterval": 1,
-        "log": patches is None,  # only the total in the solver log
+        "log": patches is None and not body,  # only the total in the solver log
         "patches": list(inp.patches if patches is None else patches),
         "rho": "rhoInf",
         "rhoInf": inp.physics.rho_ref,
-        "liftDir": [-math.sin(a), 0.0, math.cos(a)],
-        "dragDir": [math.cos(a), 0.0, math.sin(a)],
+        "liftDir": list(lift),
+        "dragDir": list(drag),
         "CofR": list(ref.cofr),
         "pitchAxis": [0.0, 1.0, 0.0],
         "magUInf": inp.inflow.speed,
@@ -170,8 +202,8 @@ def _forces(inp: SolverCaseInput, patches: tuple[str, ...] | None = None) -> dic
     """Total, pressure and viscous force and moment on the part walls in the GLOBAL axes (CofR with
     no direction entries: e1 = x, e3 = z), next to forceCoeffs so its projection can be checked
     (D-050). Output: postProcessing/forces1/<start time>/force.dat and moment.dat (N and N m with
-    rho = rhoInf)."""
-    ref = reference_values(inp.parts_bounds, inp.reports)
+    rho = rhoInf; in 2D the force on the span, D-121)."""
+    ref = reference_values(inp.parts_bounds, inp.reports, inp.span)
     return {
         "type": "forces",
         "libs": ["forces"],
@@ -251,6 +283,7 @@ def control_dict(inp: SolverCaseInput) -> FoamFileSpec:
     the app evaluates the criteria and stops the solver (D-058)."""
     functions = {
         "forceCoeffs1": _force_coeffs(inp),
+        BODY_COEFFS: _force_coeffs(inp, body=True),
         "forces1": _forces(inp),
     }
     if len(inp.patches) > 1:  # per patch (D-060); with one patch these equal the totals
@@ -348,8 +381,8 @@ def turbulence_properties(physics: Physics) -> FoamFileSpec:
 
 
 def ground_velocity(inp: SolverCaseInput) -> tuple[float, float, float]:
-    """The moving ground's velocity (D-116): the free-stream speed along the flow direction projected on
-    the ground plane, which is +x for every angle of attack (the app turns the free stream about y)."""
+    """The moving ground's velocity (D-116): the free-stream velocity, +x at every angle of attack (the
+    app turns the parts, never the free stream, D-120)."""
     return inp.inflow.speed, 0.0, 0.0
 
 
@@ -368,6 +401,8 @@ def _field(inp: SolverCaseInput, cls: str, dimensions: list[int], internal, inle
         boundary[name] = dict(far)
     if inp.symmetric:
         boundary["symmetry"] = {"type": "symmetryPlane"}
+    if inp.span is not None:  # 2D (D-121)
+        boundary[FRONT_AND_BACK] = {"type": "empty"}
     if inp.ground is not None:
         boundary[GROUND_PATCH] = dict(ground if ground is not None else wall)
     for name in inp.patches:
@@ -381,7 +416,8 @@ def _field(inp: SolverCaseInput, cls: str, dimensions: list[int], internal, inle
 def initial_fields(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
     """0/U, 0/p, 0/k, 0/omega, 0/nut with the external-aerodynamics boundary conditions.
 
-    inlet: U fixedValue V (cos a, 0, sin a); p zeroGradient; k, omega fixedValue; nut calculated.
+    inlet: U fixedValue (V, 0, 0) at every angle of attack (D-120); p zeroGradient; k, omega fixedValue;
+    nut calculated.
     outlet: p fixedValue 0; U, k, omega inletOutlet; nut calculated.
     sides/top/bottom: slip (nut calculated); symmetry: symmetryPlane.
     part walls: U noSlip; p zeroGradient; k kqRWallFunction; omega omegaWallFunction;
@@ -389,8 +425,7 @@ def initial_fields(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
     ground plane (D-116): the part walls' conditions; a moving ground has U fixedValue
     ``ground_velocity`` instead of noSlip (the motorBike tutorial's lowerWall). [NUMERICS-REVIEW]
     """
-    d = flow_direction(inp.inflow.alpha_deg)
-    velocity = [inp.inflow.speed * c for c in d]
+    velocity = [inp.inflow.speed * c for c in FLOW_DIRECTION]
     k, omega = inlet_turbulence(inp.inflow.speed, inp.inflow.turbulence_intensity, inp.physics.nu,
                                 inp.inflow.viscosity_ratio)
     slip = {"type": "slip"}

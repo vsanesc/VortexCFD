@@ -56,6 +56,7 @@ class DomainBox:
     y_span: tuple[float, float] = (0.0, 0.0)
     parts_bounds: Bounds | None = None  # union of the boxes of the parts the domain is sized around
     ground: bool = False  # the bottom face is the ground plane (D-116)
+    two_d: bool = False  # a 2D section in x-z (D-121): the mesh is a one-cell slab across y
 
     @property
     def rounded(self) -> bool:

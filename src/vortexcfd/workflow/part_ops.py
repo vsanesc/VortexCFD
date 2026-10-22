@@ -343,3 +343,31 @@ def repair_part(project: Project, index: int) -> tuple[dict, repair_module.Repai
         new_ids = regions.transfer_ids(mesh, old_ids, new_mesh)
         fields["region_ids"] = relative(project_dir, regions.write_ids(folder, file_stem(part.name), new_ids))
     return fields, result
+
+
+# -- 2D sections (D-121) -------------------------------------------------------------------------------------
+
+
+def airfoil_part(project_dir: Path, dat_file: Path, name: str, taken: set[str], scale: float = 1.0,
+                 closure: str = "blunt", fmt: str | None = None) -> Part:
+    """A Part from an airfoil coordinate file (Selig or Lednicer; geometry/section.py): the file is copied into
+    <project>/geometry/ and its section, scaled and closed at the trailing edge as asked, is written as a slab
+    STL (span = the chord, centred on y = 0) that is the Part's surface; the 2D mode meshes its section.
+
+    Raises:
+        section.AirfoilFormatError: the file cannot be read as an airfoil (the message names the line).
+    """
+    from vortexcfd.core.model import AirfoilSource
+    from vortexcfd.geometry import section
+
+    folder = Path(project_dir) / GEOMETRY_DIR
+    folder.mkdir(parents=True, exist_ok=True)
+    slab_surface, airfoil_name, fmt, _loop = section.airfoil_slab(Path(dat_file), scale, closure, fmt)
+    part_name = unique_name(name, taken)
+    copy = unique_path(folder, Path(dat_file).name)
+    copy.write_bytes(Path(dat_file).read_bytes())
+    stl = unique_path(folder, f"{file_stem(part_name)}_section.stl")
+    slab_surface.save(str(stl))
+    return Part(name=part_name, source_file=relative(project_dir, stl), units="m",
+                section=AirfoilSource(file=relative(project_dir, copy), format=fmt, scale=scale, te_closure=closure,
+                                      name=airfoil_name))

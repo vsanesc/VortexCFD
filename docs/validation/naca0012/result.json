@@ -1,0 +1,451 @@
+{
+  "reference_sst": {
+    "CFL3D": {
+      "0.0": [
+        0.0,
+        0.00809
+      ],
+      "10.0": [
+        1.0778,
+        0.01236
+      ],
+      "15.0": [
+        1.5068,
+        0.02219
+      ]
+    },
+    "FUN3D": {
+      "0.0": [
+        0.0,
+        0.00808
+      ],
+      "10.0": [
+        1.084,
+        0.01253
+      ],
+      "15.0": [
+        1.5109,
+        0.02275
+      ]
+    },
+    "NTS": {
+      "0.0": [
+        0.0,
+        0.00809
+      ],
+      "10.0": [
+        1.0765,
+        0.01251
+      ],
+      "15.0": [
+        1.51,
+        0.02187
+      ]
+    }
+  },
+  "ladson": {
+    "80 grit": [
+      [
+        -0.05,
+        -0.0126,
+        0.00809
+      ],
+      [
+        10.12,
+        1.0707,
+        0.01201
+      ],
+      [
+        15.26,
+        1.5129,
+        0.019
+      ]
+    ],
+    "120 grit": [
+      [
+        -0.01,
+        -0.012,
+        0.00811
+      ],
+      [
+        0.01,
+        -0.0122,
+        0.00804
+      ],
+      [
+        10.1,
+        1.0775,
+        0.01175
+      ],
+      [
+        15.27,
+        1.528,
+        0.0179
+      ]
+    ],
+    "180 grit": [
+      [
+        -0.03,
+        -0.0115,
+        0.00803
+      ],
+      [
+        0.04,
+        -0.0013,
+        0.00811
+      ],
+      [
+        10.18,
+        1.0809,
+        0.01165
+      ],
+      [
+        15.24,
+        1.5169,
+        0.0187
+      ]
+    ]
+  },
+  "levels": [
+    {
+      "name": "coarse",
+      "factor": 2.0000000000000004,
+      "cells": 68331,
+      "h": 0.7238887917886673,
+      "mesh_ok": true,
+      "state": "criteria_met",
+      "state_label": "Criteria met: p residual, U residual, k residual, omega residual, Cl asymptotic, Cd asymptotic",
+      "iterations": 1128,
+      "duration_s": 48.4,
+      "values": {
+        "Cl": 1.040667,
+        "Cd": 0.01564291,
+        "CmPitch": 0.01119232,
+        "Cd_pressure": 0.010238542818846057,
+        "Cd_viscous": 0.005404367044595616
+      },
+      "error": null,
+      "planned_layers": [
+        8.913755755379576e-06,
+        21
+      ],
+      "first_cell_m": 9.242077876020132e-06,
+      "first_cell_share_over_2x": 0.011246661065566235,
+      "value_basis": {
+        "Cl": "last",
+        "Cd": "last",
+        "CmPitch": "last",
+        "Cd_pressure": "last",
+        "Cd_viscous": "last"
+      },
+      "strict_coverage": 0.9803764067195128,
+      "mean_layers": 20.79651991264427,
+      "first_cell_mean_m": 9.242077876020132e-06,
+      "yplus_mean": 0.9720877533650719,
+      "yplus_within_2x": 0.8977484628501436,
+      "yplus_max": 4.41352
+    },
+    {
+      "name": "medium",
+      "factor": 1.4142135623730951,
+      "cells": 119064,
+      "h": 0.5483912368229001,
+      "mesh_ok": true,
+      "state": "criteria_met",
+      "state_label": "Criteria met: p residual, U residual, k residual, omega residual, Cl asymptotic, Cd asymptotic",
+      "iterations": 1324,
+      "duration_s": 130.4,
+      "values": {
+        "Cl": 1.034575,
+        "Cd": 0.01559246,
+        "CmPitch": 0.01236723,
+        "Cd_pressure": 0.010126930274167601,
+        "Cd_viscous": 0.005465528902118417
+      },
+      "error": null,
+      "planned_layers": [
+        8.913755755379576e-06,
+        20
+      ],
+      "first_cell_m": 9.964766507312163e-06,
+      "first_cell_share_over_2x": 0.00924971530340129,
+      "value_basis": {
+        "Cl": "last",
+        "Cd": "last",
+        "CmPitch": "last",
+        "Cd_pressure": "last",
+        "Cd_viscous": "last"
+      },
+      "strict_coverage": 0.9864321845324375,
+      "mean_layers": 19.853496992469797,
+      "first_cell_mean_m": 9.964766507312163e-06,
+      "yplus_mean": 0.9950248012202173,
+      "yplus_within_2x": 0.9064739163292037,
+      "yplus_max": 31.5786
+    },
+    {
+      "name": "fine",
+      "factor": 1.0,
+      "cells": 210526,
+      "h": 0.41240875008618366,
+      "mesh_ok": true,
+      "state": "criteria_met",
+      "state_label": "Criteria met: p residual, U residual, k residual, omega residual, Cl asymptotic, Cd asymptotic",
+      "iterations": 1540,
+      "duration_s": 342.5,
+      "values": {
+        "Cl": 1.047405,
+        "Cd": 0.01546928,
+        "CmPitch": 0.00970992,
+        "Cd_pressure": 0.009959447219954648,
+        "Cd_viscous": 0.005509831046611236
+      },
+      "error": null,
+      "planned_layers": [
+        8.913755755379576e-06,
+        18
+      ],
+      "first_cell_m": 9.408191280150672e-06,
+      "first_cell_share_over_2x": 0.005915683961476617,
+      "value_basis": {
+        "Cl": "last",
+        "Cd": "last",
+        "CmPitch": "last",
+        "Cd_pressure": "last",
+        "Cd_viscous": "last"
+      },
+      "strict_coverage": 0.9911271945061418,
+      "mean_layers": 17.90850627866591,
+      "first_cell_mean_m": 9.408191280150672e-06,
+      "yplus_mean": 1.0084259759858603,
+      "yplus_within_2x": 0.9120606966845084,
+      "yplus_max": 159.715
+    }
+  ],
+  "angles": [
+    {
+      "alpha": 0.0,
+      "base_m": 1.0,
+      "mesh_s": 32.0,
+      "cells": 126468,
+      "mesh_ok": false,
+      "first_cell_m": 9.076023505566336e-06,
+      "first_cell_share_over_2x": 0.005259129010719797,
+      "planned_first_m": 8.913755755379576e-06,
+      "layers": 18,
+      "error": "invalid mesh"
+    },
+    {
+      "alpha": 0.0,
+      "base_m": 1.4142135623730951,
+      "mesh_s": 25.3,
+      "cells": 77312,
+      "mesh_ok": true,
+      "first_cell_m": 9.220410880489681e-06,
+      "first_cell_share_over_2x": 0.00863847749287504,
+      "planned_first_m": 8.913755755379576e-06,
+      "layers": 20,
+      "state": "criteria_met",
+      "iterations": 585,
+      "duration_s": 23.8,
+      "criteria_met": [
+        "c1_residual_p",
+        "c2_residual_U",
+        "c3_residual_k",
+        "c4_residual_omega",
+        "c5_asymptotic_Cl",
+        "c6_asymptotic_Cd"
+      ],
+      "values": {
+        "Cl": 7.301602e-05,
+        "Cd": 0.008079059,
+        "CmPitch": -1.648725e-05,
+        "Cd_pressure": 0.0019001539927994773,
+        "Cd_viscous": 0.006178903950083659
+      },
+      "strict_coverage": 0.9874513873808225,
+      "mean_layers": 19.862654410346703,
+      "first_cell_mean_m": 9.220410880489681e-06,
+      "yplus_mean": 1.0565182479348507,
+      "yplus_within_2x": 0.9926400494119895,
+      "yplus_max": 5.00822
+    },
+    {
+      "alpha": 0.0,
+      "base_m": 1.0,
+      "mesh_s": 47.2,
+      "cells": 126468,
+      "mesh_ok": false,
+      "first_cell_m": 9.079642079986516e-06,
+      "first_cell_share_over_2x": 0.005259129010801026,
+      "planned_first_m": 8.913755755379576e-06,
+      "layers": 18,
+      "error": "invalid mesh"
+    },
+    {
+      "alpha": 10.0,
+      "base_m": 2.0,
+      "mesh_s": 28.5,
+      "cells": 139683,
+      "mesh_ok": true,
+      "first_cell_m": 9.293635720286084e-06,
+      "first_cell_share_over_2x": 0.011596116706250747,
+      "planned_first_m": 8.913755755379576e-06,
+      "layers": 21,
+      "state": "criteria_met",
+      "iterations": 1181,
+      "duration_s": 93.0,
+      "criteria_met": [
+        "c1_residual_p",
+        "c2_residual_U",
+        "c3_residual_k",
+        "c4_residual_omega",
+        "c5_asymptotic_Cl",
+        "c6_asymptotic_Cd"
+      ],
+      "values": {
+        "Cl": 1.039056,
+        "Cd": 0.01573172,
+        "CmPitch": 0.01140451,
+        "Cd_pressure": 0.010328060388007054,
+        "Cd_viscous": 0.0054036580619803475
+      },
+      "strict_coverage": 0.9800390521625146,
+      "mean_layers": 20.78869987396114,
+      "first_cell_mean_m": 9.293635720286084e-06,
+      "yplus_mean": 0.9779351728194979,
+      "yplus_within_2x": 0.8976506274452853,
+      "yplus_max": 6.7269
+    },
+    {
+      "alpha": 15.0,
+      "base_m": 1.0,
+      "mesh_s": 87.6,
+      "cells": 285677,
+      "mesh_ok": true,
+      "first_cell_m": 9.032752613925248e-06,
+      "first_cell_share_over_2x": 0.004979086859704448,
+      "planned_first_m": 8.913755755379576e-06,
+      "layers": 18,
+      "state": "iteration_limit",
+      "iterations": 8000,
+      "duration_s": 1657.7,
+      "criteria_met": [],
+      "values": {
+        "Cl": 1.574365,
+        "Cd": 0.08794072,
+        "CmPitch": -0.1003594,
+        "Cd_pressure": 0.08517574724111866,
+        "Cd_viscous": 0.002764968215671454
+      },
+      "strict_coverage": 0.9922425442356869,
+      "mean_layers": 17.92768457155755,
+      "first_cell_mean_m": 9.032752613925248e-06,
+      "yplus_mean": 0.8709620442830704,
+      "yplus_within_2x": 0.7399735315524996,
+      "yplus_max": 5.80563
+    }
+  ],
+  "gci": [
+    {
+      "quantity": "Cl",
+      "values": [
+        1.040667,
+        1.034575,
+        1.047405
+      ],
+      "sizes": [
+        0.7238887917886673,
+        0.5483912368229001,
+        0.41240875008618366
+      ],
+      "note": "oscillatory, GCI not applicable",
+      "convergence": "oscillatory",
+      "order": null,
+      "extrapolated": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null
+    },
+    {
+      "quantity": "Cd",
+      "values": [
+        0.01564291,
+        0.01559246,
+        0.01546928
+      ],
+      "sizes": [
+        0.7238887917886673,
+        0.5483912368229001,
+        0.41240875008618366
+      ],
+      "note": "divergent (differences grow with refinement), GCI not applicable",
+      "convergence": "divergent",
+      "order": null,
+      "extrapolated": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null
+    },
+    {
+      "quantity": "CmPitch",
+      "values": [
+        0.01119232,
+        0.01236723,
+        0.00970992
+      ],
+      "sizes": [
+        0.7238887917886673,
+        0.5483912368229001,
+        0.41240875008618366
+      ],
+      "note": "oscillatory, GCI not applicable",
+      "convergence": "oscillatory",
+      "order": null,
+      "extrapolated": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null
+    },
+    {
+      "quantity": "Cd_pressure",
+      "values": [
+        0.010238542818846057,
+        0.010126930274167601,
+        0.009959447219954648
+      ],
+      "sizes": [
+        0.7238887917886673,
+        0.5483912368229001,
+        0.41240875008618366
+      ],
+      "note": "divergent (differences grow with refinement), GCI not applicable",
+      "convergence": "divergent",
+      "order": null,
+      "extrapolated": null,
+      "gci_fine": null,
+      "gci_medium": null,
+      "asymptotic_ratio": null
+    },
+    {
+      "quantity": "Cd_viscous",
+      "values": [
+        0.005404367044595616,
+        0.005465528902118417,
+        0.005509831046611236
+      ],
+      "sizes": [
+        0.7238887917886673,
+        0.5483912368229001,
+        0.41240875008618366
+      ],
+      "note": "",
+      "convergence": "monotonic",
+      "order": 1.2398893964365436,
+      "extrapolated": 0.005614364127532892,
+      "gci_fine": 0.023715128476114077,
+      "gci_medium": 0.034039529403271776,
+      "asymptotic_ratio": 1.008105737850119
+    }
+  ]
+}

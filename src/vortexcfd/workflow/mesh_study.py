@@ -36,7 +36,7 @@ from vortexcfd.foam.mesh_study import (
     study_levels,
 )
 from vortexcfd.foam.run_record import read_run_record
-from vortexcfd.foam.yplus import first_layer_thickness
+from vortexcfd.foam.yplus import first_layer_thickness, plan_wall_resolved
 from vortexcfd.geometry.domain import ground_wall_start, union_bounds
 from vortexcfd.workflow.meshing import (
     MeshingNotReady,
@@ -44,6 +44,8 @@ from vortexcfd.workflow.meshing import (
     _loaded_parts,
     _part_overrides,
     _volume_entries,
+    body_bounds,
+    meshing_settings,
     case_dir_for,
     domain_fields,
     estimate_for,
@@ -54,12 +56,36 @@ from vortexcfd.workflow.meshing import (
     write_junction_features,
     write_part_surfaces,
 )
-from vortexcfd.workflow.solving import clear_results, physics_problem, solver_input
+from vortexcfd.workflow.solving import clear_results, for_case, physics_problem, solver_input
 from vortexcfd.foam.physics_case import build_solver_files
 
 # Background cells per total cell of a meshed case, used for the estimate when the current case
 # has no mesh record yet (the default sphere: 192,220 cells from about 100,000 background cells).
 DEFAULT_CELLS_PER_BACKGROUND_CELL = 1.9
+
+
+def dimensions(box) -> int:
+    return 2 if box.two_d else 3
+
+
+def domain_measure(box) -> float:
+    """The domain's volume, or its area in the x-z plane for a 2D section (D-121): the volume over its y extent."""
+    if not box.two_d:
+        return box.volume
+    return box.volume / (box.bounds[3] - box.bounds[2])
+
+
+def level_layers(project: Project, plan: "StudyPlan", lp: "LevelPlan") -> tuple[float, int, float] | None:
+    """(first layer, count, expansion) of a level: the shared stack of the current settings (D-066), except for
+    the wall-resolved controls (D-122), where every level keeps the y+ first layer and the ratio and grows its
+    stack to one of its own surface cells (a stack thinner than the cell next to it collapses). None: no layers.
+    [NUMERICS-REVIEW]"""
+    if plan.layers is None:
+        return None
+    if project.sim.mesh.layer_controls == "wall_resolved" and project.sim.mesh.layer_sizing == "absolute_yplus":
+        own = plan_wall_resolved(plan.layers.first, lp.estimate.surface_size)
+        return plan.layers.first, own.count, own.expansion
+    return plan.layers.first, plan.layers.count, plan.layers.expansion
 
 
 def study_dir_for(project: Project) -> Path | None:
@@ -108,16 +134,19 @@ def plan_study(project: Project) -> StudyPlan:
     if reason is not None and "background mesh would have" not in reason:
         raise MeshingNotReady(reason)
     settings = project.sim.studies.mesh
-    box, _names, meshes = _loaded_parts(project)
-    mesh = project.sim.mesh
-    length = surface_length(project, box, union_bounds([tuple(float(b) for b in m.bounds) for m in meshes])).value
+    box, _names, _meshes = _loaded_parts(project)
+    length = surface_length(project, box, body_bounds(project)).value
+    mesh = meshing_settings(project, box, length)  # the wall-resolved levels (D-122)
     current = estimate_for(box, mesh, length)
     yplus_first = None
     if mesh.layer_sizing == "absolute_yplus":
         yplus_first = first_layer_thickness(mesh.target_yplus, project.sim.inflow.speed, project.sim.physics.nu,
                                             length, mesh.yplus_at)  # Re on the surface size length (D-088)
     layers = reference_layers(mesh, current.surface_size, yplus_first)
-    volume = box.volume  # the actual domain volume (D-078)
+    if mesh.layer_controls == "wall_resolved" and yplus_first is not None:  # D-122: the stack of the current level
+        plan = plan_wall_resolved(yplus_first, current.surface_size)
+        layers = LayerStack(yplus_first, plan.count, plan.expansion)
+    volume = domain_measure(box)  # the actual domain volume (D-078); the area in 2D (D-121)
     ratio, measured = DEFAULT_CELLS_PER_BACKGROUND_CELL, False
     case = case_dir_for(project)
     record = read_mesh_record(case) if case is not None else None
@@ -125,7 +154,7 @@ def plan_study(project: Project) -> StudyPlan:
         ratio, measured = record.report.cells / current.total_cells, True
     per_cell_it, last_cores = _seconds_per_cell_iteration(project)
     plans, warning = [], None
-    for level in study_levels(mesh, settings.ratio, settings.current_as):
+    for level in study_levels(mesh, settings.ratio, settings.current_as, dimensions(box)):
         est = estimate_for(box, level.mesh, length)
         cells = round(est.total_cells * ratio)
         seconds = estimate_seconds(per_cell_it, cells, project.sim.solvers.iterations, last_cores, settings.cores)
@@ -176,26 +205,29 @@ def prepare_study(project: Project, only: Collection[str] | None = None) -> tupl
     study = study_dir_for(project)
     study.mkdir(parents=True, exist_ok=True)
     fixed = (plan.layers.first, plan.layers.count) if plan.layers is not None else None
-    length = surface_length(project, box, union_bounds(bounds)).value
+    body = body_bounds(project)  # the reference values' basis, never rotated (D-120)
+    length = surface_length(project, box, body).value
     # The refinement volumes and junction curves keep the current settings' refinement levels on every
     # level: a level scales the base size and every target size by the same factor, so each level number
     # is unchanged and the cells inside them scale like the rest (D-117). [NUMERICS-REVIEW]
-    volumes = _volume_entries(project, box, union_bounds(bounds))
+    volumes = _volume_entries(project, box, body)
     features = _junction_features(project, box, length)
     levels, inputs = [], None
     for lp in plan.levels:
         if only is not None and lp.level.name not in only:
             continue
+        stack = level_layers(project, plan, lp)
         inputs = MeshCaseInput(
             domain_bounds=box.bounds, symmetric=project.sim.domain.symmetry == "y_min", parts=tuple(safe),
             parts_bounds=union_bounds(bounds), reference_length=box.reference_length, mesh=lp.level.mesh,
             part_bounds=tuple(bounds), part_levels=_part_overrides(project),
             part_patches=tuple(part_patch_names(project.sim.geometry.parts)),
-            fixed_layers=fixed if fixed is not None else (1.0, 0),
-            layer_expansion=plan.layers.expansion if plan.layers is not None else None,
+            fixed_layers=(stack[0], stack[1]) if stack is not None else (1.0, 0),
+            layer_expansion=stack[2] if stack is not None else None,
             surface_length=length, volumes=volumes, extra_features=features,
             ground=box.ground, ground_layers=box.ground and project.sim.domain.ground.layers,
             ground_wall_start=ground_wall_start(project.sim.domain, box.bounds),
+            two_d=box.two_d,
             **domain_fields(box),
         )
         case = level_dir(study, lp.level.index)
@@ -207,26 +239,28 @@ def prepare_study(project: Project, only: Collection[str] | None = None) -> tupl
         write_domain_guard(case, inputs)
         write_seed_edge_meshes(case, inputs)
         write_junction_features(case, project, inputs)
-        levels.append(LevelResult(lp.level.index, lp.level.name, lp.level.factor, estimated_cells=lp.estimated_cells))
+        planned = [stack[0], stack[1]] if stack is not None and project.sim.mesh.layer_sizing == "absolute_yplus" else []
+        levels.append(LevelResult(lp.level.index, lp.level.name, lp.level.factor, estimated_cells=lp.estimated_cells,
+                                  planned_layers=planned))
     # every level meshes on the project's meshing cores (Mesh.cores, else automatic), one level at a time (D-111)
     record = StudyRecord(settings.ratio, settings.current_as, list(settings.quantities), settings.cores,
-                         plan.domain_volume, levels, mesh_cores=mesh_cores(project, box).used)
+                         plan.domain_volume, levels, mesh_cores=mesh_cores(project, box).used, dimensions=dimensions(box))
     return study, record, inputs
 
 
 def solver_writer(project: Project):
     """A callable writing the project's solver files (clean stop, the study's cores) into a meshed
-    level directory, run on the study's worker thread (it uses only plain data captured here)."""
+    level directory, run on the study's worker thread (it uses only plain data captured here). A 2D level's
+    reference area uses that level's own span (D-121)."""
     inp = solver_input(project)
     cores = project.sim.studies.mesh.cores
     inp = dataclasses.replace(inp, solvers=inp.solvers.model_copy(update={"cores": cores}))
-    files = enable_clean_stop(build_solver_files(inp))
 
     def write(case: Path) -> None:
         for name in ("0",):
             if (case / name).is_dir():
                 shutil.rmtree(case / name)
-        for rel, spec in files.items():
+        for rel, spec in enable_clean_stop(build_solver_files(for_case(inp, case))).items():
             write_foam_file(case / rel, spec.content, object_name=Path(rel).name, class_name=spec.class_name)
 
     return write

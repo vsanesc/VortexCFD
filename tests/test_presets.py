@@ -21,7 +21,7 @@ from vortexcfd.core.presets import (
 from vortexcfd.core.project_io import load_simulation
 
 # Every field a preset may carry; anything about physics, turbulence, inflow or solvers is forbidden.
-PRESET_KEYS = {"format_version", "schema_version", "name", "analysis_type", "domain", "boundary_types", "mesh"}
+PRESET_KEYS = {"format_version", "schema_version", "name", "analysis_type", "dimension", "domain", "boundary_types", "mesh"}
 FORBIDDEN = ("physics", "inflow", "solvers", "turbulence", "nu", "speed", "alpha", "iterations", "cores",
              "stopping", "relaxation", "reports")
 
@@ -38,11 +38,14 @@ def _custom_sim() -> Simulation:
 
 
 def test_builtins_are_external_flow_and_empty() -> None:
-    assert [p.name for p in BUILTIN_PRESETS] == ["External flow", "Empty"]
-    assert [p.analysis_type for p in BUILTIN_PRESETS] == ["external", "empty"]
-    for preset in BUILTIN_PRESETS:
-        assert preset.domain == PresetDomain() and preset.mesh == Mesh()
+    assert [p.name for p in BUILTIN_PRESETS] == ["External flow", "Empty", "2D airfoil"]
+    assert [p.analysis_type for p in BUILTIN_PRESETS] == ["external", "empty", "external"]
+    for preset in BUILTIN_PRESETS[:2]:
+        assert preset.domain == PresetDomain() and preset.mesh == Mesh() and preset.dimension == "3d"
         assert preset.boundary_types == DEFAULT_BOUNDARY_TYPES
+    airfoil = BUILTIN_PRESETS[2]  # D-121, D-122
+    assert airfoil.dimension == "2d" and airfoil.domain.shape == "c_type"
+    assert airfoil.mesh.layer_controls == "wall_resolved" and airfoil.mesh.target_yplus == 1.0
 
 
 def test_a_preset_never_carries_physics(tmp_path: Path) -> None:
@@ -141,7 +144,7 @@ def test_v8_project_migrates_to_external(tmp_path: Path) -> None:
     path = Path(__file__).parent / "data" / "project_v8.json"
     assert json.loads(path.read_text())["schema_version"] == 8
     sim = load_simulation(path)
-    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 17
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 18
     assert (sim.analysis_type, sim.preset_name) == ("external", None)
     assert sim.domain == Domain(upstream=3.0, downstream=8.0, lateral=4.0, vertical=4.0, symmetry="y_min")
     assert sim.domain.shape == "box" and sim.domain.parts is None
@@ -191,7 +194,7 @@ def test_a_current_preset_round_trips_with_the_new_defaults_and_a_newer_schema_i
     store = PresetStore(tmp_path)
     path = store.save(Preset(name="New"))
     data = json.loads(path.read_text())
-    assert data["schema_version"] == CURRENT_SCHEMA_VERSION == 17
+    assert data["schema_version"] == CURRENT_SCHEMA_VERSION == 18
     mesh = store.find("New").preset.mesh
     assert (mesh.layer_sizing, mesh.surface_size_reference, mesh.curvature_levels) == ("absolute_yplus", "l_ref", 2)
     (tmp_path / "newer.json").write_text(json.dumps({**data, "name": "Newer", "schema_version": CURRENT_SCHEMA_VERSION + 1}))

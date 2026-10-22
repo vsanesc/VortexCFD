@@ -263,7 +263,7 @@ Workstreams:
 | Workstream | Content | State |
 |---|---|---|
 | W1 | Ahmed body, 25 degrees | **closed** (2026-10-22): FAIL, recorded as a documented known limitation of steady SST with wall functions (+13.9 % against the experiment, +5.6 % against Guilmineau 2008; docs/validation/ahmed/RESULT.md, "Conclusion") |
-| W2 | Angle of attack (the validated method, QUESTIONS 71), a 2D mode, a wall-resolved layer mode (QUESTIONS 180, needed before the NACA 0012 runs), NACA 0012 at several angles | open |
+| W2 | Angle of attack (the validated method, QUESTIONS 71), a 2D mode, a wall-resolved layer mode (QUESTIONS 180, needed before the NACA 0012 runs), NACA 0012 at several angles | first round done (task/w2-aoa-2d, 2026-10-22): rotation of the geometry (D-120), 2D mode (D-121), wall-resolved layers (D-122); NACA 0012: 0 deg PASS, 10 and 15 deg FAIL on drag (docs/validation/naca0012/RESULT.md, QUESTIONS 190); open |
 | W3 | Internal flow | open |
 | W4 | Post-processing for a report | open |
 | W5 | Installation and the manual | open |

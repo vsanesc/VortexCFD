@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 17
+CURRENT_SCHEMA_VERSION: int = 18
 
 
 class StrictModel(BaseModel):
@@ -61,6 +61,20 @@ class CadSource(StrictModel):
     bodies: list[int] | None = None  # the file's bodies in this part (None: all of them)
 
 
+class AirfoilSource(StrictModel):
+    """The airfoil coordinate file a 2D section Part was built from (schema v18, D-121): ``file`` relative to
+    the project folder (a copy in <project>/geometry/), its ``format`` ("selig" or "lednicer"), the ``scale``
+    applied to its coordinates (the chord of a file in chord units) and the trailing-edge closure ("blunt": an
+    open trailing edge closed by a straight base; "sharp": the surfaces moved to meet). The Part's
+    ``source_file`` is the section extruded into a slab (geometry/section.py)."""
+
+    file: str
+    format: Literal["selig", "lednicer"] = "selig"
+    scale: float = Field(default=1.0, gt=0)
+    te_closure: Literal["blunt", "sharp"] = "blunt"
+    name: str | None = None  # the airfoil's name in the file
+
+
 class Part(StrictModel):
     """A geometric part defined by a source mesh file.
 
@@ -83,6 +97,7 @@ class Part(StrictModel):
     regions: list[SurfaceRegion] = Field(default_factory=list)
     region_ids: str | None = None
     cad: CadSource | None = None
+    section: AirfoilSource | None = None  # a 2D section from an airfoil file (D-121)
 
     @model_validator(mode="after")
     def _levels_ordered(self) -> "Part":
@@ -198,8 +213,11 @@ class Mesh(StrictModel):
     # The prism-layer controls of absolute (y+) sizing (schema v13, D-106): "robust", the default, caps
     # the layer count (the expansion ratio raised up to 1.3 to keep the planned stack thickness) and
     # writes the 5.4 layer controls; "legacy" keeps the controls and the uncapped count of every
-    # project saved before v13. Relative sizing is the same in both.
-    layer_controls: Literal["legacy", "robust"] = "robust"
+    # project saved before v13. Relative sizing is the same in both. "wall_resolved" (schema v18, D-122) is for
+    # targets in the viscous sublayer (y+ about 1): the stack is grown until it is one surface cell thick (at
+    # expansion 1.2, up to 40 layers), the surface is refined until its cell is at most 220 first layers, and
+    # the layer phase relaxes the determinant and non-orthogonality checks.
+    layer_controls: Literal["legacy", "robust", "wall_resolved"] = "robust"
     # Where target_yplus is placed (schema v14, D-107): "cell_centre", the default, sizes the first layer
     # so that the target falls at the first cell centre, where OpenFOAM evaluates y+ (first layer = twice
     # the target wall distance); "cell_height" (every project saved before v14) uses the target distance
@@ -233,8 +251,9 @@ class Physics(StrictModel):
 
 
 class Inflow(StrictModel):
-    """Free-stream conditions at the inlet. The flow is along +x rotated by the angle of attack
-    about +y (z up); the turbulence comes from the intensity and the viscosity ratio."""
+    """Free-stream conditions at the inlet. The flow is always along +x (z up); the angle of attack
+    turns the parts nose up about the y axis through the reference centre of rotation (schema v18,
+    D-120: geometry/attitude.py); the turbulence comes from the intensity and the viscosity ratio."""
 
     speed: float = Field(default=20.0, gt=0)  # m/s
     alpha_deg: float = Field(default=0.0, ge=-90.0, le=90.0)  # angle of attack
@@ -505,9 +524,10 @@ class MeshStudySettings(StrictModel):
 
 
 class PolarSweepSettings(StrictModel):
-    """Angle-of-attack sweep (D-067): ``mode`` "range" runs start, start + step, ... up to end
-    (inclusive within 1e-9), "list" runs ``values`` in their order; every point uses the current
-    mesh; ``init_from_previous`` starts each point from the previous point's latest solution."""
+    """Angle-of-attack sweep (D-067, D-120): ``mode`` "range" runs start, start + step, ... up to end
+    (inclusive within 1e-9), "list" runs ``values`` in their order; every angle gets its own mesh (the
+    parts rotated, meshed on the project's meshing cores) and a run from the uniform free stream, one
+    angle at a time (schema v18 dropped ``init_from_previous``: the meshes differ)."""
 
     mode: Literal["range", "list"] = "range"
     start: float = Field(default=0.0, ge=-90.0, le=90.0)
@@ -515,7 +535,6 @@ class PolarSweepSettings(StrictModel):
     step: float = Field(default=2.0, gt=0.0)
     values: list[float] = Field(default_factory=list)
     cores: int = Field(default=1, ge=1)
-    init_from_previous: bool = True
 
     @field_validator("values")
     @classmethod
@@ -626,6 +645,24 @@ class ConeShape(StrictModel):
         return self
 
 
+class OrientedBoxShape(BoxShape):
+    """A box with explicit unit axes e1 and e3 (e2 = e3 x e1): a body-frame box turned by the angle of
+    attack (geometry/attitude.rotate_shape, D-120), which pitch and yaw alone cannot always express. Made
+    for the meshing case only; never stored in a project (pitch_deg and yaw_deg are unused)."""
+
+    e1: Vector = (1.0, 0.0, 0.0)
+    e3: Vector = (0.0, 0.0, 1.0)
+
+    @property
+    def rotated(self) -> bool:
+        return True
+
+    def axes(self) -> tuple[Vector, Vector, Vector]:
+        e1, e3 = self.e1, self.e3
+        e2 = (e3[1] * e1[2] - e3[2] * e1[1], e3[2] * e1[0] - e3[0] * e1[2], e3[0] * e1[1] - e3[1] * e1[0])
+        return e1, e2, e3
+
+
 VolumeShape = Annotated[Union[BoxShape, CylinderShape, SphereShape, ConeShape], Field(discriminator="kind")]
 
 
@@ -633,13 +670,16 @@ class RefinementVolume(StrictModel):
     """A user refinement volume (D-103): every cell inside it is refined to the level whose cell size is
     the first at or below ``target_size`` (metres). ``id`` is stable across renames; ``name`` is unique
     and file-safe (it names the snappyHexMesh entries). Volumes belong to the project's geometry and are
-    not part of presets."""
+    not part of presets. ``frame`` (schema v18, D-120): "body" volumes turn with the parts at an angle of
+    attack (the default: they were placed on the parts as imported); "wind" volumes stay where they are
+    (the wake helper's: along the free stream, +x)."""
 
     id: str = Field(min_length=1, max_length=32)
     name: str
     shape: VolumeShape
     target_size: float = Field(gt=0)
     enabled: bool = True
+    frame: Literal["body", "wind"] = "body"
 
     @field_validator("name")
     @classmethod
@@ -655,6 +695,10 @@ class RefinementVolume(StrictModel):
 # operation). "internal" is reserved for internal flow and not selectable yet.
 ANALYSIS_TYPES = ("external", "empty")
 RESERVED_ANALYSIS_TYPES = ("internal",)
+# The analysis dimension (schema v18, D-121): "3d", or "2d", a section in the x-z plane meshed as one cell
+# across the span (y) with empty front and back patches.
+DIMENSIONS = ("3d", "2d")
+DIMENSION_LABELS = {"3d": "3D", "2d": "2D section (x-z plane)"}
 
 
 class Simulation(StrictModel):
@@ -669,6 +713,7 @@ class Simulation(StrictModel):
     )
     name: str
     analysis_type: Literal["external", "empty"] = "external"
+    dimension: Literal["3d", "2d"] = "3d"
     preset_name: str | None = None
     geometry: Geometry = Field(default_factory=Geometry)
     domain: Domain = Field(default_factory=Domain)
@@ -680,6 +725,15 @@ class Simulation(StrictModel):
     studies: Studies = Field(default_factory=Studies)
     surface_prep: SurfacePrep | None = None
     refinement_volumes: list[RefinementVolume] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _two_d_domain(self) -> "Simulation":
+        if self.dimension == "2d":
+            if self.domain.shape == "bullet":
+                raise ValueError("a 2D section needs the box or C-type domain shape")
+            if self.domain.symmetry != "none":
+                raise ValueError("a 2D section has no symmetry plane")
+        return self
 
     @field_validator("refinement_volumes")
     @classmethod

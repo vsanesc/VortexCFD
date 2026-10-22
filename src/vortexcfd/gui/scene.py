@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pyvista as pv
 from vtkmodules.vtkRenderingCore import vtkCellPicker, vtkPropPicker
+from vtkmodules.vtkCommonTransforms import vtkTransform
 
 from vortexcfd.core.model import Part
 from vortexcfd.core.project import Project
@@ -72,6 +73,7 @@ class PartScene:
         self.defect_actor = None  # self-intersecting triangles of the selected part
         self.region_actor = None  # the selected regions of the selected part (D-071)
         self.on_cell_pick: Callable[[int, int], None] | None = None  # (part index, triangle)
+        self.attitude = None  # geometry/attitude.Attitude: the parts drawn rotated to the angle of attack (D-120)
 
     @property
     def actors(self) -> list:
@@ -81,8 +83,29 @@ class PartScene:
     def actor_for(self, index: int):
         return self.records[index].actor if 0 <= index < len(self.records) else None
 
-    def sync(self, project: Project, visibility: dict[str, bool], selected: int | None) -> bool:
-        """Make the actors match the project. Returns True if actors were added or removed."""
+    def _transform(self):
+        """The VTK transform of the parts' rotation (None when not rotated): about the y axis through the
+        CofR by alpha; vtkTransform.RotateY is right-handed about +y like geometry/attitude.rotation_matrix."""
+        att = self.attitude
+        if att is None or not att.rotated:
+            return None
+        t = vtkTransform()
+        t.PostMultiply()
+        t.Translate(-att.centre[0], -att.centre[1], -att.centre[2])
+        t.RotateY(att.alpha_deg)
+        t.Translate(*att.centre)
+        return t
+
+    def _place(self, actor) -> None:
+        if actor is not None:
+            actor.SetUserTransform(self._transform())
+
+    def sync(self, project: Project, visibility: dict[str, bool], selected: int | None, attitude=None) -> bool:
+        """Make the actors match the project. Returns True if actors were added or removed (or the parts'
+        rotation, ``attitude``, changed)."""
+        key_before = (self.attitude.alpha_deg, self.attitude.centre) if self.attitude is not None else None
+        self.attitude = attitude
+        key_after = (attitude.alpha_deg, attitude.centre) if attitude is not None else None
         parts = project.sim.geometry.parts
         pool: dict[tuple, list[_Record]] = {}
         for rec in self.records:
@@ -114,9 +137,11 @@ class PartScene:
                 self.plotter.remove_actor(rec.actor, render=False)
                 changed = True
         self.records = new_records
+        for rec in self.records:
+            self._place(rec.actor)
         self.apply_visibility(visibility)
         self.set_selected(selected)
-        return changed
+        return changed or key_before != key_after
 
     def _add_actor(self, mesh):
         self._counter += 1
@@ -160,6 +185,7 @@ class PartScene:
             mesh, color=self.theme.accent, show_edges=False, pickable=False, reset_camera=False,
             render=False, name="part_regions",
         )
+        self._place(self.region_actor)
 
     def _show_defects(self, index: int | None) -> None:
         """Draw the selected part's self-intersecting triangles in the error colour (Task 3.1)."""
@@ -175,6 +201,7 @@ class PartScene:
             mesh, color=self.theme.error, show_edges=True, edge_color=self.theme.error, pickable=False,
             reset_camera=False, render=False, name="part_defects",
         )
+        self._place(self.defect_actor)
 
     def visible_bounds(self) -> tuple[float, ...] | None:
         """Union of the bounds of the visible part actors (None if there are none)."""
@@ -242,7 +269,15 @@ class PartScene:
 
 
 def domain_box_for(project: Project) -> DomainBox:
-    """The domain box for the project's loadable parts (their bounds in metres)."""
+    """The domain box for the project's loadable parts (their bounds in metres; rotated to the angle of
+    attack as meshing rotates them, D-120)."""
+    if project.sim.inflow.alpha_deg != 0.0:
+        from vortexcfd.workflow import meshing
+
+        try:
+            return meshing.loaded_parts(project)[0]
+        except meshing.MeshingNotReady:
+            pass  # a part cannot be loaded: the loadable parts, not rotated
     bounds, names = [], []
     for part in project.sim.geometry.parts:
         path = part_file(project, part)

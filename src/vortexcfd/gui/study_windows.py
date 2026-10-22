@@ -156,7 +156,7 @@ class MeshStudyWindow(QDialog):
         self.chart.set_series(series, {0: pts})
 
 
-SWEEP_HEADERS = ["alpha [deg]", "CL", "CD", "CM", "L/D", "Iterations", "Status"]
+SWEEP_HEADERS = ["alpha [deg]", "CL", "CD", "CM", "L/D", "Cells", "Iterations", "Status"]
 
 
 class PolarSweepWindow(QDialog):
@@ -213,7 +213,7 @@ class PolarSweepWindow(QDialog):
             rows, warn = [], set()
             for i, p in enumerate(record.points):
                 rows.append([f"{p.alpha:g}", _num(p.cl), _num(p.cd), _num(p.cm), _num(p.lift_to_drag, "{:.4g}"),
-                             _num(p.iterations, "{}"), p.state_label or "not run"])
+                             _num(p.cells, "{:,}"), _num(p.iterations, "{}"), p.state_label or "not run"])
                 if p.flagged:
                     warn.add(i)
             _fill(self.table, rows, warn, self._theme.warning)

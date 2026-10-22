@@ -36,7 +36,7 @@ from vortexcfd.core.model import (
     Part,
     ResidualCriterion,
 )
-from vortexcfd.core.model import MAX_CURVATURE_LEVELS, Probe, SurfaceRegion
+from vortexcfd.core.model import DIMENSION_LABELS, DIMENSIONS, MAX_CURVATURE_LEVELS, Probe, SurfaceRegion
 from vortexcfd.core.reports import (PROBE_NAME_RE, criterion_quantities, default_floor, missing_reference,
                                     report_label)
 from vortexcfd.foam.forces import MASS_WARNING
@@ -198,6 +198,7 @@ MESH_SETTINGS = (
     ("min_thickness", "Min layer thickness", lambda: _dspin(0.001, 5.0, 3, " \u00d7 cell")),
     ("layer_sizing", "Layer sizing", lambda: _combo(("relative", "absolute_yplus"))),
     ("target_yplus", "Target y+", lambda: _dspin(0.01, 1000.0, 3)),
+    ("layer_controls", "Layer controls", lambda: _combo(("robust", "wall_resolved", "legacy"))),
     ("cores", "Mesh cores", lambda: _spin(0, PHYSICAL_CORES, "", "auto")),
 )
 MESH_OPTIONAL = frozenset({"base_size", "surface_level_min", "surface_level_max", "cores"})
@@ -238,6 +239,10 @@ YPLUS_NOTE = ("Flat-plate verification: Cf about 6% low at y+ 1, about 3.6% low 
 LAYERS_ABSOLUTE_TIP = ("Absolute (y+) layer sizing: the layer count follows from the target y+ and the surface "
                        "cell size; it is shown here and cannot be set. Choose relative sizing to set it.")
 # Added to the Target y+ tooltip with absolute layer sizing: the usual targets (owner review of 5.4b).
+# The angle of attack rotates the parts (D-120).
+ALPHA_TOOLTIP = ("Turns the parts nose up about the y axis through the centre of rotation (Reference Values > CofR); "
+                 "the free stream stays along +x, lift is +z and drag +x. A change puts the mesh out of date; the "
+                 "project's geometry itself is not changed.")
 YPLUS_GUIDANCE = ("Wall-resolved (no wall functions): about 1 at the first cell centre. Wall functions: 30-300; "
                   "the default is 50.")
 # Tooltip of the Target y+ field with absolute layer sizing, by Mesh.yplus_at (D-107), then YPLUS_GUIDANCE.
@@ -426,6 +431,12 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         self.patch_label.setReadOnly(True)
         self.units_combo = QComboBox()
         self.units_combo.addItems(ALLOWED_UNITS)
+        self.dimension_combo = QComboBox()  # the analysis dimension of the Simulation node (D-121)
+        for key in DIMENSIONS:
+            self.dimension_combo.addItem(DIMENSION_LABELS[key], key)
+        self.dimension_combo.setToolTip("2D section: the parts' section in the x-z plane meshed as one cell across the "
+                                        "span (y) with empty front and back; forces per unit span, A_ref = chord x "
+                                        "span. A change puts the mesh out of date.")
         self.info_label = QLabel("No properties yet")
         self.info_label.setObjectName("muted")
         _wrap(self.info_label)
@@ -463,6 +474,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
             ("source", "Source file", self.source_label),
             ("units", "Units", self.units_combo),
             ("patch", "Patch name", self.patch_label),
+            ("dimension", "Analysis", self.dimension_combo),
         ):
             self._layout.addWidget(self._make_row(key, text, field))
         # Per-part surface refinement levels (D-052): -1 is the "auto" special value (None).
@@ -474,6 +486,12 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
             self.part_level_fields[key] = spin
             self._layout.addWidget(self._make_row(f"part_{key}", text, spin))
             spin.editingFinished.connect(lambda k=key: self._commit_part_level(k))
+        # 2D section source (D-121): the airfoil file the part was built from (read-only).
+        self.section_label = QLineEdit()
+        self.section_label.setReadOnly(True)
+        self.section_label.setToolTip("The airfoil coordinate file, its format, scale and trailing-edge closure; the "
+                                      "2D mode meshes the part's section (its cut at mid y)")
+        self._layout.addWidget(self._make_row("part_section", "2D section", self.section_label))
         # CAD source (Task 3.2, D-070): the file and the tessellation deflections; editing a
         # deflection re-tessellates the part as one undoable step.
         self.cad_file_label = QLineEdit()
@@ -740,6 +758,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
                 self._layout.addWidget(self._make_row(f"{gkind}_{key}", label, widget))
                 _connect_commit(widget, lambda k=key, g=gkind: self._commit_group(g, k))
             self.group_fields[gkind] = fields
+        self.group_fields["inflow"]["alpha_deg"].setToolTip(ALPHA_TOOLTIP)
         self._section("inflow_computed", "Computed")
         self.inflow_k = self._ro_row("inflow_k", "Turbulence k")
         self.inflow_omega = self._ro_row("inflow_omega", "Turbulence omega")
@@ -888,6 +907,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         self.name_edit.editingFinished.connect(self._commit_name)
         self.name_edit.textEdited.connect(self._on_name_edited)
         self.units_combo.currentTextChanged.connect(self._commit_units)
+        self.dimension_combo.currentIndexChanged.connect(self._commit_dimension)
         self.refresh()
 
     def _ro_row(self, key: str, text: str) -> QLabel:
@@ -1079,6 +1099,15 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
                 widget.blockSignals(False)
         for key in ("source", "units", "patch", "part_surface_level_min", "part_surface_level_max"):
             self._rows[key].setVisible(part is not None)
+        sec = part.section if part is not None else None
+        self._rows["part_section"].setVisible(sec is not None)
+        if sec is not None:
+            self.section_label.setText(f"{sec.file} ({sec.name or 'airfoil'}; {sec.format}, scale {sec.scale:g}, "
+                                       f"trailing edge {sec.te_closure})")
+        self._rows["dimension"].setVisible(self._kind == "root")
+        self.dimension_combo.blockSignals(True)
+        self.dimension_combo.setCurrentIndex(DIMENSIONS.index(sim.dimension))
+        self.dimension_combo.blockSignals(False)
         if part is not None:
             for key, spin in self.part_level_fields.items():
                 spin.blockSignals(True)
@@ -2108,6 +2137,15 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         except (ValueError, TypeError, IndexError) as exc:  # includes pydantic errors
             self.message.emit(str(exc))
         self.refresh()  # reverts a rejected value, normalizes a stripped one
+
+    def _commit_dimension(self, *_args) -> None:
+        if self._kind != "root":
+            return
+        try:
+            self._project.set_dimension(self.dimension_combo.currentData())
+        except (ValueError, TypeError) as exc:
+            self.message.emit(str(exc))
+        self.refresh()
 
     def _commit_part_level(self, key: str) -> None:
         if self._kind != "part" or self._index is None:

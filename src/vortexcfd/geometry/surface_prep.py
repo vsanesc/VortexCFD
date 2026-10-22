@@ -205,7 +205,11 @@ def write_edge_mesh(path: Path, segments: np.ndarray, comment: str = "") -> int:
 
 def read_edge_mesh(path: Path) -> tuple[np.ndarray, np.ndarray]:
     """(points, edges) of a featureEdgeMesh written by ``write_edge_mesh``."""
-    text = Path(path).read_text(encoding="utf-8")
+    return parse_edge_mesh(Path(path).read_text(encoding="utf-8"))
+
+
+def parse_edge_mesh(text: str) -> tuple[np.ndarray, np.ndarray]:
+    """(points, edges) of the text of a featureEdgeMesh written by ``write_edge_mesh``."""
     body = text[text.index("}") + 1:]
     body = "\n".join(line for line in body.splitlines() if not line.strip().startswith("//"))
     tokens = body.replace("(", " ( ").replace(")", " ) ").split()

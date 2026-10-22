@@ -66,6 +66,21 @@ class Dialogs:
         )
         return Path(name) if name else None
 
+    def ask_airfoil(self):
+        """File > Import Airfoil (D-121): (the .dat file, scale, trailing-edge closure) or None (cancelled)."""
+        name, _ = QFileDialog.getOpenFileName(self.parent, "Import airfoil", "",
+                                              "Airfoil coordinates (*.dat *.txt);;All files (*)")
+        if not name:
+            return None
+        scale, ok = QInputDialog.getDouble(self.parent, "Import airfoil", "Scale (the chord of a file in chord units, m):",
+                                           1.0, 1e-6, 1e6, 6)
+        if not ok:
+            return None
+        closure, ok = QInputDialog.getItem(
+            self.parent, "Import airfoil", "Trailing edge: blunt keeps an open trailing edge (closed by a base); "
+            "sharp moves the surfaces to meet:", ["blunt", "sharp"], 0, False)
+        return (Path(name), scale, closure) if ok else None
+
     def ask_units(self) -> str | None:
         units, ok = QInputDialog.getItem(
             self.parent, "Import surface", "Units of the file:", list(ALLOWED_UNITS), 0, False

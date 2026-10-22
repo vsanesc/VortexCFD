@@ -90,7 +90,7 @@ def test_slot_menu_assigns_and_the_assignment_is_saved(make_window, qtbot: QtBot
     slots = w.monitors.kpis
     labels = [a.text() for a in slots.slot_actions(2)]
     assert labels == ["Not assigned", "Cd", "Cl", "Cm (pitch)", "Cd pressure", "Cd viscous", "Cl pressure",
-                      "Cl viscous", "x_cp (m)", "Mass imbalance (%)", "y+ min (walls)", "y+ avg (walls)",
+                      "Cl viscous", "C_A (body axial)", "C_N (body normal)", "x_cp (m)", "Mass imbalance (%)", "y+ min (walls)", "y+ avg (walls)",
                       "y+ max (walls)"]
     assert [a.text() for a in slots.menus[2].actions()][:2] == ["Not assigned", "All walls"]  # submenu
     next(a for a in slots.slot_actions(2) if a.text() == "Cd").trigger()

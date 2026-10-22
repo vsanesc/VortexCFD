@@ -39,6 +39,12 @@ class MeshEstimate:
     # Extra cells of the user refinement volumes (D-103; workflow/refinement.staircase_cells, summed; overlapping volumes
     # are counted twice). They count against the same limit as the background cells.
     volume_cells: int = 0
+    # The 2D mode (D-121): the span of the one-cell slab (the surface cell size), 0 in 3D.
+    span: float = 0.0
+
+    @property
+    def two_d(self) -> bool:
+        return self.span > 0.0
 
     @property
     def budget_cells(self) -> int:
@@ -87,7 +93,7 @@ def volume_staircase(level: int, base_size: float,
 
 
 def estimate_mesh(domain_bounds: Bounds, surface_length: float, mesh: Mesh, volume: float | None = None,
-                  rounded: bool = False, symmetric: bool = False) -> MeshEstimate:
+                  rounded: bool = False, symmetric: bool = False, two_d: bool = False) -> MeshEstimate:
     """Background cells, refinement levels and surface cell size for ``mesh`` in the domain.
 
     ``surface_length`` is the length the target surface size multiplies (l_ref or L, see
@@ -98,6 +104,10 @@ def estimate_mesh(domain_bounds: Bounds, surface_length: float, mesh: Mesh, volu
     level_min = max(level_max - 1, 0), unless given explicitly. A ``rounded`` domain's background box
     is its bounds grown by BACKGROUND_MARGIN_CELLS base cells (not at y_min when ``symmetric``); the
     cell counts are those of the background box.
+
+    ``two_d`` (D-121): the domain is a section in x-z; base_size = (domain area / background_cells_target)^(1/2)
+    with the area = volume / y extent; the background is one cell across the span, which is the surface cell
+    size (base / 2^level_max), centred on the domain's mid y. [NUMERICS-REVIEW]
     """
     extents = (
         domain_bounds[1] - domain_bounds[0],
@@ -107,7 +117,11 @@ def estimate_mesh(domain_bounds: Bounds, surface_length: float, mesh: Mesh, volu
     if volume is None:
         volume = extents[0] * extents[1] * extents[2]
     overridden = mesh.base_size is not None
-    base = mesh.base_size if overridden else (volume / mesh.background_cells_target) ** (1 / 3)
+    if two_d:
+        area = volume / extents[1] if extents[1] > 0 else extents[0] * extents[2]
+        base = mesh.base_size if overridden else (area / mesh.background_cells_target) ** 0.5
+    else:
+        base = mesh.base_size if overridden else (volume / mesh.background_cells_target) ** (1 / 3)
     background = tuple(domain_bounds)
     if rounded:
         m = BACKGROUND_MARGIN_CELLS * base
@@ -116,7 +130,6 @@ def estimate_mesh(domain_bounds: Bounds, surface_length: float, mesh: Mesh, volu
             for i, v in enumerate(domain_bounds)
         )
         extents = (background[1] - background[0], background[3] - background[2], background[5] - background[4])
-    cells = tuple(max(1, round(e / base)) for e in extents)
     target = mesh.target_surface_size * surface_length
     computed_max = max(0, math.ceil(math.log2(base / target))) if target > 0 else 0
     level_max = mesh.surface_level_max if mesh.surface_level_max is not None else computed_max
@@ -124,6 +137,13 @@ def estimate_mesh(domain_bounds: Bounds, surface_length: float, mesh: Mesh, volu
         mesh.surface_level_min if mesh.surface_level_min is not None else max(level_max - 1, 0)
     )
     level_min = min(level_min, level_max)
+    span = 0.0
+    if two_d:
+        span = base / 2**level_max
+        mid = 0.5 * (background[2] + background[3])
+        background = (background[0], background[1], mid - 0.5 * span, mid + 0.5 * span, background[4], background[5])
+        extents = (extents[0], span, extents[2])
+    cells = tuple(max(1, round(e / base)) if i != 1 or not two_d else 1 for i, e in enumerate(extents))
     return MeshEstimate(
         base_size=base,
         base_size_overridden=overridden,
@@ -137,4 +157,5 @@ def estimate_mesh(domain_bounds: Bounds, surface_length: float, mesh: Mesh, volu
         surface_length=surface_length,
         curvature_level=level_max + mesh.curvature_levels,
         curvature_size=base / 2 ** (level_max + mesh.curvature_levels),
+        span=span,
     )

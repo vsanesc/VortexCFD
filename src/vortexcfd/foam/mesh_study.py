@@ -95,10 +95,11 @@ def reference_layers(mesh: Mesh, surface_size: float, yplus_first: float | None)
     return LayerStack(first, mesh.layers, mesh.expansion_ratio)
 
 
-def scale_mesh(mesh: Mesh, factor: float) -> Mesh:
-    """The mesh settings of a level with linear size factor ``factor`` (> 1 coarser)."""
+def scale_mesh(mesh: Mesh, factor: float, dimensions: int = 3) -> Mesh:
+    """The mesh settings of a level with linear size factor ``factor`` (> 1 coarser): the background cell budget
+    divided by factor^3, or by factor^2 for a 2D section (D-121)."""
     update: dict = {
-        "background_cells_target": max(1, round(mesh.background_cells_target / factor**3)),
+        "background_cells_target": max(1, round(mesh.background_cells_target / factor**dimensions)),
         "target_surface_size": mesh.target_surface_size * factor,
     }
     if mesh.base_size is not None:
@@ -114,8 +115,8 @@ class StudyLevel:
     mesh: Mesh
 
 
-def study_levels(mesh: Mesh, ratio: float, current_as: str) -> list[StudyLevel]:
-    return [StudyLevel(i, LEVEL_NAMES[i], f, scale_mesh(mesh, f))
+def study_levels(mesh: Mesh, ratio: float, current_as: str, dimensions: int = 3) -> list[StudyLevel]:
+    return [StudyLevel(i, LEVEL_NAMES[i], f, scale_mesh(mesh, f, dimensions))
             for i, f in enumerate(level_factors(ratio, current_as))]
 
 
@@ -157,6 +158,11 @@ class LevelResult:
     value_basis: dict[str, str] = field(default_factory=dict)  # report id -> BASIS_*
     windows: dict[str, int] = field(default_factory=dict)  # report id -> iterations in the mean
     amplitudes: dict[str, float | None] = field(default_factory=dict)  # (max - min) / scale over the window
+    # task W2: the level's planned absolute stack (first layer m, count) given to MeshRun for the first-cell
+    # report (D-109), and that report: mean first cell (m) and the wall share beyond twice the plan
+    planned_layers: list[float] = field(default_factory=list)
+    first_cell_m: float | None = None
+    first_cell_share_over_2x: float | None = None
 
     def basis(self, quantity: str) -> str:
         return self.value_basis.get(quantity, BASIS_LAST)
@@ -177,6 +183,7 @@ class StudyRecord:
     status: str = "not run"  # not run, running, finished, stopped, failed
     inputs_hash: str = ""
     mesh_cores: int = 1  # snappyHexMesh ranks of every level (D-111; records before it: 1)
+    dimensions: int = 3  # 2 for a 2D section (D-121): domain_volume is then the area and h = (A / N)^(1/2)
 
 
 def write_record(study_dir: Path, record: StudyRecord) -> None:
@@ -341,7 +348,8 @@ class StudyRun:
     def __init__(self, study_dir: Path, record: StudyRecord, write_solver, *, stopping=None,
                  parts: tuple[str, ...] = (), binding: str | None = None,
                  on_line=None, on_level=None, on_done=None, mesh_timeout_s: float | None = 3600.0,
-                 solver_timeout_s: float | None = None, mesh_run_factory=None, solver_run_factory=None) -> None:
+                 solver_timeout_s: float | None = None, mesh_run_factory=None, solver_run_factory=None,
+                 before_solve=None) -> None:
         import threading
 
         from vortexcfd.foam.mesh_run import MeshRun
@@ -355,6 +363,7 @@ class StudyRun:
         self._mesh_timeout, self._solver_timeout = mesh_timeout_s, solver_timeout_s
         self._mesh_factory = mesh_run_factory or MeshRun
         self._solver_factory = solver_run_factory or SolverRun
+        self._before_solve = before_solve  # (level, mesh report) -> a reason not to solve it, or None
         self._lock = threading.Lock()
         self._stop = False
         self._current = None
@@ -415,8 +424,10 @@ class StudyRun:
                     break
                 case = level_dir(self.study_dir, level.index)
                 self._say(f"Mesh study: meshing level {level.index + 1} ({level.name}) in {case}")
+                planned = level.planned_layers
                 mesh_run = self._mesh_factory(case, on_line=self._on_line, step_timeout_s=self._mesh_timeout,
-                                              parts=self._parts, cores=self.record.mesh_cores)
+                                              parts=self._parts, cores=self.record.mesh_cores,
+                                              first_layer=(float(planned[0]), int(planned[1])) if planned else None)
                 mesh_run.start()
                 self._attach(mesh_run)
                 mesh = mesh_run.wait()
@@ -428,13 +439,22 @@ class StudyRun:
                 level.cells = report.cells if report is not None else None
                 level.mesh_ok = bool(mesh is not None and mesh.success and report is not None and report.valid)
                 if level.cells:
-                    level.h = gci.cell_size(self.record.domain_volume, level.cells)
+                    level.h = gci.cell_size(self.record.domain_volume, level.cells, self.record.dimensions)
+                first = report.first_cell if report is not None else None
+                if first is not None:
+                    level.first_cell_m, level.first_cell_share_over_2x = first.mean_m, first.share_over_2x
                 if not level.mesh_ok:
                     level.error = "meshing failed" if report is None else (report.summary() or "invalid mesh")
                     self._save(level)
                     failed = True
                     break
                 self._save(level)
+                refusal = self._before_solve(level, report) if self._before_solve is not None else None
+                if refusal:  # e.g. a validation's rule that a level with collapsed layers is not solved
+                    level.error = refusal
+                    self._say(f"Mesh study: level {level.index + 1} ({level.name}) not solved: {refusal}")
+                    self._save(level)
+                    continue
                 self._write_solver(case)
                 self._say(f"Mesh study: solving level {level.index + 1} ({level.name}), {level.cells} cells")
                 kwargs = {"stopping": self._stopping, "cores": self.record.cores, "timeout_s": self._solver_timeout,

@@ -46,7 +46,7 @@ def test_n_cores_decompose_once_run_every_snappy_pass_in_parallel_and_reconstruc
     steps = mesh_commands(4)
     assert [name for name, _ in steps] == [
         "blockMesh", "surfaceFeatureExtract", "decomposePar", "snappyHexMesh.castellate", "snappyHexMesh",
-        "reconstructParMesh", "createPatch", "checkMesh"]
+        "reconstructParMesh", "extrudeMesh", "createPatch", "checkMesh"]
     cmd = dict(steps)
     assert cmd["blockMesh"] == ["blockMesh"] and cmd["surfaceFeatureExtract"] == ["surfaceFeatureExtract"]
     assert cmd["decomposePar"] == ["decomposePar", "-force"]
@@ -325,7 +325,7 @@ def test_a_v14_project_meshes_with_automatic_cores() -> None:
     from vortexcfd.core.model import Simulation
 
     sim = Simulation.model_validate(migrate({"schema_version": 14, "name": "x", "mesh": {}}))
-    assert sim.schema_version == 17 and sim.mesh.cores is None
+    assert sim.schema_version == 18 and sim.mesh.cores is None
 
 
 def test_a_preset_never_carries_the_mesh_cores() -> None:

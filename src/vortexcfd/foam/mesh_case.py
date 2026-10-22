@@ -37,7 +37,16 @@ BOUNDARY_PATCH_TYPES = {
     "ground": "wall",
     "ground_slip": "patch",
     "symmetry": "symmetryPlane",
+    "slab_front": "patch",
+    "slab_back": "patch",
+    "frontAndBack": "empty",
 }
+# The 2D mode (D-121): the background slab's spanwise faces are "slab_front" (y_min) and "slab_back" (y_max) while
+# snappyHexMesh runs; extrudeMesh rebuilds the mesh from "slab_front" as one cell across the span and createPatch
+# merges both into the empty patch "frontAndBack".
+FRONT_PATCH, BACK_PATCH, FRONT_AND_BACK = "slab_front", "slab_back", "frontAndBack"
+EXTRUDE_DICT = "system/extrudeMeshDict"
+CREATE_PATCH_DICT = "system/createPatchDict"
 # The ground plane of a box domain (D-116): the blockMesh z_min face as a wall patch, never a part's
 # (the name is reserved). Forces and the part walls' y+ leave it out.
 GROUND_PATCH = "ground"
@@ -138,6 +147,10 @@ class MeshCaseInput:
     # "ground_slip". The background mesh is split there into two blocks at the nearest background cell
     # face (ground_split), so its cells are unchanged. None: the whole face is the ground. [NUMERICS-REVIEW]
     ground_wall_start: float | None = None
+    # The 2D mode (D-121): a section in x-z meshed in a slab one cell across the span (y), the parts' surface
+    # levels and the refinement volumes applied as directional (x and z) refinement, then extruded into one
+    # cell with the empty patch "frontAndBack". [NUMERICS-REVIEW]
+    two_d: bool = False
 
     @property
     def rounded(self) -> bool:
@@ -147,16 +160,19 @@ class MeshCaseInput:
         """The mesh estimate of this domain (mesh_estimate.estimate_mesh)."""
         length = self.surface_length if self.surface_length is not None else self.reference_length
         return estimate_mesh(self.domain_bounds, length, mesh or self.mesh, volume=self.domain_volume,
-                             rounded=self.rounded, symmetric=self.symmetric)
+                             rounded=self.rounded, symmetric=self.symmetric, two_d=self.two_d)
 
     def expected_domain_patches(self) -> tuple[str, ...]:
-        """The domain patches the final mesh must have (each with faces)."""
+        """The domain patches the final mesh must have (each with faces). In 2D the spanwise ones are the empty
+        "frontAndBack" (the box's sides and the C-type's spanwise sides lie outside the slab)."""
         if not self.rounded:
             names = ["inlet", "outlet", "sides", "top", GROUND_PATCH if self.ground else "bottom"]
             if self.ground and self.ground_wall_start is not None:
                 names.append(GROUND_SLIP_PATCH)
         else:
             names = list(self.domain_patches)
+        if self.two_d:
+            names = [n for n in names if n != "sides"] + [FRONT_AND_BACK]
         return tuple(names + (["symmetry"] if self.symmetric else []))
 
     def patches_of(self, index: int) -> tuple[str, ...]:
@@ -354,6 +370,8 @@ def seeded_parts(inp: "MeshCaseInput", base_size: float, level_min: int, level_m
     """Indices of the parts that get seed lines automatically: every part flagged by
     needs_seeding at its own levels (overrides if set, otherwise the mesh's). [NUMERICS-REVIEW]"""
     out = []
+    if inp.two_d:  # the directional staircases find every section (D-121)
+        return out
     for i, bounds in enumerate(inp.part_bounds):
         override = inp.part_levels[i] if i < len(inp.part_levels) else (None, None)
         _lo, hi = part_level_range(level_min, level_max, override)
@@ -460,16 +478,19 @@ def block_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
     if split is not None:  # two blocks sharing the face x = split (D-118): the same cells as one block
         return _split_block_mesh_dict(inp, est.background_bounds, cells, split)
     if inp.rounded:  # the background box of a rounded domain (D-078)
-        others = ["x_min", "x_max", "y_max", "z_min", "z_max"]
-        patches = [(BACKGROUND_PATCH, others + ([] if inp.symmetric else ["y_min"]))]
+        others = ["x_min", "x_max", "z_min", "z_max"] + ([] if inp.two_d else ["y_max"])
+        patches = [(BACKGROUND_PATCH, others + ([] if inp.symmetric or inp.two_d else ["y_min"]))]
     else:
         patches = [
             ("inlet", ["x_min"]),
             ("outlet", ["x_max"]),
-            ("sides", ["y_max"] if inp.symmetric else ["y_min", "y_max"]),
             ("top", ["z_max"]),
             (GROUND_PATCH if inp.ground else "bottom", ["z_min"]),
         ]
+        if not inp.two_d:
+            patches.insert(2, ("sides", ["y_max"] if inp.symmetric else ["y_min", "y_max"]))
+    if inp.two_d:  # the slab's spanwise faces (D-121)
+        patches += [(FRONT_PATCH, ["y_min"]), (BACK_PATCH, ["y_max"])]
     if inp.symmetric:
         patches.append(("symmetry", ["y_min"]))
     return FoamFileSpec(content={
@@ -515,6 +536,9 @@ def _split_block_mesh_dict(inp: MeshCaseInput, bounds: Bounds, cells, xs: float)
         (GROUND_SLIP_PATCH, [face(0, "z_min")]),
         (GROUND_PATCH, [face(1, "z_min")]),
     ]
+    if inp.two_d:  # the slab's spanwise faces (D-121)
+        patches = [p for p in patches if p[0] != "sides"] + [
+            (FRONT_PATCH, [face(i, "y_min") for i in (0, 1)]), (BACK_PATCH, [face(i, "y_max") for i in (0, 1)])]
     if inp.symmetric:
         patches.append(("symmetry", [face(i, "y_min") for i in (0, 1)]))
     return FoamFileSpec(content={
@@ -573,11 +597,20 @@ ROBUST_RELAXED_QUALITY = {"minTetQuality": 1e-15}
 # Changes whenever the robust controls change, so a mesh made with earlier robust controls is out of date
 # (workflow/meshing.inputs_hash); "5.4b": nOuterIter 2 and the tet check on.
 ROBUST_CONTROLS_REVISION = "5.4b"
+# The `relaxed` meshQualityControls of the wall-resolved layer controls (D-122), used from the first layer
+# iteration (nRelaxedIter 0) and never while snapping [NUMERICS-REVIEW]: the tet check on, as robust; the cell
+# determinant 1e-5 instead of 0.001 (snappyHexMesh's determinant of a layer cell of height t on a face h x s is
+# about 27 t^2 / (h s): 1.4e-4 to 5.6e-4 for a y+ 1 first layer on 2-4 mm cells, so 0.001 removes every such
+# layer, while a degenerate cell still tends to 0); maxNonOrtho 75 instead of 65 (the stack tapering at a sharp
+# trailing edge). checkMesh still judges the final mesh with its own limits.
+WALL_RESOLVED_RELAXED_QUALITY = {"minTetQuality": 1e-15, "minDeterminant": 1e-5, "maxNonOrtho": 75}
 
 
 def _robust(inp: MeshCaseInput) -> bool:
+    """The robust layer controls (D-106) apply: "robust" and "wall_resolved" (which adds its relaxed set, D-122)."""
     m = inp.mesh
-    return m.layer_controls == "robust" and (m.layer_sizing == "absolute_yplus" or inp.fixed_layers is not None)
+    return m.layer_controls in ("robust", "wall_resolved") and (
+        m.layer_sizing == "absolute_yplus" or inp.fixed_layers is not None)
 
 
 def _expansion(inp: MeshCaseInput) -> float:
@@ -602,7 +635,9 @@ def _quality_controls(m: Mesh, robust: bool = False) -> dict:
     D-106 after the 5.4b study) the `relaxed` set keeps the tet check on (ROBUST_RELAXED_QUALITY).
     [NUMERICS-REVIEW]"""
     controls = dict(MESH_QUALITY)
-    if robust:  # the robust layer controls keep the tet check on (D-106, 5.4b)
+    if robust and m.layer_controls == "wall_resolved":  # D-122
+        controls["relaxed"] = dict(WALL_RESOLVED_RELAXED_QUALITY)
+    elif robust:  # the robust layer controls keep the tet check on (D-106, 5.4b)
         controls["relaxed"] = dict(ROBUST_RELAXED_QUALITY)
     elif m.layer_sizing == "absolute_yplus":
         controls["relaxed"] = {"minTetQuality": -1e30}
@@ -645,6 +680,43 @@ def _seeded(inp: MeshCaseInput) -> list[int]:
     return seeded_parts(inp, est.base_size, est.level_min, est.level_max)
 
 
+# The 2D mode's refinement (D-121) [NUMERICS-REVIEW]: snappyHexMesh splits a cell in all three directions, so a
+# surface level n would put 2^n cells across the span. In 2D the parts' surfaces are refinement surfaces at
+# level (0 0) and every level is a directional shell refinement in x and z only (shellSurfaces' levelIncrement
+# (minLevel maxLevel (nx ny nz)): nx and nz splits of the cells inside, never in y; v2606 shellSurfaces.C,
+# tutorial mesh/snappyHexMesh/aerofoilNACA0012_directionalRefinement): around each part a staircase of boxes,
+# the part's box grown by nCellsBetweenLevels cells of each level, level k taking k splits; the refinement
+# volumes take their level the same way. The slab then stays one cell across the span.
+SECTION_PREFIX = "section_"
+
+
+def _directional(levels: int) -> dict:
+    return {"mode": "inside", "levels": [[INSIDE_DISTANCE, 0]], "levelIncrement": [0, 0, [levels, 0, levels]]}
+
+
+def section_staircases(inp: MeshCaseInput, est, part_max_levels: list[int]) -> tuple[dict, dict]:
+    """(geometry entries, refinementRegions entries) of the 2D directional staircases (see above): per part, a
+    searchableBox for every level k from its maximum surface level down to 1, the part's box grown by the
+    nCellsBetweenLevels buffers of the levels from its maximum down to k; along y the boxes reach well
+    beyond the slab."""
+    geometry, regions = {}, {}
+    y0, y1 = est.background_bounds[2], est.background_bounds[3]
+    pad = y1 - y0
+    for i, name in enumerate(inp.parts):
+        if i >= len(inp.part_bounds):
+            continue
+        b = inp.part_bounds[i]
+        grow = 0.0
+        top = part_max_levels[i]
+        for k in range(top, 0, -1):
+            grow += CELLS_BETWEEN_LEVELS * est.base_size / 2 ** k
+            key = f"{SECTION_PREFIX}{name}_{k}"
+            geometry[key] = {"type": "searchableBox", "min": [b[0] - grow, y0 - pad, b[4] - grow],
+                             "max": [b[1] + grow, y1 + pad, b[5] + grow]}
+            regions[key] = _directional(k)
+    return geometry, regions
+
+
 def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
     m = inp.mesh
     est = inp.estimate()
@@ -659,6 +731,9 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
                          inp.part_levels[i] if i < len(inp.part_levels) else (None, None))
         for i in range(len(inp.parts))
     ]
+    part_max = [lv[1] for lv in levels]
+    if inp.two_d:  # every level is a directional staircase (section_staircases, D-121)
+        levels = [(0, 0)] * len(levels)
     refinement_surfaces = {
         n: {
             "level": list(levels[i]),
@@ -667,7 +742,7 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
         for i, n in enumerate(inp.parts)
     }
     for i, n in enumerate(inp.parts):
-        curvature = curvature_level(levels[i][1], m.curvature_levels)
+        curvature = None if inp.two_d else curvature_level(levels[i][1], m.curvature_levels)
         if curvature is not None:  # read per surface; its regions inherit it
             refinement_surfaces[n]["curvatureLevel"] = curvature
         if inp.has_regions(i):
@@ -688,9 +763,16 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
                         for p in inp.domain_patches},
         }
         features.append({"file": f'"{DOMAIN_SURFACE}.eMesh"', "level": 0})
-    features += [{"file": f'"{name}"', "level": level} for name, level in inp.extra_features]
-    for v in inp.volumes:  # user refinement volumes (D-103)
+    features += [{"file": f'"{name}"', "level": 0 if inp.two_d else level} for name, level in inp.extra_features]
+    regions = {}
+    for v in inp.volumes:  # user refinement volumes (D-103); directional in 2D (D-121)
         geometry[f"{VOLUME_PREFIX}{v.name}"] = searchable_geometry(v.shape)
+        regions[f"{VOLUME_PREFIX}{v.name}"] = (_directional(v.level) if inp.two_d
+                                                else {"mode": "inside", "levels": [[INSIDE_DISTANCE, v.level]]})
+    if inp.two_d:
+        boxes, staircases = section_staircases(inp, est, part_max)
+        geometry.update(boxes)
+        regions.update(staircases)
     if with_seeds:
         features += [{"file": f'"{seed_file_name(inp.parts[i])}"', "level": levels[i][1]}
                      for i in seeded_parts(inp, est.base_size, est.level_min, est.level_max)]
@@ -720,10 +802,7 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
             "features": features,
             "refinementSurfaces": refinement_surfaces,
             "resolveFeatureAngle": m.feature_angle,
-            "refinementRegions": {
-                f"{VOLUME_PREFIX}{v.name}": {"mode": "inside", "levels": [[INSIDE_DISTANCE, v.level]]}
-                for v in inp.volumes
-            },
+            "refinementRegions": regions,
             "locationInMesh": list(location_in_mesh(est.background_bounds, inp.parts_bounds, cells, inp.inlet_x)),
             "allowFreeStandingZoneFaces": True,
         },
@@ -812,15 +891,46 @@ def build_mesh_files(inp: MeshCaseInput) -> dict[str, FoamFileSpec]:
         files[CASTELLATE_DICT] = castellate
     if inp.parts or inp.rounded:
         files["system/surfaceFeatureExtractDict"] = surface_feature_extract_dict(inp)
-    if inp.rounded:
-        files["system/createPatchDict"] = create_patch_dict()
+    if inp.rounded or inp.two_d:
+        files[CREATE_PATCH_DICT] = create_patch_dict(inp.two_d)
+    if inp.two_d:
+        files[EXTRUDE_DICT] = extrude_mesh_dict(inp.estimate().span)
     return files
 
 
-def create_patch_dict() -> FoamFileSpec:
-    """createPatch with no new patches: it only removes the patches left without faces (the background
-    box of a rounded domain, D-078)."""
-    return FoamFileSpec(content={"pointSync": False, "patches": []})
+def create_patch_dict(two_d: bool = False) -> FoamFileSpec:
+    """createPatch: it removes the patches left without faces (the background box of a rounded domain, D-078);
+    in 2D it also merges "slab_front" and "slab_back" into the empty patch "frontAndBack" (D-121)."""
+    patches = []
+    if two_d:
+        patches = [{"name": FRONT_AND_BACK, "patchInfo": {"type": "empty"}, "constructFrom": "patches",
+                    "patches": [FRONT_PATCH, BACK_PATCH]}]
+    return FoamFileSpec(content={"pointSync": False, "patches": patches})
+
+
+def extrude_mesh_dict(span: float) -> FoamFileSpec:
+    """extrudeMesh in 2D (D-121) [NUMERICS-REVIEW], confirmed in the v2606 sources
+    (applications/utilities/mesh/generation/extrude/extrudeMesh/extrudeMesh.C: constructFrom, sourceCase,
+    sourcePatches, exposedPatchName, flipNormals, mergeFaces, mergeTol; src/mesh/extrudeModel: nLayers,
+    expansionRatio and the model's <type>Coeffs, linearDirection's direction and thickness) and the tutorial
+    compressible/rhoSimpleFoam/aerofoilNACA0012 (sourceCase "<case>": the case's own mesh, rewritten): the
+    snapped slab's "slab_front" patch (y_min, normal -y) is extruded by one cell of thickness ``span`` along +y with
+    its normals flipped (flipNormals true; without it the cells are inverted), so the new mesh fills the slab's
+    own y range; its front and back are the patches "slab_front" and "slab_back". mergeTol 0: no edge is collapsed (the
+    default 1e-4 of the bounding box would collapse prism layers)."""
+    return FoamFileSpec(content={
+        "constructFrom": "patch",
+        "sourceCase": '"<case>"',
+        "sourcePatches": [FRONT_PATCH],
+        "exposedPatchName": BACK_PATCH,
+        "extrudeModel": "linearDirection",
+        "nLayers": 1,
+        "expansionRatio": 1.0,
+        "linearDirectionCoeffs": {"direction": [0.0, 1.0, 0.0], "thickness": span},
+        "flipNormals": True,
+        "mergeFaces": False,
+        "mergeTol": 0,
+    })
 
 
 def write_domain_guard(case_dir: Path, inp: MeshCaseInput) -> None:
@@ -837,7 +947,8 @@ MESH_COMMANDS: tuple[tuple[str, list[str]], ...] = (
     ("surfaceFeatureExtract", ["surfaceFeatureExtract"]),
     ("snappyHexMesh.castellate", ["snappyHexMesh", "-overwrite", "-dict", CASTELLATE_DICT]),  # seeded parts only
     ("snappyHexMesh", ["snappyHexMesh", "-overwrite"]),
-    ("createPatch", ["createPatch", "-overwrite"]),  # rounded domains only (system/createPatchDict)
+    ("extrudeMesh", ["extrudeMesh"]),  # 2D only (system/extrudeMeshDict, D-121)
+    ("createPatch", ["createPatch", "-overwrite"]),  # rounded domains and 2D (system/createPatchDict)
     ("checkMesh", ["checkMesh"]),
 )
 
@@ -871,10 +982,10 @@ def mesh_commands(cores: int = 1) -> tuple[tuple[str, list[str]], ...]:
 
 
 # Generated dictionaries that only some set-ups have (a run skips a step whose dictionary is missing).
-OPTIONAL_DICTS = ("system/surfaceFeatureExtractDict", "system/createPatchDict", CASTELLATE_DICT)
+OPTIONAL_DICTS = ("system/surfaceFeatureExtractDict", "system/createPatchDict", CASTELLATE_DICT, EXTRUDE_DICT)
 # The step that runs only when its dictionary was written.
 STEP_DICTS = {"surfaceFeatureExtract": "system/surfaceFeatureExtractDict", "createPatch": "system/createPatchDict",
-              "snappyHexMesh.castellate": CASTELLATE_DICT}
+              "snappyHexMesh.castellate": CASTELLATE_DICT, "extrudeMesh": EXTRUDE_DICT}
 
 
 def prepare_case_dir(case_dir: Path, files: dict[str, FoamFileSpec]) -> None:
