@@ -1,11 +1,38 @@
 # Status
 
-Updated 2026-10-22 (task/w2-naca-r2: NACA 0012 rounds 2 and 3, W2 closed).
+Updated 2026-10-22 (task/w3-internal: W3 internal flow).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
 
-**task/w2-naca-r2** (not yet published). Workstream W2, NACA 0012 rounds 2 and 3. **W2 closed.** Done on it:
+**task/w3-internal** (not yet published). Workstream W3, internal flow, **closed by the I5 verdicts**; then the first
+W4 slice (below, when committed). Done on it:
+- Part 0 ([NUMERICS-REVIEW], D-127, QUESTIONS 204): every 3D study level, the current one included, is meshed with
+  the distance shells and nCellsBetweenLevels 1. The check (docs/validation/study3d/RESULT.md, Round 2) does **not
+  pass**: valid levels, layers and quality as before, the cell size shrinks with the ratio at 6/6 sphere points but
+  2/6 wing points (points within half a coarse cell of a shell edge). D-127 stays Proposed; D-128 accepted.
+- Part A ([NUMERICS-REVIEW], D-129, schema v19): the internal analysis type: no domain (the fluid is the inside of
+  the closed geometry, locationInMesh found inside, a clear error for an open geometry), a role per surface patch,
+  velocity / mass-flow / total-pressure inlets and a static outlet (v2606 types confirmed in the sources and
+  TJunction), mass flow and area / mass-averaged static and total pressure per inlet, outlet and cutting plane,
+  pressure drops, the "Internal flow" and "2D internal flow" presets, the GUI rows and the Internal flow table.
+  Public benchmark: dictionaries byte-identical (51 files), `--compare` no regressions. Found by the validations and
+  fixed: planes on mesh faces (D-129), parallel re-meshing of a solved case (D-130), the total-pressure inlet's
+  divergence (SIMPLE with a relaxed pressure, D-131), the fluid point and volume of a misoriented surface, the
+  study's y+ speed and wall first-cell measurement.
+- Part B: turbulent pipe, Re 1e5: **PASS** (f +1.36 % against Prandtl-Karman, mass balance 0.0 %, the total-pressure
+  inlet within 0.03 %); single level (docs/validation/pipe/RESULT.md).
+- Part C: TMR backward-facing step: **PASS** on the finest of five levels (x_r 6.44 H, +2.8 %; SST -1.0 %), grid
+  convergence not established (docs/validation/bfs/RESULT.md, QUESTIONS 209).
+- Machine time about 1 h 10 min (3D check 6 min, benchmark 3 min, pipe 10 min, step 50 min, the rest tests and
+  trials). No OpenFOAM process left running.
+
+Next: the owner's review of D-129 to D-131 and QUESTIONS 204 to 209. Open: docs/QUESTIONS.md items 30, 67, 69, 70,
+72, 73, 75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 204 to 209.
+
+### Previous branch (task/w2-naca-r2)
+
+ Workstream W2, NACA 0012 rounds 2 and 3. **W2 closed.** Done on it:
 - Round 2 (owner-reviewed: D-123 to D-125 accepted): the wall-resolved mode follows the y+ target (D-123); the
   cause of round 1's drag error, the 2D staircase's 3-cell buffer, and the 12-cell buffer (D-124); the inverted
   pyramids fixed by the medial-axis walk limit (D-125); the driver's PASS at 0, 10 and 15 deg.
@@ -24,9 +51,6 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
   sphere and the half wing (docs/validation/study3d/RESULT.md): valid, same layers and quality as single meshes, but
   the transition zone is not refined by the level ratio: does not pass, D-127 stays Proposed (QUESTIONS 204); a
   wall-resolved study places the current settings within the first-layer limit itself (D-128).
-
-Next: the owner's review of D-127, D-128 and QUESTIONS 204. Open: docs/QUESTIONS.md items 30, 67, 69, 70, 72,
-73, 75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 204.
 
 ### Previous branch (task/w2-aoa-2d, published in PR #28)
 
@@ -58,7 +82,7 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
 | 3.4 | Domain and boundary definition | done; box, bullet and C-type shapes, Generate domain operation (D-078); ground plane on the box (D-116) |
 | 3.5 | Surface-to-patch assignment | done (D-071): regions, angle split, patches in the meshing dictionary |
 | 4.1 | Physics continua | done for steady incompressible RANS (merged in PR #13) |
-| 4.2 | Boundary condition library | done for the external-aerodynamics set (D-022) |
+| 4.2 | Boundary condition library | done for the external-aerodynamics set (D-022) and internal flow: velocity, mass-flow and total-pressure inlets, static outlet (D-129) |
 | 4.3 | Turbulence module | done for kOmegaSST (y+ estimator, flat plate verified against TMR: PASS WITH NOTE; Ahmed body 25 degrees, W1 closed: FAIL, a documented known limitation; round 4 inconclusive, docs/validation/ahmed/RESULT.md); docs/reference/turbulence_mapping.md not written |
 | 4.4 | Numerics presets | preset "robust" only (merged in PR #13) |
 | 5.0 | Meshing benchmark suite | done (D-081, D-082): sphere, wing, Ahmed-type body; baseline in benchmarks/BASELINE.md; the dirty-STL set and solver convergence are not in it |
@@ -102,6 +126,22 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
 - Wall-resolved (y+ about 1) layers are used automatically when the target y+ is below 5 (D-123), or chosen in
   Mesh > Layer controls "wall_resolved" (D-122): the surface is refined to at most 220 first layers, which is fine
   for 2D sections and costly on 3D bodies.
+- Internal flow (D-129): New simulation > "Internal flow" (3D, wall functions) or "2D internal flow" (a section,
+  wall-resolved). Import ONE closed surface whose solids (multi-solid STL) or CAD faces separate the inlets, the
+  outlets and the walls: in an internal project each solid becomes its own patch. Set each patch's role under
+  Regions > Fluid Region (a patch is a wall until set); an open geometry is refused with the number of open edges
+  (use Surface Preparation or Repair). A region named "inlet" or "outlet" becomes the mesh patch "inlet_1" /
+  "outlet_1" (the reports use the mesh names). Add cutting planes and pressure drops under Reports & Monitors >
+  Planes & Pressure Drops; the Internal flow table shows the mass flow and the area- and mass-averaged static and
+  total pressure per inlet, outlet and plane.
+- Which inlet: a mass-flow inlet when the flow rate is known (the most robust: the pipe converged in 502
+  iterations); a velocity inlet when the inlet speed is known; a total-pressure inlet for a plenum or reservoir at a
+  known pressure, the flow rate then follows from the losses (it solves with SIMPLE and a relaxed pressure, D-131:
+  slower, 1,858 iterations on the same pipe). Inlet turbulence: intensity and a length scale (default 0.07 x the
+  patch's hydraulic diameter). The outlet is a static pressure, safe on backflow.
+- Friction losses: put two planes in the developed region (the pipe: 50 and 70 D) and read the pressure drop
+  between them; the planes are written a hair (1e-6 of the parts' extent) along their normal so they never lie on a
+  layer of mesh faces.
 - A mesh study of a 2D airfoil: set the Mesh Study's "current as" to medium with the preset's mesh, so the coarse
   level stays within the wall-resolved limit (QUESTIONS 199).
 
@@ -113,7 +153,8 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
 - Parallel speedup saturates at about 3 on 8 cores (memory-bandwidth bound, docs/validation/parallel/README.md); the recommended-core cap of 4 is a constant for this machine (item 69).
 - Location of user projects and run outputs in the released app (run/ is development only).
 - Changing a CAD part's deflection re-tessellates from the CAD and drops an earlier repair (D-072).
-- Preset boundary types are stored but there is one boundary type per role today (QUESTIONS 78, for the internal-flow task).
+- Preset boundary types are stored but there is one boundary type per domain role today (QUESTIONS 78); internal flow sets its inlet and outlet types per patch in the project, not in the preset (D-129).
+- An internal-flow boundary is keyed by its patch name: renaming a region's patch leaves the old entry behind and the renamed patch becomes a wall until its role is set again.
 - cfMesh build spike on v2606.
 - Total cell estimate: only background cells are estimated today (curvature refinement is reported as its finest level, D-085).
 - Per-part surface size (one target surface size for all parts today).
