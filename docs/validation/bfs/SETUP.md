@@ -63,3 +63,7 @@ non-orthogonality rose to 69 degrees (the plain mesh: 21 layers on every wall, 3
 A second, finer study family was run after the first (its levels moved x_r by about 0.4 H each): the same project with
 160,000 background cells and "current settings are" medium (`bfs_case.FINE_FAMILY`, `bfs_study.py --family fine`),
 levels 0.129 / 0.091 / 0.064 H; its coarse level is the first family's fine level.
+
+Round 2 (QUESTIONS 209): the inlet moved to x/H = -131 (`bfs_case.X_INLET_ROUND2`), so the walls develop over 127 H to
+x/H = -4 and delta_99 there is 1.50 H, TMR's value (calibrated with `bfs_study.py calibrate`, RESULT.md); the finer
+family re-run with the medium level's base cell set explicitly (`FINE_FAMILY_ROUND2`, `--family round2`).

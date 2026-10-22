@@ -1,5 +1,7 @@
 # NASA TMR 2D backward-facing step: result
 
+Round 1 below; round 2 (owner review, QUESTIONS 209) at the end, with the final verdict.
+
 Task w3-internal, Part C (2026-10-22). Set-up in SETUP.md; numbers in result.json (the preset's study) and
 result_finefamily.json (the finer study), the bottom-wall Cf and Cp per level in wall_<level>[_finefamily].csv, the
 plot cf_cp.png; `scripts/validation/bfs_study.py`. Every level ran through the app's Mesh Study (StudyRun), two
@@ -62,7 +64,7 @@ same features on every level; their sizes do not change monotonically with refin
 Deviations from TMR (SETUP.md): the inflow at x/H = -110 with a uniform velocity (no symmetry strip: the app has no
 such role), incompressible; the incoming boundary layer about 10 % thinner than TMR's.
 
-## Verdict
+## Verdict (round 1)
 
 **PASS** (I5: the reattachment within 10 % of the experiment) on the finest level, x_r = 6.44 H (+2.8 % against
 Driver & Seegmiller, -1.0 % against the TMR SST codes), with a note: grid convergence is not established. The five
@@ -70,3 +72,57 @@ levels scatter between 5.63 and 7.29 H, the three finest between 5.63 and 6.48 H
 experiment), and neither study gives a GCI (order 0.27, then oscillatory). The Cf and Cp shapes agree with the TMR SST
 plots in every feature listed above within their reading accuracy, except the Cp minimum and peak (0.03 and 0.007
 off). Open: QUESTIONS 209.
+
+## Round 2 (QUESTIONS 209, owner review)
+
+Task w3-internal, owner review of W3 (2026-10-22), item 2; result_round2.json, wall_<level>_round2.csv, cf_cp.png
+(the round 2 curves added). Machine time 69 min (two calibration runs 16 min, the study 52.9 min).
+
+(a) Incoming boundary layer. TMR adjusts "the inflow length prior to the area of interest" so that the lower wall's
+naturally developing boundary layer is "approximately 1.5H" before the step (backstep_val.html; U_ref and the
+boundary layer at x/H = -4). Here the walls start at the inlet, which was moved upstream: delta_99 at x/H = -4 (the
+height where Ux reaches 0.99 of the centre-channel value at z/H = 5, linear between cell centres;
+`bfs_study.boundary_layer`) on single meshes of 0.129 H surface cells:
+
+| Inlet (walls from) | delta_99 / H at x/H = -4 | Cf at x/H = -3.956 | U_ref (m/s) | x_r / H |
+|---|---|---|---|---|
+| -123 H | 1.423 | 0.00270 | 1.0039 | 6.467 |
+| **-131 H** (used) | **1.501** | 0.00268 | 1.0069 | 6.468 |
+
+(Round 1's inlet at -110 H gave about 1.32-1.37 H, measured without the interpolation.) Re_H on the run's own U_ref is
+36,240-36,260 (+0.7 % against 36,000; the inlet speed was kept at 0.95 m/s). The experiment's Cf at x/H = -3.956 is
+0.00288 +- 0.00020: the run's 0.00268 is 7 % lower, at the lower edge of the experiment's error band (0.00268-0.00308); TMR says its inflow
+length gives "approximately the correct thickness and ... approximately the correct wall skin friction"; matching the
+thickness, as the owner asked, leaves Cf 7 % low.
+
+(b, c) The finer family again (`bfs_study.py --family round2`: the medium level's base cell 0.09117 H set explicitly so
+the levels keep round 1's cells): every level stopped on its mean-stable criteria at iteration 4004. Layers from the
+mesh walk: per wall the mean count, the share of the target kept and the area share of faces with the full count; a
+level with an incomplete stack on any wall does not count (I5).
+
+| Level | Surface cell | Cells | h | Target layers | Step face: mean / kept / faces full | Other walls | Valid | x_r / H | vs exp (6.26) | vs TMR SST (6.50) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| coarse | 0.129 H | 138,024 | 0.1042 | 17 | 17.0 / 100 % / 100 % | complete | **yes** | 6.468 | +3.3 % | -0.5 % |
+| medium | 0.091 H | 240,295 | 0.0790 | 15 | 10.3 / 68.8 % / 36.3 % | lower 99.4 % full | **no** | 5.637 | -10.0 % | -13.3 % |
+| fine | 0.064 H | 439,456 | 0.0584 | 14 | 14.0 / 100 % / 100 % | complete | **yes** | **6.434** | **+2.8 %** | **-1.0 %** |
+
+The medium level is again the outlier and again the level whose step face kept only part of its stack (round 1's
+finer medium: 10.3 of 15, the same); round 1's coarse level of this size had 8.5 of 17 on the step and 6.48 H, round
+2's has the full stack and 6.47 H.
+
+(d) GCI (Celik et al. 2008 with the levels' own ratios, `foam/gci.study`, which takes r21 and r32 from h): it needs
+three valid levels; with two (coarse and fine) there is none. The two valid levels differ by 0.5 % (6.468, 6.434;
+h ratio 1.78).
+
+Bottom wall on the fine level (the SST values read from TMR's plots as in round 1): Cf minimum -0.00140 at 3.5 (SST
+about -0.00145 at 3.8), Cf at x/H = 20 0.00165 (SST about 0.0018, experiment 0.00202), Cp minimum -0.227 at 2.0 (SST
+about -0.205 at 2.5), Cp peak 0.018 at 9.8 (SST about 0.027 at 9.5). The shapes are round 1's; matching the
+boundary layer moved the fine level's x_r by -0.004 H.
+
+## Verdict (round 2, final)
+
+**PASS WITH NOTE.** The finest valid level reattaches at 6.43 H, +2.8 % against Driver & Seegmiller (within the 10 %
+of I5) and -1.0 % against the TMR SST codes, but the owner's PASS also needs the valid levels to converge, and that is
+not shown: only two of the three levels are valid (the medium level's step face kept 69 % of its layers), so there is
+no GCI; the two valid levels agree within 0.5 %. Left open: a complete stack on the step face at every level (the
+cause of the outlier).

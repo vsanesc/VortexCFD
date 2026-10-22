@@ -38,12 +38,16 @@ from vortexcfd.foam.polymesh import PolyMesh, face_geometry  # noqa: E402
 from vortexcfd.foam.postprocessing import ReportMonitor  # noqa: E402
 from vortexcfd.foam.results import latest_result_time  # noqa: E402
 from vortexcfd.foam.wall_fields import wall_face_values  # noqa: E402
-from vortexcfd.workflow import internal, mesh_study, meshing  # noqa: E402
+import pyvista as pv  # noqa: E402
+
+from vortexcfd.workflow import internal, mesh_study, meshing, solving  # noqa: E402
 
 WORK = ROOT / "run" / "validation" / "bfs"
 OUT = ROOT / "docs" / "validation" / "bfs"
 PROJECT = WORK / "bfs" / "bfs.vcfd"
-FAMILIES = {"preset": (WORK, None, ""), "fine": (ROOT / "run" / "validation" / "bfs_fine", bc.FINE_FAMILY, "_finefamily")}
+FAMILIES = {"preset": (WORK, None, "", bc.X_INLET), "fine": (ROOT / "run" / "validation" / "bfs_fine", bc.FINE_FAMILY, "_finefamily", bc.X_INLET),
+            # round 2 (QUESTIONS 209): the finer family with the inlet moved to match TMR's boundary layer
+            "round2": (ROOT / "run" / "validation" / "bfs_r2", bc.FINE_FAMILY_ROUND2, "_round2", bc.X_INLET_ROUND2)}
 WINDOW = 500
 SHARE_LIMIT = 0.10  # I5: more than 10 % of the wall above twice the planned first cell: collapsed
 
@@ -64,7 +68,7 @@ def collapse_check(level, report) -> str | None:
 def select(family: str) -> None:
     """Point the commands at a study family's project and output names."""
     global WORK, PROJECT, SUFFIX
-    WORK, settings, SUFFIX = FAMILIES[family]
+    WORK, settings, SUFFIX, _x = FAMILIES[family]
     PROJECT = WORK / "bfs" / "bfs.vcfd"
 
 
@@ -74,7 +78,7 @@ SUFFIX = ""
 def cmd_setup(args) -> None:
     if WORK.exists():
         shutil.rmtree(WORK)
-    project = bc.build_project(WORK, FAMILIES[args.family][1])
+    project = bc.build_project(WORK, FAMILIES[args.family][1], x_inlet=FAMILIES[args.family][3])
     say(f"readiness: {meshing.readiness(project)}")
     box = meshing.loaded_parts(project)[0]
     length = meshing.surface_length(project, box)
@@ -160,18 +164,23 @@ def reattachment(x: np.ndarray, cf: np.ndarray, start: float = 0.5, end: float =
 WALLS = ("lower", "step", "floor", "upper")
 
 
-def wall_layers(case: Path, planned: float) -> dict:
-    """The walls' layers from the mesh walk (the study record of this run measured the inlet and outlet too, before
-    StudyRun took the walls): per patch the mean count, and over all walls the first cell's mean and the area share
-    above twice the plan (I5)."""
+def wall_layers(case: Path, planned: float, target: int) -> dict:
+    """The walls' layers from the mesh walk: per patch the mean count, the share of the target kept (mean / target)
+    and the area share of faces with the full count; over all walls the first cell's mean and the area share above
+    twice the plan. ``complete``: every face of every wall has the full count (QUESTIONS 209 c: a level with an
+    incomplete stack on any wall does not count)."""
     walked = walk_layers(PolyMesh.read(case), WALLS, 40)
-    out, areas, cells = {}, [], []
+    out, areas, cells, complete = {}, [], [], True
     for patch, d in walked.items():
-        out[patch] = float(np.average(d["layers"], weights=d["area"]))
-        areas.append(d["area"])
+        a, n = d["area"], d["layers"]
+        full = float(a[n >= target].sum() / a.sum())
+        out[patch] = {"mean": float(np.average(n, weights=a)), "kept": float(np.average(np.minimum(n, target), weights=a)) / target,
+                      "full_share": full}
+        complete = complete and full >= 1.0
+        areas.append(a)
         cells.append(d["first_cell"])
     a, c = np.concatenate(areas), np.concatenate(cells)
-    return {"layers": out, "first_cell_m": float(np.average(c, weights=a)),
+    return {"layers": out, "target": target, "complete": complete, "first_cell_m": float(np.average(c, weights=a)),
             "share_over_2x": float(a[c > 2 * planned].sum() / a.sum())}
 
 
@@ -236,9 +245,9 @@ def cmd_collect(_args) -> None:
                "share_over_2x": lv.first_cell_share_over_2x, "error": lv.error}
         if lv.error is None and lv.iterations:
             row.update(level_result(case))
-            row["walls"] = wall_layers(case, lv.planned_layers[0] if lv.planned_layers else 0.0013179)
+            row["walls"] = wall_layers(case, lv.planned_layers[0], int(lv.planned_layers[1]))
         levels.append(row)
-    counted = [r for r in levels if r.get("xr") is not None]
+    counted = [r for r in levels if r.get("xr") is not None and r["walls"]["complete"]]  # valid levels only
     gci = None
     if len(counted) == 3:
         g = gci_study([r["xr"] for r in counted], [r["h"] for r in counted])
@@ -261,6 +270,63 @@ def cmd_collect(_args) -> None:
     say(f"GCI x_r: {gci}")
 
 
+def boundary_layer(case: Path, time_name: str, x0: float = -4.0) -> dict:
+    """delta_99 above the lower wall (z = 1) at ``x0``: the height where Ux first reaches 0.99 of the centre-channel
+    value (z = 5), from the cell centres within 0.08 H of x0 (linear between cells), and the centre-channel Ux."""
+    foam = case / "case.foam"
+    foam.touch()
+    reader = pv.OpenFOAMReader(str(foam))
+    reader.set_active_time_value(float(time_name))
+    mesh = reader.read()["internalMesh"]
+    centres = mesh.cell_centers().points
+    ux = np.asarray(mesh.cell_data["U"])[:, 0]
+    sel = np.abs(centres[:, 0] - x0) < 0.08
+    z, u = centres[sel, 2], ux[sel]
+    order = np.argsort(z)
+    z, u = z[order], u[order]
+    ue = float(np.interp(5.0, z, u))
+    i = int(np.argmax(u >= 0.99 * ue))
+    z99 = float(np.interp(0.99 * ue, u[i - 1:i + 1], z[i - 1:i + 1])) if i > 0 else float(z[i])
+    return {"delta99_H": z99 - 1.0, "u_centre": ue}
+
+
+def cmd_calibrate(args) -> None:
+    """One single mesh at the 0.129 H surface cell (round 1's preset fine level) with the inlet at ``--x-inlet``:
+    delta_99 and Cf at x/H = -4 (QUESTIONS 209 a)."""
+    from vortexcfd.foam.mesh_run import MeshRun
+    from vortexcfd.foam.solver_run import SolverRun
+
+    folder = ROOT / "run" / "validation" / "bfs_cal" / f"x{-args.x_inlet:g}"
+    if folder.exists():
+        shutil.rmtree(folder)
+    project = bc.build_project(folder, {"base_size": 0.1289}, x_inlet=args.x_inlet)
+    project.update_solver(cores=bc.CORES)
+    job = meshing.prepare_job(project)
+    first = (job.inputs.first_layer_thickness, job.inputs.layer_count or 1)
+    run = MeshRun(job.case_dir, parts=job.inputs.patches, first_layer=first, cores=job.cores,
+                  walls=internal.wall_patches(project))
+    run.start()
+    meshed = run.wait()
+    if not meshed.success:
+        raise SystemExit(f"meshing failed: {meshed.failed_step}")
+    case = solving.prepare_solver_case(project)
+    solver = SolverRun(case, cores=bc.CORES, stopping=project.sim.solvers.stopping, timeout_s=3600)
+    solver.start()
+    result = solver.wait()
+    data = wall_data(case, ("lower", "floor"))
+    monitor = ReportMonitor(case)
+    monitor.poll()
+    uref = window_stats(monitor.series(f"probe:{bc.REF_PROBE[0]}:Ux"), WINDOW).mean
+    cf = -data["tau_x"] / (0.5 * uref ** 2)
+    floor = data["z"] < 0.5
+    out = {"x_inlet": args.x_inlet, "cells": meshed.report.cells, "state": result.state, "iterations": result.iterations,
+           "uref": uref, "cf_minus4": float(np.interp(-3.956, data["x"], cf)), "xr": reattachment(data["x"][floor], cf[floor]),
+           **boundary_layer(case, data["time"])}
+    say(json.dumps(out))
+    with open(WORK.parent / "bfs_calibration.jsonl", "a") as fh:
+        fh.write(json.dumps(out) + "\n")
+
+
 def cmd_plot(_args) -> None:
     """docs/validation/bfs/cf_cp.png: Cf and Cp along the bottom wall of every level of both families against
     Driver & Seegmiller (TMR data files)."""
@@ -270,7 +336,7 @@ def cmd_plot(_args) -> None:
     import matplotlib.pyplot as plt
 
     fig, (ax_cf, ax_cp) = plt.subplots(1, 2, figsize=(12, 4.5))
-    for suffix, family in (("", "preset family"), ("_finefamily", "finer family")):
+    for suffix, family in (("", "r1 preset family"), ("_finefamily", "r1 finer family"), ("_round2", "r2 (inlet at -131 H)")):
         for name, style in (("coarse", ":"), ("medium", "--"), ("fine", "-")):
             path = OUT / f"wall_{name}{suffix}.csv"
             if not path.is_file():
@@ -299,12 +365,14 @@ def cmd_plot(_args) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=("setup", "study", "collect", "plot"))
+    parser.add_argument("command", choices=("setup", "study", "collect", "plot", "calibrate"))
+    parser.add_argument("--x-inlet", type=float, default=bc.X_INLET_ROUND2)
     parser.add_argument("--level", choices=("coarse", "medium", "fine"))
     parser.add_argument("--family", choices=tuple(FAMILIES), default="preset")
     args = parser.parse_args()
     select(args.family)
-    {"setup": cmd_setup, "study": cmd_study, "collect": cmd_collect, "plot": cmd_plot}[args.command](args)
+    {"setup": cmd_setup, "study": cmd_study, "collect": cmd_collect, "plot": cmd_plot,
+     "calibrate": cmd_calibrate}[args.command](args)
 
 
 if __name__ == "__main__":
