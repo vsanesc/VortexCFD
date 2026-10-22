@@ -220,6 +220,18 @@ def test_the_wall_resolved_2d_staircase_has_a_thicker_buffer(tmp_path: Path) -> 
         box, h = top_box(mesh)
         assert box["min"][0] == pytest.approx(-cells * h) and box["max"][2] == pytest.approx(0.06 + cells * h)
 
+    def layer_controls(mesh: Mesh, two_d: bool = True) -> dict:
+        inp = MeshCaseInput(domain_bounds=(-10.0, 21.0, -5.0, 5.0, -10.0, 10.0), symmetric=False, parts=("wing",),
+                            parts_bounds=(0.0, 1.0, -0.5, 0.5, -0.06, 0.06), reference_length=1.0, mesh=mesh,
+                            part_bounds=((0.0, 1.0, -0.5, 0.5, -0.06, 0.06),), surface_length=1.0, two_d=two_d,
+                            first_layer_thickness=FIRST, layer_count=20, layer_expansion=1.2)
+        return snappy_hex_mesh_dict(inp).content["addLayersControls"]
+
+    # D-125: the medial-axis walk is limited to 10 edges for wall-resolved 2D sections only
+    assert layer_controls(Mesh(layer_controls="wall_resolved", target_yplus=1.0))["nMedialAxisIter"] == 10
+    assert "nMedialAxisIter" not in layer_controls(Mesh(layer_controls="wall_resolved", target_yplus=1.0), False)
+    assert "nMedialAxisIter" not in layer_controls(Mesh(target_yplus=50.0))
+
     project = airfoil_project(tmp_path)  # the "2D airfoil" preset: wall-resolved
     wr = meshing.inputs_hash(project)
     project.update_mesh(target_yplus=50.0, layer_controls="robust")

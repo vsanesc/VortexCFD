@@ -604,6 +604,12 @@ ROBUST_CONTROLS_REVISION = "5.4b"
 # layer, while a degenerate cell still tends to 0); maxNonOrtho 75 instead of 65 (the stack tapering at a sharp
 # trailing edge). checkMesh still judges the final mesh with its own limits.
 WALL_RESOLVED_RELAXED_QUALITY = {"minTetQuality": 1e-15, "minDeterminant": 1e-5, "maxNonOrtho": 75}
+# The layer phase's medial-axis walk of a wall-resolved 2D section (D-125) [NUMERICS-REVIEW]: v2606's default walks
+# the whole mesh (medialAxisMeshMover.C: nMedialAxisIter = the point count), and on the sharp trailing edge's medial
+# axis, 60 cells from the wall, the shrink inverted 2 face pyramids of the NACA 0012's fine 0 deg mesh (QUESTIONS
+# 191). The stack is one surface cell thick, so 10 edges (etc/caseDicts/mesh/generation/snappyHexMeshDict.cfg) reach
+# well beyond it.
+WALL_RESOLVED_2D_LAYER_CONTROLS = {"nMedialAxisIter": 10}
 
 
 def _robust(inp: MeshCaseInput) -> bool:
@@ -852,6 +858,8 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
             "nLayerIter": 50,
             **({"nRelaxedIter": RELAXED_AFTER_LAYER_ITER} if m.layer_sizing == "absolute_yplus" else {}),
             **(ROBUST_LAYER_CONTROLS if _robust(inp) else {}),
+            **(WALL_RESOLVED_2D_LAYER_CONTROLS if inp.two_d and _robust(inp) and m.layer_controls == "wall_resolved"
+               else {}),
         },
         "meshQualityControls": _quality_controls(m, _robust(inp)),
         "mergeTolerance": 1e-6,
