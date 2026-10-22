@@ -28,6 +28,7 @@ from vortexcfd.foam.yplus import (
 from vortexcfd.foam.mesh_case import (
     DOMAIN_SURFACE,
     ROBUST_CONTROLS_REVISION,
+    SECTION_BUFFER_CELLS,
     TRI_SURFACE,
     MeshCaseInput,
     build_mesh_files,
@@ -37,6 +38,7 @@ from vortexcfd.foam.mesh_case import (
     prepare_case_dir,
     part_patch_names,
     safe_part_names,
+    section_buffer_cells,
     wall_patch_names,
     write_domain_guard,
     write_seed_edge_meshes,
@@ -683,6 +685,9 @@ def inputs_hash(project: Project) -> str:
         payload["robust_controls"] = ROBUST_CONTROLS_REVISION
     if project.sim.dimension == "2d":  # D-121; 3D projects keep their hash
         payload["dimension"] = "2d"
+        buffer = section_buffer_cells(mesh_settings)
+        if buffer != SECTION_BUFFER_CELLS:  # the wall-resolved staircase buffer (D-124); others keep their hash
+            payload["section_buffer_cells"] = buffer
     alpha = project.sim.inflow.alpha_deg
     if alpha != 0.0:  # the parts are rotated (D-120); at 0 the hash of the projects saved before v18
         payload["alpha_deg"] = alpha

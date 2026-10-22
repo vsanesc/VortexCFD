@@ -81,3 +81,83 @@ The angle-of-attack method (D-120), the 2D mode (D-121) and the wall-resolved la
 lifting cases fail A6 on drag (+24 % at 10 degrees, grid- and domain-independent) and the 15 degree case separates.
 The cause lies in the solver set-up (turbulence numerics or wall conditions), not in the geometry, the mesh or the
 domain; it needs the owner's review (QUESTIONS 190) before a second round.
+
+# Round 2 (task w2-naca-r2, 2026-10-22)
+
+Owner review of round 1: D-120, D-121 (1 mm span) and D-122 accepted; QUESTIONS 187 (D-123), 189, 190 and 191 handled
+here. Diagnostic runs in run/validation/naca0012/r2/ and alpha_10_base_1.41421_* (git-ignored); driver
+`scripts/validation/naca0012_study.py diag | inspect | angle --buffer --mesh-only`. All at nice 15, solver on 8 ranks.
+
+## Diagnosis at 10 degrees (QUESTIONS 190)
+
+Level: round 1's medium (base 1.414 m, surface cell 1.381 mm, 20 layers; round 1's three levels agree within
+1.2 %). One change at a time from round 1's set-up. CL / CD errors against the TMR SST mean (1.0794 / 0.012467).
+Cf is signed along the body x axis (negative: reversed flow), upper surface; CFL3D SST (TMR's n0012cf / n0012cp
+files, 897 x 257): Cf 9.62e-4 at x/c 0.9, 2.63e-4 at 0.99; Cp 0.165 at 0.99.
+
+| Run | Cells | Iterations, stop | CL (err) | CD (err) | CD pressure | CD viscous | Cf 0.9 | Cf 0.99 | Cp 0.99 | Reversed flow |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Round 1 medium | 119,064 | 1324, criteria met | 1.0346 (-4.2 %) | 0.015592 (+25.1 %) | 0.010127 | 0.005466 | 5.86e-4 | 1.44e-4 | 0.124 | none |
+| B1: TMR inflow k, omega | 119,064 | 1315, criteria met | 1.0346 (-4.2 %) | 0.015592 (+25.1 %) | 0.010126 | 0.005465 | 5.85e-4 | 1.44e-4 | 0.124 | none |
+| B2: k, omega second order (restart of round 1) | 119,064 | 1995 (671 after the restart), criteria met | 1.0491 (-2.8 %) | 0.015709 (+26.0 %) | 0.009991 | 0.005718 | 7.04e-4 | 1.60e-4 | 0.145 | none |
+| B6: staircase buffer 12 cells | 162,854 | 1556, criteria met | 1.0359 (-4.0 %) | 0.012120 (-2.8 %) | 0.006670 | 0.005451 | 6.01e-4 | 1.43e-4 | 0.136 | none |
+| B6: staircase buffer 24 cells | 246,330 | 1436, criteria met | 1.0344 (-4.2 %) | 0.011904 (-4.5 %) | 0.006461 | 0.005443 | 5.84e-4 | 1.32e-4 | 0.136 | none |
+| B4: buffer 12, domain 300 chords | 307,656 | 1535, criteria met | 1.0393 (-3.7 %) | 0.011919 (-4.4 %) | 0.006439 | 0.005480 | 6.53e-4 | 1.89e-4 | 0.137 | none |
+| B5: buffer 12 + k, omega second order (restart of B6) | 162,854 | 2326 (770 after the restart), criteria met | 1.0541 (-2.3 %) | 0.012241 (-1.8 %) | 0.006541 | 0.005700 | 7.29e-4 | 1.58e-4 | 0.156 | none |
+
+(The round 1 medium row is round 1's own run; its error against the fine level's CL quoted in round 1 differs.)
+
+- B1, freestream turbulence. TMR (CFL3D's file header, also the FUN3D input): k / a^2 = 9e-9 and
+  omega mu / (rho a^2) = 1e-6 at M 0.15. With U = 90 m/s (a = U / 0.15 = 600 m/s) and nu = 1.5e-5: k = 3.24e-3 m2/s2,
+  omega = 24,000 1/s, i.e. Tu = (2k/3)^(1/2) / U = 0.0516 % and nut / nu = 0.009. Round 1 used Tu 0.052 % and 0.009:
+  k 3.285e-3 (+1.4 %), omega 24,336 (+1.4 %). Run with the TMR values: no change to 4-5 digits. Decay (cell
+  values on z = 0 ahead of the quarter chord): nut / nu 0.009 at the inlet, 0.0084 at 99 chords, 0.0058 at 50,
+  0.0055 at 10 and 2, 0.0057 at 1 chord, the same in both runs (k and omega decay together; the decay of nut is
+  -38 %). With second-order k and omega (B2, B5) the far-field value falls further (0.0008 at 50 chords, 0.003-0.005
+  near the airfoil), always negligible against the boundary layer's nut. Freestream turbulence is not the cause.
+- B2, second-order turbulence convection: `bounded Gauss linearUpwind grad(k)` / `grad(omega)` with
+  `cellLimited Gauss linear 1` gradients, from round 1's converged first-order solution. CL +1.4 %, upper-surface
+  Cf +15-20 % (toward CFL3D), viscous drag +4.6 %, pressure drag -1.3 %: total CD +0.8 %. Helps CL, not the drag.
+- B3, the SST variant (no run). v2606's kOmegaSST (src/TurbulenceModels/turbulenceModels/Base/kOmegaSST/
+  kOmegaSSTBase.C) is the SST-2003 form (Menter, Kuntz and Langtry): nut = a1 k / max(a1 omega, b1 F2 S) with the
+  strain rate S = (2 S:S)^(1/2) (F3 off); k production min(nut (grad U : dev(2 symm(grad U))), c1 betaStar k omega)
+  with c1 = 10; omega production gamma min(G / nu, (c1 / a1) betaStar omega max(a1 omega, b1 F2 S)), i.e. the limiter
+  in both equations; F1's CD_komega floor 1e-10; gamma1 = 5/9, gamma2 = 0.44, beta1 0.075, beta2 0.0828, betaStar 0.09,
+  sigma_k 0.85 / 1, sigma_omega 0.5 / 0.856, a1 0.31, b1 1. TMR's SSTm (the NACA 0012 SST page's label; "SST, SSTm,
+  SST-V and SST-Vm give very close results for this case"): Menter 1994, nut with the vorticity Omega, P = mut S^2,
+  limiter 20 betaStar rho omega k in the k equation only, gamma from the formula (0.5532, 0.4403), floor 1e-20.
+  Differences: S against Omega in the nut limiter (equal in a thin attached boundary layer), the limiter value and
+  equation (acts only where P exceeds 10 betaStar k omega: the stagnation region), gamma (0.4 %). The only
+  supported options are coefficient overrides and decayControl (SST-sust, a different variant); none gives SSTm's
+  Omega-based nut or its k-only limiter, so nothing matches TMR better: no run.
+- B4, boundary conditions written for this case (every boundary):
+
+  | Patch | U | p | k | omega | nut |
+  |---|---|---|---|---|---|
+  | inlet (front half circle, R = 100 chords) | fixedValue (90 0 0) | zeroGradient | fixedValue | fixedValue | calculated |
+  | outlet (100 chords behind) | inletOutlet (0) | fixedValue 0 | inletOutlet | inletOutlet | calculated |
+  | farfield (flat top and bottom, z = +-100 chords) | slip | slip | slip | slip | calculated |
+  | frontAndBack | empty | empty | empty | empty | empty |
+  | naca0012 | noSlip | zeroGradient | kqRWallFunction | omegaWallFunction | nutUSpaldingWallFunction |
+
+  TMR: a characteristic (Riemann) far field "almost 500 chords away", CFL3D with the point-vortex correction for
+  the lifting cases. The mismatch is the far-field model (a Dirichlet velocity without the vortex's induced flow at
+  100 chords against a vortex-corrected far field at 500), a known effect of order c / R. Run at 300 chords (with
+  the buffer, since round 1's 300-chord check had 4-16 m cells there and could not carry the circulation): CL
+  +0.3 %, CD -1.7 % against 100 chords. Small, and it moves CD away from TMR: not adopted.
+- B6 (not in the task's list; found while reading B1-B2): the near-field resolution. In 2D the staircase grows each
+  level's box by 3 cells of that level, so at a distance d from the airfoil's box the cell is about d / 6 on every
+  level of a study (measured on round 1's coarse / medium / fine: 44-63 mm at 0.3 chord above, 177-250 mm one chord
+  ahead, 250 mm two chords down the wake, the same on all three; 97 % of the cells inside the airfoil's box). The
+  study refined the boundary layer, not the field around a lifting airfoil (pressure field decaying as 1 / r, the
+  wake): its 1.2 % spread did not test it. A 12-cell buffer removes 97 % of what a 24-cell one removes: CD +25 % ->
+  -2.8 %, all of it pressure drag (0.010127 -> 0.006670); CL unchanged.
+- B5, the changes that helped combined (buffer 12 and second-order k, omega; not the 300-chord domain): CL 1.0541
+  (-2.3 %), CD 0.012241 (-1.8 %): PASS at 10 degrees on the medium level.
+
+Cause: the 2D staircase's 3-cell buffer (D-121) left the near field of the lifting airfoil about ten times coarser
+than a body-fitted grid, independently of the study level; numerical dissipation there produced the extra pressure
+drag (+0.0035 of the +0.0031 excess). The remaining CL deficit is first-order k / omega convection (+1.4 % when
+second order), the incompressible solver (Prandtl-Glauert +1.1 % at M 0.15, SETUP.md) and the 100-chord far field
+(+0.3 % at 300 chords). Proposed app default for the wall-resolved 2D mode only: D-124 (12 cells). Machine time of
+the diagnosis: about 21 min (B1 1.4, B2 0.8, B6 3.6 + 5.7, B4 6.9, B5 1.4, inspections 0.3, Part C remeshes 1.6).

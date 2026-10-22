@@ -189,3 +189,48 @@ def test_the_2d_study_uses_the_domain_area_for_the_cell_size(tmp_path: Path) -> 
     assert viscous.convergence == "monotonic" and viscous.order == pytest.approx(1.24, abs=0.02)
     assert viscous.gci_fine == pytest.approx(0.0237, abs=0.0005) and viscous.extrapolated == pytest.approx(0.005614, abs=1e-6)
     assert gci.study([1.040667, 1.034575, 1.047405], h).convergence == "oscillatory"  # CL: no GCI
+
+
+def test_the_wall_resolved_2d_staircase_has_a_thicker_buffer(tmp_path: Path) -> None:
+    """D-124: in 2D the wall-resolved controls (chosen or automatic) grow each staircase box by WR_SECTION_BUFFER_CELLS
+    cells of its level; the other modes keep snappyHexMesh's nCellsBetweenLevels (3); only the wall-resolved 2D
+    projects' mesh hash changes."""
+    from vortexcfd.foam.mesh_case import (CELLS_BETWEEN_LEVELS, SECTION_BUFFER_CELLS, WR_SECTION_BUFFER_CELLS,
+                                          section_buffer_cells)
+    from vortexcfd.workflow import meshing
+
+    assert SECTION_BUFFER_CELLS == CELLS_BETWEEN_LEVELS == 3 and WR_SECTION_BUFFER_CELLS == 12
+    assert section_buffer_cells(Mesh(layer_controls="wall_resolved", target_yplus=1.0)) == 12
+    assert section_buffer_cells(Mesh(target_yplus=1.0)) == 12  # robust below y+ 5: automatic (D-123)
+    assert section_buffer_cells(Mesh(target_yplus=50.0)) == 3
+    assert section_buffer_cells(Mesh(layer_controls="wall_resolved", layer_sizing="relative")) == 3
+    assert section_buffer_cells(Mesh(layer_controls="legacy", target_yplus=1.0)) == 3
+
+    def top_box(mesh: Mesh) -> tuple[dict, float]:
+        inp = MeshCaseInput(domain_bounds=(-10.0, 21.0, -5.0, 5.0, -10.0, 10.0), symmetric=False, parts=("wing",),
+                            parts_bounds=(0.0, 1.0, -0.5, 0.5, -0.06, 0.06), reference_length=1.0, mesh=mesh,
+                            part_bounds=((0.0, 1.0, -0.5, 0.5, -0.06, 0.06),), surface_length=1.0, two_d=True,
+                            first_layer_thickness=FIRST, layer_count=20, layer_expansion=1.2)
+        est = inp.estimate()
+        snappy = snappy_hex_mesh_dict(inp).content
+        return snappy["geometry"][f"section_wing_{est.level_max}"], est.base_size / 2 ** est.level_max
+
+    for mesh, cells in ((Mesh(layer_controls="wall_resolved", target_yplus=1.0, surface_level_max=8), 12),
+                        (Mesh(target_yplus=50.0, surface_level_max=8), 3)):
+        box, h = top_box(mesh)
+        assert box["min"][0] == pytest.approx(-cells * h) and box["max"][2] == pytest.approx(0.06 + cells * h)
+
+    project = airfoil_project(tmp_path)  # the "2D airfoil" preset: wall-resolved
+    wr = meshing.inputs_hash(project)
+    project.update_mesh(target_yplus=50.0, layer_controls="robust")
+    robust = meshing.inputs_hash(project)
+    from vortexcfd.foam import mesh_case
+
+    keep = mesh_case.WR_SECTION_BUFFER_CELLS
+    try:
+        mesh_case.WR_SECTION_BUFFER_CELLS = 3  # as before D-124
+        assert meshing.inputs_hash(project) == robust  # robust 2D: unchanged
+        project.update_mesh(target_yplus=1.0, layer_controls="wall_resolved")
+        assert meshing.inputs_hash(project) != wr  # wall-resolved 2D: the buffer is in the hash
+    finally:
+        mesh_case.WR_SECTION_BUFFER_CELLS = keep

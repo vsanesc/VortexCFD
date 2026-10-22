@@ -688,6 +688,23 @@ def _seeded(inp: MeshCaseInput) -> list[int]:
 # the part's box grown by nCellsBetweenLevels cells of each level, level k taking k splits; the refinement
 # volumes take their level the same way. The slab then stays one cell across the span.
 SECTION_PREFIX = "section_"
+# Cells of each level in the buffer that grows a part's box into the next coarser staircase box (D-121: snappyHexMesh's
+# nCellsBetweenLevels). Away from the part's box the cell size is then about the distance / (2 x this), on every
+# level of a mesh study alike.
+SECTION_BUFFER_CELLS = CELLS_BETWEEN_LEVELS
+# The wall-resolved sections (the "2D airfoil" preset, D-122, D-123) take a thicker buffer (D-124): with 3 cells the
+# near field of a lifting section (cells of about d / 6 at a distance d from the part's box) cost the NACA 0012
+# +24 % drag at 10 deg. [NUMERICS-REVIEW]
+WR_SECTION_BUFFER_CELLS = 12
+
+
+def section_buffer_cells(mesh) -> int:
+    """The staircase buffer of a 2D section: WR_SECTION_BUFFER_CELLS with the wall-resolved controls and absolute (y+)
+    sizing (``mesh`` as meshing uses it, workflow/meshing.meshing_settings: the automatic switch included), else
+    SECTION_BUFFER_CELLS."""
+    if mesh.effective_layer_controls == "wall_resolved" and mesh.layer_sizing == "absolute_yplus":
+        return WR_SECTION_BUFFER_CELLS
+    return SECTION_BUFFER_CELLS
 
 
 def _directional(levels: int) -> dict:
@@ -697,9 +714,10 @@ def _directional(levels: int) -> dict:
 def section_staircases(inp: MeshCaseInput, est, part_max_levels: list[int]) -> tuple[dict, dict]:
     """(geometry entries, refinementRegions entries) of the 2D directional staircases (see above): per part, a
     searchableBox for every level k from its maximum surface level down to 1, the part's box grown by the
-    nCellsBetweenLevels buffers of the levels from its maximum down to k; along y the boxes reach well
+    buffers (``section_buffer_cells``) of the levels from its maximum down to k; along y the boxes reach well
     beyond the slab."""
     geometry, regions = {}, {}
+    buffer = section_buffer_cells(inp.mesh)
     y0, y1 = est.background_bounds[2], est.background_bounds[3]
     pad = y1 - y0
     for i, name in enumerate(inp.parts):
@@ -709,7 +727,7 @@ def section_staircases(inp: MeshCaseInput, est, part_max_levels: list[int]) -> t
         grow = 0.0
         top = part_max_levels[i]
         for k in range(top, 0, -1):
-            grow += CELLS_BETWEEN_LEVELS * est.base_size / 2 ** k
+            grow += buffer * est.base_size / 2 ** k
             key = f"{SECTION_PREFIX}{name}_{k}"
             geometry[key] = {"type": "searchableBox", "min": [b[0] - grow, y0 - pad, b[4] - grow],
                              "max": [b[1] + grow, y1 + pad, b[5] + grow]}
