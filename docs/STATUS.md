@@ -1,28 +1,27 @@
 # Status
 
-Updated 2026-10-22 (task/w2-naca-r2: NACA 0012 round 2).
+Updated 2026-10-22 (task/w2-naca-r2: NACA 0012 rounds 2 and 3, W2 closed).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
 
-**task/w2-naca-r2** (not yet published). Workstream W2, NACA 0012 round 2. Done on it:
-- Part A ([NUMERICS-REVIEW], D-123): a target y+ below 5 with the robust controls meshes with the wall-resolved
-  controls; the Mesh node shows "Layer mode in use" and why, the Layer controls combo is locked while it applies.
-  QUESTIONS 187 decided, 189 confirmed (2D GCI uses h = (A / N)^(1/2); round 1's GCI unchanged).
-- Part B ([NUMERICS-REVIEW], D-124): diagnosis at 10 deg. TMR inflow: no change; second-order k / omega: CL +1.4 %;
-  SST variant: v2606 is SST-2003, no closer option; far field: 300 chords not adopted. Cause: the 2D staircase's
-  3-cell buffer left the near field about d / 6 on every level; wall-resolved 2D sections now use 12 cells
-  (10 deg CD +25 % -> -2.8 %).
-- Part C ([NUMERICS-REVIEW], D-125): the fine 0 deg mesh's 2 inverted pyramids came from the layer phase's
-  unlimited medial-axis walk on the trailing edge's medial axis; nMedialAxisIter 10 for wall-resolved 2D sections;
-  remeshed: Mesh OK.
-- Part D: round 2 (fine level, D-124, D-125, second-order k / omega restart): 0 deg **PASS** (CD -6.5 %), 10 deg
-  **PASS** (CL -1.4 %, CD -2.3 %), 15 deg **PASS** (CL -1.3 %, CD +1.3 %, mean-stable, CD oscillating 7.8 %);
-  docs/validation/naca0012/RESULT.md, Round 2. Benchmark (mesh only) identical to the baseline.
-- Machine time about 62 min. No OpenFOAM process left running.
+**task/w2-naca-r2** (not yet published). Workstream W2, NACA 0012 rounds 2 and 3. **W2 closed.** Done on it:
+- Round 2 (owner-reviewed: D-123 to D-125 accepted): the wall-resolved mode follows the y+ target (D-123); the
+  cause of round 1's drag error, the 2D staircase's 3-cell buffer, and the 12-cell buffer (D-124); the inverted
+  pyramids fixed by the medial-axis walk limit (D-125); the driver's PASS at 0, 10 and 15 deg.
+- Round 3, Part A ([NUMERICS-REVIEW], D-126): two turbulence stages in one app run for the wall-resolved mode:
+  first-order k, omega to the stopping criteria (or half the iteration limit), the D-058 clean stop, bounded
+  linearUpwind k, omega from the latest time to the criteria again; monitors show the stage and the switch; the
+  record keeps both stages. Public benchmark: dictionaries byte-identical, `--compare` no regressions.
+- Part B ([NUMERICS-REVIEW], D-127): a study level keeps the current settings' refinement regions in metres (2D
+  staircase boxes; 3D distance shells, which the 3D study lacked as well), so a finer level is finer everywhere.
+- Part C: the NACA 0012 through the app ("2D airfoil" preset, TMR inputs only): the 10 deg study converges
+  monotonically (CL GCI 1.9 %, CD 0.86 %); medium level: 0 deg **PASS** (CD -6.9 %), 10 deg **PASS** (CL -1.8 %,
+  CD -2.5 %), 15 deg **PASS** (CL -2.3 %, CD +3.9 %); docs/validation/naca0012/RESULT.md, Round 3.
+- Machine time: round 2 about 62 min, round 3 about 42 min. No OpenFOAM process left running.
 
-Next: the owner's review of D-123 to D-125 and QUESTIONS 193 to 198. Open: docs/QUESTIONS.md items 30, 67, 69, 70, 72, 73, 75, 82, 89 to 94, 96,
-97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 193 to 198.
+Next: the owner's review of D-126, D-127 and QUESTIONS 199 to 203. Open: docs/QUESTIONS.md items 30, 67, 69, 70, 72,
+73, 75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 199 to 203.
 
 ### Previous branch (task/w2-aoa-2d, published in PR #28)
 
@@ -82,8 +81,7 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
   experiment, +5.6 % against Guilmineau 2008); no round reproduces the experiment's slant reattachment;
   steady SST oscillates here; round 4 (wall-resolved attempt) inconclusive (docs/validation/ahmed/RESULT.md,
   "Conclusion").
-- NACA 0012 (2D, wall-resolved SST): drag too high with lift (+24 % at 10 deg; 15 deg separates; QUESTIONS 190).
-- The wall-resolved layer mode produced one invalid mesh (the fine 0 deg NACA, QUESTIONS 191).
+- NACA 0012 at 0 deg: CD -6.9 % against TMR SST (PASS; likely SST-2003 against SSTm, not established, QUESTIONS 194).
 
 ## Notes for the user manual (draft)
 
@@ -91,8 +89,16 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
   criterion (Ahmed body 25 degrees, docs/validation/ahmed/RESULT.md).
 - Steady k-omega SST with wall functions over-predicts the drag of the Ahmed body at 25 degrees by about 14 %
   (body Cd 0.325 against the experimental 0.285; docs/validation/ahmed/RESULT.md).
-- Wall-resolved (y+ about 1) layers need Mesh > Layer controls "wall_resolved" (D-122): it refines the surface to
-  at most 220 first layers, which is fine for 2D sections and costly on 3D bodies.
+- 2D airfoils: use the "2D airfoil" preset; it switches to wall-resolved layers and second-order turbulence
+  automatically (D-123, D-126): y+ 1 at the first cell centre, a stack one surface cell thick, a 12-cell staircase
+  around the airfoil (D-124), then k and omega first order to the stopping criteria and second order to the criteria
+  again in the same run (the monitors show the stage). NACA 0012 at Re 6e6 through the preset: CL within 2.3 % and
+  CD within 6.9 % of the NASA TMR SST results at 0, 10 and 15 degrees (docs/validation/naca0012/RESULT.md).
+- Wall-resolved (y+ about 1) layers are used automatically when the target y+ is below 5 (D-123), or chosen in
+  Mesh > Layer controls "wall_resolved" (D-122): the surface is refined to at most 220 first layers, which is fine
+  for 2D sections and costly on 3D bodies.
+- A mesh study of a 2D airfoil: set the Mesh Study's "current as" to medium with the preset's mesh, so the coarse
+  level stays within the wall-resolved limit (QUESTIONS 199).
 
 ## Known debts
 

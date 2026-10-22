@@ -263,7 +263,7 @@ Workstreams:
 | Workstream | Content | State |
 |---|---|---|
 | W1 | Ahmed body, 25 degrees | **closed** (2026-10-22): FAIL, recorded as a documented known limitation of steady SST with wall functions (+13.9 % against the experiment, +5.6 % against Guilmineau 2008; docs/validation/ahmed/RESULT.md, "Conclusion") |
-| W2 | Angle of attack (the validated method, QUESTIONS 71), a 2D mode, a wall-resolved layer mode (QUESTIONS 180, needed before the NACA 0012 runs), NACA 0012 at several angles | first round done (task/w2-aoa-2d, 2026-10-22): rotation of the geometry (D-120), 2D mode (D-121), wall-resolved layers (D-122); NACA 0012: 0 deg PASS, 10 and 15 deg FAIL on drag (docs/validation/naca0012/RESULT.md, QUESTIONS 190); open |
+| W2 | Angle of attack (the validated method, QUESTIONS 71), a 2D mode, a wall-resolved layer mode (QUESTIONS 180, needed before the NACA 0012 runs), NACA 0012 at several angles | **closed** (task/w2-aoa-2d and task/w2-naca-r2, 2026-10-22): rotation of the geometry (D-120), 2D mode (D-121), wall-resolved layers (D-122, automatic below y+ 5, D-123), the wall-resolved 2D staircase and medial-axis walk (D-124, D-125), two turbulence stages (D-126), study levels refined everywhere (D-127); NACA 0012 through the app pipeline: PASS at 0, 10 and 15 deg (CL -0.0 / -1.8 / -2.3 %, CD -6.9 / -2.5 / +3.9 %; docs/validation/naca0012/RESULT.md, Round 3) |
 | W3 | Internal flow | open |
 | W4 | Post-processing for a report | open |
 | W5 | Installation and the manual | open |

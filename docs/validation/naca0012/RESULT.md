@@ -269,8 +269,8 @@ snappyHexMesh places the transition on each level's own cells (QUESTIONS). Round
 0.1 chord of most of these points (cells of 0.18-0.7 m).
 
 Level used for 0 and 15 degrees: the medium, the preset's own mesh. The study is in the asymptotic range for CL
-and CD (ratios 1.005, 0.987), the medium level is within 0.5 % (CL) and 1.4 % (CD) of the fine one and within
-GCI-sized distance of the extrapolated values, and it is the mesh a user of the preset gets.
+and CD (ratios 1.005, 0.987), the medium level is within 0.5 % (CL) and 1.4 % (CD) of the fine one (2.0 % and 2.1 %
+from the extrapolated values), and it is the mesh a user of the preset gets.
 
 ## Per angle (through the app, medium level)
 
