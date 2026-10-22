@@ -1112,7 +1112,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
                     view.set_visible(self._scene_mode == "results")
                     self.viewer.render()
         self.properties.set_scene_status(view.object_errors if view is not None else {},
-                                         view is not None and view.has_results, self.viewer is not None)
+                                         view is not None and view.has_results, self.viewer is not None,
+                                         view.line_samples if view is not None else {})
 
     def _scene_bounds(self):
         """The results' volume bounds, else the parts' box (metres), else None."""
@@ -1126,7 +1127,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
 
     def _new_scene_fields(self, kind: str) -> dict:
         """The settings a new object starts with, from the results' (or the parts') box: a clip through its centre
-        normal to x, an isosurface of |U| at its median, streamlines from a line across it near the inflow side."""
+        normal to x, an isosurface of |U| at its median, streamlines from a line across it near the inflow side, a line
+        plot of |U| and p along x through its centre (D-136)."""
         b = self._scene_bounds()
         if b is None:
             return {}
@@ -1139,6 +1141,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
             if view is not None and view.has_results and view.data.internal is not None and "U" in view.data.internal.cell_data:
                 value = float(np.median(np.linalg.norm(np.asarray(view.data.internal.cell_data["U"]), axis=1)))
             return {"field": "U_mag", "value": value}
+        if kind == "line_plot":
+            return {"point1": (b[0], centre[1], centre[2]), "point2": (b[1], centre[1], centre[2]),
+                    "fields": ["U_mag", "p"]}
         x = b[0] + 0.05 * (b[1] - b[0])
         diag = math.sqrt(sum((b[2 * i + 1] - b[2 * i]) ** 2 for i in range(3)))
         return {"point1": (x, centre[1], b[4] + 0.1 * (b[5] - b[4])), "point2": (x, centre[1], b[5] - 0.1 * (b[5] - b[4])),
@@ -1164,6 +1169,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self.export_image()
         elif action == "report":
             self.create_report()
+        elif action.startswith(("line_png:", "line_csv:")):
+            self.export_line_plot(action.split(":", 1)[1], action[5:8])
         elif action.startswith("go_view:") and self.viewer is not None:
             name = action.split(":", 1)[1]
             view = next((v for v in self._project.sim.results.views if v.name == name), None)
@@ -1192,15 +1199,45 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.show_message(f"Exported {spec.size[0]} x {spec.size[1]} image to {spec.path}", "success")
         return image
 
+    def export_line_plot(self, object_id: str, what: str):
+        """A line plot's chart as PNG or its samples as CSV (D-136); returns the path or None."""
+        from vortexcfd.workflow import line_plot
+
+        view = self.results_view
+        samples = view.line_samples.get(object_id) if view is not None else None
+        obj = next((o for o in self._project.sim.results.objects if o.id == object_id), None)
+        if samples is None or obj is None:
+            return None
+        folder = self._project.folder / ("images" if what == "png" else "exports") if self._project.path else Path.home()
+        path = self.dialogs.ask_line_export(folder / f"{obj.name.replace(' ', '_')}.{what}", what)
+        if path is None:
+            return None
+        try:
+            if what == "png":
+                line_plot.write_png(samples, path, obj.name)
+            else:
+                line_plot.write_csv(samples, path)
+        except OSError as exc:
+            self.show_message(f"Could not export the line plot: {exc}", "error")
+            return None
+        self.show_message(f"Exported '{obj.name}' to {path}", "success")
+        return path
+
     REPORT_IMAGE_SIZE = (1600, 900)
 
     def create_report(self):
         """File > Create Report (D-134): the HTML report in <project>/reports/, the saved views rendered offscreen
-        in the Results Scene when the case has results; returns its path or None."""
+        in the Results Scene when the case has results; returns its path or None. The sections are chosen first
+        (D-136: the choice is saved in the project)."""
         from vortexcfd.workflow.report import ReportImage, write_report
 
+        omit = self.dialogs.ask_report_sections(self._project.sim.results.report_omit)
+        if omit is None:
+            return None
+        if omit != self._project.sim.results.report_omit:
+            self._project.set_report_omit(omit)
         images = []
-        views = self._project.sim.results.views
+        views = self._project.sim.results.views if "views" not in omit else []
         if self.viewer is not None and views:
             from vortexcfd.gui.image_export import png_bytes
 

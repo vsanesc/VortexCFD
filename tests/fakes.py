@@ -40,6 +40,10 @@ class FakeDialogs:
         self.duplicate_asked: list = []
         self.export_spec = None  # ask_export_image's answer (an ExportSpec or None)
         self.export_asked: list = []
+        self.line_export_path = None  # ask_line_export's answer (a Path or None)
+        self.line_export_asked: list = []
+        self.report_omit = None  # ask_report_sections' answer; None keeps the project's choice
+        self.report_sections_asked: list = []
 
     def ask_open_path(self):
         return self.open_path
@@ -64,6 +68,14 @@ class FakeDialogs:
 
     def ask_csv_path(self, suggested):
         return self.csv_path
+
+    def ask_line_export(self, suggested, kind):
+        self.line_export_asked.append((suggested, kind))
+        return self.line_export_path
+
+    def ask_report_sections(self, omit):
+        self.report_sections_asked.append(list(omit))
+        return list(omit) if self.report_omit is None else list(self.report_omit)
 
     def ask_airfoil(self):
         return self.airfoil

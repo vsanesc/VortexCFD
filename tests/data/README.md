@@ -100,3 +100,14 @@ a mass-flow inlet of 1.5 kg/s (rho_ref 1000 kg/m3, nu 1e-6 m2/s), a static outle
 x = 0.5 m (113,975 cells). `system/internalReports` as the solver writer makes it (the pressure drop "loss" from
 `patch:inlet_1` to `patch:outlet_1`); each `postProcessing/*/0/surfaceFieldValue.dat` keeps its header and the
 first and last three rows (iterations 1-3 and 298-300).
+
+## `study_naca0012_r3.json`
+The real mesh study record (case_study/study.json) of the NACA 0012 round 3 study at 10 degrees through the app
+("2D airfoil" preset, three levels, docs/validation/naca0012/RESULT.md, Round 3), copied unchanged. Used by
+tests/test_report_tables.py for the report's mesh study table (D-136).
+
+## `sweep_naca0012_r3.json`
+A polar sweep record (case_sweep/sweep.json format, foam/polar_sweep.py) written by hand from the NACA 0012 round 3
+per-angle results (no sweep record of them exists): CL, CD and CmPitch are the last rows of the forceCoeffs output of
+the real cases (0 and 15 deg: the per-angle runs; 10 deg: the study's medium level), the cells, iterations and solver
+times from docs/validation/naca0012/RESULT.md, Round 3. Used by tests/test_report_tables.py (D-136).

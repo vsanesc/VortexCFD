@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 20
+CURRENT_SCHEMA_VERSION: int = 21
 
 
 class StrictModel(BaseModel):
@@ -832,8 +832,11 @@ class RefinementVolume(StrictModel):
 
 # -- results scene objects (schema v20, D-132) -----------------------------------------------------
 
-SCENE_OBJECT_KINDS = ("clip", "isosurface", "streamlines")
-SCENE_OBJECT_LABELS = {"clip": "Clip", "isosurface": "Isosurface", "streamlines": "Streamlines"}
+SCENE_OBJECT_KINDS = ("clip", "isosurface", "streamlines", "line_plot")
+SCENE_OBJECT_LABELS = {"clip": "Clip", "isosurface": "Isosurface", "streamlines": "Streamlines",
+                       "line_plot": "Line plot"}
+# The colour range modes of the scene and of the streamlines' own colour field (schema v21).
+COLOR_RANGE_MODES = ("auto", "fixed", "symmetric")
 SCENE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_ .-]{0,63}$")
 
 
@@ -894,9 +897,46 @@ class StreamlinesObject(_SceneObject):
     max_length: float = Field(default=10.0, gt=0)
     direction: Literal["both", "forward", "backward"] = "both"
     color_field: str = "U_mag"
+    # Their own scalar bar (schema v21): the colormap (None: the scene's), the range mode and the fixed limits, as
+    # the scene's controls; ``scalar_bar`` False hides the bar.
+    colormap: str | None = None
+    range_mode: Literal["auto", "fixed", "symmetric"] = "auto"
+    range_min: float = 0.0
+    range_max: float = 1.0
+    scalar_bar: bool = True
 
 
-SceneObject = Annotated[Union[ClipObject, IsoObject, StreamlinesObject], Field(discriminator="kind")]
+class LinePlotObject(_SceneObject):
+    """Fields sampled at ``n_samples`` evenly spaced points from ``point1`` to ``point2`` (schema v21): a chart of
+    each field against the distance from ``point1``, exported as PNG and CSV; the viewer draws the line."""
+
+    kind: Literal["line_plot"] = "line_plot"
+    point1: Vector = (0.0, 0.0, 0.0)
+    point2: Vector = (1.0, 0.0, 0.0)
+    n_samples: int = Field(default=100, ge=2, le=10_000)
+    fields: list[str] = Field(default_factory=lambda: ["U_mag"], min_length=1, max_length=8)
+
+    @model_validator(mode="after")
+    def _distinct_points(self) -> "LinePlotObject":
+        if tuple(self.point1) == tuple(self.point2):
+            raise ValueError("the line's two points must differ")
+        return self
+
+
+SceneObject = Annotated[Union[ClipObject, IsoObject, StreamlinesObject, LinePlotObject], Field(discriminator="kind")]
+
+# The HTML report's sections (schema v21, D-136): id -> title, in report order.
+REPORT_SECTIONS = {
+    "setup": "Project and set-up",
+    "geometry": "Geometry",
+    "mesh": "Mesh report",
+    "convergence": "Convergence",
+    "reports": "Forces / internal-flow reports",
+    "study": "Mesh study",
+    "sweep": "Polar sweep",
+    "line_plots": "Line plots",
+    "views": "Saved views",
+}
 
 
 class SavedView(StrictModel):
@@ -915,6 +955,16 @@ class ResultsScene(StrictModel):
 
     objects: list[SceneObject] = Field(default_factory=list)
     views: list[SavedView] = Field(default_factory=list)
+    # The report sections left out (schema v21, D-136): ids of REPORT_SECTIONS; a section added later is included.
+    report_omit: list[str] = Field(default_factory=list)
+
+    @field_validator("report_omit")
+    @classmethod
+    def _known_sections(cls, values: list[str]) -> list[str]:
+        unknown = [v for v in values if v not in REPORT_SECTIONS]
+        if unknown:
+            raise ValueError(f"unknown report sections: {', '.join(unknown)}")
+        return list(dict.fromkeys(values))
 
     @field_validator("objects")
     @classmethod

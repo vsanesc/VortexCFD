@@ -67,6 +67,20 @@ class Dialogs:
         )
         return Path(name) if name else None
 
+    def ask_line_export(self, suggested: Path, kind: str) -> Path | None:
+        """Where to export a line plot (D-136): ``kind`` "png" (the chart) or "csv" (the samples)."""
+        name, _ = QFileDialog.getSaveFileName(
+            self.parent, "Export line plot", str(suggested),
+            "PNG images (*.png)" if kind == "png" else "CSV files (*.csv)")
+        return Path(name) if name else None
+
+    def ask_report_sections(self, omit: list[str]) -> list[str] | None:
+        """The report sections to leave out (D-136), starting from ``omit``; None: cancelled."""
+        from vortexcfd.gui.report_dialog import ReportSectionsDialog
+
+        dialog = ReportSectionsDialog(omit, self.parent)
+        return dialog.omitted() if dialog.exec() else None
+
     def ask_import_path(self) -> Path | None:
         name, _ = QFileDialog.getOpenFileName(
             self.parent, "Import geometry", "", SURFACE_FILTER

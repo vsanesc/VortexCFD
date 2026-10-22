@@ -2,9 +2,11 @@
 PNG, no external link needed) written to <project>/reports/<timestamp>.html.
 
 Sections: the project and its set-up; the geometry; the mesh report (cells, quality, layers, the first cell and y+);
-the convergence (a residual plot and the stop reason); the force or internal-flow reports as windowed means; the
-saved views as images (rendered by the caller, which has the viewer: ``ReportImage``). A section with no data is left
-out with a one-line note; every number comes from the project, its records or its case files: nothing is estimated.
+the convergence (a residual plot and the stop reason); the force or internal-flow reports as windowed means; the mesh
+study's GCI table and the polar sweep's table and plot (D-136); the line plots (D-136); the saved views as images
+(rendered by the caller, which has the viewer: ``ReportImage``). A section with no data is left out with a one-line
+note; a section the user left out (``Simulation.results.report_omit``, D-136) is not in the file at all. Every number
+comes from the project, its records or its case files: nothing is estimated.
 """
 
 import base64
@@ -20,12 +22,14 @@ from vortexcfd.core.model import (
     DIMENSION_LABELS,
     INLET_KIND_LABELS,
     PATCH_ROLE_LABELS,
+    REPORT_SECTIONS,
     MeanStableCriterion,
 )
 from vortexcfd.core.project import Project
 from vortexcfd.core.reports import FLOW_QUANTITIES, FLOW_QUANTITY_LABELS, report_label
 from vortexcfd.foam.convergence import window_stats
 from vortexcfd.foam.logparse import parse_log_text
+from vortexcfd.foam import mesh_study, polar_sweep
 from vortexcfd.foam.mesh_record import read_mesh_record
 from vortexcfd.foam.postprocessing import ReportMonitor
 from vortexcfd.foam.residuals import ResidualHistory
@@ -87,6 +91,7 @@ class Section:
     title: str
     body: str | None  # None: no data
     note: str = ""  # the one line shown when there is no data
+    key: str = ""  # its id in core.model.REPORT_SECTIONS
 
 
 def case_dir(project: Project) -> Path | None:
@@ -316,6 +321,112 @@ def reports_section(project: Project) -> Section:
     return Section(title, body)
 
 
+def study_section(project: Project) -> Section:
+    """The mesh study's table (D-066): each quantity's value per level, the convergence, the order, the extrapolated
+    value and the GCI, or why there is no GCI (D-136)."""
+    record = mesh_study.read_record(project.folder / mesh_study.STUDY_DIR_NAME) if project.path is not None else None
+    if record is None:
+        return Section("Mesh study", None, "No mesh study has been run.")
+    levels = [lv.name for lv in record.levels]
+    rows = [("Status", record.status), ("Refinement ratio", f"{record.ratio:.4g}"),
+            ("Current settings as", record.current_as)]
+    rows += [(f"Level {lv.name}", f"{_num(lv.cells, '{:,}')} cells, h {_num(lv.h, '{:.4g} m')}, "
+              f"{lv.state_label or 'not run'}") for lv in record.levels]
+    body = _pairs(rows)
+    table = []
+    for row in mesh_study.quantity_rows(record):
+        r = row.result
+        gci_text = (f"{100 * r.gci_fine:.3g} %" if r is not None and r.applicable else
+                    (r.text if r is not None else "not applicable"))
+        table.append([report_label(row.quantity), *(_num(v, "{:.6g}") for v in row.values),
+                      r.convergence if r else "—", _num(r.order if r else None, "{:.3g}"),
+                      _num(r.extrapolated if r else None, "{:.6g}"), gci_text, row.note or "—"])
+    if table:
+        body += "<h3>Grid convergence (Celik et al. 2008)</h3>" + _table(
+            ["Quantity", *levels, "Convergence", "Order p", "Extrapolated", "GCI fine", "Note"], table)
+    if record.dimensions == 3:
+        body += _note("A 3D study's levels do not refine the near field by the level ratio (D-127, Proposed): its "
+                      "GCI covers the wall cells and the background and is indicative.")
+    return Section("Mesh study", body)
+
+
+def polar_png(points) -> bytes | None:
+    """CL, CD and CM against the angle of attack (flagged points hollow) as PNG; None without a value."""
+    done = [p for p in points if p.cl is not None or p.cd is not None or p.cm is not None]
+    if not done:
+        return None
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    fig = Figure(figsize=(9, 3.2), dpi=100)
+    FigureCanvasAgg(fig)
+    for i, (attr, label) in enumerate((("cl", "CL"), ("cd", "CD"), ("cm", "CM pitch"))):
+        ax = fig.add_subplot(1, 3, i + 1)
+        pts = [(p.alpha, getattr(p, attr), p.flagged) for p in done if getattr(p, attr) is not None]
+        ax.plot([a for a, _v, _f in pts], [v for _a, v, _f in pts], color="#2f6fdb", lw=1.2)
+        for a, v, flagged in pts:
+            ax.plot([a], [v], "o", color="#2f6fdb", mfc="white" if flagged else "#2f6fdb", ms=5)
+        ax.set_xlabel("Angle of attack [deg]", fontsize=8)
+        ax.set_ylabel(label, fontsize=8)
+        ax.tick_params(labelsize=8)
+        ax.grid(alpha=0.3)
+    fig.tight_layout()
+    buffer = io.BytesIO()
+    fig.savefig(buffer, format="png")
+    return buffer.getvalue()
+
+
+def sweep_section(project: Project) -> Section:
+    """The polar sweep (D-067, D-120): CL, CD, CM and L/D per angle, and their plot (D-136)."""
+    record = polar_sweep.read_record(project.folder / polar_sweep.SWEEP_DIR_NAME) if project.path is not None else None
+    if record is None:
+        return Section("Polar sweep", None, "No polar sweep has been run.")
+    rows = [[f"{p.alpha:g}", _num(p.cl, "{:.5g}"), _num(p.cd, "{:.5g}"), _num(p.cm, "{:.5g}"),
+             _num(p.lift_to_drag, "{:.4g}"), _num(p.iterations, "{}"), p.state_label or "not run",
+             _num(p.cells, "{:,}")] for p in record.points]
+    body = _pairs([("Status", record.status), ("Angles", ", ".join(f"{a:g}" for a in record.alphas) + " deg")])
+    body += _table(["Angle (deg)", "CL", "CD", "CM pitch", "L/D", "Iterations", "Stop", "Cells"], rows)
+    if any(p.flagged for p in record.points):
+        body += _note("Points that did not meet their stopping criteria are drawn hollow.")
+    png = polar_png(record.points)
+    if png is not None:
+        body += f"<figure>{_img(png, 'polar')}<figcaption>CL, CD and CM pitch against the angle of attack (last iteration of each point)</figcaption></figure>"
+    return Section("Polar sweep", body)
+
+
+def line_plots_section(project: Project, points=None) -> Section:
+    """Each line plot's chart (D-136) from the latest results; ``points``: the internal mesh with point fields
+    (read from the case when None)."""
+    from vortexcfd.foam.physics_case import flow_direction
+    from vortexcfd.workflow import line_plot
+    from vortexcfd.workflow.meshing import flow_speed
+
+    plots = [o for o in project.sim.results.objects if o.kind == "line_plot"]
+    if not plots:
+        return Section("Line plots", None, "No line plots (Results > Line plot).")
+    case = case_dir(project)
+    if points is None and case is not None and case.is_dir():
+        try:
+            points = line_plot.case_points(case)
+        except (OSError, RuntimeError, ValueError):
+            points = None
+    if points is None:
+        return Section("Line plots", None, "No solver results.")
+    parts = []
+    for obj in plots:
+        head = (f"{obj.name}: from ({', '.join(f'{v:.4g}' for v in obj.point1)}) to "
+                f"({', '.join(f'{v:.4g}' for v in obj.point2)}) m, {obj.n_samples} samples")
+        try:
+            samples = line_plot.sample_line(points, obj, flow_speed(project), flow_direction())
+        except ValueError as exc:
+            parts.append(_note(f"{head}: {exc}."))
+            continue
+        figure = _img(line_plot.png_bytes(samples, obj.name), obj.name)
+        extra = f" ({samples.inside} of {obj.n_samples} samples inside the fluid)" if samples.inside < obj.n_samples else ""
+        parts.append(f"<figure>{figure}<figcaption>{_e(head + extra)}</figcaption></figure>")
+    return Section("Line plots", "\n".join(parts))
+
+
 def views_section(images: list[ReportImage]) -> Section:
     if not images:
         return Section("Saved views", None, "No saved views (Results > Save view).")
@@ -325,12 +436,25 @@ def views_section(images: list[ReportImage]) -> Section:
 
 # -- the document ------------------------------------------------------------------------------------
 
+SECTION_BUILDERS = {
+    "setup": project_section, "geometry": geometry_section, "mesh": mesh_section, "convergence": convergence_section,
+    "reports": reports_section, "study": study_section, "sweep": sweep_section, "line_plots": line_plots_section,
+}
+assert tuple(SECTION_BUILDERS) + ("views",) == tuple(REPORT_SECTIONS)
 
-def build_report(project: Project, images: list[ReportImage] | None = None, now: datetime | None = None) -> str:
-    """The HTML text of the report."""
+
+def build_report(project: Project, images: list[ReportImage] | None = None, now: datetime | None = None,
+                 omit: list[str] | None = None) -> str:
+    """The HTML text of the report; ``omit``: the section ids left out (default the project's choice, D-136)."""
     now = now or datetime.now()
-    sections = [project_section(project), geometry_section(project), mesh_section(project),
-                convergence_section(project), reports_section(project), views_section(images or [])]
+    omit = set(project.sim.results.report_omit if omit is None else omit)
+    sections = []
+    for key in REPORT_SECTIONS:
+        if key in omit:
+            continue
+        section = views_section(images or []) if key == "views" else SECTION_BUILDERS[key](project)
+        section.key = key
+        sections.append(section)
     parts = ["<!DOCTYPE html>", '<html lang="en"><head><meta charset="utf-8">',
              f"<title>{_e(project.sim.name)}: report</title><style>{STYLE}</style></head><body>",
              f"<h1>{_e(project.sim.name)}</h1>", _note(f"VortexCFD report, {now:%Y-%m-%d %H:%M}")]
@@ -341,7 +465,8 @@ def build_report(project: Project, images: list[ReportImage] | None = None, now:
     return "\n".join(parts) + "\n"
 
 
-def write_report(project: Project, images: list[ReportImage] | None = None, now: datetime | None = None) -> Path:
+def write_report(project: Project, images: list[ReportImage] | None = None, now: datetime | None = None,
+                 omit: list[str] | None = None) -> Path:
     """Write the report to <project>/reports/<timestamp>.html and return the path.
 
     Raises:
@@ -352,5 +477,5 @@ def write_report(project: Project, images: list[ReportImage] | None = None, now:
     now = now or datetime.now()
     path = project.folder / REPORTS_DIR / f"{now:%Y%m%d_%H%M%S}.html"
     path.parent.mkdir(parents=True, exist_ok=True)
-    write_text_atomic(path, build_report(project, images, now))
+    write_text_atomic(path, build_report(project, images, now, omit))
     return path

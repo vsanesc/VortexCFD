@@ -1,0 +1,154 @@
+{
+  "ratio": 1.4142135623730951,
+  "current_as": "medium",
+  "quantities": [
+    "Cl",
+    "Cd",
+    "CmPitch",
+    "Cd_pressure",
+    "Cd_viscous"
+  ],
+  "cores": 8,
+  "domain_volume": 35806.46779498581,
+  "levels": [
+    {
+      "index": 0,
+      "name": "coarse",
+      "factor": 1.4142135623730951,
+      "estimated_cells": 22990,
+      "cells": 96322,
+      "h": 0.6097025267317067,
+      "mesh_ok": true,
+      "state": "criteria_met",
+      "state_label": "Criteria met: p residual, U residual, k residual, omega residual, Cl asymptotic, Cd asymptotic",
+      "criteria_met": true,
+      "iterations": 1973,
+      "duration_s": 33.9,
+      "values": {
+        "Cl": 1.053364,
+        "Cd": 0.01261373,
+        "CmPitch": 0.01030214,
+        "Cd_pressure": 0.006933172099791481,
+        "Cd_viscous": 0.0056805553034883945
+      },
+      "error": null,
+      "last_values": {
+        "Cl": 1.053364,
+        "Cd": 0.01261373,
+        "CmPitch": 0.01030214,
+        "Cd_pressure": 0.006933172099791481,
+        "Cd_viscous": 0.0056805553034883945
+      },
+      "value_basis": {
+        "Cl": "last",
+        "Cd": "last",
+        "CmPitch": "last",
+        "Cd_pressure": "last",
+        "Cd_viscous": "last"
+      },
+      "windows": {},
+      "amplitudes": {},
+      "planned_layers": [
+        8.913755755379576e-06,
+        21
+      ],
+      "first_cell_m": 9.340222653939118e-06,
+      "first_cell_share_over_2x": 0.011644631577911334,
+      "switch_iteration": 1323
+    },
+    {
+      "index": 1,
+      "name": "medium",
+      "factor": 1.0,
+      "estimated_cells": 44768,
+      "cells": 176110,
+      "h": 0.45090882173205504,
+      "mesh_ok": true,
+      "state": "criteria_met",
+      "state_label": "Criteria met: p residual, U residual, k residual, omega residual, Cl asymptotic, Cd asymptotic",
+      "criteria_met": true,
+      "iterations": 2363,
+      "duration_s": 88.9,
+      "values": {
+        "Cl": 1.060196,
+        "Cd": 0.01215461,
+        "CmPitch": 0.009138018,
+        "Cd_pressure": 0.00647710720607765,
+        "Cd_viscous": 0.005677504143069282
+      },
+      "error": null,
+      "last_values": {
+        "Cl": 1.060196,
+        "Cd": 0.01215461,
+        "CmPitch": 0.009138018,
+        "Cd_pressure": 0.00647710720607765,
+        "Cd_viscous": 0.005677504143069282
+      },
+      "value_basis": {
+        "Cl": "last",
+        "Cd": "last",
+        "CmPitch": "last",
+        "Cd_pressure": "last",
+        "Cd_viscous": "last"
+      },
+      "windows": {},
+      "amplitudes": {},
+      "planned_layers": [
+        8.913755755379576e-06,
+        19
+      ],
+      "first_cell_m": 9.049228263834859e-06,
+      "first_cell_share_over_2x": 0.006345488148793633,
+      "switch_iteration": 1577
+    },
+    {
+      "index": 2,
+      "name": "fine",
+      "factor": 0.7071067811865475,
+      "estimated_cells": 88236,
+      "cells": 329801,
+      "h": 0.32949949744216017,
+      "mesh_ok": true,
+      "state": "criteria_met",
+      "state_label": "Criteria met: p residual, U residual, k residual, omega residual, Cl asymptotic, Cd asymptotic",
+      "criteria_met": true,
+      "iterations": 2701,
+      "duration_s": 221.3,
+      "values": {
+        "Cl": 1.065589,
+        "Cd": 0.01199084,
+        "CmPitch": 0.008233684,
+        "Cd_pressure": 0.006258760897521893,
+        "Cd_viscous": 0.005732077838318397
+      },
+      "error": null,
+      "last_values": {
+        "Cl": 1.065589,
+        "Cd": 0.01199084,
+        "CmPitch": 0.008233684,
+        "Cd_pressure": 0.006258760897521893,
+        "Cd_viscous": 0.005732077838318397
+      },
+      "value_basis": {
+        "Cl": "last",
+        "Cd": "last",
+        "CmPitch": "last",
+        "Cd_pressure": "last",
+        "Cd_viscous": "last"
+      },
+      "windows": {},
+      "amplitudes": {},
+      "planned_layers": [
+        8.913755755379576e-06,
+        17
+      ],
+      "first_cell_m": 8.979366829891776e-06,
+      "first_cell_share_over_2x": 0.003410827986613603,
+      "switch_iteration": 1828
+    }
+  ],
+  "status": "finished",
+  "inputs_hash": "",
+  "mesh_cores": 1,
+  "dimensions": 2
+}

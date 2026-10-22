@@ -16,6 +16,7 @@ from vortexcfd.foam.results import FIELDS_BY_KEY, FieldSpec, available_fields, f
 from vortexcfd.foam.wall_fields import skin_friction_along
 from vortexcfd.gui.colormaps import DEFAULT_COLORMAP, matplotlib_name
 from vortexcfd.gui.theme import Theme
+from vortexcfd.workflow.line_plot import LineSamples, sample_line
 from vortexcfd.workflow.results_objects import object_geometry, point_fields
 
 SHOWN = "_shown"  # name of the computed array drawn on a dataset
@@ -144,6 +145,9 @@ class ResultsView:
         self.scene_objects: list = []
         self.object_actors: list = []
         self.object_errors: dict[str, str] = {}
+        self.line_samples: dict[str, LineSamples] = {}  # the line plots' samples by id (D-136)
+        self.object_bars: list = []  # the streamlines' own scalar bars (D-136)
+        self._object_bar_titles: list[str] = []
         self._points = None  # the internal mesh with point fields (cached per data)
         self.section_actor = None
         self.scalar_bar = None
@@ -195,7 +199,8 @@ class ResultsView:
 
     def set_visible(self, visible: bool) -> None:
         self._visible = visible
-        for actor in (*self.actors, *self.separation_actors, *self.object_actors, self.section_actor, self.scalar_bar):
+        for actor in (*self.actors, *self.separation_actors, *self.object_actors, self.section_actor, self.scalar_bar,
+                      *self.object_bars):
             if actor is not None:
                 actor.SetVisibility(visible)
 
@@ -283,6 +288,13 @@ class ResultsView:
             except (KeyError, ValueError, AttributeError):
                 pass
             self.scalar_bar = None
+        for title in self._object_bar_titles:
+            try:
+                self.plotter.remove_scalar_bar(title, render=False)
+            except (KeyError, ValueError, AttributeError):
+                pass
+        self.object_bars = []
+        self._object_bar_titles = []
 
     def _point_values(self, spec: FieldSpec | None, dataset) -> np.ndarray | None:
         if spec is None or spec.source not in dataset.point_data:
@@ -292,8 +304,10 @@ class ResultsView:
     def object_datasets(self) -> list:
         """(object, dataset with the SHOWN point array) of every visible scene object that draws something
         (D-132); ``object_errors`` gets the reason for the others. Clips and isosurfaces show the scene's field,
-        streamlines their own ``color_field``."""
+        streamlines their own ``color_field``; a line plot is its line (no SHOWN array) and its samples go to
+        ``line_samples`` (D-136)."""
         self.object_errors = {}
+        self.line_samples = {}
         out = []
         if not self.has_results or not self.scene_objects:
             return out
@@ -304,6 +318,14 @@ class ResultsView:
             self._points = point_fields(self.data.internal)
         for obj in self.scene_objects:
             if not obj.visible:
+                continue
+            if obj.kind == "line_plot":
+                try:
+                    self.line_samples[obj.id] = sample_line(self._points, obj, self.u_ref, self.flow_direction)
+                except ValueError as exc:
+                    self.object_errors[obj.id] = str(exc)
+                    continue
+                out.append((obj, pv.Line(tuple(obj.point1), tuple(obj.point2))))
                 continue
             try:
                 geometry = object_geometry(self._points, obj, self.u_ref, self.flow_direction)
@@ -350,7 +372,7 @@ class ResultsView:
                 walls.append((name, shown))
         datasets = [d for _, d in walls] + ([section] if section is not None else [])
         objects = self.object_datasets()
-        shared = [d for o, d in objects if o.kind != "streamlines"]  # the scene field's colour range
+        shared = [d for o, d in objects if o.kind in ("clip", "isosurface")]  # the scene field's colour range
         if not datasets and not objects:
             return
         all_values = np.concatenate([np.asarray(d.cell_data[SHOWN]) for d in datasets]
@@ -375,18 +397,34 @@ class ResultsView:
         if section is not None:
             self.section_actor = self.plotter.add_mesh(section, name=self.SECTION_NAME,
                                                        **{**common, "lighting": False})
+        own_bars = []
         for obj, dataset in objects:
+            if obj.kind == "line_plot":  # the line itself, in the accent colour (saved views show it)
+                self.object_actors.append(self.plotter.add_mesh(
+                    dataset, name=f"results_obj_{obj.id}", color=self.theme.accent, line_width=3.0, lighting=False,
+                    pickable=False, reset_camera=False, render=False))
+                continue
             own = obj.kind == "streamlines"
-            clim = color_range(np.asarray(dataset.point_data[SHOWN]), "auto") if own else (lo, hi)
-            extra = {"line_width": 2.0} if own else {}
-            self.object_actors.append(self.plotter.add_mesh(
-                dataset, name=f"results_obj_{obj.id}", **{**common, "clim": clim, "preference": "point"}, **extra))
+            if own:  # their own colour field, colormap and range (D-136)
+                fixed = (obj.range_min, obj.range_max) if obj.range_mode == "fixed" else None
+                clim = color_range(np.asarray(dataset.point_data[SHOWN]), obj.range_mode, fixed)
+                style = {"clim": clim, "cmap": matplotlib_name(obj.colormap) if obj.colormap else cmap,
+                         "line_width": 2.0}
+            else:
+                style = {"clim": (lo, hi)}
+            actor = self.plotter.add_mesh(dataset, name=f"results_obj_{obj.id}",
+                                          **{**common, "preference": "point", **style})
+            self.object_actors.append(actor)
+            if own and obj.scalar_bar:
+                own_bars.append((obj, actor))
         first = self.actors[0] if self.actors else self.section_actor
         if first is None:
-            first = next((a for (o, _d), a in zip(objects, self.object_actors) if o.kind != "streamlines"),
-                         self.object_actors[0] if self.object_actors else None)
-        mapper = first.mapper
-        self._add_scalar_bar(mapper, spec)
+            first = next((a for (o, _d), a in zip(objects, self.object_actors) if o.kind in ("clip", "isosurface")),
+                         None)
+        if first is not None:
+            self._add_scalar_bar(first.mapper, spec)
+        for i, (obj, actor) in enumerate(own_bars):
+            self._add_object_bar(actor.mapper, obj, i)
         self.set_visible(self._visible)
 
     def _add_scalar_bar(self, mapper, spec: FieldSpec) -> None:
@@ -399,6 +437,25 @@ class ResultsView:
         )
         self._bar_title = spec.title  # PyVista keys scalar bars by their title
         self.scalar_bar.SetVerticalTitleSeparation(size)  # keep the title clear of the top label
+
+    def object_bar_title(self, obj) -> str:
+        spec = FIELDS_BY_KEY.get(obj.color_field)
+        return f"{obj.name}: {spec.title if spec is not None else obj.color_field}"
+
+    def _add_object_bar(self, mapper, obj, index: int) -> None:
+        """A streamlines object's own scalar bar (D-136): the same style as the scene's, on the left, one column
+        per object."""
+        t = self.theme
+        size = max(10, round(self.font_size * 1.25))
+        title = self.object_bar_title(obj)
+        bar = self.plotter.add_scalar_bar(
+            title=title, mapper=mapper, color=t.text, title_font_size=size + 2, label_font_size=size,
+            n_labels=5, fmt="%.3g", vertical=True, position_x=0.02 + 0.11 * index, position_y=0.12, width=0.07,
+            height=0.7, bold=False, shadow=False, font_family="arial", render=False,
+        )
+        bar.SetVerticalTitleSeparation(size)
+        self.object_bars.append(bar)
+        self._object_bar_titles.append(title)
 
     def bounds(self):
         return self.parts_bounds()
