@@ -1,32 +1,33 @@
 # Status
 
-Updated 2026-10-22 (task/w2-aoa-2d: angle of attack by rotation, 2D mode, wall-resolved layers, NACA 0012).
+Updated 2026-10-22 (task/w2-naca-r2: NACA 0012 round 2).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
 
-**task/w2-aoa-2d** (not yet published). Workstream W2, first round. Done on it:
-- Part A ([NUMERICS-REVIEW], D-120, schema v18): the angle of attack rotates the parts nose up about the CofR
-  (flow always +x, wind-axis forces, body-axis C_A / C_N and x_cp); refinement volumes get a body / wind frame;
-  rotated parts that cross the ground or leave the domain block meshing; the viewer shows the rotated parts with a
-  note; the angled inlet is removed (v17 projects migrate with a note, their rotated meshes out of date); the polar
-  sweep meshes every angle, runs them one at a time and resumes after a stop. Sphere check: Cd at 0 and 20 deg
-  within 0.10 %, Cl about 0. QUESTIONS 71 closed.
-- Part B ([NUMERICS-REVIEW], D-121): the 2D section mode: Selig / Lednicer airfoil import (scale, trailing-edge
-  closure), a one-cell slab refined in x and z only (directional shells), extrudeMesh to one cell with the empty
-  frontAndBack, A_ref = chord x span; New simulation dialog option, "2D airfoil" preset, Import Airfoil action.
-- Part B2 ([NUMERICS-REVIEW], D-122): the wall-resolved layer controls (stack of one surface cell at ratio 1.2,
-  surface cell at most 220 first layers, relaxed minDeterminant 1e-5 and maxNonOrtho 75 in the layer phase); the
-  study rows in D-122; the benchmark (mesh only) identical to the baseline. QUESTIONS 180 closed.
-- Parts C-E: NACA 0012 (TMR, Re 6e6, SST, y+ 1, C-type 100 chords): 0 deg **PASS** (CD -0.1 %); 10 deg **FAIL**
-  (CL -3.0 %, CD +24 %, grid- and domain-independent); 15 deg **FAIL** (separated, CD x4, iteration limit);
-  docs/validation/naca0012/RESULT.md. The mesh study gained 2D scaling, per-level wall-resolved stacks, the
-  first-cell report per level and a before-solve hook; a 2D level writes its own span's reference area.
-- Machine time about 65 min. No OpenFOAM process left running.
+**task/w2-naca-r2** (not yet published). Workstream W2, NACA 0012 round 2. Done on it:
+- Part A ([NUMERICS-REVIEW], D-123): a target y+ below 5 with the robust controls meshes with the wall-resolved
+  controls; the Mesh node shows "Layer mode in use" and why, the Layer controls combo is locked while it applies.
+  QUESTIONS 187 decided, 189 confirmed (2D GCI uses h = (A / N)^(1/2); round 1's GCI unchanged).
+- Part B ([NUMERICS-REVIEW], D-124): diagnosis at 10 deg. TMR inflow: no change; second-order k / omega: CL +1.4 %;
+  SST variant: v2606 is SST-2003, no closer option; far field: 300 chords not adopted. Cause: the 2D staircase's
+  3-cell buffer left the near field about d / 6 on every level; wall-resolved 2D sections now use 12 cells
+  (10 deg CD +25 % -> -2.8 %).
+- Part C ([NUMERICS-REVIEW], D-125): the fine 0 deg mesh's 2 inverted pyramids came from the layer phase's
+  unlimited medial-axis walk on the trailing edge's medial axis; nMedialAxisIter 10 for wall-resolved 2D sections;
+  remeshed: Mesh OK.
+- Part D: round 2 (fine level, D-124, D-125, second-order k / omega restart): 0 deg **PASS** (CD -6.5 %), 10 deg
+  **PASS** (CL -1.4 %, CD -2.3 %), 15 deg **PASS** (CL -1.3 %, CD +1.3 %, mean-stable, CD oscillating 7.8 %);
+  docs/validation/naca0012/RESULT.md, Round 2. Benchmark (mesh only) identical to the baseline.
+- Machine time about 62 min. No OpenFOAM process left running.
 
-Next: the owner's review of D-120 to D-122 and QUESTIONS 183 to 192; a second NACA round on the turbulence numerics
-or wall conditions (QUESTIONS 190). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 72, 73, 75, 82, 89 to 94, 96,
-97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 183 to 191.
+Next: the owner's review of D-123 to D-125 and QUESTIONS 193 to 198. Open: docs/QUESTIONS.md items 30, 67, 69, 70, 72, 73, 75, 82, 89 to 94, 96,
+97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 193 to 198.
+
+### Previous branch (task/w2-aoa-2d, published in PR #28)
+
+Angle of attack by rotation (D-120), the 2D section mode (D-121), the wall-resolved layer controls (D-122) and the
+NACA 0012 round 1 (0 deg PASS, 10 and 15 deg FAIL); accepted in the owner's review of round 1.
 
 ### Previous branch (task/5.x-parallel-mesh, published in PR #26)
 

@@ -132,6 +132,14 @@ def cmd_angle(args) -> None:
         if args.radius:
             project.update_domain(radius=args.radius, downstream=args.radius)
             project.save()
+    if args.mean_stable or args.limit:  # round 2 at 15 deg: the mean-stable criterion and a raised cap
+        update = {}
+        if args.limit:
+            update["iterations"] = update["write_interval"] = args.limit
+        if args.mean_stable:
+            update["stopping"] = nc.stopping_mean_stable().model_dump()
+        project.update_solver(**update)
+        project.save()
     job = meshing.prepare_job(project)
     plan = meshing.plan_layers_for(project, job.box)
     say(f"alpha {args.alpha:g}: meshing in {job.case_dir} on {job.cores} cores, {plan.count} layers x {plan.first:.3g} m")
@@ -302,6 +310,9 @@ def cmd_diag(args) -> None:
             shutil.copy2(source / name, dest / name)
     (dest / "system" / "decomposeParDict").unlink(missing_ok=True)
     project = Project.open(STUDY_PROJECT / "naca0012.json")
+    project.update_inflow(alpha_deg=args.alpha)  # in memory only: the solver files of that angle
+    if args.mean_stable:
+        project.update_solver(stopping=nc.stopping_mean_stable().model_dump())
     if args.tu is not None or args.ratio is not None:
         project.update_inflow(**({"turbulence_intensity": args.tu} if args.tu is not None else {}),
                               **({"viscosity_ratio": args.ratio} if args.ratio is not None else {}))
@@ -325,7 +336,7 @@ def cmd_diag(args) -> None:
         set_foam_entry(dest / "system" / "controlDict", "startFrom", "latestTime")
         set_foam_entry(dest / "system" / "controlDict", "endTime", int(float(t0.name)) + limit)
         set_foam_entry(dest / "system" / "controlDict", "writeInterval", int(float(t0.name)) + limit)
-        stopping = stopping.model_copy(update={"min_iterations": int(float(t0.name)) + 500})
+        stopping = stopping.model_copy(update={"min_iterations": int(float(t0.name)) + stopping.min_iterations})
     else:
         set_foam_entry(dest / "system" / "controlDict", "endTime", limit)
     run = SolverRun(dest, stopping=stopping, cores=project.sim.studies.mesh.cores, timeout_s=7200)
@@ -337,7 +348,7 @@ def cmd_diag(args) -> None:
               "kw_scheme": args.kw_scheme, "grad_kw": args.grad_kw, "tu": args.tu, "ratio": args.ratio,
               "state": res.state, "iterations": res.iterations, "duration_s": round(res.duration_s, 1),
               "criteria_met": list(res.criteria_met)}
-    record.update(flow_diagnostics(dest, nc.STUDY_ANGLE, stopping))
+    record.update(flow_diagnostics(dest, args.alpha, stopping))
     (dest.parent / "diag.json").write_text(json.dumps(record, indent=2) + "\n")
     say(f"diag {args.name}: {res.state} at {res.iterations}, {res.duration_s:.0f} s, {record['values']}")
 
@@ -383,6 +394,28 @@ def cmd_collect(_args) -> None:
     say(f"wrote {OUT / 'result.json'}")
 
 
+def cmd_collect_r2(_args) -> None:
+    """Round 2: the diagnosis runs (Part B) and the per-angle runs (Part D) -> docs/validation/naca0012/
+    result_round2.json (round 1's result.json is kept)."""
+    out = {"diagnosis": [], "angles": []}
+    r2 = WORK / "r2"
+    for path in sorted(r2.glob("*/diag.json")) + sorted(r2.glob("*/diag_inspect.json")):
+        out["diagnosis"].append({"file": str(path.relative_to(ROOT)), **json.loads(path.read_text())})
+    for path in sorted(WORK.glob("alpha_*_base_1.41421_*/angle.json")):
+        out["diagnosis"].append({"file": str(path.relative_to(ROOT)), **json.loads(path.read_text())})
+    for alpha in (0, 10, 15):
+        first = WORK / f"alpha_{alpha}_base_1" / "angle.json"
+        row = {"alpha": alpha, "first_order": json.loads(first.read_text()) if first.is_file() else None}
+        restart = r2 / f"d{alpha}_kw2nd" / "diag.json"
+        row["second_order"] = json.loads(restart.read_text()) if restart.is_file() else None
+        case = restart.parent / "case" if restart.is_file() else first.parent / "case"
+        if row["first_order"] and row["first_order"].get("cells"):
+            row.update(wall_stats(case, row["first_order"]["planned_first_m"], row["first_order"]["layers"]))
+        out["angles"].append(row)
+    (OUT / "result_round2.json").write_text(json.dumps(out, indent=2, default=float) + "\n")
+    say(f"wrote {OUT / 'result_round2.json'}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -397,6 +430,8 @@ def main() -> None:
     an.add_argument("--radius", type=float, default=None)
     an.add_argument("--buffer", type=int, default=None)
     an.add_argument("--mesh-only", action="store_true")
+    an.add_argument("--mean-stable", action="store_true")
+    an.add_argument("--limit", type=int, default=None)
     sub.add_parser("collect")
     dg = sub.add_parser("diag")
     dg.add_argument("--name", required=True)
@@ -407,13 +442,16 @@ def main() -> None:
     dg.add_argument("--tu", type=float, default=None)
     dg.add_argument("--ratio", type=float, default=None)
     dg.add_argument("--limit", type=int, default=None)
+    dg.add_argument("--alpha", type=float, default=nc.STUDY_ANGLE)
+    dg.add_argument("--mean-stable", action="store_true")
     ins = sub.add_parser("inspect")
     ins.add_argument("--case", required=True)
     ins.add_argument("--alpha", type=float, default=nc.STUDY_ANGLE)
     ins.add_argument("--out", default=None)
+    sub.add_parser("collect-r2")
     args = parser.parse_args()
     {"setup": cmd_setup, "study": cmd_study, "angle": cmd_angle, "collect": cmd_collect, "diag": cmd_diag,
-     "inspect": cmd_inspect}[args.command](args)
+     "inspect": cmd_inspect, "collect-r2": cmd_collect_r2}[args.command](args)
 
 
 if __name__ == "__main__":

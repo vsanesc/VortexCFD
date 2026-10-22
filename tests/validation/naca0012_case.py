@@ -116,6 +116,15 @@ def stopping():
                             combine="all", min_iterations=500)
 
 
+def stopping_mean_stable():
+    """Round 2 at 15 deg (owner): the mean-stable criterion (D-118, W 500, 0.5 %) on Cl and Cd, both, not before
+    iteration 1000: a steady run meets it as well as one oscillating about a stationary mean."""
+    from vortexcfd.core.model import MeanStableCriterion, StoppingCriteria
+
+    return StoppingCriteria(criteria=[MeanStableCriterion(quantity="Cl"), MeanStableCriterion(quantity="Cd")],
+                            combine="all", min_iterations=1000)
+
+
 def build_project(folder: Path, alpha: float = STUDY_ANGLE, base_size: float = FINE_BASE, cores: int = 8):
     """The project in ``folder`` (created): the "2D airfoil" preset, the TMR airfoil imported from its Selig file,
     the flow, the domain, the fine level's mesh settings and the stopping criteria. Returns the Project."""

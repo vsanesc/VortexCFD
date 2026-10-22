@@ -161,3 +161,62 @@ drag (+0.0035 of the +0.0031 excess). The remaining CL deficit is first-order k 
 second order), the incompressible solver (Prandtl-Glauert +1.1 % at M 0.15, SETUP.md) and the 100-chord far field
 (+0.3 % at 300 chords). Proposed app default for the wall-resolved 2D mode only: D-124 (12 cells). Machine time of
 the diagnosis: about 21 min (B1 1.4, B2 0.8, B6 3.6 + 5.7, B4 6.9, B5 1.4, inspections 0.3, Part C remeshes 1.6).
+
+## Round 2 runs (Part D)
+
+Set-up: round 1's (SETUP.md) on the fine level (base 1 m, surface cell 0.977 mm, 18 layers of 8.91 um at 1.2) with
+the round 2 app defaults for wall-resolved 2D sections, the 12-cell staircase buffer (D-124) and the 10-edge
+medial-axis walk (D-125), then the change that helped CL: each angle first run first order from the free stream with
+the app's criteria, then restarted with second-order k and omega (bounded Gauss linearUpwind, cellLimited
+gradients) until the criteria are met again (at least 500 more iterations). 15 degrees: the mean-stable criterion
+(D-118, W 500, 0.5 %) on Cl and Cd, both, from iteration 1000, limit 12,000 (first order) and 4,000 more (restart);
+its values are the 500-iteration means (D-119), with the amplitude (max - min) / mean over that window. The 0 deg
+mesh is Part C's (checkMesh OK). Numbers: result_round2.json (`naca0012_study.py collect-r2`).
+
+| Angle | Cells | y+ mean | y+ within 2x | Coverage | Share > 2x | First order: iterations, stop, CL, CD | Second order: iterations, stop | CL | CD | CD pressure | CD viscous | CM | Solver time (both) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0 | 179,784 | 1.057 | 99.5 % | 99.2 % | 0.5 % | 834, criteria met, -0.00003, 0.007463 | 1336, criteria met | -0.000037 | 0.007563 | 0.001277 | 0.006286 | 0.00001 | 88 + 58 s |
+| 10 | 268,914 | 1.051 | 93.3 % | 99.1 % | 0.6 % | 1903, criteria met, 1.0424, 0.012162 | 2686, criteria met | 1.0642 | 0.012186 | 0.006430 | 0.005757 | 0.00848 | 357 + 150 s |
+| 15 | 345,687 | 0.915 | 82.3 % | 99.2 % | 0.5 % | 2857, mean stable, 1.4155 (amplitude 14.5 %), 0.025666 (96 %) | 4500, mean stable | 1.4894 (0.8 %) | 0.022558 (7.8 %) | 0.017574 | 0.004983 | 0.01934 | 756 + 462 s |
+
+Upper-surface trailing-edge region against CFL3D SST (Cf at x/c 0.9 / 0.99, Cp at 0.99): 10 deg 9.28e-4 / 2.62e-4 /
+0.167 (CFL3D 9.62e-4 / 2.63e-4 / 0.165); 15 deg 1.95e-4 / 1.55e-5 / 0.054 (CFL3D 2.01e-4 / -5.3e-5 / 0.054, with
+TMR's note that its values very near the trailing edge carry a large numerical error). No reversed flow at any
+angle; round 1's 15 degree run was separated over much of the upper surface. The first-order 15 degree run
+oscillates strongly (CD 96 % over 500 iterations) about a mean of 1.4155 / 0.025666 (CD +15 %): first-order k and
+omega convection is what made round 1's 15 degrees unsteady together with the coarse near field.
+
+No level collapsed (share > 2x at most 0.6 %, A6). Grid: the fine level's boundary layer was within 1.2 % of the
+medium in round 1, and at 10 degrees the medium (B5: 1.0541, 0.012241) and the fine (1.0642, 0.012186) agree within
+1.0 % / 0.4 % with the round 2 set-up. The near field is set by the buffer, not the level (D-124): 12 against 24
+cells changed CD by 1.8 % and CL by 0.15 % (first order, medium).
+
+## Round 2 comparison and verdicts (owner rule A6)
+
+| Angle | CL | TMR SST CL | CL error | Ladson CL (nearest angle) | CD | TMR SST CD | CD error | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| 0 | -0.000037 | about 0 | 0.003 % of the 10 deg CL | -0.0126 / -0.0120 / -0.0115 | 0.007563 | 0.008087 | -6.5 % | **PASS** |
+| 10 | 1.0642 | 1.0794 | -1.4 % | 1.0707 / 1.0775 / 1.0809 (10.12 / 10.10 / 10.18 deg) | 0.012186 | 0.012467 | -2.3 % | **PASS** |
+| 15 | 1.4894 | 1.5092 | -1.3 % | 1.5129 / 1.5280 / 1.5169 (15.26 / 15.27 / 15.24 deg) | 0.022558 | 0.022270 | +1.3 % | **PASS** (500-iteration means; CD oscillates by 7.8 %) |
+
+Verdict: PASS at 0, 10 and 15 degrees with the round 2 set-up. Notes:
+- 0 degrees moved from -0.1 % (round 1) to -6.5 %: round 1's agreement was partly a cancellation, since the coarse
+  near field also added pressure drag at zero lift (CD pressure 0.00190 then, 0.00128 now). The remaining -6.5 %
+  is within A6's 10 % but larger than at 10 and 15 degrees; not diagnosed (candidates: the incompressible solver
+  at M 0.15, the wall conditions at y+ 1, the 100-chord far field).
+- The second-order k / omega convection is a restart in the validation driver; the app writes first-order upwind
+  for k and omega (D-022) and has no two-stage run (QUESTIONS).
+- 15 degrees is not outside steady RANS with this set-up: the restart settles to a mean with CL steady to 0.8 % and
+  CD oscillating by 7.8 % about it, and the attached trailing-edge flow of the TMR codes.
+- Lift is 1.3-1.4 % below TMR at 10 and 15 degrees; the Prandtl-Glauert estimate of the M 0.15 effect is +1.1 %
+  (SETUP.md).
+
+Machine time of round 2: about 62 min at nice 15 (diagnosis and Part C remeshes 21.5, benchmark check 3.9, Part D
+37.1), within the task's 2 h. No OpenFOAM process is left running.
+
+Benchmark check (the defaults of the public cases must not change): `python -m vortexcfd.bench --no-solve --compare
+benchmarks/baseline.json` (mesh only, serial, at commit 9c63edb plus the validation driver; result
+run/validation/naca0012/r2/bench/20261022T100159Z_9c63edb-dirty.json, git-ignored): every mesh metric identical on
+the three public cases (sphere 233,534 cells, max non-orthogonality 46.46, coverage 99.59 %; half wing 300,025,
+64.91, 94.37 %, trailing edge 38.36 %; Ahmed body 231,606, 64.28, 96.55 %, slant edges 56.01 %; fidelity unchanged;
+0 hard failures): "no regressions".
