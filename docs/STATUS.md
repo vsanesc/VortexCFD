@@ -1,11 +1,46 @@
 # Status
 
-Updated 2026-10-22 (task/w3-close: W3 closed).
+Updated 2026-10-23 (task/w4-w5: W4 done, W5 done on this machine).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
 
-**task/w3-close** (not yet published). **W3 closed** by the owner's closure rule (both items below failed their
+**task/w4-w5** (not yet published). The last two workstreams of v1; owner review pending for D-136 and D-137. Done on
+it (no push, no merge):
+- Owner review recorded: D-135 accepted, QUESTIONS 210 and 211 accepted, W3 closed by the closure rule (D-127 stays
+  Proposed as a known limitation).
+- Part A, W4 remainder (D-136, schema v21): the HTML report's mesh study table (each quantity per level, the
+  convergence, order, extrapolated value and GCI, or why there is none; a 3D study flagged indicative) and polar sweep
+  table with a CL / CD / CM plot; a "Line plot" results object (two points, samples, fields) with its chart embedded
+  in the properties rows, PNG and CSV export, the line drawn in the viewer, its chart in the report; the streamlines'
+  own colormap, colour range and scalar bar; File > Create Report asks for the sections and remembers them per
+  project.
+- Part B, W5 installation (D-137): the start-up OpenFOAM v2606 check (environment variable, configured path,
+  standard ESI places; a dialog with the ESI commands as text and a path field; without OpenFOAM the app opens and
+  meshing, solving, the study and the sweep are disabled with the reason); scripts/install.sh (Ubuntu 24.04,
+  Python 3.12, OpenFOAM printed not run, a venv with the pinned scripts/requirements-v1.txt, the launcher and
+  desktop entry, never sudo; idempotent); `vortexcfd --version` / `--check-openfoam` without Qt; version 1.0.0rc1 in
+  one place (About, --version). Proof in isolation (temporary HOME and prefix, pip's existing cache): exit 0,
+  `vortexcfd 1.0.0rc1`, the OpenFOAM check passing; run again: reused, exit 0. **A second-machine test is owed by the
+  owner.**
+- Part C, the user manual docs/manual/ (8 chapters, 11 images exported by the app from a new sphere run through the
+  window, the NACA 0012 round 3 case and the pipe validation case; `scripts/manual_images.py`), linked from README
+  and Help > User Manual. Found and fixed on the way: image export ignored the viewer's camera (every export and
+  report view used PyVista's default view; D-133 note, QUESTIONS 212), exported scalar bars lost their fixed font
+  size, and a UI refresh failure with the "Section" display and any scene object (D-132 note, QUESTIONS 217).
+- Part D: docs/RELEASE_v1.md (the v1 checklist with its evidence and what the owner owes), THIRD_PARTY_LICENSES.md
+  refreshed with every pinned dependency and a licence review (no incompatible licence; points to confirm),
+  docs/validation/README.md brought up to the last rounds.
+- Machine time: OpenFOAM about 2.5 min (the sphere meshed twice, 29 s each, solved once, 75 s, 8 cores, nice 15);
+  install proofs about 1.5 min; the image script about 5 min; the fast test run. No OpenFOAM process left running.
+
+Next: owner review of D-136, D-137 and QUESTIONS 212 to 217; the second-machine install; the decision on making the
+repository public; the licence review. Open: docs/QUESTIONS.md items 30, 67, 69, 70, 72, 73, 75, 82, 89 to 94, 96,
+97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 212 to 217.
+
+### Previous branch (task/w3-close)
+
+**task/w3-close** (published in PR #31). **W3 closed** by the owner's closure rule (both items below failed their
 pass conditions inside the time box; the limitations are recorded and accepted for v1). Done on it:
 - Item 1 ([NUMERICS-REVIEW], D-127 rewritten, still Proposed; QUESTIONS 204 closed): the 3D study's distance shells
   replaced by level-scaled buffers, nCellsBetweenLevels max(1, round(3 r^(k - k_current))) (2 / 2 / 3), so the current
@@ -21,8 +56,6 @@ pass conditions inside the time box; the limitations are recorded and accepted f
 - Machine time about 34 min (3D check 4.6 min, step diagnosis and mesh checks 9 min, NACA mesh check 7 min, medium
   level 12.1 min, benchmark 4.7 min, the fast test run). No OpenFOAM process left running.
 
-Next: W4 owner review, W5. Open: docs/QUESTIONS.md items 30, 67, 69, 70, 72, 73, 75, 82, 89 to 94, 96, 97, 122, 124,
-125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 210, 211.
 
 ### Previous branch (task/w3-internal)
 
@@ -127,8 +160,8 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
 | 5.4 | M4: prism layer robustness | closed (owner review of 5.4b; D-105 to D-110, benchmarks/RESULT_5.4.md, RESULT_5.4b.md): robust y+ layer defaults (cap 12, ratio up to 1.3, featureAngle 130, nOuterIter 2, tet check on), y+ target at the first cell centre, achieved first cell reported; half wing and Ahmed body above 85 % strict coverage, aircraft valid but its zones not covered |
 | 5.5 | M5: own mesher (go/no-go) | not started |
 | 6.1 | Monitors and reports | done: report slots with Cd, Cl, Cm pitch and wall y+ (D-048); reference values (D-047); stopping criteria (runTimeControl for residuals, app-side range-based asymptotic criterion), convergence banner and oscillation warning (D-058, D-059); force breakdown, body-axis x_cp, mass balance, cellPoint probes (D-060) |
-| 6.2 | Scenes and derived parts | Cp along wall sections with CSV export (D-062); Cf / Cf_x and separation highlight (D-061); scalar scenes done (D-053): field/colormap/range selection, scalar bar, section; clips, isosurfaces, streamlines and saved views (D-132); image export (D-133) |
-| 6.3 | Data export and reports | section CSV export (D-062); the HTML report (D-134) |
+| 6.2 | Scenes and derived parts | Cp along wall sections with CSV export (D-062); Cf / Cf_x and separation highlight (D-061); scalar scenes done (D-053): field/colormap/range selection, scalar bar, section; clips, isosurfaces, streamlines (their own scalar bar, D-136), line plots (D-136) and saved views (D-132); image export (D-133) |
+| 6.3 | Data export and reports | section and line plot CSV export (D-062, D-136); the HTML report (D-134) with the mesh study, polar sweep and line plot sections and a section choice per project (D-136) |
 | 6.4 | Mesh independence study (GCI) | done (D-066): Mesh Study node, three levels, Celik GCI, results window and CSV; flat plate Case B not reproduced through the workflow (item 72) |
 | 6.5 | Angle-of-attack sweep (polars) | done (D-067, D-120): Polar Sweep node, one mesh per angle (the parts rotated), resumable, CL-alpha / drag polar / CM-alpha, CSV; NACA 0012 validated at 0 deg, fails on drag at 10 and 15 deg (QUESTIONS 190) |
 | 6.6 | Parallel runs (mpirun) | done (D-063 Accepted): decomposePar / mpirun / reconstructPar, clean stop through mpirun; speedup study and recommended cores (D-064); parallel snappyHexMesh reconstructed to a serial mesh, also for the mesh study levels (D-111 accepted) |
@@ -136,7 +169,7 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
 | 8.1-8.5 | Moving meshes | not started |
 | 9.1 | Project management | partly done: save/load, undo/redo, start screen, recent projects, project folders, presets (D-077); cloning not started |
 | 9.2 | Scripting API | not started |
-| 9.3 | Installer and docs | not started |
+| 9.3 | Installer and docs | done for v1 (D-137): scripts/install.sh, the start-up OpenFOAM check, docs/manual/; a second-machine test owed (docs/RELEASE_v1.md) |
 
 ## Known issues
 
@@ -147,49 +180,12 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
   "Conclusion").
 - NACA 0012 at 0 deg: CD -6.9 % against TMR SST (PASS; likely SST-2003 against SSTm, not established, QUESTIONS 194).
 
-## Notes for the user manual (draft)
+## Notes for the user manual
 
-- Bluff bodies with strong separation: steady SST can over-predict drag by 10-15 %; use the mean-stable
-  criterion (Ahmed body 25 degrees, docs/validation/ahmed/RESULT.md).
-- Steady k-omega SST with wall functions over-predicts the drag of the Ahmed body at 25 degrees by about 14 %
-  (body Cd 0.325 against the experimental 0.285; docs/validation/ahmed/RESULT.md).
-- 2D airfoils: use the "2D airfoil" preset; it switches to wall-resolved layers and second-order turbulence
-  automatically (D-123, D-126): y+ 1 at the first cell centre, a stack one surface cell thick, a 12-cell staircase
-  around the airfoil (D-124), then k and omega first order to the stopping criteria and second order to the criteria
-  again in the same run (the monitors show the stage). NACA 0012 at Re 6e6 through the preset: CL within 2.3 % and
-  CD within 6.9 % of the NASA TMR SST results at 0, 10 and 15 degrees (docs/validation/naca0012/RESULT.md).
-- Wall-resolved (y+ about 1) layers are used automatically when the target y+ is below 5 (D-123), or chosen in
-  Mesh > Layer controls "wall_resolved" (D-122): the surface is refined to at most 220 first layers, which is fine
-  for 2D sections and costly on 3D bodies.
-- Internal flow (D-129): New simulation > "Internal flow" (3D, wall functions) or "2D internal flow" (a section,
-  wall-resolved). Import ONE closed surface whose solids (multi-solid STL) or CAD faces separate the inlets, the
-  outlets and the walls: in an internal project each solid becomes its own patch. Set each patch's role under
-  Regions > Fluid Region (a patch is a wall until set); an open geometry is refused with the number of open edges
-  (use Surface Preparation or Repair). A region keeps its name as the mesh patch (no domain name is reserved in
-  internal projects). Add cutting planes and pressure drops under Reports & Monitors >
-  Planes & Pressure Drops; the Internal flow table shows the mass flow and the area- and mass-averaged static and
-  total pressure per inlet, outlet and plane.
-- Which inlet: a mass-flow inlet when the flow rate is known (the most robust: the pipe converged in 502
-  iterations); a velocity inlet when the inlet speed is known; a total-pressure inlet for a plenum or reservoir at a
-  known pressure, the flow rate then follows from the losses (it solves with SIMPLE and a relaxed pressure, D-131:
-  slower, 1,858 iterations on the same pipe). Inlet turbulence: intensity and a length scale (default 0.07 x the
-  patch's hydraulic diameter). The outlet is a static pressure, safe on backflow.
-- Friction losses: put two planes in the developed region (the pipe: 50 and 70 D) and read the pressure drop
-  between them; the planes are written a hair (1e-6 of the parts' extent) along their normal so they never lie on a
-  layer of mesh faces.
-- Results and the report: the Results node (in the tree, after Reports & Monitors) adds a clip, an isosurface or streamlines
-  to the Results Scene (they need results on disk; the node says why one draws nothing), saves the viewer's camera
-  as a view, exports the viewer as a PNG (File > Export Image: 1920 x 1080, 2560 x 1440, 3840 x 2160 or custom,
-  rendered at that size, optionally transparent) and writes the report (File > Create Report): one HTML file in
-  <project>/reports/ with the set-up, the geometry, the mesh report, the convergence plot, the windowed force or
-  internal-flow reports and every saved view as an image; a section with no data says so in one line.
-- A mesh study of a 2D airfoil: set the Mesh Study's "current as" to medium with the preset's mesh, so the coarse
-  level stays within the wall-resolved limit (QUESTIONS 199).
+Written into docs/manual/ (task w4-w5); the draft notes kept here until then are in its chapters 2 to 8.
 
 ## Known debts
 
-- GPU environment variables (GALLIUM_DRIVER=d3d12, MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA) are set in
-  the user's ~/.bashrc; the app should set them at startup when they are not set.
 - Courant number: parsed from logs (foam/logparse.py) but no warning in the GUI.
 - Parallel speedup saturates at about 3 on 8 cores (memory-bandwidth bound, docs/validation/parallel/README.md); the recommended-core cap of 4 is a constant for this machine (item 69).
 - Location of user projects and run outputs in the released app (run/ is development only).

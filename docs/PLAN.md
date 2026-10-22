@@ -234,7 +234,7 @@ Order by relevance to VTOL/UAV work: rotating zones first, 6DOF last.
 
 ### 9.1 Project management: save/load, templates library, recent projects, case cloning/parametric variants.
 ### 9.2 Python scripting API over the data model (equivalent to STAR macros) and batch execution.
-### 9.3 Installer/docs: reproducible install (WSL + OpenFOAM + app), user guide, tutorials with the benchmark cases.
+### 9.3 Installer/docs: reproducible install (WSL + OpenFOAM + app), user guide, tutorials with the benchmark cases. — *done for v1 (task w4-w5, D-137): scripts/install.sh (OpenFOAM's install printed, never run), the start-up check, docs/manual/; the second-machine test owed (docs/RELEASE_v1.md)*
 
 ---
 
@@ -265,8 +265,8 @@ Workstreams:
 | W1 | Ahmed body, 25 degrees | **closed** (2026-10-22): FAIL, recorded as a documented known limitation of steady SST with wall functions (+13.9 % against the experiment, +5.6 % against Guilmineau 2008; docs/validation/ahmed/RESULT.md, "Conclusion") |
 | W2 | Angle of attack (the validated method, QUESTIONS 71), a 2D mode, a wall-resolved layer mode (QUESTIONS 180, needed before the NACA 0012 runs), NACA 0012 at several angles | **closed** (task/w2-aoa-2d and task/w2-naca-r2, 2026-10-22): rotation of the geometry (D-120), 2D mode (D-121), wall-resolved layers (D-122, automatic below y+ 5, D-123), the wall-resolved 2D staircase and medial-axis walk (D-124, D-125), two turbulence stages (D-126), study levels refined everywhere (D-127); NACA 0012 through the app pipeline: PASS at 0, 10 and 15 deg (CL -0.0 / -1.8 / -2.3 %, CD -6.9 / -2.5 / +3.9 %; docs/validation/naca0012/RESULT.md, Round 3) |
 | W3 | Internal flow | **closed** (2026-10-22, task/w3-close, by the owner's closure rule): the internal analysis type, presets, BCs and reports (D-129 to D-131 accepted); pipe **PASS** on one level (f +1.36 % against Prandtl-Karman), no GCI: the 3D study's level-scaled buffers (D-127, Proposed) did not pass their check, so the pipe's three-level study was not run (known limitation for v1: a 3D study's GCI does not cover the near field); backward-facing step **PASS WITH NOTE**: the step face's layers fixed (D-135), three valid levels 6.468 / 6.227 / 6.434 H, oscillatory (no GCI), the finest +2.8 % against the experiment |
-| W4 | Post-processing for a report | **first slice done** (task/w3-internal, 2026-10-22; owner review pending): results scene objects under a Results node, a clip, an isosurface and streamlines, and saved views (D-132, schema v20); image export rendered offscreen at 1080p / 1440p / 4K or a custom size, optionally transparent (D-133); a self-contained HTML report in <project>/reports/ (D-134). Left: the mesh study and polar sweep results in the report; line plots of a field along a line; a scalar bar for the streamlines' own colour field; a choice of the report's sections |
-| W5 | Installation and the manual | open |
+| W4 | Post-processing for a report | **done** (task/w3-internal and task/w4-w5, 2026-10-23; D-132 to D-134 accepted, D-136 owner review pending): results scene objects (clip, isosurface, streamlines with their own colormap, range and scalar bar, line plots with PNG and CSV export) and saved views; image export rendered offscreen at the chosen size (its camera fixed in task w4-w5); a self-contained HTML report with the set-up, geometry, mesh, convergence, forces or internal-flow means, the mesh study's GCI table, the polar sweep's table and plot, the line plots and the saved views, its sections chosen per project |
+| W5 | Installation and the manual | **done on this machine** (task/w4-w5, 2026-10-23; D-137 owner review pending): the start-up OpenFOAM check (the app opens without OpenFOAM, meshing and solving disabled), scripts/install.sh (proved in isolation; a second-machine test owed by the owner), version 1.0.0rc1, the user manual docs/manual/ (8 chapters, images exported by the app); readiness checklist docs/RELEASE_v1.md |
 
 Post-v1 backlog:
 

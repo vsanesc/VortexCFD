@@ -376,5 +376,33 @@ settled the open ones on 2026-10-17.
 
 ## Task w3-close (decisions taken while Vic was away)
 
-210. **[OPEN]** **[NUMERICS-REVIEW] "round" in the level-scaled buffers is half up (D-127).** 3 / r^2 = 1.5 exactly for r = sqrt(2) with the current settings as the fine level; Python's round() gives 2 or 1 depending on the factor's last bit (banker's rounding on an exact half). `study_cells_between_levels` rounds half up (floor(x + 0.5 + 1e-9)): 2. With 1 the coarse level's buffers would be 0.54 m against the medium's 0.76 m (closer to r in metres, but a one-cell buffer). Keep half up?
-211. **[OPEN]** **[NUMERICS-REVIEW] The level-scaled buffers are kept although they did not pass (D-127, Round 4).** The closure rule closes W3 as it stands; the code was not reverted to the shells, because the shells fail the same kind of check by more (round 2: wing ratios a factor 2 off; round 3: 3 of 12 points) and make the current level 1.5-2.3 x the user's cells, while the scaled buffers keep the current level the user's mesh. Revert to the shells (one commit), or to the fixed 3-cell buffers of D-066 (no near-field refinement at all)?
+210. **[ACCEPTED (owner review of w3-close, 2026-10-22)]** **[NUMERICS-REVIEW] "round" in the level-scaled buffers is half up (D-127).** 3 / r^2 = 1.5 exactly for r = sqrt(2) with the current settings as the fine level; Python's round() gives 2 or 1 depending on the factor's last bit (banker's rounding on an exact half). `study_cells_between_levels` rounds half up (floor(x + 0.5 + 1e-9)): 2. With 1 the coarse level's buffers would be 0.54 m against the medium's 0.76 m (closer to r in metres, but a one-cell buffer). Keep half up?
+211. **[ACCEPTED (owner review of w3-close, 2026-10-22)]** **[NUMERICS-REVIEW] The level-scaled buffers are kept although they did not pass (D-127, Round 4).** The closure rule closes W3 as it stands; the code was not reverted to the shells, because the shells fail the same kind of check by more (round 2: wing ratios a factor 2 off; round 3: 3 of 12 points) and make the current level 1.5-2.3 x the user's cells, while the scaled buffers keep the current level the user's mesh. Revert to the shells (one commit), or to the fixed 3-cell buffers of D-066 (no near-field refinement at all)?
+
+## Task w4-w5 (W4 remainder, W5; decisions taken while Vic was away)
+
+212. **[OPEN]** **Image export and the report's saved views used PyVista's default camera (fixed, D-133 note).** The
+     offscreen render reset the copied camera on its first render, so every exported image and every report view
+     made before this task shows PyVista's default isometric view, not the viewer's or the saved camera (the test
+     compared the viewer's camera with itself). Fixed in `render_image`, with a real test. Reports written before
+     should be made again; nothing in docs/validation uses them. Anything else to re-check?
+213. **[OPEN]** **PySide6 6.12 installs Qt WebEngine and Qt Pdf, which the app does not use.** The meta-package
+     PySide6 pulls PySide6_WebEngine (Chromium) and PySide6_Pdf. Depending on PySide6_Essentials and PySide6_Addons
+     only would make the install smaller (and the licence list shorter); it is a change of dependencies, so not
+     done. Change it?
+214. **[OPEN]** **The desktop entry has not been seen in the Windows Start menu.** scripts/install.sh writes
+     ~/.local/share/applications/vortexcfd.desktop; WSLg is expected to list it under the distribution's folder,
+     but agents never use the real display. To check in the second-machine test (docs/RELEASE_v1.md).
+215. **[OPEN]** **The install script requires Ubuntu 24.04 and Python 3.12 exactly** (pyproject says Python >= 3.11).
+     `--ignore-os` lets another Ubuntu through; another Python is refused with the apt command. Keep it that strict
+     for v1?
+216. **[OPEN]** **The OpenFOAM check reads files, it does not run OpenFOAM** (D-137): a bashrc declaring v2606 with
+     simpleFoam, snappyHexMesh and blockMesh under platforms/*/bin counts as found. A broken installation (missing
+     libraries) is only found by the first mesh. Enough, or should Help > OpenFOAM Installation also run
+     `foamVersion` through the runner on request?
+217. **[OPEN]** **A pre-existing UI-refresh failure fixed (D-132 note).** With the display "Section", adding any results
+     scene object made the telemetry's field range raise KeyError '_shown' (the section actor's PyVista pipeline
+     output is empty until the next render), so the UI refresh after that edit failed. `ResultsView` now keeps the
+     section dataset it drew. Recorded for the owner; no decision needed unless the telemetry should read
+     differently.
+
