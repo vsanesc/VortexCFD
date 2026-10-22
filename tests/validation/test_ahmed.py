@@ -151,20 +151,26 @@ def test_round4_note_condition() -> None:
     assert ac.verdict(0.3246 / ac.CD_EXPERIMENT - 1.0, ac.consistent_round4(0.3246)) == "FAIL"
 
 
-def test_round4_verdict_follows_from_the_recorded_values() -> None:
-    """RESULT.md, "Round 4": V6 with the owner's round 4 rule on the finest level run; y+ far from 1."""
+def test_round4_is_inconclusive_and_round2_fail_is_final() -> None:
+    """RESULT.md, "Round 4" and "Conclusion" (owner review of round 4): round 4 is inconclusive (body layers
+    collapsed, y+ far above the wall-function range, slant attached, grid not converged) and does not count;
+    the final verdict is round 2's FAIL (+13.9 % against the experiment, +5.6 % against Guilmineau)."""
     r4 = json.loads((RECORD / "result_round4.json").read_text(encoding="utf-8"))
-    fine = r4["levels"][-1]
-    assert [lv["name"] for lv in r4["levels"]] == ["medium", "fine"]
-    cd = fine["window"]["Cd@body"]["mean"]
-    error = cd / ac.CD_EXPERIMENT - 1.0
-    judged = r4["verdict"]
-    assert judged["cd"] == pytest.approx(cd, rel=1e-12) and judged["basis"] == "fine"
-    assert judged["consistent"] == ac.consistent_round4(cd) is True
-    assert judged["verdict"] == ac.verdict(error, judged["consistent"]) == "PASS WITH NOTE"
-    assert round(100 * error, 1) == 10.7 and round(100 * (cd / ac.CD_GUILMINEAU - 1.0), 1) == 2.6
-    assert all(lv["yplus_body"]["mean"] > 5 for lv in r4["levels"])  # the hypothesis is not tested
+    medium, fine = r4["levels"]
+    assert (medium["name"], fine["name"]) == ("medium", "fine")
+    for lv in (medium, fine):  # the reasons, from the recorded numbers
+        assert lv["layers"]["patches"]["body"]["mesh_layers"] < 1.0
+        assert 500 < lv["yplus_body"]["mean"] < 700
+        assert lv["slant"]["reversed_area_percent"] == 0.0
+    cd_medium, cd_fine = (lv["window"]["Cd@body"]["mean"] for lv in (medium, fine))
+    assert round(100 * (cd_fine / cd_medium - 1.0), 1) == -3.3
+    assert round(100 * (cd_fine / ac.CD_GUILMINEAU - 1.0), 1) == 2.6
     text = _round2_text()
-    section = text[text.index("## Round 4"):]
-    assert "**Verdict (V6, round 4 rule, finest level = fine): PASS WITH NOTE.**" in section
-    assert f"**{cd:.4f}**" in section
+    section = text[text.index("## Round 4"):text.index("## Conclusion")]
+    assert "**Round 4: INCONCLUSIVE; it does not count for the verdict**" in section
+    r2 = json.loads((RECORD / "result_round2.json").read_text(encoding="utf-8"))["verdict"]
+    assert r2["verdict"] == "FAIL"
+    assert round(100 * r2["error"], 1) == 13.9 and round(100 * (r2["cd"] / ac.CD_GUILMINEAU - 1.0), 1) == 5.6
+    conclusion = text[text.index("## Conclusion"):]
+    assert "**Final verdict: FAIL (round 2)" in conclusion
+    assert "**+13.9 %**" in conclusion and "**+5.6 %**" in conclusion

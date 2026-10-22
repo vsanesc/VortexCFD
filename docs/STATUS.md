@@ -69,13 +69,16 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
   centre on the body and stilts (`--round 4`, project ahmed25_r4_wallres; the ground keeps round 2's stack
   through a driver override, QUESTIONS 179; cap 3000). The y+ 1 stack collapsed (0.23-0.24 of 12 layers,
   body y+ mean 683 medium / 562 fine; QUESTIONS 180), so the wall-function hypothesis is **not tested**.
-  Fine body Cd 0.3154 (+10.7 %, 2.6 % above Guilmineau's 0.3074, slant attached): **PASS WITH NOTE** under
-  the owner's round 4 rule (QUESTIONS 182). RESULT.md "Round 4" and "Conclusion"; result_round4.json.
-- **W1 (the Ahmed 25 degree validation) closed** (owner). QUESTIONS 171 and 177 closed.
+  Fine body Cd 0.3154 (slant attached). Owner review (2026-10-22): round 4 **INCONCLUSIVE**, it does not
+  count (QUESTIONS 182). RESULT.md "Round 4" and "Conclusion"; result_round4.json.
+- **W1 (the Ahmed 25 degree validation) closed** (owner): final verdict round 2's **FAIL**, a documented
+  known limitation of steady SST with wall functions at 25 degrees (+13.9 % against the experiment, +5.6 %
+  against Guilmineau 2008), accepted for v1. QUESTIONS 171, 177, 179, 181 and 182 closed; 180 assigned to W2.
+- docs/PLAN.md: a "v1" section (the definition, the workstreams W1 to W5, the post-v1 backlog).
 
 Next: the aircraft's zones (QUESTIONS 147); drag handles for the refinement volumes (item 132). The owner runs
 scripts/ship.sh (the slow tests, item 161). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75,
-82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174 and 179 to 182.
+82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174 and 180 (W2).
 
 ### Previous branch (task/5.x-parallel-mesh, published in PR #26)
 
@@ -103,7 +106,7 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
 | 3.5 | Surface-to-patch assignment | done (D-071): regions, angle split, patches in the meshing dictionary |
 | 4.1 | Physics continua | done for steady incompressible RANS (merged in PR #13) |
 | 4.2 | Boundary condition library | done for the external-aerodynamics set (D-022) |
-| 4.3 | Turbulence module | done for kOmegaSST (y+ estimator, flat plate verified against TMR: PASS WITH NOTE; Ahmed body 25 degrees, W1 closed: FAIL in rounds 1 and 2, PASS WITH NOTE in round 4 without the intended wall-resolved mesh, docs/validation/ahmed/RESULT.md); docs/reference/turbulence_mapping.md not written |
+| 4.3 | Turbulence module | done for kOmegaSST (y+ estimator, flat plate verified against TMR: PASS WITH NOTE; Ahmed body 25 degrees, W1 closed: FAIL, a documented known limitation; round 4 inconclusive, docs/validation/ahmed/RESULT.md); docs/reference/turbulence_mapping.md not written |
 | 4.4 | Numerics presets | preset "robust" only (merged in PR #13) |
 | 5.0 | Meshing benchmark suite | done (D-081, D-082): sphere, wing, Ahmed-type body; baseline in benchmarks/BASELINE.md; the dirty-STL set and solver convergence are not in it |
 | 5.1 | M1: GUI over snappyHexMesh | done (published in PR #11 and #12); y+ layer sizing done (D-024, D-026, D-045); sizing defaults revised after the baseline (D-084 to D-086, task 5.1-sizing); user refinement volumes and the wake helper (D-103, task 5.x-refinement-volumes; no viewer drag handles) |
@@ -125,12 +128,13 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
 
 ## Known issues
 
-- The Ahmed body 25 degree validation (W1, closed): rounds 1 and 2 FAIL V6 (fine body Cd +14 %, above the
-  SST range 0.2915-0.313); round 4 PASS WITH NOTE (0.3154, +10.7 %, within 3 % of Guilmineau 2008) but on a
-  mesh whose y+ 1 layers collapsed, so the wall-function explanation is untested; no round reproduces the
-  experiment's slant reattachment; steady SST oscillates here (docs/validation/ahmed/RESULT.md, "Conclusion").
-- The default layer controls cannot build a wall-resolved (y+ 1) stack on 5-7 mm surface cells: the stack
-  collapses on the interpolation-weight and determinant checks (QUESTIONS 180).
+- The Ahmed body 25 degree validation (W1, closed) FAILS V6: a documented known limitation of steady SST with
+  wall functions at 25 degrees, accepted for v1 (round 2's fine body Cd 0.3246, +13.9 % against the
+  experiment, +5.6 % against Guilmineau 2008); no round reproduces the experiment's slant reattachment;
+  steady SST oscillates here; round 4 (wall-resolved attempt) inconclusive (docs/validation/ahmed/RESULT.md,
+  "Conclusion").
+- The app cannot yet build wall-resolved (y+ 1) layers on 3D bluff bodies: the stack collapses on the
+  interpolation-weight and determinant checks (QUESTIONS 180, W2).
 
 - Results at angle of attack != 0 are biased by the angled-inlet method with slip far field (QUESTIONS 71, open).
 
@@ -138,10 +142,10 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
 
 - Bluff bodies with strong separation: steady SST can over-predict drag by 10-15 %; use the mean-stable
   criterion (Ahmed body 25 degrees, docs/validation/ahmed/RESULT.md).
-- Bluff bodies with separation: steady SST drag and slant flow depend on the near-wall cells (Ahmed 25
-  degrees: body y+ 56 -> about 560 moved Cd by -2.8 % and turned the separated slant attached); a y+ 1 stack
-  cannot be built with the default layer controls on 5-7 mm surface cells (watch the First cell row of the
-  Mesh report). (Reworded from the owner's note, which assumed a wall-resolved round 4: QUESTIONS 182.)
+- Steady k-omega SST with wall functions over-predicts the drag of the Ahmed body at 25 degrees by about 14 %
+  (body Cd 0.325 against the experimental 0.285; docs/validation/ahmed/RESULT.md).
+- The app cannot yet build wall-resolved (y+ about 1) prism layers on 3D bluff bodies: the layers collapse
+  and the First cell row of the Mesh report shows the drift warning (QUESTIONS 180).
 
 ## Known debts
 

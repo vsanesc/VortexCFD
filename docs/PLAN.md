@@ -190,7 +190,7 @@ Reality check: "as powerful as a commercial mesher" is not a deliverable that ca
 - CSV, VTK/EnSight, image sets, simple HTML/PDF run report (setup summary + results).
 - Acceptance: report generated automatically at end of run.
 
-### 6.4 Mesh independence study — *done (Task 6.4: Mesh Study node, three levels with the same absolute layer stack, Celik GCI with oscillatory / divergent cases, results window and CSV, D-066; flat plate Case B not reproduced through the workflow, docs/QUESTIONS.md item 72; the levels keep the refinement volumes since D-117; first force validation through the study: Ahmed body 25 degrees, workstream W1 closed after four rounds: rounds 1-2 FAIL, round 4 PASS WITH NOTE without the intended wall-resolved mesh, docs/validation/ahmed/RESULT.md "Conclusion")*
+### 6.4 Mesh independence study — *done (Task 6.4: Mesh Study node, three levels with the same absolute layer stack, Celik GCI with oscillatory / divergent cases, results window and CSV, D-066; flat plate Case B not reproduced through the workflow, docs/QUESTIONS.md item 72; the levels keep the refinement volumes since D-117; first force validation through the study: Ahmed body 25 degrees, workstream W1 closed: FAIL (round 2), a documented known limitation accepted for v1; round 4 inconclusive, docs/validation/ahmed/RESULT.md "Conclusion")*
 - Goal: a workflow that runs the same physics on a family of systematically refined meshes (at least three, constant refinement ratio, e.g. r = sqrt(2) in cell size) and judges grid convergence of chosen reports (Cd, Cl, Cm, a probe).
 - Deliverables: a "Mesh study" node defining the family from the current mesh settings; one case directory per grid; a table of each report per grid with the observed order p, the Richardson-extrapolated value and the Grid Convergence Index (Celik et al. 2008, as in the flat plate validation, D-036); warnings for oscillatory or divergent convergence (non-monotone ratios).
 - Acceptance: on the coarse sphere family the GCI table is reproduced by hand from the per-grid values; the flat plate Case B study (docs/validation/flat_plate) is reproduced through the workflow.
@@ -245,3 +245,29 @@ Order by relevance to VTOL/UAV work: rotating zones first, 6DOF last.
 ## Definition of MVP
 
 STL/STEP import → domain → snappyHexMesh with layers (M1) → k-omega SST → steady RANS → live residuals/CL/CD → pressure slice, all from the GUI, with no manual dictionary editing.
+
+## v1
+
+Definition (owner, 2026-10-22):
+
+- External and internal steady incompressible flow, stopped on a mean-based criterion (the mean-stable
+  criterion, D-118).
+- Validations recorded for the flat plate, the Ahmed body (a documented result; PASS not required) and a
+  wing at several angles of attack.
+- A validated angle-of-attack method.
+- Post-processing for a report.
+- Installable on another PC, with a short manual.
+
+Workstreams:
+
+| Workstream | Content | State |
+|---|---|---|
+| W1 | Ahmed body, 25 degrees | **closed** (2026-10-22): FAIL, recorded as a documented known limitation of steady SST with wall functions (+13.9 % against the experiment, +5.6 % against Guilmineau 2008; docs/validation/ahmed/RESULT.md, "Conclusion") |
+| W2 | Angle of attack (the validated method, QUESTIONS 71), a 2D mode, a wall-resolved layer mode (QUESTIONS 180, needed before the NACA 0012 runs), NACA 0012 at several angles | open |
+| W3 | Internal flow | open |
+| W4 | Post-processing for a report | open |
+| W5 | Installation and the manual | open |
+
+Post-v1 backlog:
+
+- Per-part (per-wall) prism layer settings (QUESTIONS 179): today one layer specification serves every wall.

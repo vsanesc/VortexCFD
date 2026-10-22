@@ -6,7 +6,7 @@ the marker `validation` (or `long`) and are not part of the default test run.
 | Case | What it checks | Verdict | Where |
 |---|---|---|---|
 | Flat plate (TMR), zero pressure gradient | k-omega SST with wall functions: skin friction | Case B: **PASS WITH NOTE** (Cf(0.97) 3.3 % below the TMR reference) | [flat_plate/README.md](flat_plate/README.md) |
-| Ahmed body, 25 degree slant, in ground proximity | external aerodynamics with a ground plane: body drag against Ahmed et al. (1984) | Closed (W1). **FAIL** (V6) in rounds 1 and 2 (fine body Cd 0.325, +14 %); round 4 **PASS WITH NOTE** (0.3154, +10.7 %, within 3 % of Guilmineau 2008) but its y+ 1 layers collapsed, so the wall-function explanation is untested ([Conclusion](ahmed/RESULT.md#conclusion)) | [ahmed/RESULT.md](ahmed/RESULT.md), [ahmed/SETUP.md](ahmed/SETUP.md) |
+| Ahmed body, 25 degree slant, in ground proximity | external aerodynamics with a ground plane: body drag against Ahmed et al. (1984) | Closed (W1). **FAIL** (V6, round 2), a documented known limitation of steady SST with wall functions at 25 degrees: fine body Cd 0.3246, +13.9 % against the experiment, +5.6 % against Guilmineau 2008; accepted for v1. Round 4 (wall-resolved attempt) inconclusive: its layers collapsed ([Conclusion](ahmed/RESULT.md#conclusion)) | [ahmed/RESULT.md](ahmed/RESULT.md), [ahmed/SETUP.md](ahmed/SETUP.md) |
 | Parallel speedup (D-064) | solver speed-up with the number of MPI ranks | measurement, no verdict | [parallel/README.md](parallel/README.md) |
 
 ## Ahmed body: reading of round 2 (owner review and the references read after it, 2026-10-21)
@@ -19,4 +19,5 @@ slant reattachment; this study is 5.6 % above it and 3.7 % above the highest ven
 level's slant bubble reattaches later on the centre line (0.6-0.7 of the slant) than the experiment as
 Guilmineau describes it (about half-way); the bubble's size does not track the drag in the results
 compared, and the cause of the gap is not established. Still missing: the real Ahmed et al. (1984) and
-Lienhart & Becker (2003) papers (the files supplied under their names are other papers; QUESTIONS 171).
+Lienhart & Becker (2003) papers (the files supplied under their names are other papers; QUESTIONS 171). After round 4 (owner review, 2026-10-22): this FAIL is the final verdict, a documented known limitation
+accepted for v1; the experimental 0.285 is confirmed by Guilmineau 2008 Table 1 (QUESTIONS 171 closed).

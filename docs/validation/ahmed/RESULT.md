@@ -10,9 +10,9 @@ Cd 0.3246 (+13.9 %). Re-verdict with the references read after round 2: still **
 ([Re-verdict](#re-verdict-with-the-verified-references)); the reading: [Reading of round 2](#reading-of-round-2).
 
 Round 4 (the last run, body and stilts meant to be wall-resolved): [below](#round-4-wall-resolved-body-and-stilts);
-**PASS WITH NOTE** under the owner's round 4 rule (fine body Cd 0.3154, +10.7 %, 2.6 % above [G08]), but the
-y+ 1 stack collapsed (body y+ mean 562), so it does **not** test the wall-function hypothesis. The closing
-reading of the whole study: [Conclusion](#conclusion).
+**INCONCLUSIVE** (owner review of round 4, QUESTIONS 182): the y+ 1 stack collapsed, the body ran on wall
+functions at y+ 560-680, so it does not count for the verdict. **Final verdict: round 2's FAIL**, a
+documented known limitation of steady SST with wall functions at 25 degrees: [Conclusion](#conclusion).
 
 **Verdict (round 1): FAIL** (V6). The finest grid's body Cd is 0.3250, **14.0 % above** the experimental 0.285
 (13.0 % above the alternative reading 0.2875): inside the 10-20 % band, but above every published
@@ -411,23 +411,29 @@ top edge, reattachment about half-way) and [G08]'s SST (massive separation). Sim
 simpleFoam case also reports "the flow remains attached over the slant" (0.313). The fields are at the last
 iteration of an oscillating solution (Cl standard deviation 0.054-0.060).
 
-**Verdict (V6, round 4 rule, finest level = fine): PASS WITH NOTE.** Body Cd 0.3154 is 10.7 % above the
-experimental 0.285 (inside 10-20 %) and 2.6 % above [G08]'s 0.3074 (within 3 %); it is 0.8 % above the
-top of the verified SST range 0.2915-0.313, so the [G08] condition alone carries the note. Against 0.2875 the
-error is 9.7 %. The medium-to-fine change is -3.3 % (0.3262 to 0.3154), larger than either level's standard
-deviation (0.0033, 0.0019), so the grid is not converged and there is no GCI with two levels. **The note:**
-the value does not come from a wall-resolved mesh. Against round 2's fine level it changed by -2.8 % with a
-body y+ ten times higher and a fully attached slant, so it agrees with [G08] without reproducing its near-wall
-treatment or its slant flow (separated). The pass is the rule applied to the number, not evidence that the
-gap was explained.
+**Round 4: INCONCLUSIVE; it does not count for the verdict** (owner review of round 4, 2026-10-22,
+QUESTIONS 182). Reasons:
+
+- the body layers collapsed (0.24 of 12 on the fine level), so the body ran on wall functions at y+ 560-680,
+  above their valid range: the run is neither wall-resolved nor a valid wall-function run;
+- the slant came out fully attached, against the experiment's reattachment about half-way down;
+- the fine body Cd 0.3154 is closer to [G08]'s 0.3074 (2.6 % above it) for the wrong reasons: a near-wall
+  treatment and a slant flow that match neither [G08] (wall-resolved, separated) nor the experiment;
+- the grid is not converged: medium to fine -3.3 % (0.3262 to 0.3154), larger than either level's standard
+  deviation (0.0033, 0.0019); no GCI with two levels.
+
+For the record only: the round 4 rule computed on the number (V6, +10.7 % against 0.285, within 3 % of
+[G08]) would have given PASS WITH NOTE (result_round4.json, "verdict"); the owner set it aside.
 
 ## Conclusion
 
-Workstream W1, the Ahmed body at 25 degrees, is closed with this round (owner). Four rounds of steady
-k-omega SST through the app's own workflow gave a finest-grid body Cd of 0.3250 (round 1), 0.3246 (round 2)
-and 0.3154 (round 4), against the experimental 0.285 ([A84] as quoted, confirmed by [G08] Table 1) and
-[G08]'s wall-resolved SST 0.3074. The final verdict is round 4's **PASS WITH NOTE** (above); rounds 1 and 2
-stay FAIL.
+Workstream W1, the Ahmed body at 25 degrees, is closed (owner review of round 4, 2026-10-22).
+
+**Final verdict: FAIL (round 2), recorded as a documented known limitation of steady k-omega SST with wall
+functions at 25 degrees.** Round 2's fine body Cd 0.3246 is **+13.9 %** against the experimental 0.285
+([A84] as quoted, confirmed by [G08] Table 1) and **+5.6 %** against [G08]'s wall-resolved SST 0.3074. The
+owner accepts it for v1 (docs/PLAN.md, "v1": the Ahmed is a documented result; PASS not required). Round 1
+(FAIL, 0.3250) agrees; round 4 (0.3154) is inconclusive and does not count (above).
 
 What each explanation tested did:
 
@@ -438,13 +444,13 @@ What each explanation tested did:
 | Both set-up fixes together | round 2 against round 1, fine | -0.1 % | the coarse-level gains vanish on the fine grid |
 | Grid | round 2 medium to fine; round 4 medium to fine | -0.8 %; -3.3 % | round 2's two finest grids agree within the oscillation; no GCI in any round (oscillatory) |
 | Slant bubble size | round 1 fine (7.8 % of the slant reversed) against round 2 fine (40 %); round 4 fine (0 %) | 0.3250, 0.3246, 0.3154 | the bubble's size does not track the drag; no round reproduces the experiment's reattachment about half-way |
-| Wall functions (y+ 50 against wall-resolved y+ 1) | round 4 | **not tested**: the y+ 1 stack collapsed (body y+ 562-683) | the -2.8 % against round 2 comes with a y+ ten times higher and an attached slant, not with wall resolution |
+| Wall functions (y+ 50 against wall-resolved y+ 1) | round 4 (inconclusive) | **not tested**: the y+ 1 stack collapsed (body y+ 562-683) | the -2.8 % against round 2 comes with a y+ ten times higher, outside the wall functions' range, and an attached slant, not with wall resolution |
 
-What is left unexplained: why the fine-grid drag stays 11-14 % above the experiment; why no round reproduces
+What is left unexplained: why the fine-grid drag stays about 14 % above the experiment; why no round reproduces
 the experimental slant flow (a bubble reattaching about half-way down; this study gives separation to the
 base, a long bubble or an attached slant, depending on the grid and the near-wall cells); and whether a
 wall-resolved mesh would close the gap to [G08] (the app's layer defaults cannot build one on these surface
-cells, QUESTIONS 180). What was learned: the set-up fixes matter on coarse grids only; the steady solution
-oscillates and needs the mean-stable criterion; the near-wall cell size alone moves the drag by about 3 % and
-flips the slant regime. [A84] Fig. 4 and [LB03]'s data were never read; the experimental 0.285 is confirmed
+cells, QUESTIONS 180, assigned to W2). What was learned: the set-up fixes matter on coarse grids only; the
+steady solution oscillates and needs the mean-stable criterion; on these grids the near-wall cells change the
+slant regime. [A84] Fig. 4 and [LB03]'s data were never read; the experimental 0.285 is confirmed
 by [G08] Table 1, enough for the verdict (QUESTIONS 171 closed).

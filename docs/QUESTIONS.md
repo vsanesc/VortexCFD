@@ -303,13 +303,13 @@ settled the open ones on 2026-10-17.
 
 ## Task validation-ahmed round 4 (overnight 2026-10-21/22, decisions taken while Vic was away)
 
-179. **[OPEN]** **Round 4's ground keeps round 2's stack through a driver step.** The app has one layer
+179. **[CLOSED (owner review of round 4, 2026-10-22): per-part layer settings moved to a post-v1 backlog item, docs/PLAN.md "v1"]** **Round 4's ground keeps round 2's stack through a driver step.** The app has one layer
      specification for every wall (the study's shared stack, D-066), so "body and stilts at y+ 1, the ground
      as in round 2" cannot be set in the project. The driver writes the ground's own entry into each level's
      snappyHexMeshDict after the study prepares it (`ahmed_case.ground_layer_override`: 9 x 0.635 mm, ratio
      1.2, snappyHexMesh's per-patch override). No app change, no DECISIONS entry. Should the app get a
      per-wall (or ground-specific) layer specification?
-180. **[OPEN]** **[NUMERICS-REVIEW] The app's layer defaults cannot build a wall-resolved stack on the Ahmed
+180. **[OPEN, assigned to W2 (owner review of round 4, 2026-10-22): a wall-resolved layer mode is needed before the NACA 0012 runs; docs/PLAN.md "v1"]** **[NUMERICS-REVIEW] The app's layer defaults cannot build a wall-resolved stack on the Ahmed
      grids.** At target y+ 1 the plan is 12 layers (the cap) x first 0.0127 mm at ratio 1.3: 0.94 mm of the
      15.0 mm planned (6.3 %), last layer 0.23 mm next to 4.9-6.9 mm surface cells. snappyHexMesh removes
      almost the whole body stack: medium 0.232 and fine 0.242 of 12 layers (5.2 and 4.7 % of the thickness).
@@ -322,12 +322,12 @@ settled the open ones on 2026-10-17.
      surface (the stack reaches the cell), a larger layer cap or expansion, or relaxed minFaceWeight /
      minDeterminant are all outside the owner's round 4 definition and were not tried. A note for the user
      manual is in STATUS. Which, if any, should the app offer for wall-resolved meshes?
-181. **[OPEN]** **"W1" and "the v1 definition".** Neither name appears in docs/PLAN.md or docs/STATUS.md.
+181. **[CLOSED (owner review of round 4, 2026-10-22): docs/PLAN.md has a "v1" section with the definition and the workstreams W1 to W5; W1 = the Ahmed, closed]** **"W1" and "the v1 definition".** Neither name appears in docs/PLAN.md or docs/STATUS.md.
      Read as: W1 = the Ahmed 25 degree validation workstream (task validation-ahmed), closed in STATUS (current branch,
      known issues, row 4.3) and PLAN (6.4); the v1 definition = PLAN's "Definition of MVP". The line "Ahmed 25 degrees:
      documented result; PASS not required" was to be added only on a FAIL; round 4 is PASS WITH NOTE, so it
      was not added. Correct?
-182. **[OPEN]** **[NUMERICS-REVIEW] Round 4 passes by the rule but does not test the hypothesis; the manual
+182. **[CLOSED (owner review of round 4, 2026-10-22): round 4 is INCONCLUSIVE and does not count (layers collapsed, body y+ 560-680 above the wall-function range, slant fully attached against the experiment's reattachment half-way, Cd near Guilmineau for the wrong reasons, grid not converged at 3.3 %); the final verdict is round 2's FAIL, a documented known limitation of steady SST with wall functions at 25 degrees (+13.9 % against the experiment, +5.6 % against Guilmineau 2008), accepted for v1; W1 closed]** **[NUMERICS-REVIEW] Round 4 passes by the rule but does not test the hypothesis; the manual
      note was reworded.** Fine body Cd 0.3154: +10.7 % against 0.285 and 2.6 % above Guilmineau's 0.3074,
      PASS WITH NOTE under the owner's round 4 rule, with the body y+ at 562 (not wall-resolved) and the slant
      attached (Guilmineau: separated). Cd did move towards 0.3074 (-2.8 % against round 2), but with taller
