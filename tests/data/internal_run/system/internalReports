@@ -1,0 +1,21 @@
+FoamFile
+{
+    version 2.0;
+    format ascii;
+    class dictionary;
+    location "system";
+    object internalReports;
+}
+
+rho 1000.0;
+
+pressureDrops
+{
+    loss
+    {
+    
+        upstream patch:inlet_1;
+    
+        downstream patch:outlet_1;
+    }
+}

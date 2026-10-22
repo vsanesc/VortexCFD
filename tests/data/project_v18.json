@@ -1,0 +1,159 @@
+{
+  "schema_version": 18,
+  "name": "v18 project",
+  "analysis_type": "external",
+  "preset_name": null,
+  "geometry": {
+    "parts": [
+      {
+        "name": "Body",
+        "source_file": "geometry/body.stl",
+        "units": "m",
+        "surface_level_min": null,
+        "surface_level_max": null,
+        "regions": [],
+        "region_ids": null,
+        "cad": null
+      }
+    ]
+  },
+  "domain": {
+    "enabled": true,
+    "shape": "box",
+    "upstream": 5.0,
+    "downstream": 10.0,
+    "lateral": 5.0,
+    "vertical": 5.0,
+    "radius": 5.0,
+    "symmetry": "none",
+    "parts": null,
+    "ground": {
+      "enabled": false,
+      "motion": "stationary",
+      "position": "parts_min",
+      "z": 0.0,
+      "layers": false,
+      "wall_start_x": null
+    }
+  },
+  "mesh": {
+    "background_cells_target": 100000,
+    "target_surface_size": 0.01,
+    "surface_size_reference": "l_ref",
+    "curvature_levels": 2,
+    "base_size": null,
+    "surface_level_min": null,
+    "surface_level_max": null,
+    "feature_angle": 30.0,
+    "layers": 3,
+    "expansion_ratio": 1.2,
+    "final_layer_thickness": 0.5,
+    "min_thickness": 0.1,
+    "layer_sizing": "absolute_yplus",
+    "target_yplus": 50.0,
+    "layer_controls": "robust",
+    "yplus_at": "cell_centre",
+    "cores": null
+  },
+  "physics": {
+    "flow": "incompressible_steady",
+    "nu": 1.5e-05,
+    "rho_ref": 1.225,
+    "turbulence_model": "kOmegaSST"
+  },
+  "inflow": {
+    "speed": 20.0,
+    "alpha_deg": 6.0,
+    "turbulence_intensity": 0.01,
+    "viscosity_ratio": 10.0
+  },
+  "solvers": {
+    "iterations": 1000,
+    "cores": 1,
+    "write_interval": 200,
+    "relaxation": "robust",
+    "stopping": {
+      "criteria": [
+        {
+          "kind": "residual",
+          "field": "p",
+          "threshold": 0.0001
+        },
+        {
+          "kind": "residual",
+          "field": "U",
+          "threshold": 1e-05
+        },
+        {
+          "kind": "residual",
+          "field": "k",
+          "threshold": 1e-05
+        },
+        {
+          "kind": "residual",
+          "field": "omega",
+          "threshold": 1e-05
+        }
+      ],
+      "combine": "all",
+      "min_iterations": 0,
+      "oscillation_threshold": 0.01,
+      "oscillation_window": 100
+    }
+  },
+  "reports": {
+    "reference_area_basis": "planform",
+    "reference_area": null,
+    "reference_length": null,
+    "center_of_rotation": null,
+    "slots": [
+      null,
+      null,
+      null
+    ],
+    "probes": []
+  },
+  "studies": {
+    "mesh": {
+      "ratio": 1.4142135623730951,
+      "current_as": "fine",
+      "quantities": [
+        "Cd"
+      ],
+      "cores": 1
+    },
+    "polar": {
+      "mode": "range",
+      "start": 0.0,
+      "end": 10.0,
+      "step": 2.0,
+      "values": [],
+      "cores": 1
+    }
+  },
+  "surface_prep": null,
+  "refinement_volumes": [
+    {
+      "id": "v1",
+      "name": "wake",
+      "shape": {
+        "kind": "box",
+        "centre": [
+          2.0,
+          0.0,
+          0.1
+        ],
+        "size": [
+          2.0,
+          1.0,
+          0.5
+        ],
+        "pitch_deg": 6.0,
+        "yaw_deg": 0.0
+      },
+      "target_size": 0.05,
+      "enabled": true,
+      "frame": "body"
+    }
+  ]
+}

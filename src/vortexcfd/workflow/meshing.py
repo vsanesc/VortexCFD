@@ -27,6 +27,7 @@ from vortexcfd.foam.yplus import (
 )
 from vortexcfd.foam.mesh_case import (
     DOMAIN_SURFACE,
+    LOCATION_OFFSET,
     ROBUST_CONTROLS_REVISION,
     SECTION_BUFFER_CELLS,
     TRI_SURFACE,
@@ -48,10 +49,11 @@ from vortexcfd.foam.mesh_estimate import BACKGROUND_MARGIN_CELLS, MeshEstimate
 from vortexcfd.foam.physics_case import LENGTH_AUTO_LABEL, reference_values
 from vortexcfd.geometry import regions, section
 from vortexcfd.geometry.attitude import Attitude
-from vortexcfd.geometry.domain import DomainBox, compute_domain, ground_wall_start, union_bounds
+from vortexcfd.geometry import internal as internal_geometry
+from vortexcfd.geometry.domain import DomainBox, compute_domain, ground_wall_start, internal_box, union_bounds
 from vortexcfd.geometry.domain_surface import ROLE_ARRAY, meshing_surface
 from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
-from vortexcfd.workflow import refinement, surface_prep
+from vortexcfd.workflow import internal, refinement, surface_prep
 
 CASE_DIR_NAME = "case"
 
@@ -150,6 +152,11 @@ def _loaded_parts(project: Project, prepared: bool = True, rotated: bool = True)
     is sized around them; a ground plane at the parts' lowest z stays where the parts as imported put it,
     so a rotated part may cross it (``readiness`` refuses that). [NUMERICS-REVIEW]"""
     names, meshes = _body_parts(project, prepared)
+    if project.sim.internal:  # no domain and no rotation: the fluid is the inside of the parts (D-129)
+        box = internal_box(_bounds_of(meshes), fluid_volume(meshes) if meshes else 0.0)
+        if project.sim.dimension == "2d":
+            box = dataclasses.replace(box, two_d=True)
+        return box, names, meshes
     domain = project.sim.domain
     if rotated and meshes and project.sim.inflow.alpha_deg != 0.0:
         body = _bounds_of(meshes)
@@ -162,6 +169,20 @@ def _loaded_parts(project: Project, prepared: bool = True, rotated: bool = True)
     if project.sim.dimension == "2d":
         box = dataclasses.replace(box, two_d=True)
     return box, names, meshes
+
+
+_fluid_volumes: dict[tuple, float] = {}
+
+
+def fluid_volume(meshes) -> float:
+    """The volume inside the parts' closed surfaces (internal flow, D-129), cached per set of loaded surfaces (the
+    loader caches them by file, so the same objects come back while the files do not change)."""
+    key = tuple((id(m), m.n_points, m.n_cells) for m in meshes)
+    if key not in _fluid_volumes:
+        if len(_fluid_volumes) > 32:
+            _fluid_volumes.clear()
+        _fluid_volumes[key] = internal_geometry.enclosed_volume(meshes)
+    return _fluid_volumes[key]
 
 
 def loaded_parts(project: Project):
@@ -199,8 +220,18 @@ def write_part_surfaces(case_dir: Path, project: Project, inputs: MeshCaseInput,
     if inputs.two_d:
         est = inputs.estimate()
         y0, y1 = est.background_bounds[2], est.background_bounds[3]
-        for name, mesh in zip(inputs.parts, meshes):
-            slab_surface = section.slab(section.section_loops(mesh), y0 - (y1 - y0), y1 + (y1 - y0))
+        for i, (name, mesh) in enumerate(zip(inputs.parts, meshes)):
+            loops = section.section_loops(mesh)
+            if inputs.internal and inputs.has_regions(i):  # each segment keeps its patch (D-129)
+                y = (mesh.bounds[2] + mesh.bounds[3]) / 2
+                labels = internal_geometry.labelled_section(mesh, part_patch_labels(project, i, mesh), loops, y)
+                patches = list(inputs.patches_of(i))
+                walls = [k for k, p in enumerate(patches) if inputs.patch_type(p) == "wall"]
+                surface, cell_labels = internal_geometry.labelled_slab(loops, labels, y0 - (y1 - y0), y1 + (y1 - y0),
+                                                                       walls[0] if walls else 0)
+                regions.write_patch_stl(case_dir / TRI_SURFACE / f"{name}.stl", surface, cell_labels, patches)
+                continue
+            slab_surface = section.slab(loops, y0 - (y1 - y0), y1 + (y1 - y0))
             slab_surface.save(str(case_dir / TRI_SURFACE / f"{name}.stl"))
         return
     for i, (name, mesh) in enumerate(zip(inputs.parts, meshes)):
@@ -229,7 +260,7 @@ def estimate_for(box: DomainBox, mesh, surface_length: float | None = None) -> M
     D-121) with the surface size from ``surface_length`` (None: the domain's L; see ``surface_length``)."""
     length = box.reference_length if surface_length is None else surface_length
     return estimate_mesh(box.bounds, length, mesh, volume=box.volume, rounded=box.rounded,
-                         symmetric=box.symmetric, two_d=box.two_d)
+                         symmetric=box.symmetric, two_d=box.two_d, internal=box.internal)
 
 
 @dataclass(frozen=True)
@@ -242,6 +273,8 @@ class SurfaceLength:
     source: str
 
     def describe(self) -> str:
+        if self.source == "dh_auto":
+            return f"D_h = {self.value:.4g} m (hydraulic diameter of the first inlet)"
         if self.source == "largest_extent":
             return f"L = {self.value:.4g} m (largest extent of the parts)"
         return f"l_ref = {self.value:.4g} m" + (f" ({LENGTH_AUTO_LABEL})" if self.source == "l_ref_auto" else "")
@@ -254,7 +287,16 @@ SURFACE_LENGTH_AUTO_WARNING = ("l_ref is not set: the surface cell size and the 
 
 def surface_length(project: Project, box: DomainBox, parts_bounds=None) -> SurfaceLength:
     """The surface size length of ``project`` (``parts_bounds``: the union of every part's box as imported,
-    as the solver's reference values use (``body_bounds``); None: loaded here). Never raises."""
+    as the solver's reference values use (``body_bounds``); None: loaded here). Never raises. Internal flow
+    (D-129): l_ref when it is set, else the hydraulic diameter of the first inlet ("dh_auto"; the largest extent
+    without an inlet). [NUMERICS-REVIEW]"""
+    if project.sim.internal and project.sim.mesh.surface_size_reference == "l_ref":
+        if project.sim.reports.reference_length is not None:
+            return SurfaceLength(project.sim.reports.reference_length, "l_ref")
+        inlet = _reference_inlet(project)
+        if inlet is not None and inlet.hydraulic_diameter > 0:
+            return SurfaceLength(inlet.hydraulic_diameter, "dh_auto")
+        return SurfaceLength(box.reference_length, "largest_extent")
     if project.sim.mesh.surface_size_reference == "largest_extent":
         return SurfaceLength(box.reference_length, "largest_extent")
     if parts_bounds is None:
@@ -285,11 +327,32 @@ def project_estimate(project: Project, box: DomainBox, mesh=None, parts_bounds=N
     return estimate_for(box, mesh or meshing_settings(project, box, length), length)
 
 
+def _reference_inlet(project: Project):
+    """The internal-flow reference inlet (workflow/internal.reference_inlet), None when the parts cannot be loaded or
+    there is no inlet."""
+    try:
+        _names, meshes = _body_parts(project)
+        return internal.reference_inlet(project, meshes) if meshes else None
+    except (MeshingNotReady, ValueError):
+        return None
+
+
+def flow_speed(project: Project) -> float:
+    """The speed of the y+ estimate: the free stream; in internal flow the reference inlet's bulk speed (the inflow
+    speed when it cannot be estimated, D-129). [NUMERICS-REVIEW]"""
+    if project.sim.internal:
+        inlet = _reference_inlet(project)
+        if inlet is not None and inlet.speed:
+            return inlet.speed
+    return project.sim.inflow.speed
+
+
 def yplus_first_layer(project: Project, length: float) -> float:
     """The first layer of absolute (y+) sizing: the estimator with Re on the surface size length (D-088), the
-    target at the first cell centre by default (D-107). [NUMERICS-REVIEW]"""
+    target at the first cell centre by default (D-107); internal flow: the reference inlet's bulk speed and, by
+    default, its hydraulic diameter (D-129). [NUMERICS-REVIEW]"""
     mesh = project.sim.mesh
-    return first_layer_thickness(mesh.target_yplus, project.sim.inflow.speed, project.sim.physics.nu, length,
+    return first_layer_thickness(mesh.target_yplus, flow_speed(project), project.sim.physics.nu, length,
                                  mesh.yplus_at)
 
 
@@ -345,6 +408,8 @@ def fluid_location(project: Project) -> tuple[float, float, float] | None:
     if box.bounds is None:
         return None
     est = project_estimate(project, box)
+    if box.internal:  # inside the closed geometry (D-129)
+        return internal_geometry.inside_point(meshes, est.background_bounds, est.cells, LOCATION_OFFSET)
     parts = union_bounds([tuple(float(b) for b in m.bounds) for m in meshes])
     return location_in_mesh(est.background_bounds, parts, est.cells, box.inlet_x if box.rounded else None)
 
@@ -390,6 +455,8 @@ def readiness(project: Project) -> str | None:
         return f"The file of part '{missing[0]}' is missing."
     if surface_prep.state(project) == "stale":
         return surface_prep.STALE_MESSAGE
+    if project.sim.internal:
+        return internal_readiness(project)
     if not project.sim.domain.enabled:
         if project.sim.analysis_type == "empty":
             return "Generate the domain first (Regions > Domain)."
@@ -407,6 +474,28 @@ def readiness(project: Project) -> str | None:
     if start is not None and start >= box.bounds[1]:
         return (f"The ground wall starts at x = {start:.4g} m, at or behind the outlet (x = {box.bounds[1]:.4g} m): "
                 "move it upstream (Fluid Domain > Ground plane).")
+    return estimate_with_volumes(project, box).limit_message()
+
+
+def internal_readiness(project: Project) -> str | None:
+    """Why an internal-flow project cannot be meshed (D-129), or None: the roles (an inlet and an outlet), the closed
+    geometry, a 2D section of every part, an inlet that sizes the mesh and the background cell limit."""
+    problem = internal.role_problem(project)
+    if problem is not None:
+        return problem
+    try:
+        box, names, meshes = _loaded_parts(project)
+    except MeshingNotReady as exc:
+        return str(exc)
+    problem = internal_geometry.closure_problem(meshes) or section_problem(project, names, meshes)
+    if problem is not None:
+        return problem
+    inlet = internal.reference_inlet(project, meshes)
+    if inlet is None or inlet.hydraulic_diameter <= 0:
+        return "The first inlet has no area: check its patch."
+    if inlet.speed is None and project.sim.mesh.layer_sizing == "absolute_yplus":
+        return (f"The y+ layers need a speed at inlet {inlet.patch}: its total pressure must be above the outlet "
+                "pressure.")
     return estimate_with_volumes(project, box).limit_message()
 
 
@@ -440,7 +529,7 @@ def section_problem(project: Project, names, meshes) -> str | None:
     if project.sim.dimension != "2d":
         return None
     for part, name, mesh in zip(project.sim.geometry.parts, names, meshes):
-        if len(part.patch_names()) > 1:
+        if len(part.patch_names()) > 1 and not project.sim.internal:  # internal: one patch per segment (D-129)
             return f"Part '{name}' has several patches: a 2D section takes one patch per part."
         try:
             section.section_loops(mesh)
@@ -523,8 +612,22 @@ def mesh_inputs(project: Project) -> tuple[MeshCaseInput, DomainBox, list]:
         ground_wall_start=ground_wall_start(project.sim.domain, box.bounds),
         two_d=box.two_d,
         **domain_fields(box),
+        **internal_fields(project, box),
     )
+    if box.internal:
+        try:
+            inputs = internal.with_location(inputs, meshes)
+        except ValueError as exc:
+            raise MeshingNotReady(str(exc)) from exc
     return inputs, box, meshes
+
+
+def internal_fields(project: Project, box: DomainBox) -> dict:
+    """The MeshCaseInput fields of internal flow (D-129): the fluid volume as the domain volume, the inlets and
+    outlets; none for other analyses (their dictionaries are unchanged)."""
+    if not box.internal:
+        return {}
+    return {"internal": True, "domain_volume": box.volume, "open_patches": internal.open_patches(project)}
 
 
 def _volume_entries(project: Project, box: DomainBox, parts_bounds) -> tuple:
@@ -684,6 +787,11 @@ def inputs_hash(project: Project) -> str:
     elif mesh_settings.layer_controls == "robust" and mesh_settings.layer_sizing == "absolute_yplus":
         # the robust controls changed in 5.4b (D-106): a mesh made with the earlier ones is out of date
         payload["robust_controls"] = ROBUST_CONTROLS_REVISION
+    if project.sim.internal:  # the roles set the patch types and the layered walls (D-129); others keep their hash
+        payload["internal"] = [[p.safe, p.role] for p in internal.patches(project)]
+        payload["internal_l_ref"] = project.sim.reports.reference_length
+        if project.sim.mesh.layer_sizing == "absolute_yplus":  # the y+ speed is the reference inlet's
+            payload["internal_yplus_speed"] = flow_speed(project)
     if project.sim.dimension == "2d":  # D-121; 3D projects keep their hash
         payload["dimension"] = "2d"
         buffer = section_buffer_cells(mesh_settings)

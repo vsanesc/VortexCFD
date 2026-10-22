@@ -21,7 +21,7 @@ class MeshWorker(QObject):
         self._run: MeshRun | None = None
 
     def start(self, case_dir: Path, parts: tuple[str, ...] = (), first_layer: tuple[float, int] | None = None,
-              cores: int = 1) -> None:
+              cores: int = 1, walls: tuple[str, ...] | None = None) -> None:
         """``first_layer``: (planned first layer in metres, layer count) of absolute (y+) layers, for the
         achieved first-cell measurement after checkMesh (D-109); None: not measured. ``cores``:
         snappyHexMesh ranks (1: serial; D-111)."""
@@ -29,7 +29,7 @@ class MeshWorker(QObject):
             raise RuntimeError("meshing is already running")
         self._run = MeshRun(
             case_dir, on_line=self.line.emit, on_step=self.step.emit, on_done=self._done, parts=parts,
-            first_layer=first_layer, cores=cores,
+            first_layer=first_layer, cores=cores, walls=walls,
         )
         self._run.start()
 

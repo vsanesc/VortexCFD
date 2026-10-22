@@ -55,6 +55,10 @@ Hand-written schema v9 project in the form the app saved it (the full v9 mesh bl
 Hand-written schema v10 project in the form the app saved it (two parts, the v10 mesh block with l_ref sizing and y+ 50 layers, 30 m/s, l_ref 1.5 m). Used by tests/test_surface_prep.py to check the v10 -> v11 migration: no surface preparation, everything else kept (D-093).
 ## `project_v11.json`
 Hand-written schema v11 project in the form the app saved it (one part, the v10 mesh block, 20 m/s at 4 degrees, l_ref 1 m, `surface_prep` null). Used by tests/test_refinement_volumes.py to check the v11 -> v12 migration: no refinement volumes, everything else kept (D-103).
+## `project_v18.json`
+`project_v17.json` brought to schema v18 by hand (the v17 -> v18 step: the polar sweep without `init_from_previous`,
+the refinement volumes with `frame` "body", name "v18 project"). Used by tests/test_internal_flow.py to check the
+v18 -> v19 migration: an external project, no boundaries, planes or pressure drops, everything else kept (D-129).
 ## `preset_v1.json`
 Hand-written user preset in file format 1 (no `schema_version`, i.e. written before schema v10): a box domain with y_min symmetry and a mesh block without `layer_sizing`, `target_yplus`, `surface_size_reference` or `curvature_levels`. Used by tests/test_presets.py to check that it is read with the v9 mesh behaviour and its stored values (D-090).
 ## `stop_run/` (`log.simpleFoam`, `coefficient.dat`)
@@ -84,3 +88,11 @@ Real `mpirun -np 4 snappyHexMesh -overwrite -parallel` log (ESI OpenFOAM v2606, 
 layers), the master rank's output. It has the parallel header (`nProcs : 4`, Hosts, Pstream), the
 balancing lines and the final layer table (`sphere 10636 6 6 0.0179 100`); 233569 cells. The `Case`,
 `Host`, `PID` and host-list lines were sanitized.
+
+## `internal_run/`
+Internal-flow report outputs (D-129) of a real simpleFoam run (ESI OpenFOAM v2606, 4 ranks, 300 iterations, no
+stopping criteria) of the app's own case: a 1 m pipe of D = 0.1 m (48 points around), the "Internal flow" preset,
+a mass-flow inlet of 1.5 kg/s (rho_ref 1000 kg/m3, nu 1e-6 m2/s), a static outlet at 0 Pa and a plane "mid" at
+x = 0.5 m (113,975 cells). `system/internalReports` as the solver writer makes it (the pressure drop "loss" from
+`patch:inlet_1` to `patch:outlet_1`); each `postProcessing/*/0/surfaceFieldValue.dat` keeps its header and the
+first and last three rows (iterations 1-3 and 298-300).

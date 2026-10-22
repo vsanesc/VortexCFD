@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from vortexcfd.core import save_rules
-from vortexcfd.core.model import Part, RefinementVolume, Simulation, SurfacePrep
+from vortexcfd.core.model import Part, PatchBoundary, RefinementVolume, Simulation, SurfacePrep
 from vortexcfd.core.project_io import load_simulation, save_simulation
 
 MAX_OBSERVER_ERRORS = 20
@@ -436,6 +436,27 @@ class Project:
     def update_reports(self, **fields: Any) -> None:
         """Edit reference value overrides or report slots as one undoable step."""
         self._update_section("reports", "reports", fields)
+
+    def update_boundary(self, patch: str, role: str | None = None, inlet: dict[str, Any] | None = None,
+                        outlet: dict[str, Any] | None = None) -> None:
+        """Set the role and / or edit the inlet or outlet settings of an internal-flow patch as one undoable step
+        (D-129). A patch without an entry is a wall; an entry is created on its first edit."""
+
+        def mutate(data: dict[str, Any]) -> None:
+            entries = data["boundaries"]
+            entry = next((b for b in entries if b["patch"] == patch), None)
+            if entry is None:
+                entry = PatchBoundary(patch=patch).model_dump()
+                entries.append(entry)
+            if role is not None:
+                entry["role"] = role
+            if inlet:
+                entry["inlet"].update(inlet)
+            if outlet:
+                entry["outlet"].update(outlet)
+
+        what = f"role {role}" if role is not None else ", ".join([*(inlet or {}), *(outlet or {})]) or "no fields"
+        self._edit(f"Edit boundary {patch} ({what})", mutate)
 
     def update_study(self, study: str, **fields: Any) -> None:
         """Edit the mesh study ("mesh") or polar sweep ("polar") settings as one undoable step."""

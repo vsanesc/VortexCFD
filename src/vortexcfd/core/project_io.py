@@ -62,10 +62,10 @@ def migrate(data: dict[str, Any], notes: list[str] | None = None) -> dict[str, A
     of attack a rotation of the parts (D-120): the value is kept, the refinement volumes get the "body" frame
     (they turn with the parts, so they keep their place on them), the polar sweep loses
     ``init_from_previous`` (every angle has its own mesh) and a project with a non-zero angle gets a note
-    in ``notes`` (its mesh hash now carries the angle, so the mesh is out of date).
+    in ``notes`` (its mesh hash now carries the angle, so the mesh is out of date); v18 -> v19 adds the
+    internal-flow boundaries, cutting planes and pressure drops (none: nothing to fill, D-129).
     Data already at the current version (or not a dict /
-    without a version) is returned unchanged.
-    """
+    without a version) is returned unchanged."""
     if not isinstance(data, dict):
         return data
     data = dict(data)
@@ -142,6 +142,9 @@ def migrate(data: dict[str, Any], notes: list[str] | None = None) -> dict[str, A
         if isinstance(alpha, (int, float)) and alpha != 0 and notes is not None:
             notes.append(ALPHA_MIGRATION_NOTE.format(alpha=alpha))
         data["schema_version"] = 18  # RefinementVolume.frame defaults to "body" (D-120)
+    if data.get("schema_version") == 18:
+        data["schema_version"] = 19  # no boundaries, planes or pressure drops: every older project is external
+        # or empty, whose meshes and solver files do not change (D-129)
     return data
 
 

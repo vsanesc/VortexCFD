@@ -102,6 +102,7 @@ class MeshRun:
         parts: tuple[str, ...] = (),
         first_layer: tuple[float, int] | None = None,
         cores: int = 1,
+        walls: tuple[str, ...] | None = None,
     ) -> None:
         self.case_dir = Path(case_dir)
         self._on_line, self._on_step, self._on_done = on_line, on_step, on_done
@@ -111,6 +112,9 @@ class MeshRun:
         # (planned first layer in metres, layer count) of absolute (y+) layers: the achieved first cell is
         # measured on the part patches after checkMesh (D-109); None: not measured
         self._first_layer = first_layer
+        # the patches with prism layers, where the first cell is measured (None: every part patch; an internal-flow
+        # case's inlets and outlets have none, D-129)
+        self._walls = tuple(walls) if walls is not None else None
         self._timeout = step_timeout_s
         self._lock = threading.Lock()
         self._stop = False
@@ -211,8 +215,8 @@ class MeshRun:
                 if self._first_layer is not None and self._parts:
                     if self._on_step is not None:
                         self._on_step("first cell")
-                    report = replace(report, first_cell=measure_first_cell(self.case_dir, self._parts,
-                                                                           *self._first_layer))
+                    walls = self._walls if self._walls is not None else self._parts
+                    report = replace(report, first_cell=measure_first_cell(self.case_dir, walls, *self._first_layer))
             elif res.exit_code != 0:
                 failed = name
                 error = f"{name} failed (exit code {res.exit_code}): see {res.log_file}"

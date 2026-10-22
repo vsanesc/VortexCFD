@@ -51,6 +51,7 @@ from vortexcfd.workflow.meshing import (
     meshing_settings,
     case_dir_for,
     domain_fields,
+    internal_fields,
     estimate_for,
     mesh_cores,
     readiness,
@@ -59,6 +60,7 @@ from vortexcfd.workflow.meshing import (
     write_junction_features,
     write_part_surfaces,
 )
+from vortexcfd.workflow import internal
 from vortexcfd.workflow.solving import clear_results, for_case, physics_problem, solver_input
 from vortexcfd.foam.physics_case import build_solver_files
 
@@ -212,6 +214,15 @@ def study_readiness(project: Project, *, busy: str | None = None) -> str | None:
         return busy
     if not project.sim.studies.mesh.quantities:
         return "Choose at least one quantity to study."
+    if project.sim.internal:  # D-129: no force coefficients; an inlet, outlet, plane or pressure drop may be gone
+        from vortexcfd.core.reports import missing_reference, report_label
+        from vortexcfd.workflow.solving import report_scope
+
+        scope = report_scope(project)
+        for quantity in project.sim.studies.mesh.quantities:
+            why = missing_reference(quantity, **scope)
+            if why is not None:
+                return f"Study quantity {report_label(quantity)}: {why}."
     try:
         plan = plan_study(project)
     except MeshingNotReady as exc:
@@ -269,7 +280,10 @@ def prepare_study(project: Project, only: Collection[str] | None = None) -> tupl
             two_d=box.two_d, buffer_scale=level_buffer_scale(plan, lp),  # the current regions everywhere (D-127)
             study_level=True,  # every 3D level with the shells, the current one included (D-127)
             **domain_fields(box),
+            **internal_fields(project, box),
         )
+        if box.internal:  # the locationInMesh inside the geometry on this level's own grid (D-129)
+            inputs = internal.with_location(inputs, meshes)
         case = level_dir(study, lp.level.index)
         if case.is_dir():
             clear_results(case) if (case / "constant" / "polyMesh").is_dir() else None

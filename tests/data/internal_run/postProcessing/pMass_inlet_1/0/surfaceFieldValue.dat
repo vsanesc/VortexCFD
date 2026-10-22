@@ -1,0 +1,12 @@
+# Region type : patch inlet_1
+# Faces       : 485
+# Area        : 7.818579e-03
+# Scale factor: 1.000000e+00
+# Weight field: U
+# Time        	weightedAreaAverage(p_static)	weightedAreaAverage(p_total)
+1             	3.245592e+02	3.429625e+02
+2             	4.431739e+01	6.272073e+01
+3             	1.483213e+01	3.323548e+01
+298           	6.013708e+00	2.441706e+01
+299           	6.013708e+00	2.441706e+01
+300           	6.013708e+00	2.441706e+01

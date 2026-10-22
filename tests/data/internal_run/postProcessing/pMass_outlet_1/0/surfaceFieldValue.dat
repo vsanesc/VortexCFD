@@ -1,0 +1,12 @@
+# Region type : patch outlet_1
+# Faces       : 485
+# Area        : 7.817530e-03
+# Scale factor: 1.000000e+00
+# Weight field: U
+# Time        	weightedAreaAverage(p_static)	weightedAreaAverage(p_total)
+1             	0.000000e+00	2.821613e+01
+2             	0.000000e+00	2.475423e+01
+3             	0.000000e+00	2.332188e+01
+298           	0.000000e+00	1.908872e+01
+299           	0.000000e+00	1.908872e+01
+300           	0.000000e+00	1.908872e+01

@@ -45,7 +45,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from vortexcfd.core.model import VOLUME_SHAPES, Part, Simulation, StoppingCriteria
+from vortexcfd.core.model import (
+    INLET_KIND_LABELS,
+    OUTLET_KIND_LABELS,
+    PATCH_ROLE_LABELS,
+    VOLUME_SHAPES,
+    Part,
+    Simulation,
+    StoppingCriteria,
+)
 from vortexcfd.core.presets import PresetError, PresetStore, apply_preset, preset_from_simulation
 from vortexcfd.core.reports import available_reports
 from vortexcfd.foam import convergence
@@ -81,7 +89,7 @@ from vortexcfd.foam.mesh_case import (
 )
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.gui.geometry_worker import GeometryWorker, IntersectionChecker, OverlapChecker, snapshot
-from vortexcfd.workflow import meshing, refinement, surface_prep
+from vortexcfd.workflow import internal, meshing, refinement, surface_prep
 from vortexcfd.workflow.refinement import OUTSIDE_IGNORED
 from vortexcfd.geometry.refinement_volumes import domain_fraction
 from vortexcfd.gui.mesh_worker import MeshWorker
@@ -881,8 +889,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._update_mesh_button()
         self._update_results_stale()
         self._update_run_button()
-        self.monitors.kpis.set_options(available_reports(
-            force_report_keys(sim.geometry.parts), [p.name for p in sim.reports.probes]))
+        self.monitors.kpis.set_options(available_reports(**solving.report_scope(self._project)))
         self.monitors.set_assignments(list(sim.reports.slots))
         if not self.solver_worker.is_running():  # a running solver keeps the criteria it started with
             self.monitors.set_stopping(sim.solvers.stopping)
@@ -956,30 +963,35 @@ class MainWindow(StudyControlMixin, QMainWindow):
                     item.setIcon(0, self._node_icon("dot", "warning"))
                     item.setToolTip(0, OUTSIDE_IGNORED)
             physics_item = add(continua, "physics", None, "Physics", "dot", "accent")
-            add(physics_item, "inflow", None, "Inflow", "dot", "accent")
+            internal_flow = self._project.sim.internal
+            if not internal_flow:  # internal flow: the inlets carry the flow conditions (D-129)
+                add(physics_item, "inflow", None, "Inflow", "dot", "accent")
             regions = add(root, "regions", None, "Regions", "folder", "text")
             domain = self._project.sim.domain
             generated = domain.enabled or self._project.sim.analysis_type != "empty"
-            fluid = add(regions, "fluid_domain", None,
-                        "Fluid Domain" if generated else "Fluid Domain (not generated)",
-                        "folder", "text")
-            if domain.enabled:
-                for bname in shape_roles(domain.shape, domain.symmetry == "y_min", domain.ground.enabled):
-                    add(fluid, f"boundary_{bname}", None, bname, "dot", "accent")
-            elif not generated:  # the "Empty" analysis: the domain is an operation (D-078)
-                add(fluid, "generate_domain", None, "Generate domain\u2026", "dot", "accent_secondary")
-            labels = [label for part, patches in zip(parts, part_patch_names(parts))
-                      for label in (patches if part.regions else (part.name,))]
-            for i, label in enumerate(labels):  # one wall per patch (D-071); a plain part shows its name
-                add(fluid, "wall", i, f"{label} (wall)", "dot", "accent")
-            add(regions, "fluid_region", None, "Fluid Region (domain minus parts)", "dot", "accent")
+            if internal_flow:  # no domain; every surface patch is an inlet, an outlet or a wall (D-129)
+                fluid = add(regions, "fluid_region", None, "Fluid Region (inside the geometry)", "folder", "text")
+                for i, patch in enumerate(internal.patches(self._project)):
+                    entry = self._project.sim.boundary(patch.name)
+                    role = PATCH_ROLE_LABELS[patch.role]
+                    if patch.role == "inlet":
+                        role = INLET_KIND_LABELS[entry.inlet.kind]
+                    elif patch.role == "outlet":
+                        role = OUTLET_KIND_LABELS[entry.outlet.kind]
+                    add(fluid, "internal_patch", i, f"{patch.name} ({role})", "dot",
+                        "accent" if patch.role != "wall" else "accent_secondary")
+            else:
+                self._domain_tree(add, regions, parts, domain, generated)
             solvers_item = add(root, "solvers", None, "Solvers", "folder", "text")
             add(solvers_item, "stopping", None, "Stopping Criteria", "dot", "accent")
             reports = add(root, "reports", None, "Reports & Monitors", "folder", "text")
             add(reports, "reference_values", None, "Reference Values", "dot", "accent")
+            if internal_flow:
+                add(reports, "internal_reports", None, "Planes & Pressure Drops", "dot", "accent")
             add(reports, "probes", None, "Probes", "dot", "accent")
             add(reports, "mesh_study", None, "Mesh Study", "dot", "accent")
-            add(reports, "polar_sweep", None, "Polar Sweep", "dot", "accent")
+            if not internal_flow:  # the angle of attack turns the parts: external flow only (D-120)
+                add(reports, "polar_sweep", None, "Polar Sweep", "dot", "accent")
             self.tree.expandAll()
             self._root_item = root
             self.tree.setRootIndex(self.tree.indexFromItem(root))  # hide the root row
@@ -992,6 +1004,22 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self.tree.blockSignals(False)
         self.node_badge.setText(f"{self.node_count()} Nodes")
         self._apply_filter()
+
+    def _domain_tree(self, add, regions, parts, domain, generated: bool) -> None:
+        """The Fluid Domain with its boundaries and walls and the Fluid Region of external flow."""
+        fluid = add(regions, "fluid_domain", None,
+                    "Fluid Domain" if generated else "Fluid Domain (not generated)",
+                    "folder", "text")
+        if domain.enabled:
+            for bname in shape_roles(domain.shape, domain.symmetry == "y_min", domain.ground.enabled):
+                add(fluid, f"boundary_{bname}", None, bname, "dot", "accent")
+        elif not generated:  # the "Empty" analysis: the domain is an operation (D-078)
+            add(fluid, "generate_domain", None, "Generate domain\u2026", "dot", "accent_secondary")
+        labels = [label for part, patches in zip(parts, part_patch_names(parts))
+                  for label in (patches if part.regions else (part.name,))]
+        for i, label in enumerate(labels):  # one wall per patch (D-071); a plain part shows its name
+            add(fluid, "wall", i, f"{label} (wall)", "dot", "accent")
+        add(regions, "fluid_region", None, "Fluid Region (domain minus parts)", "dot", "accent")
 
     def _loadable(self, part: Part) -> bool:
         return report_for_part(self._project, part) is not None
@@ -1273,7 +1301,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         planned = job.inputs.first_layer_thickness
         first_layer = (planned, job.inputs.layer_count or 1) if planned is not None else None  # y+ layers (D-109)
         self._mesh_run = (job.case_dir, job.inputs.patches)
-        self.mesh_worker.start(job.case_dir, job.inputs.patches, first_layer, job.cores)
+        walls = internal.wall_patches(self._project) if job.inputs.internal else None  # layers on walls only (D-129)
+        self.mesh_worker.start(job.case_dir, job.inputs.patches, first_layer, job.cores, walls)
         self._update_mesh_stale()
         self._update_mesh_button()
         self._update_run_button()
@@ -2752,6 +2781,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
                     parts = part_ops.parts_per_solid(project_dir, dest, units, solids, taken)
                 else:
                     parts = [part_ops.part_with_solid_regions(project_dir, name, dest, units, solids)]
+                    if self._project.sim.internal:  # each solid its own patch: an inlet, outlet or wall (D-129)
+                        parts = [part_ops.with_region_patches(parts[0])]
             except (OSError, SurfaceLoadError, ValueError) as exc:
                 dest.unlink(missing_ok=True)
                 self.show_message(f"Could not import {source.name}: {exc}", "error")

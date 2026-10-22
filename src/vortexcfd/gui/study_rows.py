@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEd
 from vortexcfd.core.reports import available_reports, report_label
 from vortexcfd.foam.mesh_study import CURRENT_AS, MIN_RATIO
 from vortexcfd.foam.parallel import physical_cores
+from vortexcfd.workflow import solving
 
 STUDY_TOOLTIPS = {
     "ratio": "Refinement ratio r in linear cell size between levels (at least 1.3; r = sqrt(2) gives "
@@ -167,7 +168,7 @@ class StudyRowsMixin:
             for w in (self.ms_ratio, self.ms_current, self.ms_cores):
                 w.blockSignals(False)
         self.ms_menu.clear()
-        for report_id in available_reports(patches, probes):
+        for report_id in available_reports(**solving.report_scope(self._project)):
             action = self.ms_menu.addAction(report_label(report_id))
             action.setCheckable(True)
             action.setChecked(report_id in s.quantities)

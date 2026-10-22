@@ -38,8 +38,9 @@ def _custom_sim() -> Simulation:
 
 
 def test_builtins_are_external_flow_and_empty() -> None:
-    assert [p.name for p in BUILTIN_PRESETS] == ["External flow", "Empty", "2D airfoil"]
-    assert [p.analysis_type for p in BUILTIN_PRESETS] == ["external", "empty", "external"]
+    assert [p.name for p in BUILTIN_PRESETS] == ["External flow", "Empty", "2D airfoil", "Internal flow",
+                                                 "2D internal flow"]
+    assert [p.analysis_type for p in BUILTIN_PRESETS] == ["external", "empty", "external", "internal", "internal"]
     for preset in BUILTIN_PRESETS[:2]:
         assert preset.domain == PresetDomain() and preset.mesh == Mesh() and preset.dimension == "3d"
         assert preset.boundary_types == DEFAULT_BOUNDARY_TYPES
@@ -144,7 +145,7 @@ def test_v8_project_migrates_to_external(tmp_path: Path) -> None:
     path = Path(__file__).parent / "data" / "project_v8.json"
     assert json.loads(path.read_text())["schema_version"] == 8
     sim = load_simulation(path)
-    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 18
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 19
     assert (sim.analysis_type, sim.preset_name) == ("external", None)
     assert sim.domain == Domain(upstream=3.0, downstream=8.0, lateral=4.0, vertical=4.0, symmetry="y_min")
     assert sim.domain.shape == "box" and sim.domain.parts is None
@@ -154,14 +155,21 @@ def test_v8_project_migrates_to_external(tmp_path: Path) -> None:
     assert (sim.solvers.iterations, sim.solvers.cores, sim.reports.slots) == (400, 2, ["Cd", "Cl", None])
 
 
-def test_internal_is_reserved_not_selectable() -> None:
+def test_internal_is_selectable_and_its_presets_have_no_domain() -> None:
+    """D-129: "internal" is an analysis type (schema v19); its built-in presets generate no domain; the 3D one keeps
+    the wall-function default (y+ 50), the 2D one is wall-resolved (y+ 1)."""
     from vortexcfd.core.model import ANALYSIS_TYPES, RESERVED_ANALYSIS_TYPES
 
-    assert "internal" in RESERVED_ANALYSIS_TYPES and "internal" not in ANALYSIS_TYPES
-    with pytest.raises(ValueError):
-        Simulation(name="x", analysis_type="internal")
-    with pytest.raises(ValueError):
-        Preset(name="x", analysis_type="internal")
+    assert "internal" in ANALYSIS_TYPES and "internal" not in RESERVED_ANALYSIS_TYPES
+    assert Simulation(name="x", analysis_type="internal").internal
+    internal, internal_2d = (p for p in BUILTIN_PRESETS if p.analysis_type == "internal")
+    assert (internal.name, internal.dimension, internal.mesh.target_yplus) == ("Internal flow", "3d", 50.0)
+    assert internal.mesh.layer_controls == "robust" and internal.mesh.target_surface_size == 0.05
+    assert (internal_2d.dimension, internal_2d.mesh.target_yplus, internal_2d.mesh.layer_controls) == (
+        "2d", 1.0, "wall_resolved")
+    for preset in (internal, internal_2d):
+        sim = apply_preset(Simulation(name="n"), preset)
+        assert sim.analysis_type == "internal" and not sim.domain.enabled
 
 
 PRESET_V1 = Path(__file__).parent / "data" / "preset_v1.json"
@@ -194,7 +202,7 @@ def test_a_current_preset_round_trips_with_the_new_defaults_and_a_newer_schema_i
     store = PresetStore(tmp_path)
     path = store.save(Preset(name="New"))
     data = json.loads(path.read_text())
-    assert data["schema_version"] == CURRENT_SCHEMA_VERSION == 18
+    assert data["schema_version"] == CURRENT_SCHEMA_VERSION == 19
     mesh = store.find("New").preset.mesh
     assert (mesh.layer_sizing, mesh.surface_size_reference, mesh.curvature_levels) == ("absolute_yplus", "l_ref", 2)
     (tmp_path / "newer.json").write_text(json.dumps({**data, "name": "Newer", "schema_version": CURRENT_SCHEMA_VERSION + 1}))
