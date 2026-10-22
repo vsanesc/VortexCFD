@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 19
+CURRENT_SCHEMA_VERSION: int = 20
 
 
 class StrictModel(BaseModel):
@@ -830,6 +830,109 @@ class RefinementVolume(StrictModel):
         return value
 
 
+# -- results scene objects (schema v20, D-132) -----------------------------------------------------
+
+SCENE_OBJECT_KINDS = ("clip", "isosurface", "streamlines")
+SCENE_OBJECT_LABELS = {"clip": "Clip", "isosurface": "Isosurface", "streamlines": "Streamlines"}
+SCENE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_ .-]{0,63}$")
+
+
+class _SceneObject(StrictModel):
+    """A results scene object (D-132): an item under Results with an id that survives renames, a name and a
+    visibility. Its geometry is computed from the latest results (workflow/results_objects.py)."""
+
+    id: str = Field(min_length=1, max_length=32)
+    name: str
+    visible: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def _valid_name(cls, value: str) -> str:
+        if not SCENE_NAME_RE.match(value):
+            raise ValueError("a name has letters, digits, spaces and _ . - (at most 64 characters)")
+        return value
+
+
+class ClipObject(_SceneObject):
+    """The fluid volume clipped by the plane through ``origin`` with ``normal``; ``keep`` "behind" keeps the side the
+    normal points away from, "front" the side it points to. Coloured by the scene's field."""
+
+    kind: Literal["clip"] = "clip"
+    origin: Vector = (0.0, 0.0, 0.0)
+    normal: Vector = (1.0, 0.0, 0.0)
+    keep: Literal["behind", "front"] = "behind"
+
+    @field_validator("normal")
+    @classmethod
+    def _non_zero(cls, value: Vector) -> Vector:
+        if math.sqrt(sum(c * c for c in value)) == 0:
+            raise ValueError("the normal must not be zero")
+        return value
+
+
+class IsoObject(_SceneObject):
+    """The surface where ``field`` (a scalar field key of foam/results.FIELD_SPECS) equals ``value``. Coloured by the
+    scene's field."""
+
+    kind: Literal["isosurface"] = "isosurface"
+    field: str = "U_mag"
+    value: float = 0.0
+
+
+class StreamlinesObject(_SceneObject):
+    """Streamlines of U from ``n_seeds`` seeds on a line (``point1`` to ``point2``) or on a square plane (centre
+    ``point1``, normal ``normal``, side ``size``), integrated ``direction`` (both ways by default) up to
+    ``max_length`` metres, coloured by ``color_field``."""
+
+    kind: Literal["streamlines"] = "streamlines"
+    seed: Literal["line", "plane"] = "line"
+    point1: Vector = (0.0, 0.0, 0.0)
+    point2: Vector = (0.0, 0.0, 1.0)
+    normal: Vector = (1.0, 0.0, 0.0)
+    size: float = Field(default=1.0, gt=0)
+    n_seeds: int = Field(default=20, ge=1, le=10_000)
+    max_length: float = Field(default=10.0, gt=0)
+    direction: Literal["both", "forward", "backward"] = "both"
+    color_field: str = "U_mag"
+
+
+SceneObject = Annotated[Union[ClipObject, IsoObject, StreamlinesObject], Field(discriminator="kind")]
+
+
+class SavedView(StrictModel):
+    """A camera of the viewer saved by name (D-132): the report renders each one."""
+
+    name: str = Field(min_length=1, max_length=64)
+    position: Vector
+    focal_point: Vector
+    view_up: Vector
+    parallel: bool = False
+    parallel_scale: float = 1.0
+
+
+class ResultsScene(StrictModel):
+    """The results scene objects and the saved views (schema v20, D-132)."""
+
+    objects: list[SceneObject] = Field(default_factory=list)
+    views: list[SavedView] = Field(default_factory=list)
+
+    @field_validator("objects")
+    @classmethod
+    def _unique_ids(cls, values: list) -> list:
+        ids = [v.id for v in values]
+        if len(set(ids)) != len(ids):
+            raise ValueError("two scene objects have the same id")
+        return values
+
+    @field_validator("views")
+    @classmethod
+    def _unique_views(cls, values: list[SavedView]) -> list[SavedView]:
+        names = [v.name for v in values]
+        if len(set(names)) != len(names):
+            raise ValueError("two saved views have the same name")
+        return values
+
+
 # Analysis types (schema v9, D-077): "external" (a far-field domain generated around the parts on the
 # first import), "empty" (nothing created automatically: the domain is a "Generate domain"
 # operation) and "internal" (schema v19, D-129: the fluid is the inside of the closed geometry; no domain,
@@ -869,6 +972,8 @@ class Simulation(StrictModel):
     refinement_volumes: list[RefinementVolume] = Field(default_factory=list)
     # Internal flow (schema v19, D-129): the role of each patch (a patch not listed is a wall).
     boundaries: list[PatchBoundary] = Field(default_factory=list)
+    # The results scene objects and saved views (schema v20, D-132).
+    results: ResultsScene = Field(default_factory=ResultsScene)
 
     @property
     def internal(self) -> bool:

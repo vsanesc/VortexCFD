@@ -57,11 +57,11 @@ def pipe_project(tmp_path: Path, solids=None, preset: str = "Internal flow") -> 
 # -- model, migration, roles ------------------------------------------------------------------------------
 
 
-def test_a_v18_project_migrates_to_v19_unchanged() -> None:
+def test_a_v18_project_migrates_unchanged() -> None:
     stored = json.loads((DATA / "project_v18.json").read_text())
     assert stored["schema_version"] == 18
     sim = load_simulation(DATA / "project_v18.json")
-    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 19
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 20
     assert sim.analysis_type == "external" and sim.boundaries == []
     assert sim.reports.planes == [] and sim.reports.pressure_drops == []
     assert sim.name == "v18 project" and sim.inflow.speed == stored["inflow"]["speed"]

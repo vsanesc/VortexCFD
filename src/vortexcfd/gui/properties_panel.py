@@ -79,6 +79,7 @@ from vortexcfd.workflow.meshing import (
 from vortexcfd.geometry.domain import SHAPE_LABELS
 from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_file, part_status, report_for_part
 from vortexcfd.gui.internal_rows import InternalRowsMixin
+from vortexcfd.gui.scene_rows import SceneRowsMixin
 from vortexcfd.gui.study_rows import StudyRowsMixin
 from vortexcfd.gui.volume_rows import VolumeRowsMixin
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
@@ -426,7 +427,7 @@ MESH_SECTIONS = {
 }
 
 
-class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, QWidget):
+class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneRowsMixin, QWidget):
     """Form for the selected node. Never mutates the model: all edits use the Project API.
 
     The panel does not subscribe to the project; its owner calls ``refresh()`` on changes.
@@ -442,6 +443,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, QWidge
     remove_surface_prep_requested = Signal()
     volume_action = Signal(str)  # refinement volumes (D-103): "add:<shape>", "wake", "duplicate", "delete"
     volume_preview = Signal(object)  # a RefinementVolume being edited (drawn uncommitted), None: back to the project
+    scene_action = Signal(str)  # results scene (D-132): "add:<kind>", "save_view", "go_view:<name>", "image", "report"
     # part index, linear (m) or None, angular (deg) or None: re-tessellate on the worker (D-073)
     retessellate_requested = Signal(int, object, object)
 
@@ -937,6 +939,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, QWidge
         # Refinement volumes node and each volume (under Mesh; gui/volume_rows.py, D-103).
         self._build_volume_rows()
         self._build_internal_rows()
+        self._build_scene_rows()
         self._layout.addWidget(self.info_label)
         self._layout.addStretch(1)
         self.apply_metrics(metrics(), DARK)
@@ -1176,11 +1179,12 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, QWidge
         self._refresh_mesh(self._kind == "mesh")
         self._refresh_volumes()
         self._refresh_internal()
+        self._refresh_scene()
         self.info_label.setVisible(
             not show_name and not is_domain
             and self._kind not in ("mesh", "reference_values", "stopping", "reports", "probes", "surface_prep",
                                    "prepare_surfaces", "refinement_volumes", "refinement_volume", "internal_patch",
-                                   "internal_reports")
+                                   "internal_reports", "results", "scene_object", "saved_view")
             and self._kind not in GROUPS
         )
         self._apply_label_column()

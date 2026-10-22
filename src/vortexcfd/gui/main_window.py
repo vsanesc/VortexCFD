@@ -1,6 +1,7 @@
 """Main window bound to a Project, laid out after the owner's local design mockup (D-041)."""
 
 import logging
+import math
 import os
 import shutil
 import subprocess
@@ -49,6 +50,7 @@ from vortexcfd.core.model import (
     INLET_KIND_LABELS,
     OUTLET_KIND_LABELS,
     PATCH_ROLE_LABELS,
+    SCENE_OBJECT_LABELS,
     VOLUME_SHAPES,
     Part,
     Simulation,
@@ -102,7 +104,7 @@ from vortexcfd.gui.study_control import StudyControlMixin
 from vortexcfd.foam.results import latest_result_time
 from vortexcfd.gui import paraview
 from vortexcfd.gui.colormaps import COLORMAPS, DEFAULT_COLORMAP
-from vortexcfd.gui.results_scene import DISPLAY_MODES, RANGE_MODES, ResultsLoader, ResultsView
+from vortexcfd.gui.results_scene import DISPLAY_MODES, RANGE_MODES, ResultsLoader, ResultsView, apply_view
 from vortexcfd.gui.section_tool import SectionTool
 from vortexcfd.foam.mesh_record import MeshRecord, read_mesh_record, write_mesh_record
 from vortexcfd.workflow.meshing import (
@@ -406,6 +408,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.properties.generate_domain_requested.connect(self.generate_domain)
         self.properties.prepare_surfaces_requested.connect(self.prepare_surfaces)
         self.properties.volume_action.connect(self._on_volume_action)
+        self.properties.scene_action.connect(self._on_scene_action)
         self.properties.volume_preview.connect(self._on_volume_preview)
         self.properties.remove_surface_prep_requested.connect(self.remove_surface_prep)
         self._build_actions()
@@ -992,6 +995,15 @@ class MainWindow(StudyControlMixin, QMainWindow):
             add(reports, "mesh_study", None, "Mesh Study", "dot", "accent")
             if not internal_flow:  # the angle of attack turns the parts: external flow only (D-120)
                 add(reports, "polar_sweep", None, "Polar Sweep", "dot", "accent")
+            results = add(root, "results", None, "Results", "folder", "text")  # the scene objects (D-132)
+            scene = self._project.sim.results
+            for i, obj in enumerate(scene.objects):
+                item = add(results, "scene_object", i, f"{obj.name} ({SCENE_OBJECT_LABELS[obj.kind].lower()})", "dot",
+                           "accent" if obj.visible else "muted_text")
+                if not obj.visible:
+                    item.setForeground(0, QColor(t.muted_text))
+            for i, view in enumerate(scene.views):
+                add(results, "saved_view", i, f"View: {view.name}", "dot", "accent_secondary")
             self.tree.expandAll()
             self._root_item = root
             self.tree.setRootIndex(self.tree.indexFromItem(root))  # hide the root row
@@ -1088,8 +1100,83 @@ class MainWindow(StudyControlMixin, QMainWindow):
         parts = self._project.sim.geometry.parts
         return parts[index] if index is not None and index < len(parts) else None
 
+    def _sync_scene_objects(self) -> None:
+        """Push the project's results scene objects into the Results Scene (D-132) and tell the properties rows."""
+        view = self.results_view
+        if view is not None:
+            objects = list(self._project.sim.results.objects)
+            if objects != view.scene_objects:
+                view.scene_objects = objects
+                if view.has_results:
+                    view.rebuild()
+                    view.set_visible(self._scene_mode == "results")
+                    self.viewer.render()
+        self.properties.set_scene_status(view.object_errors if view is not None else {},
+                                         view is not None and view.has_results, self.viewer is not None)
+
+    def _scene_bounds(self):
+        """The results' volume bounds, else the parts' box (metres), else None."""
+        view = self.results_view
+        if view is not None and view.has_results and view.volume_bounds() is not None:
+            return view.volume_bounds()
+        try:
+            return meshing.parts_layout(self._project)[2]
+        except meshing.MeshingNotReady:
+            return None
+
+    def _new_scene_fields(self, kind: str) -> dict:
+        """The settings a new object starts with, from the results' (or the parts') box: a clip through its centre
+        normal to x, an isosurface of |U| at its median, streamlines from a line across it near the inflow side."""
+        b = self._scene_bounds()
+        if b is None:
+            return {}
+        centre = ((b[0] + b[1]) / 2, (b[2] + b[3]) / 2, (b[4] + b[5]) / 2)
+        if kind == "clip":
+            return {"origin": centre, "normal": (1.0, 0.0, 0.0)}
+        if kind == "isosurface":
+            value = 0.0
+            view = self.results_view
+            if view is not None and view.has_results and view.data.internal is not None and "U" in view.data.internal.cell_data:
+                value = float(np.median(np.linalg.norm(np.asarray(view.data.internal.cell_data["U"]), axis=1)))
+            return {"field": "U_mag", "value": value}
+        x = b[0] + 0.05 * (b[1] - b[0])
+        diag = math.sqrt(sum((b[2 * i + 1] - b[2 * i]) ** 2 for i in range(3)))
+        return {"point1": (x, centre[1], b[4] + 0.1 * (b[5] - b[4])), "point2": (x, centre[1], b[5] - 0.1 * (b[5] - b[4])),
+                "normal": (1.0, 0.0, 0.0), "size": 0.5 * max(b[3] - b[2], b[5] - b[4], 1e-9), "max_length": 2.0 * diag}
+
+    def _on_scene_action(self, action: str) -> None:
+        """The Results node's buttons (D-132)."""
+        if action.startswith("add:"):
+            kind = action.split(":", 1)[1]
+            object_id = self._run_edit_value(lambda: self._project.add_scene_object(kind, **self._new_scene_fields(kind)))
+            if object_id is not None:
+                index = next(i for i, o in enumerate(self._project.sim.results.objects) if o.id == object_id)
+                self._select_node("scene_object", index)
+        elif action == "save_view" and self.viewer is not None:
+            cam = self.viewer.camera
+            name = self._run_edit_value(lambda: self._project.add_view(
+                f"View {len(self._project.sim.results.views) + 1}", position=tuple(cam.position),
+                focal_point=tuple(cam.focal_point), view_up=tuple(cam.up), parallel=bool(cam.parallel_projection),
+                parallel_scale=float(cam.parallel_scale)))
+            if name is not None:
+                self.show_message(f"Saved view '{name}'", "success")
+        elif action.startswith("go_view:") and self.viewer is not None:
+            name = action.split(":", 1)[1]
+            view = next((v for v in self._project.sim.results.views if v.name == name), None)
+            if view is not None:
+                apply_view(self.viewer, view)
+                self.viewer.render()
+
+    def _run_edit_value(self, edit):
+        try:
+            return edit()
+        except (ValueError, TypeError, KeyError) as exc:
+            self.show_message(str(exc), "error")
+            return None
+
     def _sync_scene(self) -> None:
         """Bring the viewer's part actors in line with the project (add, remove, edit, undo)."""
+        self._sync_scene_objects()
         if self.scene is None:
             return
         attitude = meshing.project_attitude(self._project) if self._project.sim.inflow.alpha_deg else None
@@ -1786,6 +1873,10 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._results_loading_time = time
         self.results_loader.start(case_dir_for(self._project), time, self._mesh_patches)
 
+    def _on_results_loaded_objects(self) -> None:
+        if self.results_view is not None:
+            self.results_view.scene_objects = list(self._project.sim.results.objects)
+
     def _on_results_loaded(self, data) -> None:
         if self.results_view is None:
             return
@@ -1793,7 +1884,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
             log.info("Ignored the results of %s: the project changed while they were read", data.case_dir)
             return
         self._results_shown_time = data.time
+        self._on_results_loaded_objects()
         self._apply_results_controls(data)
+        self._sync_scene_objects()
         log.info("Results loaded: time %s, fields %s", data.time, ", ".join(f.label for f in data.fields))
         self.show_message(f"Results at time {data.time}", "success", log_it=False)
         if self._scene_mode == "results":

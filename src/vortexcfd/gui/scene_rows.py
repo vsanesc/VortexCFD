@@ -1,0 +1,235 @@
+"""Rows of the Results node, of each results scene object and of each saved view (D-132), mixed into
+PropertiesPanel. ``_kind`` "results" shows the add buttons; "scene_object" one object (``_index`` into
+Simulation.results.objects); "saved_view" one view. The panel owns the signal ``scene_action(str)`` ("add:<kind>",
+"save_view", "go_view:<name>", "image", "report"), handled by the main window, which knows the viewer and the
+results. Every committed edit is one Project step.
+"""
+
+from PySide6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QHBoxLayout, QLineEdit, QPushButton, QSpinBox, QWidget
+
+from vortexcfd.core.model import SCENE_OBJECT_KINDS, SCENE_OBJECT_LABELS
+from vortexcfd.foam.results import FIELD_SPECS
+from vortexcfd.gui.volume_rows import COORD_RANGE, VectorEdit
+
+# The volume fields an isosurface or streamlines can use (the wall-only fields are not in the volume).
+VOLUME_FIELDS = tuple(f for f in FIELD_SPECS if f.source in ("p", "U", "k", "omega", "nut"))
+KEEP_LABELS = {"behind": "Behind the normal", "front": "In front of the normal"}
+DIRECTION_LABELS = {"both": "Both ways", "forward": "Forward", "backward": "Backward"}
+SEED_LABELS = {"line": "Line", "plane": "Plane"}
+# (field, label, widget kind) per object kind; "vector", "float", "int", "combo:<choices>", "field".
+OBJECT_FIELDS = {
+    "clip": (("origin", "Plane point", "vector"), ("normal", "Plane normal", "vector"), ("keep", "Side kept", "keep")),
+    "isosurface": (("field", "Field", "field"), ("value", "Value", "float")),
+    "streamlines": (("seed", "Seeds on", "seed"), ("point1", "Line start / plane centre", "vector"),
+                    ("point2", "Line end", "vector"), ("normal", "Plane normal", "vector"),
+                    ("size", "Plane side", "length"), ("n_seeds", "Seeds", "int"),
+                    ("max_length", "Maximum length", "length"), ("direction", "Direction", "direction"),
+                    ("color_field", "Coloured by", "field")),
+}
+
+
+def _combo(choices: dict) -> QComboBox:
+    box = QComboBox()
+    for key, label in choices.items():
+        box.addItem(label, key)
+    return box
+
+
+class SceneRowsMixin:
+    """The results scene rows (D-132)."""
+
+    def _build_scene_rows(self) -> None:
+        self._section("sc_list", "Results scene")
+        self.sc_summary = self._ro_row("sc_summary", "Objects")
+        adds = QWidget()
+        box = QHBoxLayout(adds)
+        box.setContentsMargins(0, 0, 0, 0)
+        self.sc_add_buttons = {}
+        for kind in SCENE_OBJECT_KINDS:
+            button = QPushButton(SCENE_OBJECT_LABELS[kind])
+            button.setToolTip(f"Add a {SCENE_OBJECT_LABELS[kind].lower()} to the Results Scene")
+            button.clicked.connect(lambda _=False, k=kind: self.scene_action.emit(f"add:{k}"))
+            box.addWidget(button)
+            self.sc_add_buttons[kind] = button
+        self._layout.addWidget(self._make_row("sc_add", "Add", adds))
+        actions = QWidget()
+        box = QHBoxLayout(actions)
+        box.setContentsMargins(0, 0, 0, 0)
+        self.sc_save_view = QPushButton("Save view")
+        self.sc_save_view.setToolTip("Save the viewer's camera as a view (the report shows every saved view)")
+        self.sc_save_view.clicked.connect(lambda: self.scene_action.emit("save_view"))
+        self.sc_image = QPushButton("Export image…")
+        self.sc_image.clicked.connect(lambda: self.scene_action.emit("image"))
+        self.sc_report = QPushButton("Create report")
+        self.sc_report.setToolTip("Write an HTML report to <project>/reports/")
+        self.sc_report.clicked.connect(lambda: self.scene_action.emit("report"))
+        for b in (self.sc_save_view, self.sc_image, self.sc_report):
+            box.addWidget(b)
+        self.sc_image.setVisible(False)  # built in Part F (image export)
+        self.sc_report.setVisible(False)  # built in Part G (HTML report)
+        self._layout.addWidget(self._make_row("sc_actions", "", actions))
+        # one object
+        self._section("sc_object", "Scene object")
+        self.sc_name = QLineEdit()
+        self.sc_name.editingFinished.connect(lambda: self._commit_scene(name=self.sc_name.text().strip()))
+        self._layout.addWidget(self._make_row("sc_name", "Name", self.sc_name))
+        self.sc_visible = QCheckBox()
+        self.sc_visible.toggled.connect(lambda on: self._commit_scene(visible=on))
+        self._layout.addWidget(self._make_row("sc_visible", "Visible", self.sc_visible))
+        self.sc_status = self._ro_row("sc_status", "Status")
+        self.sc_fields: dict[tuple[str, str], QWidget] = {}
+        for kind, fields in OBJECT_FIELDS.items():
+            for name, label, widget_kind in fields:
+                widget = self._scene_widget(widget_kind)
+                self.sc_fields[(kind, name)] = widget
+                self._connect_scene_widget(widget, name)
+                self._layout.addWidget(self._make_row(f"sc_{kind}_{name}", label, widget))
+        self.sc_delete = QPushButton("Delete")
+        self.sc_delete.clicked.connect(self._delete_scene_object)
+        self._layout.addWidget(self._make_row("sc_delete", "", self.sc_delete))
+        # one saved view
+        self._section("sv_section", "Saved view")
+        self.sv_camera = self._ro_row("sv_camera", "Camera")
+        view_actions = QWidget()
+        box = QHBoxLayout(view_actions)
+        box.setContentsMargins(0, 0, 0, 0)
+        self.sv_go = QPushButton("Show")
+        self.sv_go.clicked.connect(self._go_view)
+        self.sv_delete = QPushButton("Delete")
+        self.sv_delete.clicked.connect(self._delete_view)
+        box.addWidget(self.sv_go)
+        box.addWidget(self.sv_delete)
+        self._layout.addWidget(self._make_row("sv_actions", "", view_actions))
+
+    def _scene_widget(self, kind: str) -> QWidget:
+        if kind == "vector":
+            return VectorEdit(" m")
+        if kind in ("float", "length"):
+            box = QDoubleSpinBox()
+            box.setRange(1e-9 if kind == "length" else -1e12, 1e12)
+            box.setDecimals(6)
+            box.setKeyboardTracking(False)
+            if kind == "length":
+                box.setSuffix(" m")
+            return box
+        if kind == "int":
+            box = QSpinBox()
+            box.setRange(1, 10_000)
+            box.setKeyboardTracking(False)
+            return box
+        if kind == "field":
+            return _combo({f.key: f"{f.label}" + (f" ({f.units})" if f.units else "") for f in VOLUME_FIELDS})
+        return _combo({"keep": KEEP_LABELS, "seed": SEED_LABELS, "direction": DIRECTION_LABELS}[kind])
+
+    def _connect_scene_widget(self, widget: QWidget, name: str) -> None:
+        if isinstance(widget, VectorEdit):
+            for spin in widget.spins:
+                spin.editingFinished.connect(lambda w=widget, n=name: self._commit_scene(**{n: w.value()}))
+        elif isinstance(widget, (QDoubleSpinBox, QSpinBox)):
+            widget.editingFinished.connect(lambda w=widget, n=name: self._commit_scene(**{n: w.value()}))
+        else:
+            widget.currentIndexChanged.connect(lambda _i, w=widget, n=name: self._commit_scene(**{n: w.currentData()}))
+
+    def _scene_keys(self) -> list[str]:
+        return ["sc_name", "sc_visible", "sc_status", "sc_delete"] + [f"sc_{k}_{n}" for k, n in self.sc_fields]
+
+    def _selected_scene_object(self):
+        objects = self._project.sim.results.objects
+        if self._kind == "scene_object" and self._index is not None and 0 <= self._index < len(objects):
+            return objects[self._index]
+        return None
+
+    def _selected_view(self):
+        views = self._project.sim.results.views
+        if self._kind == "saved_view" and self._index is not None and 0 <= self._index < len(views):
+            return views[self._index]
+        return None
+
+    def set_scene_status(self, errors: dict[str, str], has_results: bool, has_viewer: bool) -> None:
+        """The viewer's state for these rows: why an object draws nothing, whether results and a viewer exist."""
+        self._scene_errors, self._scene_results, self._scene_viewer = errors, has_results, has_viewer
+        if self._kind in ("results", "scene_object", "saved_view"):
+            self._refresh_scene()
+
+    def _refresh_scene(self) -> None:
+        show_list = self._kind == "results"
+        obj, view = self._selected_scene_object(), self._selected_view()
+        self._sections["sc_list"].setVisible(show_list)
+        for key in ("sc_summary", "sc_add", "sc_actions"):
+            self._rows[key].setVisible(show_list)
+        self._sections["sc_object"].setVisible(obj is not None)
+        for key in self._scene_keys():
+            self._rows[key].setVisible(False)
+        self._sections["sv_section"].setVisible(view is not None)
+        for key in ("sv_camera", "sv_actions"):
+            self._rows[key].setVisible(view is not None)
+        has_viewer = getattr(self, "_scene_viewer", False)
+        has_results = getattr(self, "_scene_results", False)
+        if show_list:
+            sim = self._project.sim
+            self.sc_summary.setText("\n".join(f"{o.name}: {SCENE_OBJECT_LABELS[o.kind].lower()}"
+                                              + ("" if o.visible else " (hidden)") for o in sim.results.objects)
+                                    or "none: add one below")
+            self.sc_save_view.setEnabled(has_viewer)
+            self.sc_image.setEnabled(has_viewer)
+            self.sc_report.setEnabled(self._project.path is not None)
+        if view is not None:
+            self.sv_camera.setText(f"from ({', '.join(f'{v:.4g}' for v in view.position)}) to "
+                                   f"({', '.join(f'{v:.4g}' for v in view.focal_point)})")
+            self.sv_go.setEnabled(has_viewer)
+        if obj is None:
+            return
+        for key in ("sc_name", "sc_visible", "sc_status", "sc_delete"):
+            self._rows[key].setVisible(True)
+        for name, *_ in OBJECT_FIELDS[obj.kind]:
+            visible = not (obj.kind == "streamlines" and ((obj.seed == "line" and name in ("normal", "size"))
+                                                         or (obj.seed == "plane" and name == "point2")))
+            self._rows[f"sc_{obj.kind}_{name}"].setVisible(visible)
+        widgets = [self.sc_name, self.sc_visible, *self.sc_fields.values()]
+        spins = [s for w in self.sc_fields.values() for s in getattr(w, "spins", [])]
+        for w in widgets + spins:
+            w.blockSignals(True)
+        try:
+            self.sc_name.setText(obj.name)
+            self.sc_visible.setChecked(obj.visible)
+            for name, *_ in OBJECT_FIELDS[obj.kind]:
+                widget, value = self.sc_fields[(obj.kind, name)], getattr(obj, name)
+                if isinstance(widget, QComboBox):
+                    widget.setCurrentIndex(max(0, widget.findData(value)))
+                else:
+                    widget.setValue(value)
+        finally:
+            for w in widgets + spins:
+                w.blockSignals(False)
+        error = getattr(self, "_scene_errors", {}).get(obj.id)
+        self.sc_status.setText(error or ("shown" if obj.visible and has_results else
+                                         "hidden" if not obj.visible else "no results yet: run the solver"))
+        self._set_warn(self.sc_status, error is not None)
+
+    def _commit_scene(self, **fields) -> None:
+        obj = self._selected_scene_object()
+        if obj is None:
+            return
+        try:
+            self._project.update_scene_object(obj.id, **fields)
+        except (ValueError, TypeError, KeyError) as exc:  # includes pydantic errors
+            self.message.emit(str(exc))
+        self.refresh()
+
+    def _delete_scene_object(self) -> None:
+        obj = self._selected_scene_object()
+        if obj is not None:
+            self._project.remove_scene_object(obj.id)
+
+    def _go_view(self) -> None:
+        view = self._selected_view()
+        if view is not None:
+            self.scene_action.emit(f"go_view:{view.name}")
+
+    def _delete_view(self) -> None:
+        view = self._selected_view()
+        if view is not None:
+            self._project.remove_view(view.name)
+
+
+__all__ = ["SceneRowsMixin", "VOLUME_FIELDS", "COORD_RANGE"]

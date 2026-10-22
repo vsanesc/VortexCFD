@@ -16,6 +16,7 @@ from vortexcfd.foam.results import FIELDS_BY_KEY, FieldSpec, available_fields, f
 from vortexcfd.foam.wall_fields import skin_friction_along
 from vortexcfd.gui.colormaps import DEFAULT_COLORMAP, matplotlib_name
 from vortexcfd.gui.theme import Theme
+from vortexcfd.workflow.results_objects import object_geometry, point_fields
 
 SHOWN = "_shown"  # name of the computed array drawn on a dataset
 RANGE_MODES = ("auto", "fixed", "symmetric")
@@ -82,6 +83,17 @@ class ResultsLoader(QObject):
             self._thread.join(timeout)
 
 
+def apply_view(plotter, view) -> None:
+    """Put a saved view's camera (core.model.SavedView, D-132) on ``plotter`` (no render)."""
+    cam = plotter.camera
+    cam.position = tuple(view.position)
+    cam.focal_point = tuple(view.focal_point)
+    cam.up = tuple(view.view_up)
+    cam.parallel_projection = view.parallel
+    cam.parallel_scale = view.parallel_scale
+    plotter.renderer.ResetCameraClippingRange()
+
+
 def color_range(values: np.ndarray, mode: str, fixed: tuple[float, float] | None = None) -> tuple[float, float]:
     """The colour scale limits: the data range (auto), the user's limits (fixed) or the data range
     made symmetric about zero (symmetric). A zero-width range is widened so VTK can draw it."""
@@ -127,6 +139,12 @@ class ResultsView:
         self.section_position: float | None = None
         self.font_size = 11
         self.actors: list = []
+        # The results scene objects (D-132): the model's clips, isosurfaces and streamlines; their actors and the
+        # reason an object draws nothing (by id).
+        self.scene_objects: list = []
+        self.object_actors: list = []
+        self.object_errors: dict[str, str] = {}
+        self._points = None  # the internal mesh with point fields (cached per data)
         self.section_actor = None
         self.scalar_bar = None
         self._bar_title = ""
@@ -143,6 +161,7 @@ class ResultsView:
 
     def set_data(self, data: ResultsData | None) -> None:
         self.data = data
+        self._points = None
         keys = [f.key for f in data.fields] if data is not None else []
         if self.field_key not in keys:
             self.field_key = "Cp" if "Cp" in keys else (keys[0] if keys else None)
@@ -176,7 +195,7 @@ class ResultsView:
 
     def set_visible(self, visible: bool) -> None:
         self._visible = visible
-        for actor in (*self.actors, *self.separation_actors, self.section_actor, self.scalar_bar):
+        for actor in (*self.actors, *self.separation_actors, *self.object_actors, self.section_actor, self.scalar_bar):
             if actor is not None:
                 actor.SetVisibility(visible)
 
@@ -251,10 +270,11 @@ class ResultsView:
         return float(np.mean(allv < 0)) if allv.size else None
 
     def _remove_actors(self) -> None:
-        for actor in (*self.actors, *self.separation_actors):
+        for actor in (*self.actors, *self.separation_actors, *self.object_actors):
             self.plotter.remove_actor(actor, render=False)
         self.actors = []
         self.separation_actors = []
+        self.object_actors = []
         self.plotter.remove_actor(self.SECTION_NAME, render=False)
         self.section_actor = None
         if self.scalar_bar is not None:
@@ -263,6 +283,43 @@ class ResultsView:
             except (KeyError, ValueError, AttributeError):
                 pass
             self.scalar_bar = None
+
+    def _point_values(self, spec: FieldSpec | None, dataset) -> np.ndarray | None:
+        if spec is None or spec.source not in dataset.point_data:
+            return None
+        return field_values(spec, {spec.source: dataset.point_data[spec.source]}, self.u_ref, self.flow_direction)
+
+    def object_datasets(self) -> list:
+        """(object, dataset with the SHOWN point array) of every visible scene object that draws something
+        (D-132); ``object_errors`` gets the reason for the others. Clips and isosurfaces show the scene's field,
+        streamlines their own ``color_field``."""
+        self.object_errors = {}
+        out = []
+        if not self.has_results or not self.scene_objects:
+            return out
+        if self.data.internal is None:
+            self.object_errors = {o.id: "no volume mesh in the results" for o in self.scene_objects}
+            return out
+        if self._points is None:
+            self._points = point_fields(self.data.internal)
+        for obj in self.scene_objects:
+            if not obj.visible:
+                continue
+            try:
+                geometry = object_geometry(self._points, obj, self.u_ref, self.flow_direction)
+            except ValueError as exc:
+                self.object_errors[obj.id] = str(exc)
+                continue
+            spec = FIELDS_BY_KEY.get(obj.color_field) if obj.kind == "streamlines" else self.field()
+            values = self._point_values(spec, geometry) if geometry.n_points else None
+            if values is None:
+                self.object_errors[obj.id] = ("nothing to draw (the plane, value or seeds are outside the fluid)"
+                                              if not geometry.n_points else "the field is not in the results")
+                continue
+            geometry = geometry.copy()
+            geometry.point_data[SHOWN] = values
+            out.append((obj, geometry))
+        return out
 
     def rebuild(self) -> None:
         self._remove_actors()
@@ -292,9 +349,12 @@ class ResultsView:
                 shown.cell_data[SHOWN] = values
                 walls.append((name, shown))
         datasets = [d for _, d in walls] + ([section] if section is not None else [])
-        if not datasets:
+        objects = self.object_datasets()
+        shared = [d for o, d in objects if o.kind != "streamlines"]  # the scene field's colour range
+        if not datasets and not objects:
             return
-        all_values = np.concatenate([np.asarray(d.cell_data[SHOWN]) for d in datasets])
+        all_values = np.concatenate([np.asarray(d.cell_data[SHOWN]) for d in datasets]
+                                    + [np.asarray(d.point_data[SHOWN]) for d in shared] or [np.zeros(1)])
         lo, hi = color_range(all_values, self.range_mode, self.fixed_range)
         cmap = matplotlib_name(self.colormap)
         common = dict(scalars=SHOWN, cmap=cmap, clim=(lo, hi), show_scalar_bar=False, lighting=True,
@@ -315,7 +375,17 @@ class ResultsView:
         if section is not None:
             self.section_actor = self.plotter.add_mesh(section, name=self.SECTION_NAME,
                                                        **{**common, "lighting": False})
-        mapper = (self.actors[0] if self.actors else self.section_actor).mapper
+        for obj, dataset in objects:
+            own = obj.kind == "streamlines"
+            clim = color_range(np.asarray(dataset.point_data[SHOWN]), "auto") if own else (lo, hi)
+            extra = {"line_width": 2.0} if own else {}
+            self.object_actors.append(self.plotter.add_mesh(
+                dataset, name=f"results_obj_{obj.id}", **{**common, "clim": clim, "preference": "point"}, **extra))
+        first = self.actors[0] if self.actors else self.section_actor
+        if first is None:
+            first = next((a for (o, _d), a in zip(objects, self.object_actors) if o.kind != "streamlines"),
+                         self.object_actors[0] if self.object_actors else None)
+        mapper = first.mapper
         self._add_scalar_bar(mapper, spec)
         self.set_visible(self._visible)
 

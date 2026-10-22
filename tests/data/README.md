@@ -59,6 +59,10 @@ Hand-written schema v11 project in the form the app saved it (one part, the v10 
 `project_v17.json` brought to schema v18 by hand (the v17 -> v18 step: the polar sweep without `init_from_previous`,
 the refinement volumes with `frame` "body", name "v18 project"). Used by tests/test_internal_flow.py to check the
 v18 -> v19 migration: an external project, no boundaries, planes or pressure drops, everything else kept (D-129).
+## `project_v19.json`
+`project_v18.json` brought to schema v19 by hand (empty `boundaries`, `reports.planes` and `reports.pressure_drops`;
+name "v19 project"). Used by tests/test_scene_objects.py to check the v19 -> v20 migration: no results scene objects or
+saved views, everything else kept (D-132).
 ## `preset_v1.json`
 Hand-written user preset in file format 1 (no `schema_version`, i.e. written before schema v10): a box domain with y_min symmetry and a mesh block without `layer_sizing`, `target_yplus`, `surface_size_reference` or `curvature_levels`. Used by tests/test_presets.py to check that it is read with the v9 mesh behaviour and its stored values (D-090).
 ## `stop_run/` (`log.simpleFoam`, `coefficient.dat`)
