@@ -61,6 +61,9 @@ class FirstCell:
     p95_m: float | None = None
     planned_m: float | None = None
     error: str | None = None
+    # The wall area share (0-1) whose first cell is more than twice the planned one, i.e. y+ beyond twice the
+    # target there (task W2; None: not measured, records before it).
+    share_over_2x: float | None = None
 
     @property
     def ratio(self) -> float | None:

@@ -110,11 +110,12 @@ def celik_gci(phi1: float, phi2: float, phi3: float, r21: float, r32: float) -> 
     return GciResult(MONOTONIC, p, ext, ea21, eext, gci21, gci32, ratio)
 
 
-def cell_size(volume: float, cells: int) -> float:
-    """Representative cell size h = (V / N)^(1/3) (Celik et al. 2008, Eq. 1, 3D)."""
+def cell_size(volume: float, cells: int, dimensions: int = 3) -> float:
+    """Representative cell size h = (V / N)^(1/3) in 3D, (A / N)^(1/2) in 2D with ``volume`` the area
+    (Celik et al. 2008, Eqs. 1 and 2)."""
     if cells <= 0 or volume <= 0:
         raise ValueError("volume and cell count must be positive")
-    return (volume / cells) ** (1.0 / 3.0)
+    return (volume / cells) ** (1.0 / dimensions)
 
 
 def study(values: list[float], sizes: list[float]) -> GciResult:

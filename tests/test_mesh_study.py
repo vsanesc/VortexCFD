@@ -123,6 +123,7 @@ def test_rows_flag_unreliable_levels_and_oscillation(tmp_path: Path) -> None:
 class _Report:
     cells: int
     valid: bool = True
+    first_cell: object = None
 
     def summary(self) -> str:
         return "fake"
@@ -140,7 +141,7 @@ class FakeMeshRun:
 
     cores: list = []
 
-    def __init__(self, case, *, on_line=None, step_timeout_s=None, parts=(), cores=1):
+    def __init__(self, case, *, on_line=None, step_timeout_s=None, parts=(), cores=1, first_layer=None):
         self.case = Path(case)
         FakeMeshRun.calls.append(self.case.name)
         FakeMeshRun.cores.append(cores)

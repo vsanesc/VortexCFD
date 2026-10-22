@@ -81,7 +81,8 @@ def measure_first_cell(case_dir: Path, patches: tuple[str, ...], first_layer: fl
             return FirstCell(planned_m=first_layer, error="no wall patch in the mesh")
         area, cell, layers = (np.concatenate([d[k] for d in walked.values()]) for k in ("area", "first_cell", "layers"))
         stats = layer_walk.first_cell_stats(area, cell, layers)
-        return FirstCell(mean_m=stats["mean_m"], p95_m=stats["p95_m"], planned_m=first_layer)
+        over = float(area[cell > 2.0 * first_layer].sum() / area.sum()) if float(area.sum()) > 0 else None
+        return FirstCell(mean_m=stats["mean_m"], p95_m=stats["p95_m"], planned_m=first_layer, share_over_2x=over)
     except Exception as exc:  # noqa: BLE001 - recorded, see the docstring
         return FirstCell(planned_m=first_layer, error=f"{type(exc).__name__}: {exc}")
 
