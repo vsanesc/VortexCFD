@@ -1,13 +1,13 @@
-"""D-127 check (QUESTIONS 203): real 3D mesh studies, mesh only, of the public benchmark's sphere and half wing.
+"""D-127 check (QUESTIONS 203, 204): real 3D mesh studies, mesh only, of the public benchmark's sphere and half wing.
 
-Every level of the app's mesh study (D-066, D-127: the non-current levels with the current settings' distance
-shells and nCellsBetweenLevels 1) is meshed, and every non-current level also as a single mesh: the same
-MeshCaseInput with buffer_scale 1 (what a single mesh at that level's settings writes: nCellsBetweenLevels 3, no
-shells); the current (fine) level is a single mesh already. Per mesh: cells, checkMesh hard / soft failures (D-100),
-max non-orthogonality and faces above 70 degrees, the walked strict layer coverage overall and per zone, the walked
-first cell, and the median cell size within 0.1 reference length of three fixed points.
+Every level of the app's mesh study (D-066, D-127: since QUESTIONS 204 every level, the current one included, with
+the current settings' distance shells and nCellsBetweenLevels 1) is meshed; with --singles every level also as a
+single mesh: the same MeshCaseInput as a single mesh (buffer_scale 1, study_level False: nCellsBetweenLevels 3, no
+shells). Per mesh: cells, checkMesh hard / soft failures (D-100), max non-orthogonality and faces above 70 degrees,
+the walked strict layer coverage overall and per zone, the walked first cell, the median cell size within 0.1
+reference length of the fixed points, and the size of the cell containing each point (``containing_cell_m``).
 
-    nice -n 15 .venv/bin/python scripts/validation/study3d_check.py [--cases sphere wing]
+    nice -n 15 .venv/bin/python scripts/validation/study3d_check.py [--cases sphere wing] [--singles] [--out NAME]
 
 Serial meshing (the benchmark's). Cases in run/validation/study3d/ (git-ignored); numbers to
 docs/validation/study3d/result.json.
@@ -67,10 +67,30 @@ def cell_sizes(mesh: PolyMesh) -> tuple[np.ndarray, np.ndarray]:
 
 
 def fixed_points(parts_bounds, length: float) -> dict[str, tuple[float, float, float]]:
-    """One reference length ahead of and above the parts' box, two behind it (the wake), at the box's middle."""
+    """One reference length ahead of and above the parts' box, two behind it (the wake), at the box's middle; and
+    inside the transition zone half a length ahead and above, one length behind."""
     x0, x1, y0, y1, z0, z1 = parts_bounds
     yc, zc, xc = (y0 + y1) / 2, (z0 + z1) / 2, (x0 + x1) / 2
-    return {"ahead": (x0 - length, yc, zc), "above": (xc, yc, z1 + length), "wake": (x1 + 2 * length, yc, zc)}
+    return {"ahead": (x0 - length, yc, zc), "above": (xc, yc, z1 + length), "wake": (x1 + 2 * length, yc, zc),
+            "ahead 0.5L": (x0 - 0.5 * length, yc, zc), "above 0.5L": (xc, yc, z1 + 0.5 * length),
+            "wake 1L": (x1 + length, yc, zc)}
+
+
+def containing_cell(mesh: PolyMesh, faces: tuple[np.ndarray, np.ndarray], centres: np.ndarray, point,
+                    candidates: int = 64) -> int | None:
+    """The cell containing ``point``: among the nearest cell centres, the one whose faces all have the point on
+    their inner side (face centre and area vector, outward for the owner; snappyHexMesh's cells are convex up to
+    the snapped wall layer, far from these points)."""
+    fc, fv = faces
+    p = np.asarray(point, dtype=float)
+    for cell in np.argsort(((centres - p) ** 2).sum(axis=1))[:candidates]:
+        own = np.nonzero(mesh.owner == cell)[0]
+        nei = np.nonzero(mesh.neighbour == cell)[0]
+        side = np.concatenate([((p - fc[own]) * fv[own]).sum(axis=1), -((p - fc[nei]) * fv[nei]).sum(axis=1)])
+        tol = 1e-9 * np.linalg.norm(np.concatenate([fv[own], fv[nei]]), axis=1)
+        if (side <= tol).all():
+            return int(cell)
+    return None
 
 
 def measure(case, case_dir: Path, inputs, points: dict, length: float) -> dict:
@@ -100,16 +120,20 @@ def measure(case, case_dir: Path, inputs, points: dict, length: float) -> dict:
     out["planned_first_m"] = planned[0] if planned else None
     out["zones"] = {z: {"coverage_percent": d.get("coverage_percent"), "first_cell_m": (d.get("first_cell") or {}).get("mean_m")}
                     for z, d in walk.get("zones", {}).items()}
-    centres, size = cell_sizes(PolyMesh.read(case_dir))
-    out["point_cell_m"] = {}
+    poly = PolyMesh.read(case_dir)
+    centres, size = cell_sizes(poly)
+    fc, fv, _ = face_geometry(poly.points, poly.faces)
+    out["point_cell_m"], out["containing_cell_m"] = {}, {}
     for name, p in points.items():
         near = ((centres - np.asarray(p)) ** 2).sum(axis=1) <= (0.1 * length) ** 2
         out["point_cell_m"][name] = {"median": float(np.median(size[near])) if near.any() else None,
                                      "cells": int(near.sum())}
+        cell = containing_cell(poly, (fc, fv), centres, p)
+        out["containing_cell_m"][name] = float(size[cell]) if cell is not None else None
     return out
 
 
-def run_case(name: str) -> dict:
+def run_case(name: str, singles: bool) -> dict:
     case = CASES[name]
     work = WORK / name
     project = new_project(case, work)
@@ -136,12 +160,12 @@ def run_case(name: str) -> dict:
         row = {"level": lp.level.name, "factor": lp.level.factor, "base_m": lp.estimate.base_size,
                "surface_m": lp.estimate.surface_size, "buffer_scale": inputs.buffer_scale}
         single_case = None
-        if inputs.buffer_scale != 1.0:  # the same settings as a single mesh (nCellsBetweenLevels 3, no shells)
+        if singles:  # the same settings as a single mesh (nCellsBetweenLevels 3, no shells)
             single_case = work / f"single_{lp.level.name}"
             if single_case.exists():
                 shutil.rmtree(single_case)
             shutil.copytree(study_case, single_case)
-            single_inputs = dataclasses.replace(inputs, buffer_scale=1.0)
+            single_inputs = dataclasses.replace(inputs, buffer_scale=1.0, study_level=False)
             prepare_case_dir(single_case, build_mesh_files(single_inputs))
         say(f"{name} {lp.level.name}: study level (buffer scale {inputs.buffer_scale:.4g})")
         row["study"] = measure(case, study_case, inputs, points, length)
@@ -151,7 +175,7 @@ def run_case(name: str) -> dict:
             row["single"] = measure(case, single_case, single_inputs, points, length)
             say(f"  {json.dumps({k: row['single'].get(k) for k in ('cells', 'valid', 'max_non_ortho', 'faces_gt70', 'coverage_percent')})}")
         else:
-            row["single"] = "the study level (current settings)"
+            row["single"] = "not meshed (--singles; previous check: docs/validation/study3d/result_q203.json)"
         out["levels"].append(row)
     return out
 
@@ -159,13 +183,15 @@ def run_case(name: str) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--cases", nargs="+", default=["sphere", "wing"])
+    parser.add_argument("--singles", action="store_true", help="also mesh every level as a single mesh")
+    parser.add_argument("--out", default="result.json")
     args = parser.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     results = []
     for name in args.cases:
-        results.append(run_case(name))
-        (OUT / "result.json").write_text(json.dumps({"cases": results}, indent=2, default=float) + "\n")
-    say(f"wrote {OUT / 'result.json'}")
+        results.append(run_case(name, args.singles))
+        (OUT / args.out).write_text(json.dumps({"cases": results}, indent=2, default=float) + "\n")
+    say(f"wrote {OUT / args.out}")
 
 
 if __name__ == "__main__":

@@ -19,6 +19,21 @@
           2.499922126531601,
           0.0,
           0.0
+        ],
+        "ahead 0.5L": [
+          -0.999922126531601,
+          0.0,
+          0.0
+        ],
+        "above 0.5L": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "wake 1L": [
+          1.499922126531601,
+          0.0,
+          0.0
         ]
       },
       "reference_length": 1.0,
@@ -30,7 +45,7 @@
           "surface_m": 0.01678204995229102,
           "buffer_scale": 0.5000000000000001,
           "study": {
-            "mesh_s": 15.0,
+            "mesh_s": 14.0,
             "cells": 93976,
             "valid": true,
             "hard": [],
@@ -55,38 +70,30 @@
               "wake": {
                 "median": null,
                 "cells": 0
+              },
+              "ahead 0.5L": {
+                "median": null,
+                "cells": 0
+              },
+              "above 0.5L": {
+                "median": null,
+                "cells": 0
+              },
+              "wake 1L": {
+                "median": null,
+                "cells": 0
               }
+            },
+            "containing_cell_m": {
+              "ahead": 0.5470573200346494,
+              "above": 0.5476377586756217,
+              "wake": 0.5458414873744137,
+              "ahead 0.5L": 0.27432073493615117,
+              "above 0.5L": 0.2749508634868449,
+              "wake 1L": 0.5467854700322312
             }
           },
-          "single": {
-            "mesh_s": 20.9,
-            "cells": 45945,
-            "valid": true,
-            "hard": [],
-            "soft": [],
-            "max_non_ortho": 50.977749,
-            "faces_gt70": 0,
-            "max_skewness": 0.73758129,
-            "coverage_percent": 100.0,
-            "mean_layers": 6.000000000000001,
-            "first_cell_m": 0.001798895696960941,
-            "planned_first_m": 0.0018012965253671146,
-            "zones": {},
-            "point_cell_m": {
-              "ahead": {
-                "median": null,
-                "cells": 0
-              },
-              "above": {
-                "median": null,
-                "cells": 0
-              },
-              "wake": {
-                "median": null,
-                "cells": 0
-              }
-            }
-          }
+          "single": "not meshed (--singles; previous check: docs/validation/study3d/result_q203.json)"
         },
         {
           "level": "medium",
@@ -120,38 +127,30 @@
               "wake": {
                 "median": null,
                 "cells": 0
-              }
-            }
-          },
-          "single": {
-            "mesh_s": 30.3,
-            "cells": 110271,
-            "valid": true,
-            "hard": [],
-            "soft": [],
-            "max_non_ortho": 49.808151,
-            "faces_gt70": 0,
-            "max_skewness": 0.966437,
-            "coverage_percent": 100.0,
-            "mean_layers": 6.016277776020138,
-            "first_cell_m": 0.0018001993240455627,
-            "planned_first_m": 0.0018012965253671146,
-            "zones": {},
-            "point_cell_m": {
-              "ahead": {
-                "median": 0.38203612238376117,
-                "cells": 1
               },
-              "above": {
-                "median": 0.38184458077684846,
-                "cells": 1
-              },
-              "wake": {
+              "ahead 0.5L": {
                 "median": null,
                 "cells": 0
+              },
+              "above 0.5L": {
+                "median": null,
+                "cells": 0
+              },
+              "wake 1L": {
+                "median": 0.38227804217611466,
+                "cells": 1
               }
+            },
+            "containing_cell_m": {
+              "ahead": 0.382011708781302,
+              "above": 0.3820548605993759,
+              "wake": 0.38170505938596117,
+              "ahead 0.5L": 0.19166199812133375,
+              "above 0.5L": 0.1918415843129497,
+              "wake 1L": 0.38227804217611466
             }
-          }
+          },
+          "single": "not meshed (--singles; previous check: docs/validation/study3d/result_q203.json)"
         },
         {
           "level": "fine",
@@ -160,17 +159,17 @@
           "surface_m": 0.008391024976145512,
           "buffer_scale": 1.0,
           "study": {
-            "mesh_s": 56.7,
-            "cells": 233534,
+            "mesh_s": 104.2,
+            "cells": 530395,
             "valid": true,
             "hard": [],
             "soft": [],
-            "max_non_ortho": 46.462376,
+            "max_non_ortho": 40.258822,
             "faces_gt70": 0,
-            "max_skewness": 0.84915829,
-            "coverage_percent": 99.58699272779134,
-            "mean_layers": 6.023024797686389,
-            "first_cell_m": 0.0018007142569228345,
+            "max_skewness": 0.54196759,
+            "coverage_percent": 92.30146619953169,
+            "mean_layers": 5.953451841191677,
+            "first_cell_m": 0.0018011192039959632,
             "planned_first_m": 0.0018012965253671146,
             "zones": {},
             "point_cell_m": {
@@ -185,10 +184,30 @@
               "wake": {
                 "median": null,
                 "cells": 0
+              },
+              "ahead 0.5L": {
+                "median": null,
+                "cells": 0
+              },
+              "above 0.5L": {
+                "median": 0.10158715578093716,
+                "cells": 4
+              },
+              "wake 1L": {
+                "median": 0.26914354054703654,
+                "cells": 1
               }
+            },
+            "containing_cell_m": {
+              "ahead": 0.26929955918082316,
+              "above": 0.2688127613380174,
+              "wake": 0.26834682248643926,
+              "ahead 0.5L": 0.13509881792846617,
+              "above 0.5L": 0.13531759866553458,
+              "wake 1L": 0.26914354054703654
             }
           },
-          "single": "the study level (current settings)"
+          "single": "not meshed (--singles; previous check: docs/validation/study3d/result_q203.json)"
         }
       ]
     },
@@ -211,6 +230,21 @@
           3.0,
           0.7500000596046448,
           -3.2279640436172485e-06
+        ],
+        "ahead 0.5L": [
+          -0.49999945492845654,
+          0.7500000596046448,
+          -3.2279640436172485e-06
+        ],
+        "above 0.5L": [
+          0.5000002725357717,
+          0.7500000596046448,
+          0.5600072294473648
+        ],
+        "wake 1L": [
+          2.0,
+          0.7500000596046448,
+          -3.2279640436172485e-06
         ]
       },
       "reference_length": 1.0,
@@ -222,7 +256,7 @@
           "surface_m": 0.019838140837002124,
           "buffer_scale": 0.5,
           "study": {
-            "mesh_s": 21.4,
+            "mesh_s": 18.9,
             "cells": 86384,
             "valid": true,
             "hard": [],
@@ -260,51 +294,30 @@
               "wake": {
                 "median": null,
                 "cells": 0
-              }
-            }
-          },
-          "single": {
-            "mesh_s": 34.3,
-            "cells": 107283,
-            "valid": true,
-            "hard": [],
-            "soft": [],
-            "max_non_ortho": 63.225503,
-            "faces_gt70": 0,
-            "max_skewness": 1.4764848,
-            "coverage_percent": 86.62644233930057,
-            "mean_layers": 6.499956100499997,
-            "first_cell_m": 0.0019332729964905175,
-            "planned_first_m": 0.0018012965253671146,
-            "zones": {
-              "trailing_edge": {
-                "coverage_percent": 0.0,
-                "first_cell_m": 0.001733551641026511
               },
-              "tips": {
-                "coverage_percent": 0.0,
-                "first_cell_m": 0.004264904352691234
+              "ahead 0.5L": {
+                "median": 0.1606771014887713,
+                "cells": 1
               },
-              "root": {
-                "coverage_percent": 87.21205644863862,
-                "first_cell_m": 0.0017733842526608393
+              "above 0.5L": {
+                "median": 0.1588675715955313,
+                "cells": 1
+              },
+              "wake 1L": {
+                "median": null,
+                "cells": 0
               }
             },
-            "point_cell_m": {
-              "ahead": {
-                "median": null,
-                "cells": 0
-              },
-              "above": {
-                "median": null,
-                "cells": 0
-              },
-              "wake": {
-                "median": null,
-                "cells": 0
-              }
+            "containing_cell_m": {
+              "ahead": 0.3178517160275374,
+              "above": 0.31873804589748117,
+              "wake": 0.635682820346566,
+              "ahead 0.5L": 0.1606771014887713,
+              "above 0.5L": 0.1588675715955313,
+              "wake 1L": 0.3175660613172337
             }
-          }
+          },
+          "single": "not meshed (--singles; previous check: docs/validation/study3d/result_q203.json)"
         },
         {
           "level": "medium",
@@ -313,7 +326,7 @@
           "surface_m": 0.014027728754309257,
           "buffer_scale": 0.7071045207838059,
           "study": {
-            "mesh_s": 37.8,
+            "mesh_s": 35.8,
             "cells": 193367,
             "valid": true,
             "hard": [],
@@ -351,51 +364,30 @@
               "wake": {
                 "median": null,
                 "cells": 0
-              }
-            }
-          },
-          "single": {
-            "mesh_s": 31.4,
-            "cells": 166720,
-            "valid": true,
-            "hard": [],
-            "soft": [],
-            "max_non_ortho": 62.012451,
-            "faces_gt70": 0,
-            "max_skewness": 2.3489687,
-            "coverage_percent": 93.18360304090703,
-            "mean_layers": 6.776888641957238,
-            "first_cell_m": 0.0017977638937246103,
-            "planned_first_m": 0.0018012965253671146,
-            "zones": {
-              "trailing_edge": {
-                "coverage_percent": 21.516476790924692,
-                "first_cell_m": 0.0015932882861508166
               },
-              "tips": {
-                "coverage_percent": 54.09605064112602,
-                "first_cell_m": 0.001992948690589477
+              "ahead 0.5L": {
+                "median": 0.11280845708396081,
+                "cells": 2
               },
-              "root": {
-                "coverage_percent": 95.15607635961206,
-                "first_cell_m": 0.001783178343067729
-              }
-            },
-            "point_cell_m": {
-              "ahead": {
-                "median": null,
-                "cells": 0
-              },
-              "above": {
-                "median": 0.22367913287442776,
+              "above 0.5L": {
+                "median": 0.2241818205930475,
                 "cells": 1
               },
-              "wake": {
+              "wake 1L": {
                 "median": null,
                 "cells": 0
               }
+            },
+            "containing_cell_m": {
+              "ahead": 0.449847843900346,
+              "above": 0.44897479881090707,
+              "wake": 0.4488231006020117,
+              "ahead 0.5L": 0.11339538019731231,
+              "above 0.5L": 0.2241818205930475,
+              "wake 1L": 0.4487345948946754
             }
-          }
+          },
+          "single": "not meshed (--singles; previous check: docs/validation/study3d/result_q203.json)"
         },
         {
           "level": "fine",
@@ -404,30 +396,30 @@
           "surface_m": 0.009919070418501062,
           "buffer_scale": 1.0,
           "study": {
-            "mesh_s": 61.9,
-            "cells": 300025,
+            "mesh_s": 95.8,
+            "cells": 459674,
             "valid": true,
             "hard": [],
             "soft": [],
-            "max_non_ortho": 64.907837,
+            "max_non_ortho": 64.985965,
             "faces_gt70": 0,
-            "max_skewness": 2.8152669,
-            "coverage_percent": 94.37076679680014,
-            "mean_layers": 6.808721268232485,
-            "first_cell_m": 0.001788085573092996,
+            "max_skewness": 2.8132361,
+            "coverage_percent": 94.50306168451175,
+            "mean_layers": 6.809090444349925,
+            "first_cell_m": 0.001788466365272079,
             "planned_first_m": 0.0018012965253671146,
             "zones": {
               "trailing_edge": {
-                "coverage_percent": 38.36107349092619,
-                "first_cell_m": 0.0015508930910322122
+                "coverage_percent": 38.36114857707007,
+                "first_cell_m": 0.0015508679314474953
               },
               "tips": {
-                "coverage_percent": 50.03810243586075,
-                "first_cell_m": 0.0018095771597911264
+                "coverage_percent": 51.61430277943316,
+                "first_cell_m": 0.0018140827343048837
               },
               "root": {
-                "coverage_percent": 97.05612223489797,
-                "first_cell_m": 0.0017866683198557503
+                "coverage_percent": 97.137123903338,
+                "first_cell_m": 0.0017856163905008932
               }
             },
             "point_cell_m": {
@@ -442,10 +434,30 @@
               "wake": {
                 "median": null,
                 "cells": 0
+              },
+              "ahead 0.5L": {
+                "median": 0.07947999249150653,
+                "cells": 6
+              },
+              "above 0.5L": {
+                "median": 0.15882877553314226,
+                "cells": 1
+              },
+              "wake 1L": {
+                "median": 0.15898374224959266,
+                "cells": 2
               }
+            },
+            "containing_cell_m": {
+              "ahead": 0.31775113693138884,
+              "above": 0.3176545762325381,
+              "wake": 0.3179856906408597,
+              "ahead 0.5L": 0.07960459782586968,
+              "above 0.5L": 0.15882877553314226,
+              "wake 1L": 0.15898383614902709
             }
           },
-          "single": "the study level (current settings)"
+          "single": "not meshed (--singles; previous check: docs/validation/study3d/result_q203.json)"
         }
       ]
     }

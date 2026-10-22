@@ -267,6 +267,7 @@ def prepare_study(project: Project, only: Collection[str] | None = None) -> tupl
             ground=box.ground, ground_layers=box.ground and project.sim.domain.ground.layers,
             ground_wall_start=ground_wall_start(project.sim.domain, box.bounds),
             two_d=box.two_d, buffer_scale=level_buffer_scale(plan, lp),  # the current regions everywhere (D-127)
+            study_level=True,  # every 3D level with the shells, the current one included (D-127)
             **domain_fields(box),
         )
         case = level_dir(study, lp.level.index)

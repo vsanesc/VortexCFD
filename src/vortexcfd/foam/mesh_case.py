@@ -155,6 +155,9 @@ class MeshCaseInput:
     # current level and every single mesh). Other than 1, the regions between the parts and the background keep
     # the current level's extent in metres (study_buffer_shells), so a finer level is finer everywhere.
     buffer_scale: float = 1.0
+    # A mesh study level (D-127): in 3D every level, the current one included, gets the distance shells and
+    # nCellsBetweenLevels 1 (one transition mechanism for the whole family); False for every single mesh.
+    study_level: bool = False
 
     @property
     def rounded(self) -> bool:
@@ -745,18 +748,19 @@ def section_staircases(inp: MeshCaseInput, est, part_max_levels: list[int]) -> t
     return geometry, regions
 
 
-# A 3D mesh study level other than the current one (D-127) [NUMERICS-REVIEW]: snappyHexMesh's buffers are
-# nCellsBetweenLevels cells of each level, so between a part and the background the cell at a distance d is about
-# d / (2 x 3) on every level and only the near-wall cells and the background scale with the level. Those levels get
-# distance shells around every part at the current settings' buffer distances (D_k = the sum over the levels from
-# the part's maximum down to k of 3 cells of the current settings' size of that level) and nCellsBetweenLevels 1,
-# so at a fixed distance every level has the same refinement level and its cells scale with the base size.
+# A 3D mesh study level (D-127) [NUMERICS-REVIEW]: snappyHexMesh's buffers are nCellsBetweenLevels cells of each
+# level, so between a part and the background the cell at a distance d is about d / (2 x 3) on every level and only
+# the near-wall cells and the background scale with the level. Every level of a 3D study, the current one included
+# (QUESTIONS 204: one mechanism for the whole family), gets distance shells around every part at the current
+# settings' buffer distances (D_k = the sum over the levels from the part's maximum down to k of 3 cells of the
+# current settings' size of that level) and nCellsBetweenLevels 1, so at a fixed distance every level has the same
+# refinement level and its cells scale with the base size. The study's current level is then not the single mesh.
 STUDY_CELLS_BETWEEN_LEVELS = 1
 
 
 def study_buffer_shells(inp: MeshCaseInput, est, part_max_levels: list[int]) -> dict:
-    """The refinementRegions entries of a 3D study level's distance shells (none for the current level or 2D)."""
-    if inp.two_d or inp.buffer_scale == 1.0:
+    """The refinementRegions entries of a 3D study level's distance shells (none for a single mesh or 2D)."""
+    if inp.two_d or not inp.study_level:
         return {}
     regions = {}
     current_base = est.base_size * inp.buffer_scale
@@ -852,7 +856,7 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
             "maxGlobalCells": MAX_GLOBAL_CELLS,
             "minRefinementCells": 10,
             "maxLoadUnbalance": 0.10,
-            "nCellsBetweenLevels": (STUDY_CELLS_BETWEEN_LEVELS if not inp.two_d and inp.buffer_scale != 1.0
+            "nCellsBetweenLevels": (STUDY_CELLS_BETWEEN_LEVELS if not inp.two_d and inp.study_level
                                     else CELLS_BETWEEN_LEVELS),
             "features": features,
             "refinementSurfaces": refinement_surfaces,

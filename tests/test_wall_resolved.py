@@ -292,20 +292,26 @@ def test_a_2d_study_level_is_finer_everywhere(tmp_path: Path) -> None:
 
 
 def test_a_3d_study_level_gets_the_current_buffer_distances() -> None:
-    """D-127: a 3D level other than the current one has distance shells around each part at the current settings'
-    buffer distances and nCellsBetweenLevels 1; the current level is the single mesh's dictionary."""
+    """D-127 (QUESTIONS 204): every 3D study level, the current one included, has distance shells around each part
+    at the current settings' buffer distances and nCellsBetweenLevels 1; a single mesh has neither."""
     from vortexcfd.foam.mesh_case import CELLS_BETWEEN_LEVELS, STUDY_CELLS_BETWEEN_LEVELS
 
-    def controls(scale: float) -> tuple[dict, float, int]:
+    def controls(scale: float, study: bool = True) -> tuple[dict, float, int]:
         mesh = Mesh(layer_sizing="relative", surface_level_min=3, surface_level_max=4)
         inp = MeshCaseInput(domain_bounds=(-5.0, 10.0, -5.0, 5.0, -5.0, 5.0), symmetric=False, parts=("ball",),
                             parts_bounds=(-0.5, 0.5, -0.5, 0.5, -0.5, 0.5), reference_length=1.0, mesh=mesh,
-                            part_bounds=((-0.5, 0.5, -0.5, 0.5, -0.5, 0.5),), buffer_scale=scale)
+                            part_bounds=((-0.5, 0.5, -0.5, 0.5, -0.5, 0.5),), buffer_scale=scale, study_level=study)
         cm = snappy_hex_mesh_dict(inp).content["castellatedMeshControls"]
         return cm, inp.estimate().base_size, inp.estimate().level_max
 
-    current, base, top = controls(1.0)
-    assert "ball" not in current["refinementRegions"] and current["nCellsBetweenLevels"] == CELLS_BETWEEN_LEVELS
+    single, base, top = controls(1.0, study=False)
+    assert "ball" not in single["refinementRegions"] and single["nCellsBetweenLevels"] == CELLS_BETWEEN_LEVELS
+    current, _, _ = controls(1.0)
+    assert current["nCellsBetweenLevels"] == STUDY_CELLS_BETWEEN_LEVELS
+    reach = 0.0
+    for (d, k), level in zip(current["refinementRegions"]["ball"]["levels"], range(top, 0, -1)):
+        reach += 3 * base / 2 ** level
+        assert d == pytest.approx(reach) and k == level
     # buffer_scale: the current settings' background cell over this level's; here the level's own base is
     # ``base`` (same settings), so the current base the shells use is scale x base
     coarse, _, _ = controls(0.5)
