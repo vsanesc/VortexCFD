@@ -1,13 +1,16 @@
 """D-127 check (QUESTIONS 203, 204): real 3D mesh studies, mesh only, of the public benchmark's sphere and half wing.
 
-Every level of the app's mesh study (D-066, D-127: since QUESTIONS 204 every level, the current one included, with
-the current settings' distance shells and nCellsBetweenLevels 1) is meshed; with --singles every level also as a
-single mesh: the same MeshCaseInput as a single mesh (buffer_scale 1, study_level False: nCellsBetweenLevels 3, no
-shells). Per mesh: cells, checkMesh hard / soft failures (D-100), max non-orthogonality and faces above 70 degrees,
-the walked strict layer coverage overall and per zone, the walked first cell, the median cell size within 0.1
-reference length of the fixed points, the size of the cell containing each point (``containing_cell_m``) and
+Every level of the app's mesh study (D-066, D-127: since the W3 close every non-current level scales snappyHexMesh's
+buffers with its cells, nCellsBetweenLevels max(1, round(3 / factor)); the current level is the single mesh) is
+meshed; with --singles every level also as a single mesh: the same MeshCaseInput with buffer_scale 1 and
+nCellsBetweenLevels 3. Per mesh: cells, checkMesh hard / soft failures (D-100), max non-orthogonality and faces above
+70 degrees, the walked strict layer coverage overall and per zone, the walked first cell, the median cell size within
+0.1 reference length of the fixed points, the size of the cell containing each point (``containing_cell_m``) and
 (QUESTIONS 204 b) the volume-weighted mean cell size over a cube of side 2 coarse cells centred on each point
-(``cube_mean``; the coarse level's containing cell sets the side for every level).
+(``cube_mean``; the coarse level's containing cell sets the side for every level). The summary (``summary``): per
+point the level-to-level ratios of the cube means, their geometric mean per level pair over the points, and the
+owner's pass (W3 close): each geometric mean within 10 % of the study ratio and no point's ratio off by more than a
+factor of 2.
 
     nice -n 15 .venv/bin/python scripts/validation/study3d_check.py [--cases sphere wing] [--singles] [--out NAME]
 
@@ -36,7 +39,7 @@ from vortexcfd.bench import metrics  # noqa: E402
 from vortexcfd.bench.cases import CASES  # noqa: E402
 from vortexcfd.bench.geometries import ensure_geometry  # noqa: E402
 from vortexcfd.bench.runner import face_quality, import_geometry, new_project, walk_measurements  # noqa: E402
-from vortexcfd.foam.mesh_case import build_mesh_files, prepare_case_dir  # noqa: E402
+from vortexcfd.foam.mesh_case import CELLS_BETWEEN_LEVELS, build_mesh_files, prepare_case_dir  # noqa: E402
 from vortexcfd.foam.mesh_report import check_class  # noqa: E402
 from vortexcfd.foam.mesh_run import MeshRun  # noqa: E402
 from vortexcfd.foam.mesh_study import level_dir  # noqa: E402
@@ -177,16 +180,17 @@ def run_case(name: str, singles: bool) -> dict:
     for lp, inputs in zip(plan.levels, captured):
         study_case = level_dir(study_dir, lp.level.index)
         row = {"level": lp.level.name, "factor": lp.level.factor, "base_m": lp.estimate.base_size,
-               "surface_m": lp.estimate.surface_size, "buffer_scale": inputs.buffer_scale}
+               "surface_m": lp.estimate.surface_size, "buffer_scale": inputs.buffer_scale,
+               "cells_between_levels": inputs.cells_between_levels}
         single_case = None
-        if singles:  # the same settings as a single mesh (nCellsBetweenLevels 3, no shells)
+        if singles:  # the same settings as a single mesh (nCellsBetweenLevels 3)
             single_case = work / f"single_{lp.level.name}"
             if single_case.exists():
                 shutil.rmtree(single_case)
             shutil.copytree(study_case, single_case)
-            single_inputs = dataclasses.replace(inputs, buffer_scale=1.0, study_level=False)
+            single_inputs = dataclasses.replace(inputs, buffer_scale=1.0, cells_between_levels=CELLS_BETWEEN_LEVELS)
             prepare_case_dir(single_case, build_mesh_files(single_inputs))
-        say(f"{name} {lp.level.name}: study level (buffer scale {inputs.buffer_scale:.4g})")
+        say(f"{name} {lp.level.name}: study level (nCellsBetweenLevels {inputs.cells_between_levels})")
         row["study"] = measure(case, study_case, inputs, points, length)
         if sides is None:  # the coarse level (the first): 2 of its cells around each point
             sides = {n: 2.0 * v for n, v in row["study"]["containing_cell_m"].items()}
@@ -199,7 +203,25 @@ def run_case(name: str, singles: bool) -> dict:
         else:
             row["single"] = "not meshed (--singles; previous check: docs/validation/study3d/result_q203.json)"
         out["levels"].append(row)
+    out["summary"] = summary(out)
+    say(f"  {json.dumps(out['summary'])}")
     return out
+
+
+def summary(out: dict) -> dict:
+    """The owner's check (W3 close) on the cube means: per point the coarse / medium and medium / fine ratios; per
+    level pair their geometric mean over the points; pass when each geometric mean is within 10 % of the study ratio
+    and no ratio is off it by more than a factor of 2."""
+    r = out["ratio"]
+    means = [{n: c["mean_m"] for n, c in lv["study"]["cube_mean"].items()} for lv in out["levels"]]
+    ratios = {n: [means[i][n] / means[i + 1][n] for i in range(len(means) - 1)] for n in out["points"]}
+    pairs = list(zip(*ratios.values()))
+    geo = [float(np.exp(np.mean(np.log(p)))) for p in pairs]
+    worst = max(max(x / r, r / x) for x in np.ravel(list(ratios.values())))
+    return {"ratio": r, "point_ratios": ratios, "geometric_means": geo,
+            "geometric_mean_all": float(np.exp(np.mean(np.log(np.ravel(list(ratios.values())))))),
+            "worst_factor": float(worst),
+            "pass": bool(all(abs(g / r - 1) <= 0.10 for g in geo) and worst <= 2.0)}
 
 
 def main() -> None:

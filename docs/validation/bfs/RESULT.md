@@ -126,3 +126,57 @@ of I5) and -1.0 % against the TMR SST codes, but the owner's PASS also needs the
 not shown: only two of the three levels are valid (the medium level's step face kept 69 % of its layers), so there is
 no GCI; the two valid levels agree within 0.5 %. Left open: a complete stack on the step face at every level (the
 cause of the outlier).
+
+## Round 3: the step face's layers (QUESTIONS 209, task w3-close)
+
+Task w3-close, item 2 (2026-10-22); result_round3.json, wall_medium_round3.csv (the coarse and fine levels are round
+2's solutions: their meshes are unchanged, below, so wall_coarse_round2.csv and wall_fine_round2.csv stand).
+`bfs_study.py --family round2 study --level medium`, then `collect --family round3`. Machine time: diagnosis and
+mesh checks about 9 min (eight 2D meshes of 30-90 s, two NACA meshes of 3-4 min), the medium level 12.1 min (8 ranks).
+
+Cause (D-135): in the layer phase's first iteration snappyHexMesh's face-weight check (minFaceWeight 0.05, the main
+meshQualityControls value; D-122's relaxed set does not touch it) finds 3 faces below 0.05 and removes the extrusion at
+2 wall faces, the step face's top face and the lower wall's last face, both at the step's **top (convex) corner**.
+There snapping left a sliver lower-wall face 6.3 mm long (0.07 of the 91 mm cell) beside a 146 mm one, and the first
+layer cells in the fan around the corner have faces with weights 0.042-0.050. The count then tapers from the corner:
+the step face has 15 layers from its foot to z = 0.32 H, then 14, 12, 10, 8, 6, 4 and 0 at the top face; the lower
+wall 0 over its last 0.2 H. It is the medium level's background grid against the corner (the preset's surface level
+is the base cell, so the surface level acts only through the grid): the coarse and fine levels have no sliver there
+(minimum weights 0.095 and 0.109); a 30 mm shift of the medium grid removes this sliver but puts 8 other faces below
+0.05 and costs the floor 1.6 % of its full faces. Not the corner feature edge as such, and not one of D-122's
+settings, but a check D-122 left at its default.
+
+Fix (D-135, [NUMERICS-REVIEW]): minFaceWeight 0.02 in the wall-resolved layer phase's relaxed set. Checks:
+
+| Level | Mesh against round 2 | Cells | Step face: mean / kept / faces full | Other walls | checkMesh |
+|---|---|---|---|---|---|
+| coarse (0.129 H) | geometrically identical (sorted points 0.0 m apart) | 138,024 | 17.0 / 100 % / 100 % | complete | OK |
+| medium (0.091 H) | changed: the corner keeps its stack | 240,423 (240,295) | 15.0 / 100 % / 100 % (10.3 / 68.8 / 36.3) | complete (lower 99.4 % full before) | OK, max skewness 3.23 (3.23) |
+| fine (0.064 H) | geometrically identical | 439,456 | 14.0 / 100 % / 100 % | complete | OK |
+
+The NACA 0012 round 3 15 deg mesh (wall-resolved, the other user of the set) is identical with and without the fix;
+the public benchmark (robust controls) has byte-identical dictionaries (51 files) and `--compare` (mesh only) gives
+"no regressions" (every mesh metric equal to the baseline).
+
+Three valid levels (stopped on their mean-stable criteria at iteration 4004; U_ref 1.0067-1.0071 m/s, Re_H
+36,240-36,260):
+
+| Level | h | Cells | x_r / H | vs exp (6.26) | vs TMR SST (6.50) | Cf(x/H = -3.956) |
+|---|---|---|---|---|---|---|
+| coarse | 0.1042 | 138,024 | 6.468 | +3.3 % | -0.5 % | 0.00268 |
+| medium | 0.0789 | 240,423 | **6.227** (round 2: 5.637) | -0.5 % | -4.2 % | 0.00270 |
+| fine | 0.0584 | 439,456 | **6.434** | **+2.8 %** | **-1.0 %** | 0.00268 |
+
+GCI (Celik et al. 2008 with the levels' own ratios, `foam/gci.study`: r21 = 1.352, r32 = 1.320): e21 = +0.207 H,
+e32 = -0.241 H, opposite signs: **oscillatory, GCI not applicable**. The three valid levels lie within 0.24 H of each
+other (6.23-6.47 H, a band of 3.9 % of the experiment's value), all within 3.5 % of the experiment. The medium level's
+bottom wall: Cf minimum -0.00127 at 3.5, Cf at x/H = 20 0.00166, Cp minimum -0.205 at 2.0, Cp peak 0.018 at 9.7 (the
+corner bubble's sign change at 1.08). The complete stack moved the medium level's x_r by +0.59 H, so the step face's
+layers did cause round 1 and 2's outlier.
+
+### Verdict (round 3, final)
+
+**PASS WITH NOTE** (I5: PASS needs the valid levels to converge and the finest within 10 % of 6.26). The finest level
+is +2.8 % (-1.0 % against TMR SST) and all three levels are now valid, but they oscillate (6.47, 6.23, 6.43 H), so
+grid convergence is not shown and there is no GCI; the oscillation band (0.24 H, 3.9 %) is the best available
+estimate of the discretisation uncertainty. By the owner's closure rule W3 closes with this note.

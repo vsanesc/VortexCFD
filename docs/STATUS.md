@@ -1,11 +1,32 @@
 # Status
 
-Updated 2026-10-22 (task/w3-internal: W3 internal flow).
+Updated 2026-10-22 (task/w3-close: W3 closed).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
 
-**task/w3-internal** (not yet published). Workstream W3, internal flow (**not closed**, owner review below); the
+**task/w3-close** (not yet published). **W3 closed** by the owner's closure rule (both items below failed their
+pass conditions inside the time box; the limitations are recorded and accepted for v1). Done on it:
+- Item 1 ([NUMERICS-REVIEW], D-127 rewritten, still Proposed; QUESTIONS 204 closed): the 3D study's distance shells
+  replaced by level-scaled buffers, nCellsBetweenLevels max(1, round(3 r^(k - k_current))) (2 / 2 / 3), so the current
+  level is the user's single mesh (dictionaries identical). Check (docs/validation/study3d/RESULT.md, Round 4): every
+  level valid, but the geometric means of the cube-mean size ratios are 1.00 / 1.25 (sphere) and 0.94 / 1.24 (wing)
+  against 1.414 +- 10 % (1.5 and 2.12 both round to 2): **not passed**; the pipe's three-level study not run.
+- Item 2 ([NUMERICS-REVIEW], D-135 Proposed; QUESTIONS 209 closed): the step face's lost layers were snappyHexMesh's
+  face-weight check at the step's convex corner (a sliver face on the medium grid); minFaceWeight 0.02 in the
+  wall-resolved relaxed set. Coarse and fine meshes identical, the medium level complete: x_r 6.468 / 6.227 / 6.434 H,
+  oscillatory, no GCI: **PASS WITH NOTE** (docs/validation/bfs/RESULT.md, Round 3).
+- Public benchmark: dictionaries byte-identical to main (51 files), `--compare` mesh only "no regressions".
+- Decisions taken while away: QUESTIONS 210 (half-up rounding), 211 (the scaled buffers kept rather than the shells).
+- Machine time about 34 min (3D check 4.6 min, step diagnosis and mesh checks 9 min, NACA mesh check 7 min, medium
+  level 12.1 min, benchmark 4.7 min, the fast test run). No OpenFOAM process left running.
+
+Next: W4 owner review, W5. Open: docs/QUESTIONS.md items 30, 67, 69, 70, 72, 73, 75, 82, 89 to 94, 96, 97, 122, 124,
+125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 210, 211.
+
+### Previous branch (task/w3-internal)
+
+**task/w3-internal**. Workstream W3, internal flow (**not closed**, owner review below); the
 first W4 slice. Done on it:
 - Part 0 ([NUMERICS-REVIEW], D-127, QUESTIONS 204): every 3D study level, the current one included, is meshed with
   the distance shells and nCellsBetweenLevels 1. The check (docs/validation/study3d/RESULT.md, Round 2) does **not

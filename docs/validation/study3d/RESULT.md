@@ -179,3 +179,67 @@ its own cell centres, whose positions relative to an edge differ between levels 
 coarse cells holds 4 to 8 coarse cells, so its mean still flips with one cell). Change (a) is reverted in the app (it
 costs cells and does not pass); the measure (b) stays in the check script. D-127 stays Proposed, QUESTIONS 204 open;
 the pipe's mesh study is not run (owner's instruction).
+
+## Round 4: level-scaled buffers (QUESTIONS 204, task w3-close)
+
+Task w3-close, item 1 (2026-10-22). Owner decisions: the point-wise criterion is withdrawn (an octree cell is
+base / 2^L, so a point that changes level jumps by a factor of 2); the defect to fix is the fixed 3-cell buffers.
+Mechanism (D-127, rewritten): no distance shells; level k's nCellsBetweenLevels is max(1, round(3 r^(k - k_current)))
+(rounded half up): 2 / 2 / 3 here (current settings as the fine level), so the current level is the user's single mesh.
+Same script (`--out result_w3close.json`; the summary is `study3d_check.summary`), the same six points, the cube mean
+over 2 coarse cells (round 3's measure). Pass: every level valid with quality and coverage within noise; per level
+pair the geometric mean of the six points' ratios within 10 % of r = 1.414 (1.273 to 1.556); no ratio off r by more
+than a factor of 2. Machine time 4.6 min (277 s).
+
+Dictionaries: the study's current (fine) level against prepare_job's single mesh, `system/` and `constant/triSurface`
+(6 + 2 files per case), `diff -r`: identical on the sphere, the half wing and the Ahmed body. The public benchmark's
+meshing and solver dictionaries (`public_dicts.py`, 51 files) identical to main.
+
+| Case | Level | nCellsBetweenLevels | Cells | Valid | Strict cov. | Zones TE / tips / root | Max non-ortho | Max skew | First cell |
+|---|---|---|---|---|---|---|---|---|---|
+| sphere | coarse | 2 | 40,024 | yes, 0 / 0 | 100.00 % | - | 51.1 | 0.69 | 1.7989 mm |
+| sphere | medium | 2 | 95,175 | yes, 0 / 0 | 97.55 % | - | 57.8 | 1.21 | 1.8466 mm |
+| sphere | fine | 3 | 233,534 (= single) | yes, 0 / 0 | 99.59 % | - | 46.5 | 0.85 | 1.8007 mm |
+| wing | coarse | 2 | 90,063 | yes, 0 / 0 | 86.63 % | 0.0 / 0.0 / 87.2 | 63.2 | 1.48 | 1.9330 mm |
+| wing | medium | 2 | 142,551 | yes, 0 / 0 | 93.00 % | 21.5 / 51.0 / 95.1 | 62.8 | 2.35 | 1.7957 mm |
+| wing | fine | 3 | 300,025 (= single) | yes, 0 / 0 | 94.37 % | 38.4 / 50.0 / 97.1 | 64.9 | 2.82 | 1.7881 mm |
+
+Against the single meshes at the same settings (round 1): the wing within noise (coverage 86.63 / 93.00 against
+86.63 / 93.18 %); the sphere's coarse level within noise (100 %), its medium level not quite (97.55 % strict coverage
+and 57.8 degrees against 100 % and 49.8, the first cell 1.8466 against 1.8002 mm: the two-cell buffers).
+
+Cube mean, coarse / medium / fine (cells counted), ratios c/m, m/f:
+
+| Case, point | Cube side | Mean size (mm) | Cells | Ratios c/m, m/f |
+|---|---|---|---|---|
+| sphere, 1 L ahead | 548 mm | 273.7 / 317.7 / 269.0 | 8 / 5 / 18 | 0.86, 1.18 |
+| sphere, 1 L above | 548 mm | 273.7 / 300.0 / 269.1 | 4 / 7 / 12 | 0.91, 1.11 |
+| sphere, 2 L wake | 1092 mm | 545.8 / 380.8 / 268.4 | 8 / 18 / 100 | 1.43, 1.42 |
+| sphere, 0.5 L ahead | 549 mm | 205.6 / 153.2 / 118.1 | 36 / 76 / 176 | 1.34, 1.30 |
+| sphere, 0.5 L above | 275 mm | 137.3 / 176.5 / 135.2 | 8 / 10 / 4 | 0.78, 1.31 |
+| sphere, 1 L wake | 548 mm | 274.0 / 318.3 / 269.3 | 8 / 5 / 18 | 0.86, 1.18 |
+| wing, 1 L ahead | 636 mm | 264.6 / 313.9 / 264.6 | 20 / 13 / 20 | 0.84, 1.19 |
+| wing, 1 L above | 637 mm | 318.2 / 329.7 / 264.8 | 6 / 10 / 20 | 0.96, 1.25 |
+| wing, 2 L wake | 1272 mm | 572.3 / 448.8 / 318.0 | 24 / 18 / 64 | 1.28, 1.41 |
+| wing, 0.5 L ahead | 322 mm | 159.6 / 194.1 / 159.1 | 8 / 8 / 8 | 0.82, 1.22 |
+| wing, 0.5 L above | 318 mm | 158.9 / 164.7 / 142.9 | 4 / 10 / 24 | 0.96, 1.15 |
+| wing, 1 L wake | 635 mm | 317.7 / 387.5 / 318.0 | 8 / 8 / 8 | 0.82, 1.22 |
+
+| Case | Geometric mean c/m | Geometric mean m/f | All 12 ratios | Worst factor off r | Pass |
+|---|---|---|---|---|---|
+| sphere | 1.002 | 1.246 | 1.117 | 1.82 | **no** |
+| wing | 0.937 | 1.236 | 1.076 | 1.73 | **no** |
+
+Diagnosis: the integer count cannot follow r over two levels: 3 / r^2 = 1.5 and 3 / r = 2.12 both round to 2, so the
+coarse level's buffers are r times the medium's in metres (2 x 0.537 m against 2 x 0.380 m per level step) and its
+near field is no coarser than the medium's (the medium level is the coarsest of the three at four of six points on
+each case); 2 against 3 at the medium / fine step leaves that ratio 12-13 % short of r. The background points (2 L
+wake) scale by r on both cases.
+
+### Verdict (round 4)
+
+**Not passed** (the geometric means; every level valid, no point off by a factor of 2). By the owner's closure rule
+W3 closes with this limitation, accepted for v1: a 3D mesh study does not refine the near field by the level ratio,
+so its GCI describes the wall cells and the background, not the transition zone. D-127 stays Proposed, rewritten to
+this mechanism (kept over the shells: it fails by less, and the current level is the user's mesh at its own cost);
+QUESTIONS 204 closed; the pipe's three-level study is not run.
