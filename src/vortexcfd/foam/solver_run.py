@@ -20,6 +20,14 @@ and a one-line summary go to ``on_line``), then ``mpirun -np N simpleFoam -paral
 stop's SIGUSR1 goes to mpirun, which forwards it to the ranks), then ``reconstructPar
 -latestTime`` (log.reconstructPar) whenever the solver ended with exit code 0 (iteration limit,
 criteria met or a clean stop), so the case holds a reconstructed latest time.
+
+Two turbulence stages (D-126; the wall-resolved mode writes physics_case.STAGES_FILE into the case): stage 1 runs
+with the case's first-order k and omega convection; the app evaluates the run's stopping criteria and, when they
+are met (or at half the iteration limit, if earlier), stops the solver with the clean stop: that is the switch.
+The stage-2 entries are then merged into system/fvSchemes, controlDict starts from the latest time, and the same
+solver command continues (the same decomposition; the log is appended) to the criteria, which may be met no
+earlier than the switch plus the iterations their first evaluation needs (``stage2_criteria``). A stop in either
+stage ends the run with its latest time written; the result keeps both stages (``SolverRunResult.stages``).
 """
 
 import threading
@@ -28,6 +36,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from vortexcfd.core.model import StoppingCriteria
+from vortexcfd.foam.dictfile import read_foam_file, set_foam_entry
 from vortexcfd.foam import convergence
 from vortexcfd.foam.logparse import LogParser, TimeStep
 from vortexcfd.foam.parallel import (
@@ -72,6 +81,11 @@ class SolverRunResult:
     cores: int = 1
     decomposition: str | None = None  # decomposePar's summary (parallel runs)
     reconstructed: bool | None = None  # reconstructPar succeeded (None: serial or not attempted)
+    # The turbulence stages of a two-stage run (D-126), one dict each: stage, k_omega (the scheme), first and last
+    # iteration, and for stage 1 the switch ("criteria met" / "half the iteration limit") and the iteration at
+    # which its condition was met. Empty for a single-stage run.
+    stages: tuple[dict, ...] = ()
+    switch_iteration: int | None = None  # the last iteration of stage 1 (stage 2 starts after it)
 
     @property
     def label(self) -> str:
@@ -117,6 +131,50 @@ def _iterations(parser: LogParser) -> int:
     return int(parser.time_steps[-1].time) if parser.time_steps else 0
 
 
+STAGES_FILE = "system/turbulenceStages"  # physics_case.STAGES_FILE (D-126)
+STAGE1_SCHEME = "first order (bounded Gauss upwind)"
+STAGE2_SCHEME = "second order (bounded Gauss linearUpwind, cellLimited gradients)"
+SWITCH_CRITERIA = "criteria met"
+SWITCH_HALF_LIMIT = "half the iteration limit"
+
+
+def read_stages(case_dir: Path) -> dict | None:
+    """The stage-2 fvSchemes entries of a two-stage case ({"divSchemes": ..., "gradSchemes": ...}), None when the
+    case has one stage."""
+    path = Path(case_dir) / STAGES_FILE
+    if not path.is_file():
+        return None
+    data = read_foam_file(path).get("stage2")
+    return dict(data) if isinstance(data, dict) else None
+
+
+def stage2_criteria(stopping: StoppingCriteria, switch: int) -> StoppingCriteria:
+    """The criteria of stage 2: the run's, not met before ``switch`` plus the iterations every criterion needs
+    from its first value (convergence.earliest_iteration with the run's minimum: its window, two for mean
+    stable, the first residual check), so no window reaches back into stage 1."""
+    offset = max((convergence.earliest_iteration(c, stopping.min_iterations) for c in stopping.criteria),
+                 default=stopping.min_iterations)
+    return stopping.model_copy(update={"min_iterations": switch + offset})
+
+
+def apply_stage2(case_dir: Path, stage2: dict) -> None:
+    """Merge the stage-2 entries into system/fvSchemes and start the next solver run from the latest time."""
+    case_dir = Path(case_dir)
+    schemes = read_foam_file(case_dir / "system" / "fvSchemes")
+    for key, entries in stage2.items():
+        merged = dict(schemes.get(key, {}))
+        merged.update(entries)
+        set_foam_entry(case_dir / "system" / "fvSchemes", key, merged)
+    set_foam_entry(case_dir / "system" / "controlDict", "startFrom", "latestTime")
+
+
+def _end_time(case_dir: Path) -> int | None:
+    try:
+        return int(read_foam_file(Path(case_dir) / "system" / "controlDict")["endTime"])
+    except (OSError, KeyError, TypeError, ValueError):
+        return None
+
+
 class SolverRun:
     """Runs the solver in ``case_dir`` on a background thread (clean stop enabled).
 
@@ -134,6 +192,7 @@ class SolverRun:
         on_line: Callable[[str], None] | None = None,
         on_step: Callable[[TimeStep], None] | None = None,
         on_done: Callable[[SolverRunResult], None] | None = None,
+        on_stage: Callable[[int, int, str], None] | None = None,
         timeout_s: float | None = None,
         runner_factory: Callable[[], FoamRun] = FoamRun,
         stopping: StoppingCriteria | None = None,
@@ -152,7 +211,18 @@ class SolverRun:
         self.parser = LogParser()
         self.cores = max(1, int(cores))
         self.binding = binding  # mpirun placement (foam/parallel.BINDINGS, D-064)
-        self._stopping = stopping if convergence.app_side(stopping) else None
+        self._on_stage = on_stage  # (stage, the switch iteration, the switch reason): the second stage began
+        self._stage2 = read_stages(self.case_dir)  # D-126: None for a single-stage case
+        self._stage = 1
+        self._switching = False  # stage 1's switch condition was met; the clean stop is on its way
+        self._switch_reason: str | None = None
+        self._switch_met_at: int | None = None
+        self._stage1_end: int | None = None  # the last iteration of stage 1 once stage 2 runs
+        self._stage1_duration = 0.0  # stage 1's solver time (s), added to the result's
+        self._half_limit = (lambda end: end // 2 if end else None)(_end_time(self.case_dir)) if self._stage2 else None
+        two_stage_criteria = self._stage2 is not None and stopping is not None and bool(stopping.criteria)
+        self._stopping = stopping if convergence.app_side(stopping) or two_stage_criteria else None
+        self._run_stopping = self._stopping  # stage 2 replaces it by stage2_criteria
         self._history = ResidualHistory()
         self._reports = ReportMonitor(self.case_dir) if self._stopping is not None else None
         self._met: tuple[str, ...] = ()
@@ -192,7 +262,7 @@ class SolverRun:
     def _forward(self, events: list) -> None:
         for event in events:
             if isinstance(event, TimeStep):
-                if self._stopping is not None and not self._met:
+                if (self._stopping is not None or self._stage2 is not None) and not self._met and not self._switching:
                     self._history.add(event)
                     self._pending = event
                 if self._on_step is not None:
@@ -209,17 +279,30 @@ class SolverRun:
         increment (Time::operator++, stopAt writeNow: endTime = the new time), so the solver runs
         and writes iteration n + 2, then ends (measured on the coarse sphere)."""
         step, self._pending = self._pending, None
-        if self._stopping is None or self._met or step is None:
+        if self._met or self._switching or step is None:
             return
-        assert self._reports is not None
-        self._reports.poll()
-        reports = self._reports
+        met: tuple[str, ...] = ()
+        if self._stopping is not None:
+            assert self._reports is not None
+            self._reports.poll()
+            reports = self._reports
 
-        def upto(quantity: str):  # the rows up to this iteration (a file is never ahead of the log)
-            return [row for row in reports.series(quantity) if row[0] <= step.time]
+            def upto(quantity: str):  # the rows up to this iteration (a file is never ahead of the log)
+                return [row for row in reports.series(quantity) if row[0] <= step.time]
 
-        statuses = convergence.evaluate(self._stopping, self._history.series, upto)
-        met = convergence.criteria_met(self._stopping, statuses, step.time)
+            statuses = convergence.evaluate(self._stopping, self._history.series, upto)
+            met = convergence.criteria_met(self._stopping, statuses, step.time)
+        if self._stage2 is not None and self._stage == 1:  # D-126: the switch, not the end
+            half = self._half_limit is not None and step.time >= self._half_limit
+            if met or half:
+                with self._lock:
+                    self._switching = True
+                    self._switch_reason = SWITCH_CRITERIA if met else SWITCH_HALF_LIMIT
+                    self._switch_met_at = int(step.time)
+                    runner = self._runner
+                if runner is not None:
+                    runner.request_stop()
+            return
         if not met:
             return
         with self._lock:
@@ -234,16 +317,16 @@ class SolverRun:
         return self._met
 
     def _step(self, command: list[str], log_name: str, on_line, clean_stop: bool = False,
-              stoppable: bool = True) -> RunResult:
+              stoppable: bool = True, append: bool = False) -> RunResult:
         """Run one command to the end through a new runner (stopped by request_stop when
         ``stoppable``; reconstructPar, which runs after a stop, is not)."""
         runner = self._factory()
         runner.start(command, self.case_dir, self.case_dir / log_name, on_line=on_line,
-                     timeout_s=self._timeout, clean_stop=clean_stop)
+                     timeout_s=self._timeout, clean_stop=clean_stop, **({"append": True} if append else {}))
         with self._lock:
             self._runner = runner if stoppable else None
             stop = self._stop
-        if stoppable and (stop or (clean_stop and self._met)):  # requested while starting
+        if stoppable and (stop or (clean_stop and (self._met or self._switching))):  # requested while starting
             runner.request_stop()
         runner.wait()
         with self._lock:
@@ -302,7 +385,11 @@ class SolverRun:
                 with self._lock:
                     stopped_early = self._stop
             if error is None and not (self.cores > 1 and stopped_early):
-                res = self._step(solver_command(SOLVER, self.cores, self.binding), LOG_NAME, self._line, clean_stop=True)
+                command = solver_command(SOLVER, self.cores, self.binding)
+                res = self._step(command, LOG_NAME, self._line, clean_stop=True)
+                if self._switch_ready(res):
+                    self._stage1_duration = res.duration_s
+                    res = self._second_stage(command)
                 if self.cores > 1 and res.exit_code == 0:
                     reconstructed = self._reconstruct()
         except Exception as exc:  # noqa: BLE001 - classified as crashed below
@@ -316,19 +403,59 @@ class SolverRun:
             met = self.parser.criteria_met.conditions
             after = self.parser.criteria_met.after
             met_iteration = int(after) if after is not None else _iterations(self.parser)
+        stages, switch_iteration = self._stages_summary()
         if res is None:
             state = STOPPED if stop and error is None else CRASHED
             result = SolverRunResult(state, None, _iterations(self.parser), final_residuals(self.parser),
-                                     error, log_file, cores=self.cores, decomposition=decomposition)
+                                     error, log_file, cores=self.cores, decomposition=decomposition,
+                                     stages=stages, switch_iteration=switch_iteration)
         else:
             criteria_stop = bool(self._met) and not stop and not res.timed_out
             stopped = stop or res.stop_requested or res.timed_out
+            if self._switching and self._stage == 1 and not stop and not res.timed_out:
+                stopped = False  # stage 1 ended at the switch but stage 2 could not start: see the exit code
             state = classify(res.exit_code, stopped, self.parser, criteria_stop)
             if state != CRITERIA_MET:
                 met, met_iteration = (), None
             result = SolverRunResult(
                 state, res.exit_code, _iterations(self.parser), final_residuals(self.parser),
-                self.parser.crash or self.parser.fatal_error, res.log_file, res.duration_s,
-                met, met_iteration, self.cores, decomposition, reconstructed,
+                self.parser.crash or self.parser.fatal_error, res.log_file, self._stage1_duration + res.duration_s,
+                met, met_iteration, self.cores, decomposition, reconstructed, stages, switch_iteration,
             )
         return result
+
+    def _switch_ready(self, res: RunResult) -> bool:
+        """Stage 1 ended at the switch (the app's clean stop, exit code 0, no user stop or timeout)."""
+        with self._lock:
+            stop = self._stop
+        return (self._stage2 is not None and self._stage == 1 and self._switching and not stop
+                and res.exit_code == 0 and not res.timed_out
+                and self.parser.crash is None and self.parser.fatal_error is None)
+
+    def _second_stage(self, command: list[str]) -> RunResult:
+        """The switch (D-126): stage-2 schemes into the case, then the solver again from the latest time."""
+        switch = _iterations(self.parser)
+        self._stage1_end = switch
+        apply_stage2(self.case_dir, self._stage2)
+        with self._lock:
+            self._stage = 2
+            if self._run_stopping is not None:
+                self._stopping = stage2_criteria(self._run_stopping, switch)
+            self._switching = False
+        self._forward_line(f"Turbulence stage 2 from iteration {switch} ({self._switch_reason} at "
+                           f"{self._switch_met_at}): k and omega {STAGE2_SCHEME}\n")
+        if self._on_stage is not None:
+            self._on_stage(2, switch, self._switch_reason or "")
+        return self._step(command, LOG_NAME, self._line, clean_stop=True, append=True)
+
+    def _stages_summary(self) -> tuple[tuple[dict, ...], int | None]:
+        if self._stage2 is None:
+            return (), None
+        last = _iterations(self.parser)
+        if self._stage == 1:
+            return ({"stage": 1, "k_omega": STAGE1_SCHEME, "first": 1, "last": last, "switch": None,
+                     "condition_met_at": None},), None
+        switch = self._stage1_end
+        return ({"stage": 1, "k_omega": STAGE1_SCHEME, "first": 1, "last": switch, "switch": self._switch_reason,
+                 "condition_met_at": self._switch_met_at},
+                {"stage": 2, "k_omega": STAGE2_SCHEME, "first": switch + 1, "last": last}), switch

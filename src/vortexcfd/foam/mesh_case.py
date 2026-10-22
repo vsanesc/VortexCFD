@@ -151,6 +151,10 @@ class MeshCaseInput:
     # levels and the refinement volumes applied as directional (x and z) refinement, then extruded into one
     # cell with the empty patch "frontAndBack". [NUMERICS-REVIEW]
     two_d: bool = False
+    # A mesh study level (D-127): the current settings' cell size over this level's (1 / its factor; 1 for the
+    # current level and every single mesh). Other than 1, the regions between the parts and the background keep
+    # the current level's extent in metres (study_buffer_shells), so a finer level is finer everywhere.
+    buffer_scale: float = 1.0
 
     @property
     def rounded(self) -> bool:
@@ -604,6 +608,12 @@ ROBUST_CONTROLS_REVISION = "5.4b"
 # layer, while a degenerate cell still tends to 0); maxNonOrtho 75 instead of 65 (the stack tapering at a sharp
 # trailing edge). checkMesh still judges the final mesh with its own limits.
 WALL_RESOLVED_RELAXED_QUALITY = {"minTetQuality": 1e-15, "minDeterminant": 1e-5, "maxNonOrtho": 75}
+# The layer phase's medial-axis walk of a wall-resolved 2D section (D-125) [NUMERICS-REVIEW]: v2606's default walks
+# the whole mesh (medialAxisMeshMover.C: nMedialAxisIter = the point count), and on the sharp trailing edge's medial
+# axis, 60 cells from the wall, the shrink inverted 2 face pyramids of the NACA 0012's fine 0 deg mesh (QUESTIONS
+# 191). The stack is one surface cell thick, so 10 edges (etc/caseDicts/mesh/generation/snappyHexMeshDict.cfg) reach
+# well beyond it.
+WALL_RESOLVED_2D_LAYER_CONTROLS = {"nMedialAxisIter": 10}
 
 
 def _robust(inp: MeshCaseInput) -> bool:
@@ -688,6 +698,23 @@ def _seeded(inp: MeshCaseInput) -> list[int]:
 # the part's box grown by nCellsBetweenLevels cells of each level, level k taking k splits; the refinement
 # volumes take their level the same way. The slab then stays one cell across the span.
 SECTION_PREFIX = "section_"
+# Cells of each level in the buffer that grows a part's box into the next coarser staircase box (D-121: snappyHexMesh's
+# nCellsBetweenLevels). Away from the part's box the cell size is then about the distance / (2 x this), on every
+# level of a mesh study alike.
+SECTION_BUFFER_CELLS = CELLS_BETWEEN_LEVELS
+# The wall-resolved sections (the "2D airfoil" preset, D-122, D-123) take a thicker buffer (D-124): with 3 cells the
+# near field of a lifting section (cells of about d / 6 at a distance d from the part's box) cost the NACA 0012
+# +24 % drag at 10 deg. [NUMERICS-REVIEW]
+WR_SECTION_BUFFER_CELLS = 12
+
+
+def section_buffer_cells(mesh) -> int:
+    """The staircase buffer of a 2D section: WR_SECTION_BUFFER_CELLS with the wall-resolved controls and absolute (y+)
+    sizing (``mesh`` as meshing uses it, workflow/meshing.meshing_settings: the automatic switch included), else
+    SECTION_BUFFER_CELLS."""
+    if mesh.effective_layer_controls == "wall_resolved" and mesh.layer_sizing == "absolute_yplus":
+        return WR_SECTION_BUFFER_CELLS
+    return SECTION_BUFFER_CELLS
 
 
 def _directional(levels: int) -> dict:
@@ -697,9 +724,10 @@ def _directional(levels: int) -> dict:
 def section_staircases(inp: MeshCaseInput, est, part_max_levels: list[int]) -> tuple[dict, dict]:
     """(geometry entries, refinementRegions entries) of the 2D directional staircases (see above): per part, a
     searchableBox for every level k from its maximum surface level down to 1, the part's box grown by the
-    nCellsBetweenLevels buffers of the levels from its maximum down to k; along y the boxes reach well
+    buffers (``section_buffer_cells``) of the levels from its maximum down to k; along y the boxes reach well
     beyond the slab."""
     geometry, regions = {}, {}
+    buffer = section_buffer_cells(inp.mesh) * inp.buffer_scale  # a study level keeps the current boxes (D-127)
     y0, y1 = est.background_bounds[2], est.background_bounds[3]
     pad = y1 - y0
     for i, name in enumerate(inp.parts):
@@ -709,12 +737,37 @@ def section_staircases(inp: MeshCaseInput, est, part_max_levels: list[int]) -> t
         grow = 0.0
         top = part_max_levels[i]
         for k in range(top, 0, -1):
-            grow += CELLS_BETWEEN_LEVELS * est.base_size / 2 ** k
+            grow += buffer * est.base_size / 2 ** k
             key = f"{SECTION_PREFIX}{name}_{k}"
             geometry[key] = {"type": "searchableBox", "min": [b[0] - grow, y0 - pad, b[4] - grow],
                              "max": [b[1] + grow, y1 + pad, b[5] + grow]}
             regions[key] = _directional(k)
     return geometry, regions
+
+
+# A 3D mesh study level other than the current one (D-127) [NUMERICS-REVIEW]: snappyHexMesh's buffers are
+# nCellsBetweenLevels cells of each level, so between a part and the background the cell at a distance d is about
+# d / (2 x 3) on every level and only the near-wall cells and the background scale with the level. Those levels get
+# distance shells around every part at the current settings' buffer distances (D_k = the sum over the levels from
+# the part's maximum down to k of 3 cells of the current settings' size of that level) and nCellsBetweenLevels 1,
+# so at a fixed distance every level has the same refinement level and its cells scale with the base size.
+STUDY_CELLS_BETWEEN_LEVELS = 1
+
+
+def study_buffer_shells(inp: MeshCaseInput, est, part_max_levels: list[int]) -> dict:
+    """The refinementRegions entries of a 3D study level's distance shells (none for the current level or 2D)."""
+    if inp.two_d or inp.buffer_scale == 1.0:
+        return {}
+    regions = {}
+    current_base = est.base_size * inp.buffer_scale
+    for i, name in enumerate(inp.parts):
+        top, reach, levels = part_max_levels[i], 0.0, []
+        for k in range(top, 0, -1):
+            reach += CELLS_BETWEEN_LEVELS * current_base / 2 ** k
+            levels.append([reach, k])
+        if levels:
+            regions[name] = {"mode": "distance", "levels": levels}
+    return regions
 
 
 def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
@@ -773,6 +826,7 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
         boxes, staircases = section_staircases(inp, est, part_max)
         geometry.update(boxes)
         regions.update(staircases)
+    regions.update(study_buffer_shells(inp, est, part_max))  # 3D study levels (D-127)
     if with_seeds:
         features += [{"file": f'"{seed_file_name(inp.parts[i])}"', "level": levels[i][1]}
                      for i in seeded_parts(inp, est.base_size, est.level_min, est.level_max)]
@@ -798,7 +852,8 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
             "maxGlobalCells": MAX_GLOBAL_CELLS,
             "minRefinementCells": 10,
             "maxLoadUnbalance": 0.10,
-            "nCellsBetweenLevels": CELLS_BETWEEN_LEVELS,
+            "nCellsBetweenLevels": (STUDY_CELLS_BETWEEN_LEVELS if not inp.two_d and inp.buffer_scale != 1.0
+                                    else CELLS_BETWEEN_LEVELS),
             "features": features,
             "refinementSurfaces": refinement_surfaces,
             "resolveFeatureAngle": m.feature_angle,
@@ -834,6 +889,8 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
             "nLayerIter": 50,
             **({"nRelaxedIter": RELAXED_AFTER_LAYER_ITER} if m.layer_sizing == "absolute_yplus" else {}),
             **(ROBUST_LAYER_CONTROLS if _robust(inp) else {}),
+            **(WALL_RESOLVED_2D_LAYER_CONTROLS if inp.two_d and _robust(inp) and m.layer_controls == "wall_resolved"
+               else {}),
         },
         "meshQualityControls": _quality_controls(m, _robust(inp)),
         "mergeTolerance": 1e-6,

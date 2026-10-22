@@ -34,6 +34,7 @@ def test_study_nodes_exist_and_commit_settings(make_window) -> None:
     texts = [label.text() for label in p.ms_levels]
     assert all("cells" in t for t in texts)
     assert "same on every level" in p.ms_layers.text()
+    assert p.ms_current_used.text() == "fine" and p.ms_current_used.toolTip() == ""  # the user's choice (D-128)
     assert p.ms_run.isEnabled() and p.ms_run.text() == "Run mesh study"
     _select(w, "polar_sweep")
     assert not p._rows["ps_start"].isHidden() and p._rows["ps_values"].isHidden()

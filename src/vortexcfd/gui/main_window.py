@@ -62,7 +62,7 @@ from vortexcfd.gui import console as console_log
 from vortexcfd.gui.console import ConsolePanel
 from vortexcfd.gui.dialogs import Dialogs
 from vortexcfd.gui.icons import logo_icon, make_glyph
-from vortexcfd.gui.monitors import MonitorsPanel
+from vortexcfd.gui.monitors import MonitorsPanel, stage_text
 from vortexcfd.geometry.checks import basic_report, cached_report
 from vortexcfd.geometry.cad import BREP_EXTENSIONS, CAD_EXTENSIONS, CadImportError, read_cad
 from vortexcfd.geometry.loader import stl_solid_names
@@ -87,7 +87,7 @@ from vortexcfd.geometry.refinement_volumes import domain_fraction
 from vortexcfd.gui.mesh_worker import MeshWorker
 from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam.run_record import RunRecord, read_run_record, write_run_record
-from vortexcfd.foam.solver_run import CRITERIA_MET
+from vortexcfd.foam.solver_run import CRITERIA_MET, read_stages, stage2_criteria
 from vortexcfd.workflow import solving
 from vortexcfd.gui.solver_worker import SolverWorker
 from vortexcfd.gui.study_control import StudyControlMixin
@@ -368,6 +368,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.solver_worker.line.connect(self._on_solver_line)
         self.solver_worker.step.connect(self._on_solver_step)
         self.solver_worker.finished.connect(self._on_solver_done)
+        self.solver_worker.stage.connect(self._on_solver_stage)
         self.domain_view: DomainView | None = None
         self.volume_view: VolumeView | None = None
         self._volume_preview = None  # a RefinementVolume being edited, drawn uncommitted (D-103)
@@ -1448,6 +1449,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.run_record = None
         self.properties.set_run_record(None)
         self.monitors.start_run(case_dir, self._solve_stopping)
+        if read_stages(case_dir) is not None:  # the wall-resolved mode's two stages (D-126)
+            self.monitors.set_stage(stage_text(1))
         self.top_bar.set_run_state("Solving")
         log.info("Running simpleFoam in %s", case_dir)
         cores = self._project.sim.solvers.cores
@@ -1480,6 +1483,10 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.monitors.set_stopping(project.sim.solvers.stopping)
         self.monitors.load_run(case_dir, parse_log_text(text),
                                (record.state, record.stopped_by, record.met_iteration or record.iterations))
+        if record.stages:  # a two-stage run (D-126)
+            last = record.stages[-1]
+            self.monitors.set_stage(stage_text(int(last["stage"]), record.switch_iteration,
+                                               str(record.stages[0].get("switch") or "")))
 
     def _assign_report(self, slot: int, report_id) -> None:
         """A report slot's menu: store the assignment in the project (undoable)."""
@@ -1507,6 +1514,12 @@ class MainWindow(StudyControlMixin, QMainWindow):
     def _on_solver_step(self, step) -> None:
         self.monitors.add_step(step)
 
+    def _on_solver_stage(self, stage: int, switch: int, reason: str) -> None:
+        """The second turbulence stage began (D-126): the monitors say so and judge the criteria as SolverRun does."""
+        self.monitors.set_stage(stage_text(stage, switch, reason))
+        if self._solve_stopping is not None and self._solve_stopping.criteria:
+            self.monitors.set_stopping(stage2_criteria(self._solve_stopping, switch))
+
     def _on_solver_done(self, result) -> None:
         self.top_bar.set_run_state(None)
         case_dir, self._solve_case_dir = self._solve_case_dir, None
@@ -1515,7 +1528,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         labels = convergence.met_labels(stopping, result.criteria_met)
         record = RunRecord(result.state, result.iterations, result.final_residuals,
                            self._solve_hash or "", result.exit_code, criteria, stopped_by, labels,
-                           result.met_iteration, round(result.duration_s, 1), result.cores)
+                           result.met_iteration, round(result.duration_s, 1), result.cores,
+                           tuple(result.stages), result.switch_iteration)
         if case_dir is None:
             case_dir = case_dir_for(self._project)
         elif not self._is_current_case(case_dir):

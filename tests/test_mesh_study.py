@@ -35,8 +35,9 @@ def test_level_factors() -> None:
     assert level_factors(r, "medium") == pytest.approx((r, 1.0, 1 / r))
     with pytest.raises(ValueError):
         level_factors(1.2, "fine")
+    assert level_factors(r, "coarse") == pytest.approx((1.0, 1 / r, 0.5))  # the study's own choice (D-128)
     with pytest.raises(ValueError):
-        level_factors(1.5, "coarse")
+        level_factors(1.5, "finest")
 
 
 def test_levels_scale_cells_by_r_cubed_and_keep_the_surface_levels() -> None:
@@ -475,14 +476,20 @@ def test_every_level_keeps_the_refinement_volumes_and_the_ground(tmp_path: Path)
     project.add_refinement_volume(refinement.wake_volume(project, [0], [m.bounds for m in meshes], est))
     level = refinement.volume_entries(refinement.volume_infos(project, box, est))[0].level
     study_dir, record, _ = prepare_study(project)
+    shells = []
     for lr in record.levels:
         case = study_dir / f"level_{lr.index + 1}"
         snappy = read_foam_file(case / "system" / "snappyHexMeshDict")
         regions = snappy["castellatedMeshControls"]["refinementRegions"]
-        assert list(regions) == ["volume_wake"]
+        if "Sphere" in regions:  # D-127: the current (fine) settings' buffer distances on the other levels
+            shells.append([d for d, _ in regions["Sphere"]["levels"]])
+            assert snappy["castellatedMeshControls"]["nCellsBetweenLevels"] == 1
+        # the current (fine) level as a single mesh; the coarser ones add the part's distance shells (D-127)
+        assert list(regions) == (["volume_wake"] if lr.name == "fine" else ["volume_wake", "Sphere"])
         assert regions["volume_wake"]["levels"][0][1] == level
         block = read_foam_file(case / "system" / "blockMeshDict")
         assert [name for name, _ in block["boundary"]][-1] == "ground"
+    assert len(shells) == 2 and shells[0] == pytest.approx(shells[1])  # the same metres on coarse and medium
 
 
 def test_one_level_can_be_prepared_without_touching_the_others(tmp_path: Path) -> None:

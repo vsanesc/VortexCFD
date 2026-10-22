@@ -541,6 +541,14 @@ class ConvergencePanel(QWidget):
         self.banner.setFont(QApplication.font())
 
 
+def stage_text(stage: int, switch: int | None = None, reason: str = "") -> str:
+    """The monitors' line for a two-stage run (D-126): stage 1 (first-order k, omega) or stage 2 from the switch."""
+    if stage == 1:
+        return "Turbulence stage 1 of 2: first-order k, omega (second order after the criteria are met)"
+    return (f"Turbulence stage 2 of 2: second-order k, omega from iteration {switch}"
+            + (f" (switch: {reason})" if reason else ""))
+
+
 class MonitorsPanel(QWidget):
     """Header + residual chart + report slots, fed live while the solver runs.
 
@@ -562,10 +570,15 @@ class MonitorsPanel(QWidget):
         self.convergence = ConvergencePanel()
         self.kpis = ReportSlots()
         self.kpis.assigned.connect(self.slot_assigned)
+        # The turbulence stage of a two-stage run (D-126): "" (hidden) for a single-stage run.
+        self.stage_label = QLabel()
+        self.stage_label.setObjectName("muted")
+        self.stage_label.setVisible(False)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self.header)
+        layout.addWidget(self.stage_label)
         layout.addWidget(self.chart, 1)
         layout.addWidget(self.convergence)
         layout.addWidget(self.kpis)
@@ -589,6 +602,7 @@ class MonitorsPanel(QWidget):
         self.outcome = None
         self.chart.set_series({})
         self.kpis.set_series(None)
+        self.set_stage("")
         self._update_convergence()
         self.updated.emit()
 
@@ -608,6 +622,11 @@ class MonitorsPanel(QWidget):
         self.outcome = (None, (), None)
         self._timer.start()
         self._update_convergence()
+
+    def set_stage(self, text: str) -> None:
+        """The turbulence stage line of a two-stage run (``stage_text``); "" hides it."""
+        self.stage_label.setText(text)
+        self.stage_label.setVisible(bool(text))
 
     def set_outcome(self, state: str, stopped_by: tuple[str, ...] = (), iterations: int | None = None) -> None:
         """How the shown run ended (solver_run states; ``stopped_by``: descriptions of the criteria

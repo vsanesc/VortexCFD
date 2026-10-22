@@ -1,0 +1,985 @@
+{
+  "diagnosis": [
+    {
+      "file": "run/validation/naca0012/r2/b1_tmr_inflow/diag.json",
+      "name": "b1_tmr_inflow",
+      "source": "run/validation/naca0012/study_a10/case_study/level_2",
+      "restart": null,
+      "kw_scheme": null,
+      "grad_kw": null,
+      "tu": 0.000516398,
+      "ratio": 0.009,
+      "state": "criteria_met",
+      "iterations": 1315,
+      "duration_s": 74.4,
+      "criteria_met": [
+        "c1_residual_p",
+        "c2_residual_U",
+        "c3_residual_k",
+        "c4_residual_omega",
+        "c5_asymptotic_Cl",
+        "c6_asymptotic_Cd"
+      ],
+      "values": {
+        "Cl": 1.034582,
+        "Cd": 0.01559164,
+        "Cd_pressure": 0.010126418001786227,
+        "Cd_viscous": 0.005465218035972457,
+        "CmPitch": 0.01236731
+      },
+      "basis": {
+        "Cl": "last",
+        "Cd": "last",
+        "Cd_pressure": "last",
+        "Cd_viscous": "last",
+        "CmPitch": "last"
+      },
+      "upper_cp": {
+        "0.5": -0.5325633673377412,
+        "0.8": -0.11384939354751339,
+        "0.9": 0.023130295702363236,
+        "0.95": 0.08579447903745466,
+        "0.99": 0.12444142692865925
+      },
+      "upper_cf": {
+        "0.5": 0.002268867894837852,
+        "0.8": 0.0010920187159731754,
+        "0.9": 0.0005852913456114292,
+        "0.95": 0.00032390009813544835,
+        "0.99": 0.00014361061194088405
+      },
+      "upper_reversed_from": null,
+      "upper_cf_min_aft": 0.00012338865603365185,
+      "inlet_k": 0.003240002767008601,
+      "inlet_omega": 24000.020496360004,
+      "nut_ratio_inlet": 0.009,
+      "nut_ratio_ahead": {
+        "-99": 0.008392533333333332,
+        "-50": 0.005845433333333334,
+        "-10": 0.005536279999999999,
+        "-2": 0.00552462,
+        "-1": 0.0057500066666666665
+      }
+    },
+    {
+      "file": "run/validation/naca0012/r2/b2_kw_2nd/diag.json",
+      "name": "b2_kw_2nd",
+      "source": "run/validation/naca0012/study_a10/case_study/level_2",
+      "restart": "run/validation/naca0012/study_a10/case_study/level_2",
+      "kw_scheme": "bounded Gauss linearUpwind grad({f})",
+      "grad_kw": "cellLimited Gauss linear 1",
+      "tu": null,
+      "ratio": null,
+      "state": "criteria_met",
+      "iterations": 1995,
+      "duration_s": 39.6,
+      "criteria_met": [
+        "c1_residual_p",
+        "c2_residual_U",
+        "c3_residual_k",
+        "c4_residual_omega",
+        "c5_asymptotic_Cl",
+        "c6_asymptotic_Cd"
+      ],
+      "values": {
+        "Cl": 1.049133,
+        "Cd": 0.01570935,
+        "Cd_pressure": 0.009990871605354364,
+        "Cd_viscous": 0.005718479079674908,
+        "CmPitch": 0.00988512
+      },
+      "basis": {
+        "Cl": "last",
+        "Cd": "last",
+        "Cd_pressure": "last",
+        "Cd_viscous": "last",
+        "CmPitch": "last"
+      },
+      "upper_cp": {
+        "0.5": -0.5400751813533093,
+        "0.8": -0.12325167914406034,
+        "0.9": 0.01857829059440303,
+        "0.95": 0.09225888218685901,
+        "0.99": 0.14526906666279274
+      },
+      "upper_cf": {
+        "0.5": 0.002556600441633014,
+        "0.8": 0.0012396994642337464,
+        "0.9": 0.0007040510590883052,
+        "0.95": 0.00040540858934314905,
+        "0.99": 0.00016002328846444945
+      },
+      "upper_reversed_from": null,
+      "upper_cf_min_aft": 0.0001561122039636456,
+      "inlet_k": 0.0032853599999999993,
+      "inlet_omega": 24335.999999999993,
+      "nut_ratio_inlet": 0.009,
+      "nut_ratio_ahead": {
+        "-99": 0.008383866666666667,
+        "-50": 0.0007790733333333333,
+        "-10": 0.0035872133333333333,
+        "-2": 0.004873806666666667,
+        "-1": 0.005175786666666666
+      }
+    },
+    {
+      "file": "run/validation/naca0012/r2/d0_kw2nd/diag.json",
+      "name": "d0_kw2nd",
+      "source": "run/validation/naca0012/alpha_0_base_1/case",
+      "restart": "run/validation/naca0012/alpha_0_base_1/case",
+      "kw_scheme": "bounded Gauss linearUpwind grad({f})",
+      "grad_kw": "cellLimited Gauss linear 1",
+      "tu": null,
+      "ratio": null,
+      "state": "criteria_met",
+      "iterations": 1336,
+      "duration_s": 57.5,
+      "criteria_met": [
+        "c1_residual_p",
+        "c2_residual_U",
+        "c3_residual_k",
+        "c4_residual_omega",
+        "c5_asymptotic_Cl",
+        "c6_asymptotic_Cd"
+      ],
+      "values": {
+        "Cl": -3.704731e-05,
+        "Cd": 0.007562792,
+        "Cd_pressure": 0.0012765687099017386,
+        "Cd_viscous": 0.006286223770219199,
+        "CmPitch": 8.427538e-06
+      },
+      "basis": {
+        "Cl": "last",
+        "Cd": "last",
+        "Cd_pressure": "last",
+        "Cd_viscous": "last",
+        "CmPitch": "last"
+      },
+      "upper_cp": {
+        "0.5": -0.21855609170426699,
+        "0.8": -0.045002420790324155,
+        "0.9": 0.03884744334017253,
+        "0.95": 0.10488459706160608,
+        "0.99": 0.19605833748164847
+      },
+      "upper_cf": {
+        "0.5": 0.0029669691409062115,
+        "0.8": 0.0022221850126838646,
+        "0.9": 0.0018642721497688205,
+        "0.95": 0.0015544937240413133,
+        "0.99": 0.0010147935702526044
+      },
+      "upper_reversed_from": null,
+      "upper_cf_min_aft": 0.0007457259259259259,
+      "inlet_k": 0.0032853599999999993,
+      "inlet_omega": 24335.999999999993,
+      "nut_ratio_inlet": 0.009,
+      "nut_ratio_ahead": {
+        "-99": 0.0082536,
+        "-50": 0.009389333333333333,
+        "-10": 0.010045133333333333,
+        "-2": 0.010800666666666667,
+        "-1": 0.011277266666666667
+      }
+    },
+    {
+      "file": "run/validation/naca0012/r2/d10_kw2nd/diag.json",
+      "name": "d10_kw2nd",
+      "source": "run/validation/naca0012/alpha_10_base_1/case",
+      "restart": "run/validation/naca0012/alpha_10_base_1/case",
+      "kw_scheme": "bounded Gauss linearUpwind grad({f})",
+      "grad_kw": "cellLimited Gauss linear 1",
+      "tu": null,
+      "ratio": null,
+      "state": "criteria_met",
+      "iterations": 2686,
+      "duration_s": 149.5,
+      "criteria_met": [
+        "c1_residual_p",
+        "c2_residual_U",
+        "c3_residual_k",
+        "c4_residual_omega",
+        "c5_asymptotic_Cl",
+        "c6_asymptotic_Cd"
+      ],
+      "values": {
+        "Cl": 1.064168,
+        "Cd": 0.01218646,
+        "Cd_pressure": 0.00642962401814059,
+        "Cd_viscous": 0.005756837700176367,
+        "CmPitch": 0.008477908
+      },
+      "basis": {
+        "Cl": "last",
+        "Cd": "last",
+        "Cd_pressure": "last",
+        "Cd_viscous": "last",
+        "CmPitch": "last"
+      },
+      "upper_cp": {
+        "0.5": -0.5462444135122699,
+        "0.8": -0.12702058563989427,
+        "0.9": 0.019699529954345374,
+        "0.95": 0.10114094916886202,
+        "0.99": 0.1671733679878656
+      },
+      "upper_cf": {
+        "0.5": 0.00256628365919381,
+        "0.8": 0.0014446096915885951,
+        "0.9": 0.0009284094713295172,
+        "0.95": 0.0005887422338484308,
+        "0.99": 0.00026241007757152074
+      },
+      "upper_reversed_from": null,
+      "upper_cf_min_aft": 0.00016224893720536522,
+      "inlet_k": 0.0032853599999999993,
+      "inlet_omega": 24335.999999999993,
+      "nut_ratio_inlet": 0.009,
+      "nut_ratio_ahead": {
+        "-99": 0.0082996,
+        "-50": 0.006932799999999999,
+        "-10": 0.007498133333333334,
+        "-2": 0.008376933333333333,
+        "-1": 0.009334199999999999
+      }
+    },
+    {
+      "file": "run/validation/naca0012/r2/d15_kw2nd/diag.json",
+      "name": "d15_kw2nd",
+      "source": "run/validation/naca0012/alpha_15_base_1/case",
+      "restart": "run/validation/naca0012/alpha_15_base_1/case",
+      "kw_scheme": "bounded Gauss linearUpwind grad({f})",
+      "grad_kw": "cellLimited Gauss linear 1",
+      "tu": null,
+      "ratio": null,
+      "state": "criteria_met",
+      "iterations": 4500,
+      "duration_s": 462.4,
+      "criteria_met": [
+        "c1_mean_stable_Cl",
+        "c2_mean_stable_Cd"
+      ],
+      "values": {
+        "Cl": 1.489399684,
+        "Cd": 0.02255784216,
+        "Cd_pressure": 0.01768395419702696,
+        "Cd_viscous": 0.004980946527588814,
+        "CmPitch": 0.01860544
+      },
+      "basis": {
+        "Cl": "mean stable",
+        "Cd": "mean stable",
+        "Cd_pressure": "last",
+        "Cd_viscous": "last",
+        "CmPitch": "last"
+      },
+      "upper_cp": {
+        "0.5": -0.6286670412972729,
+        "0.8": -0.11457775838287132,
+        "0.9": -0.005119791581396944,
+        "0.95": 0.031825413952310394,
+        "0.99": 0.05359987130215094
+      },
+      "upper_cf": {
+        "0.5": 0.001826752723668127,
+        "0.8": 0.0005315894703519466,
+        "0.9": 0.00019485158522648677,
+        "0.95": 7.435128333485495e-05,
+        "0.99": 1.545663974254417e-05
+      },
+      "upper_reversed_from": null,
+      "upper_cf_min_aft": 1.237572310571362e-05,
+      "inlet_k": 0.0032853599999999993,
+      "inlet_omega": 24335.999999999993,
+      "nut_ratio_inlet": 0.009,
+      "nut_ratio_ahead": {
+        "-99": 0.008037,
+        "-50": 0.016488133333333335,
+        "-10": 0.021137066666666666,
+        "-2": 0.025758266666666665,
+        "-1": 0.027950466666666663
+      }
+    },
+    {
+      "file": "run/validation/naca0012/r2/b5_buf12_kw2nd/diag_inspect.json",
+      "case": "run/validation/naca0012/r2/b5_buf12_kw2nd/case",
+      "values": {
+        "Cl": 1.054093,
+        "Cd": 0.01224088,
+        "Cd_pressure": 0.006541200199882845,
+        "Cd_viscous": 0.0056996767859734225,
+        "CmPitch": 0.01025688
+      },
+      "basis": {
+        "Cl": "last",
+        "Cd": "last",
+        "Cd_pressure": "last",
+        "Cd_viscous": "last",
+        "CmPitch": "last"
+      },
+      "upper_cp": {
+        "0.5": -0.5407432538288898,
+        "0.8": -0.12167004974978288,
+        "0.9": 0.023465900718644666,
+        "0.95": 0.10005147389941481,
+        "0.99": 0.15555645196290985
+      },
+      "upper_cf": {
+        "0.5": 0.0025649907812765097,
+        "0.8": 0.0012748190506101874,
+        "0.9": 0.0007286742673703603,
+        "0.95": 0.0004159966707868069,
+        "0.99": 0.00015831874002763624
+      },
+      "upper_reversed_from": null,
+      "upper_cf_min_aft": 0.00010199125518511187,
+      "inlet_k": 0.0032853599999999993,
+      "inlet_omega": 24335.999999999993,
+      "nut_ratio_inlet": 0.009,
+      "nut_ratio_ahead": {
+        "-99": 0.008384,
+        "-50": 0.0007977333333333333,
+        "-10": 0.00251396,
+        "-2": 0.0027192199999999996,
+        "-1": 0.003358513333333333
+      }
+    },
+    {
+      "file": "run/validation/naca0012/alpha_10_base_1.41421_R300_buf12/angle.json",
+      "alpha": 10.0,
+      "base_m": 1.4142135623730951,
+      "mesh_s": 59.3,
+      "cells": 307656,
+      "mesh_ok": true,
+      "first_cell_m": 9.232693178061999e-06,
+      "first_cell_share_over_2x": 0.009033125415278733,
+      "planned_first_m": 8.913755755379576e-06,
+      "layers": 20,
+      "check_mesh_failures": null,
+      "state": "criteria_met",
+      "iterations": 1535,
+      "duration_s": 327.7,
+      "criteria_met": [
+        "c1_residual_p",
+        "c2_residual_U",
+        "c3_residual_k",
+        "c4_residual_omega",
+        "c5_asymptotic_Cl",
+        "c6_asymptotic_Cd"
+      ],
+      "values": {
+        "Cl": 1.039314,
+        "Cd": 0.01191882,
+        "CmPitch": 0.01303869,
+        "Cd_pressure": 0.006438620209577592,
+        "Cd_viscous": 0.005480196530132073
+      },
+      "diagnostics": {
+        "values": {
+          "Cl": 1.039314,
+          "Cd": 0.01191882,
+          "Cd_pressure": 0.006438620209577592,
+          "Cd_viscous": 0.005480196530132073,
+          "CmPitch": 0.01303869
+        },
+        "basis": {
+          "Cl": "last",
+          "Cd": "last",
+          "Cd_pressure": "last",
+          "Cd_viscous": "last",
+          "CmPitch": "last"
+        },
+        "upper_cp": {
+          "0.5": -0.5329196608316861,
+          "0.8": -0.11148205531717678,
+          "0.9": 0.029453577078616525,
+          "0.95": 0.09532025599424325,
+          "0.99": 0.13716299330922574
+        },
+        "upper_cf": {
+          "0.5": 0.0023447683776952936,
+          "0.8": 0.0011544833804488879,
+          "0.9": 0.0006531446033699102,
+          "0.95": 0.0003918100355449863,
+          "0.99": 0.00018888417376622014
+        },
+        "upper_reversed_from": null,
+        "upper_cf_min_aft": 0.00013907966258393074,
+        "inlet_k": 0.0032853599999999993,
+        "inlet_omega": 24335.999999999993,
+        "nut_ratio_inlet": 0.009,
+        "nut_ratio_ahead": {
+          "-99": 0.00514298,
+          "-50": 0.005045386666666667,
+          "-10": 0.00497912,
+          "-2": 0.005049166666666666,
+          "-1": 0.005161706666666667
+        }
+      }
+    },
+    {
+      "file": "run/validation/naca0012/alpha_10_base_1.41421_buf12/angle.json",
+      "alpha": 10.0,
+      "base_m": 1.4142135623730951,
+      "mesh_s": 53.1,
+      "cells": 162854,
+      "mesh_ok": true,
+      "first_cell_m": 9.097465479371813e-06,
+      "first_cell_share_over_2x": 0.0076142874689716,
+      "planned_first_m": 8.913755755379576e-06,
+      "layers": 20,
+      "state": "criteria_met",
+      "iterations": 1556,
+      "duration_s": 149.9,
+      "criteria_met": [
+        "c1_residual_p",
+        "c2_residual_U",
+        "c3_residual_k",
+        "c4_residual_omega",
+        "c5_asymptotic_Cl",
+        "c6_asymptotic_Cd"
+      ],
+      "values": {
+        "Cl": 1.03595,
+        "Cd": 0.01212049,
+        "CmPitch": 0.01346639,
+        "Cd_pressure": 0.0066697484593669,
+        "Cd_viscous": 0.005450743057401368
+      },
+      "diagnostics": {
+        "values": {
+          "Cl": 1.03595,
+          "Cd": 0.01212049,
+          "Cd_pressure": 0.0066697484593669,
+          "Cd_viscous": 0.005450743057401368,
+          "CmPitch": 0.01346639
+        },
+        "basis": {
+          "Cl": "last",
+          "Cd": "last",
+          "Cd_pressure": "last",
+          "Cd_viscous": "last",
+          "CmPitch": "last"
+        },
+        "upper_cp": {
+          "0.5": -0.5316201574611981,
+          "0.8": -0.11031738226026105,
+          "0.9": 0.03056047785096887,
+          "0.95": 0.09587646245412337,
+          "0.99": 0.13592548241052066
+        },
+        "upper_cf": {
+          "0.5": 0.0023001214920692994,
+          "0.8": 0.0011269429493560308,
+          "0.9": 0.0006005441418673597,
+          "0.95": 0.0003243959867556951,
+          "0.99": 0.00014303164098801959
+        },
+        "upper_reversed_from": null,
+        "upper_cf_min_aft": 8.572200462538728e-05,
+        "inlet_k": 0.0032853599999999993,
+        "inlet_omega": 24335.999999999993,
+        "nut_ratio_inlet": 0.009,
+        "nut_ratio_ahead": {
+          "-99": 0.0083918,
+          "-50": 0.005842953333333334,
+          "-10": 0.0055332666666666665,
+          "-2": 0.0055205666666666665,
+          "-1": 0.00572518
+        }
+      }
+    },
+    {
+      "file": "run/validation/naca0012/alpha_10_base_1.41421_buf24/angle.json",
+      "alpha": 10.0,
+      "base_m": 1.4142135623730951,
+      "mesh_s": 81.8,
+      "cells": 246330,
+      "mesh_ok": true,
+      "first_cell_m": 9.097465479371813e-06,
+      "first_cell_share_over_2x": 0.0076142874689716,
+      "planned_first_m": 8.913755755379576e-06,
+      "layers": 20,
+      "state": "criteria_met",
+      "iterations": 1436,
+      "duration_s": 234.1,
+      "criteria_met": [
+        "c1_residual_p",
+        "c2_residual_U",
+        "c3_residual_k",
+        "c4_residual_omega",
+        "c5_asymptotic_Cl",
+        "c6_asymptotic_Cd"
+      ],
+      "values": {
+        "Cl": 1.034354,
+        "Cd": 0.0119041,
+        "CmPitch": 0.01383932,
+        "Cd_pressure": 0.006460773436007371,
+        "Cd_viscous": 0.005443321675466101
+      },
+      "diagnostics": {
+        "values": {
+          "Cl": 1.034354,
+          "Cd": 0.0119041,
+          "Cd_pressure": 0.006460773436007371,
+          "Cd_viscous": 0.005443321675466101,
+          "CmPitch": 0.01383932
+        },
+        "basis": {
+          "Cl": "last",
+          "Cd": "last",
+          "Cd_pressure": "last",
+          "Cd_viscous": "last",
+          "CmPitch": "last"
+        },
+        "upper_cp": {
+          "0.5": -0.5306596636340375,
+          "0.8": -0.10886512594049096,
+          "0.9": 0.032184878637098985,
+          "0.95": 0.09710817924644967,
+          "0.99": 0.13641603367024877
+        },
+        "upper_cf": {
+          "0.5": 0.0022938897896069756,
+          "0.8": 0.001113641313705046,
+          "0.9": 0.0005836964450846125,
+          "0.95": 0.0003092899387764641,
+          "0.99": 0.00013212231049352838
+        },
+        "upper_reversed_from": null,
+        "upper_cf_min_aft": 8.00139704538198e-05,
+        "inlet_k": 0.0032853599999999993,
+        "inlet_omega": 24335.999999999993,
+        "nut_ratio_inlet": 0.009,
+        "nut_ratio_ahead": {
+          "-99": 0.0083918,
+          "-50": 0.005842953333333334,
+          "-10": 0.005533313333333333,
+          "-2": 0.005518359999999999,
+          "-1": 0.005715413333333333
+        }
+      }
+    }
+  ],
+  "angles": [
+    {
+      "alpha": 0,
+      "first_order": {
+        "alpha": 0.0,
+        "base_m": 1.0,
+        "mesh_s": 47.0,
+        "cells": 179784,
+        "mesh_ok": true,
+        "first_cell_m": 9.076025435070102e-06,
+        "first_cell_share_over_2x": 0.005259129010659226,
+        "planned_first_m": 8.913755755379576e-06,
+        "layers": 18,
+        "check_mesh_failures": null,
+        "state": "criteria_met",
+        "iterations": 834,
+        "duration_s": 88.1,
+        "criteria_met": [
+          "c1_residual_p",
+          "c2_residual_U",
+          "c3_residual_k",
+          "c4_residual_omega",
+          "c5_asymptotic_Cl",
+          "c6_asymptotic_Cd"
+        ],
+        "values": {
+          "Cl": -2.98867e-05,
+          "Cd": 0.007462936,
+          "CmPitch": 7.236732e-06,
+          "Cd_pressure": 0.0012628604742756363,
+          "Cd_viscous": 0.006200076706475183
+        },
+        "diagnostics": {
+          "values": {
+            "Cl": -2.98867e-05,
+            "Cd": 0.007462936,
+            "Cd_pressure": 0.0012628604742756363,
+            "Cd_viscous": 0.006200076706475183,
+            "CmPitch": 7.236732e-06
+          },
+          "basis": {
+            "Cl": "last",
+            "Cd": "last",
+            "Cd_pressure": "last",
+            "Cd_viscous": "last",
+            "CmPitch": "last"
+          },
+          "upper_cp": {
+            "0.5": -0.218350367213733,
+            "0.8": -0.044840790625288146,
+            "0.9": 0.0390448370006552,
+            "0.95": 0.10502632021174622,
+            "0.99": 0.19480589818777008
+          },
+          "upper_cf": {
+            "0.5": 0.0029699376106428286,
+            "0.8": 0.0021939570276667845,
+            "0.9": 0.0018083809107053606,
+            "0.95": 0.0014828300911775734,
+            "0.99": 0.0009392520782466417
+          },
+          "upper_reversed_from": null,
+          "upper_cf_min_aft": 0.0006641506172839506,
+          "inlet_k": 0.0032853599999999993,
+          "inlet_omega": 24335.999999999993,
+          "nut_ratio_inlet": 0.009,
+          "nut_ratio_ahead": {
+            "-99": 0.0084106,
+            "-50": 0.00572686,
+            "-10": 0.00542352,
+            "-2": 0.005383593333333334,
+            "-1": 0.005391493333333334
+          }
+        }
+      },
+      "second_order": {
+        "name": "d0_kw2nd",
+        "source": "run/validation/naca0012/alpha_0_base_1/case",
+        "restart": "run/validation/naca0012/alpha_0_base_1/case",
+        "kw_scheme": "bounded Gauss linearUpwind grad({f})",
+        "grad_kw": "cellLimited Gauss linear 1",
+        "tu": null,
+        "ratio": null,
+        "state": "criteria_met",
+        "iterations": 1336,
+        "duration_s": 57.5,
+        "criteria_met": [
+          "c1_residual_p",
+          "c2_residual_U",
+          "c3_residual_k",
+          "c4_residual_omega",
+          "c5_asymptotic_Cl",
+          "c6_asymptotic_Cd"
+        ],
+        "values": {
+          "Cl": -3.704731e-05,
+          "Cd": 0.007562792,
+          "Cd_pressure": 0.0012765687099017386,
+          "Cd_viscous": 0.006286223770219199,
+          "CmPitch": 8.427538e-06
+        },
+        "basis": {
+          "Cl": "last",
+          "Cd": "last",
+          "Cd_pressure": "last",
+          "Cd_viscous": "last",
+          "CmPitch": "last"
+        },
+        "upper_cp": {
+          "0.5": -0.21855609170426699,
+          "0.8": -0.045002420790324155,
+          "0.9": 0.03884744334017253,
+          "0.95": 0.10488459706160608,
+          "0.99": 0.19605833748164847
+        },
+        "upper_cf": {
+          "0.5": 0.0029669691409062115,
+          "0.8": 0.0022221850126838646,
+          "0.9": 0.0018642721497688205,
+          "0.95": 0.0015544937240413133,
+          "0.99": 0.0010147935702526044
+        },
+        "upper_reversed_from": null,
+        "upper_cf_min_aft": 0.0007457259259259259,
+        "inlet_k": 0.0032853599999999993,
+        "inlet_omega": 24335.999999999993,
+        "nut_ratio_inlet": 0.009,
+        "nut_ratio_ahead": {
+          "-99": 0.0082536,
+          "-50": 0.009389333333333333,
+          "-10": 0.010045133333333333,
+          "-2": 0.010800666666666667,
+          "-1": 0.011277266666666667
+        }
+      },
+      "strict_coverage": 0.9919034654056448,
+      "mean_layers": 17.92046839421109,
+      "first_cell_mean_m": 9.076025435070102e-06,
+      "yplus_mean": 1.0565596335217176,
+      "yplus_within_2x": 0.9954920594953659,
+      "yplus_max": 4.02151
+    },
+    {
+      "alpha": 10,
+      "first_order": {
+        "alpha": 10.0,
+        "base_m": 1.0,
+        "mesh_s": 75.5,
+        "cells": 268914,
+        "mesh_ok": true,
+        "first_cell_m": 1.0066513811286923e-05,
+        "first_cell_share_over_2x": 0.0061352723714566595,
+        "planned_first_m": 8.913755755379576e-06,
+        "layers": 18,
+        "check_mesh_failures": [
+          "Max skewness = 85.69546, 1 highly skew faces detected which may impair the quality of the results"
+        ],
+        "state": "criteria_met",
+        "iterations": 1903,
+        "duration_s": 357.0,
+        "criteria_met": [
+          "c1_residual_p",
+          "c2_residual_U",
+          "c3_residual_k",
+          "c4_residual_omega",
+          "c5_asymptotic_Cl",
+          "c6_asymptotic_Cd"
+        ],
+        "values": {
+          "Cl": 1.042368,
+          "Cd": 0.01216238,
+          "CmPitch": 0.0122563,
+          "Cd_pressure": 0.006614826376417234,
+          "Cd_viscous": 0.005547552636936256
+        },
+        "diagnostics": {
+          "values": {
+            "Cl": 1.042368,
+            "Cd": 0.01216238,
+            "Cd_pressure": 0.006614826376417234,
+            "Cd_viscous": 0.005547552636936256,
+            "CmPitch": 0.0122563
+          },
+          "basis": {
+            "Cl": "last",
+            "Cd": "last",
+            "Cd_pressure": "last",
+            "Cd_viscous": "last",
+            "CmPitch": "last"
+          },
+          "upper_cp": {
+            "0.5": -0.5348440752429148,
+            "0.8": -0.11440072157232237,
+            "0.9": 0.02784160592258136,
+            "0.95": 0.09635934124146639,
+            "0.99": 0.14046137955561794
+          },
+          "upper_cf": {
+            "0.5": 0.0025015195952732957,
+            "0.8": 0.0012018224966653115,
+            "0.9": 0.0006644276080890185,
+            "0.95": 0.00036385373987028676,
+            "0.99": 0.00016141687647183982
+          },
+          "upper_reversed_from": null,
+          "upper_cf_min_aft": 8.892470949539495e-05,
+          "inlet_k": 0.0032853599999999993,
+          "inlet_omega": 24335.999999999993,
+          "nut_ratio_inlet": 0.009,
+          "nut_ratio_ahead": {
+            "-99": 0.0084106,
+            "-50": 0.005726813333333333,
+            "-10": 0.005423686666666667,
+            "-2": 0.005416253333333333,
+            "-1": 0.005607946666666666
+          }
+        }
+      },
+      "second_order": {
+        "name": "d10_kw2nd",
+        "source": "run/validation/naca0012/alpha_10_base_1/case",
+        "restart": "run/validation/naca0012/alpha_10_base_1/case",
+        "kw_scheme": "bounded Gauss linearUpwind grad({f})",
+        "grad_kw": "cellLimited Gauss linear 1",
+        "tu": null,
+        "ratio": null,
+        "state": "criteria_met",
+        "iterations": 2686,
+        "duration_s": 149.5,
+        "criteria_met": [
+          "c1_residual_p",
+          "c2_residual_U",
+          "c3_residual_k",
+          "c4_residual_omega",
+          "c5_asymptotic_Cl",
+          "c6_asymptotic_Cd"
+        ],
+        "values": {
+          "Cl": 1.064168,
+          "Cd": 0.01218646,
+          "Cd_pressure": 0.00642962401814059,
+          "Cd_viscous": 0.005756837700176367,
+          "CmPitch": 0.008477908
+        },
+        "basis": {
+          "Cl": "last",
+          "Cd": "last",
+          "Cd_pressure": "last",
+          "Cd_viscous": "last",
+          "CmPitch": "last"
+        },
+        "upper_cp": {
+          "0.5": -0.5462444135122699,
+          "0.8": -0.12702058563989427,
+          "0.9": 0.019699529954345374,
+          "0.95": 0.10114094916886202,
+          "0.99": 0.1671733679878656
+        },
+        "upper_cf": {
+          "0.5": 0.00256628365919381,
+          "0.8": 0.0014446096915885951,
+          "0.9": 0.0009284094713295172,
+          "0.95": 0.0005887422338484308,
+          "0.99": 0.00026241007757152074
+        },
+        "upper_reversed_from": null,
+        "upper_cf_min_aft": 0.00016224893720536522,
+        "inlet_k": 0.0032853599999999993,
+        "inlet_omega": 24335.999999999993,
+        "nut_ratio_inlet": 0.009,
+        "nut_ratio_ahead": {
+          "-99": 0.0082996,
+          "-50": 0.006932799999999999,
+          "-10": 0.007498133333333334,
+          "-2": 0.008376933333333333,
+          "-1": 0.009334199999999999
+        }
+      },
+      "strict_coverage": 0.9909076297392052,
+      "mean_layers": 17.90711167681783,
+      "first_cell_mean_m": 1.0066513811286923e-05,
+      "yplus_mean": 1.0510582778641326,
+      "yplus_within_2x": 0.9334127674861118,
+      "yplus_max": 142.813
+    },
+    {
+      "alpha": 15,
+      "first_order": {
+        "alpha": 15.0,
+        "base_m": 1.0,
+        "mesh_s": 91.4,
+        "cells": 345687,
+        "mesh_ok": true,
+        "first_cell_m": 9.032754157393123e-06,
+        "first_cell_share_over_2x": 0.004979086859505915,
+        "planned_first_m": 8.913755755379576e-06,
+        "layers": 18,
+        "check_mesh_failures": null,
+        "state": "criteria_met",
+        "iterations": 2857,
+        "duration_s": 756.0,
+        "criteria_met": [
+          "c1_mean_stable_Cl",
+          "c2_mean_stable_Cd"
+        ],
+        "values": {
+          "Cl": 1.415521948,
+          "Cd": 0.02566578084,
+          "CmPitch": 0.02542564,
+          "Cd_pressure": 0.02439892978584026,
+          "Cd_viscous": 0.004659359443688587
+        },
+        "diagnostics": {
+          "values": {
+            "Cl": 1.415521948,
+            "Cd": 0.02566578084,
+            "Cd_pressure": 0.02439892978584026,
+            "Cd_viscous": 0.004659359443688587,
+            "CmPitch": 0.02542564
+          },
+          "basis": {
+            "Cl": "mean stable",
+            "Cd": "mean stable",
+            "Cd_pressure": "last",
+            "Cd_viscous": "last",
+            "CmPitch": "last"
+          },
+          "upper_cp": {
+            "0.5": -0.5462503004682225,
+            "0.8": -0.13139312701374448,
+            "0.9": -0.028659323820760547,
+            "0.95": 0.010714957612484885,
+            "0.99": 0.018582831408258945
+          },
+          "upper_cf": {
+            "0.5": 0.0013092417587281108,
+            "0.8": -4.020686993978233e-05,
+            "0.9": -3.08636753919772e-05,
+            "0.95": 0.00011864761058868759,
+            "0.99": 0.0003756585899403696
+          },
+          "upper_reversed_from": 0.7792987637318058,
+          "upper_cf_min_aft": -8.504770158778707e-05,
+          "inlet_k": 0.0032853599999999993,
+          "inlet_omega": 24335.999999999993,
+          "nut_ratio_inlet": 0.009,
+          "nut_ratio_ahead": {
+            "-99": 0.008410466666666666,
+            "-50": 0.00572702,
+            "-10": 0.0054239733333333335,
+            "-2": 0.005441006666666666,
+            "-1": 0.005704819999999999
+          }
+        }
+      },
+      "second_order": {
+        "name": "d15_kw2nd",
+        "source": "run/validation/naca0012/alpha_15_base_1/case",
+        "restart": "run/validation/naca0012/alpha_15_base_1/case",
+        "kw_scheme": "bounded Gauss linearUpwind grad({f})",
+        "grad_kw": "cellLimited Gauss linear 1",
+        "tu": null,
+        "ratio": null,
+        "state": "criteria_met",
+        "iterations": 4500,
+        "duration_s": 462.4,
+        "criteria_met": [
+          "c1_mean_stable_Cl",
+          "c2_mean_stable_Cd"
+        ],
+        "values": {
+          "Cl": 1.489399684,
+          "Cd": 0.02255784216,
+          "Cd_pressure": 0.01768395419702696,
+          "Cd_viscous": 0.004980946527588814,
+          "CmPitch": 0.01860544
+        },
+        "basis": {
+          "Cl": "mean stable",
+          "Cd": "mean stable",
+          "Cd_pressure": "last",
+          "Cd_viscous": "last",
+          "CmPitch": "last"
+        },
+        "upper_cp": {
+          "0.5": -0.6286670412972729,
+          "0.8": -0.11457775838287132,
+          "0.9": -0.005119791581396944,
+          "0.95": 0.031825413952310394,
+          "0.99": 0.05359987130215094
+        },
+        "upper_cf": {
+          "0.5": 0.001826752723668127,
+          "0.8": 0.0005315894703519466,
+          "0.9": 0.00019485158522648677,
+          "0.95": 7.435128333485495e-05,
+          "0.99": 1.545663974254417e-05
+        },
+        "upper_reversed_from": null,
+        "upper_cf_min_aft": 1.237572310571362e-05,
+        "inlet_k": 0.0032853599999999993,
+        "inlet_omega": 24335.999999999993,
+        "nut_ratio_inlet": 0.009,
+        "nut_ratio_ahead": {
+          "-99": 0.008037,
+          "-50": 0.016488133333333335,
+          "-10": 0.021137066666666666,
+          "-2": 0.025758266666666665,
+          "-1": 0.027950466666666663
+        }
+      },
+      "strict_coverage": 0.9922425442358849,
+      "mean_layers": 17.927684600769936,
+      "first_cell_mean_m": 9.032754157393123e-06,
+      "yplus_mean": 0.915288560411248,
+      "yplus_within_2x": 0.8232828940497414,
+      "yplus_max": 5.65779
+    }
+  ]
+}

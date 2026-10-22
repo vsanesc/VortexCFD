@@ -177,6 +177,9 @@ class SurfacePrep(StrictModel):
 
 # Curvature refinement goes at most this many levels above a part's maximum surface level (D-085).
 MAX_CURVATURE_LEVELS = 2
+# A target y+ below this lies in the viscous sublayer, where the robust controls cannot build the stack (D-122):
+# with absolute (y+) sizing the robust controls then give way to the wall-resolved ones (D-123).
+WALL_RESOLVED_AUTO_YPLUS = 5.0
 
 
 class Mesh(StrictModel):
@@ -235,6 +238,19 @@ class Mesh(StrictModel):
         if lo is not None and hi is not None and hi < lo:
             raise ValueError("surface_level_max must be >= surface_level_min")
         return self
+
+    @property
+    def wall_resolved_auto(self) -> bool:
+        """The robust controls with absolute (y+) sizing and a target y+ below WALL_RESOLVED_AUTO_YPLUS: meshing
+        uses the wall-resolved controls instead (D-123). The stored value is kept, so a target of 5 or more gives
+        the robust controls back."""
+        return (self.layer_controls == "robust" and self.layer_sizing == "absolute_yplus"
+                and self.target_yplus < WALL_RESOLVED_AUTO_YPLUS)
+
+    @property
+    def effective_layer_controls(self) -> str:
+        """The layer controls meshing uses: ``layer_controls``, or "wall_resolved" when ``wall_resolved_auto``."""
+        return "wall_resolved" if self.wall_resolved_auto else self.layer_controls
 
 
 class Physics(StrictModel):

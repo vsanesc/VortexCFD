@@ -123,6 +123,23 @@ def cmd_angle(args) -> None:
         project.update_domain(radius=args.radius, downstream=args.radius)
     if args.mesh_cores:  # a set-up choice: the meshing ranks (D-111; a parallel mesh is not bit-identical)
         project.update_mesh(cores=args.mesh_cores)
+    if args.buffer:  # diagnostic (round 2): the 2D staircase buffer, cells per level
+        from vortexcfd.foam import mesh_case
+
+        mesh_case.WR_SECTION_BUFFER_CELLS = args.buffer  # the NACA set-up is wall-resolved (D-124)
+        folder = folder.with_name(folder.name + f"_buf{args.buffer}")
+        project = nc.build_project(folder, alpha=args.alpha, base_size=args.base)
+        if args.radius:
+            project.update_domain(radius=args.radius, downstream=args.radius)
+            project.save()
+    if args.mean_stable or args.limit:  # round 2 at 15 deg: the mean-stable criterion and a raised cap
+        update = {}
+        if args.limit:
+            update["iterations"] = update["write_interval"] = args.limit
+        if args.mean_stable:
+            update["stopping"] = nc.stopping_mean_stable().model_dump()
+        project.update_solver(**update)
+        project.save()
     job = meshing.prepare_job(project)
     plan = meshing.plan_layers_for(project, job.box)
     say(f"alpha {args.alpha:g}: meshing in {job.case_dir} on {job.cores} cores, {plan.count} layers x {plan.first:.3g} m")
@@ -140,7 +157,11 @@ def cmd_angle(args) -> None:
               "planned_first_m": plan.first, "layers": plan.count}
     refusal = None if report is not None and report.valid else "invalid mesh"
     refusal = refusal or collapse_check(None, report)
-    if refusal:
+    if report is not None:
+        record["check_mesh_failures"] = list(report.failed_check_lines) or None
+    if args.mesh_only and not refusal:
+        say(f"alpha {args.alpha:g}: mesh only: {report.cells} cells, valid {report.valid}")
+    elif refusal:
         record["error"] = refusal
         say(f"alpha {args.alpha:g}: not solved: {refusal}")
     else:
@@ -160,6 +181,7 @@ def cmd_angle(args) -> None:
         record.update({"state": res.state, "iterations": res.iterations, "duration_s": round(res.duration_s, 1),
                        "criteria_met": list(res.criteria_met), "values": values})
         say(f"alpha {args.alpha:g}: {res.state} at {res.iterations}, {res.duration_s:.0f} s, {values}")
+        record["diagnostics"] = flow_diagnostics(case, args.alpha, stopping)
     (folder / "angle.json").write_text(json.dumps(record, indent=2) + "\n")
 
 
@@ -186,6 +208,158 @@ def wall_stats(case: Path, planned_first: float, count: int, target: float = 1.0
                         "yplus_within_2x": float(area[within].sum() / area.sum()),
                         "yplus_max": float(yp.max())})
     return out
+
+
+def cell_centres(mesh: PolyMesh) -> np.ndarray:
+    """Approximate cell centres: the mean of each cell's face centres."""
+    centres = face_geometry(mesh.points, mesh.faces)[0]
+    n = int(max(mesh.owner.max(), mesh.neighbour.max() if len(mesh.neighbour) else 0)) + 1
+    total, count = np.zeros((n, 3)), np.zeros(n)
+    np.add.at(total, mesh.owner, centres)
+    np.add.at(count, mesh.owner, 1.0)
+    inner = centres[:len(mesh.neighbour)]
+    np.add.at(total, mesh.neighbour, inner)
+    np.add.at(count, mesh.neighbour, 1.0)
+    return total / count[:, None]
+
+
+def flow_diagnostics(case: Path, alpha: float, stopping) -> dict:
+    """The round 2 diagnosis numbers of a finished run: CL, CD (pressure, viscous), CM (recorded values, D-119), the
+    upper-surface Cp and Cf near the trailing edge (Cf signed along the body x axis: negative = reversed flow), the
+    reversed-flow start on the upper surface, and nut / nu from the inlet to the airfoil along z = 0."""
+    from vortexcfd.foam.dictfile import read_foam_file
+    from vortexcfd.foam.wall_fields import skin_friction_along
+
+    out: dict = {"values": {}, "basis": {}}
+    monitor = ReportMonitor(case)
+    monitor.poll()
+    for q in ("Cl", "Cd", "Cd_pressure", "Cd_viscous", "CmPitch"):
+        v = recorded_value(q, monitor.series(q), stopping)
+        if v is not None:
+            out["values"][q], out["basis"][q] = v.value, v.basis
+    t = latest_time(case)
+    if t is None:
+        return out
+    mesh = PolyMesh.read(case)
+    start, n = mesh.boundary[PATCH]
+    centres = face_geometry(mesh.points, mesh.faces[start:start + n])[0]
+    a = math.radians(alpha)
+    dx, dz = centres[:, 0] - nc.CENTRE[0], centres[:, 2] - nc.CENTRE[2]
+    xb = nc.CENTRE[0] + math.cos(a) * dx - math.sin(a) * dz
+    zb = math.sin(a) * dx + math.cos(a) * dz
+    q = 0.5 * nc.SPEED ** 2
+    # p is zeroGradient on the wall: the wall-adjacent cell's value
+    p = np.asarray(read_foam_file(t / "p")["internalField"], dtype=float)[mesh.owner[start:start + n]]
+    tau = wall_face_values(t / "wallShearStress", [PATCH])[PATCH]
+    cf = skin_friction_along(tau, (math.cos(a), 0.0, -math.sin(a)), nc.SPEED)
+    upper = np.flatnonzero(zb > 0)
+    order = upper[np.argsort(xb[upper])]
+    stations = (0.5, 0.8, 0.9, 0.95, 0.99)
+    out["upper_cp"] = {f"{s:g}": float(np.interp(s, xb[order], p[order] / q)) for s in stations}
+    out["upper_cf"] = {f"{s:g}": float(np.interp(s, xb[order], cf[order])) for s in stations}
+    aft = order[xb[order] > 0.3]
+    reversed_ = aft[cf[aft] < 0]
+    out["upper_reversed_from"] = float(xb[reversed_].min()) if reversed_.size else None
+    out["upper_cf_min_aft"] = float(cf[aft].min()) if aft.size else None
+    # nut / nu on z = 0 ahead of the quarter chord (wind axes), and the inlet value
+    nut = np.asarray(read_foam_file(t / "nut")["internalField"], dtype=float)
+    cells = cell_centres(mesh)
+    decay = {}
+    for d in (-99.0, -50.0, -10.0, -2.0, -1.0):
+        target = np.array([nc.CENTRE[0] + d, cells[0, 1], 0.0])
+        i = int(np.argmin(((cells - target) ** 2).sum(axis=1)))
+        decay[f"{d:g}"] = float(nut[i] / nc.NU) if nut.ndim == 1 else None
+    k_in = read_foam_file(case / "0" / "k")["boundaryField"]["inlet"]["value"]
+    w_in = read_foam_file(case / "0" / "omega")["boundaryField"]["inlet"]["value"]
+    out["inlet_k"], out["inlet_omega"] = float(k_in), float(w_in)
+    out["nut_ratio_inlet"] = float(k_in) / float(w_in) / nc.NU
+    out["nut_ratio_ahead"] = decay  # chords from the quarter chord along z = 0
+    return out
+
+
+def scheme_tokens(text: str) -> tuple:
+    """A scheme entry as a token tuple, numbers typed (foamlib refuses a numeric string as a token)."""
+    def token(t: str):
+        try:
+            return int(t)
+        except ValueError:
+            try:
+                return float(t)
+            except ValueError:
+                return t
+    return tuple(token(t) for t in text.split())
+
+
+def cmd_diag(args) -> None:
+    """Round 2, Part B: one change at a time on a copy of a round 1 level (its mesh and the app's solver files),
+    either from the uniform free stream or restarted from that level's converged solution. Diagnostic only: the
+    overrides are written into the copy, never into the app."""
+    from vortexcfd.foam.dictfile import read_foam_file, set_foam_entry
+    from vortexcfd.foam.solver_run import SolverRun
+    import shutil
+
+    source = (Path(args.source) if args.source else STUDY_PROJECT / "case_study" / "level_2").resolve()
+    dest = WORK / "r2" / args.name / "case"
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True)
+    for name in ("constant", "system"):
+        shutil.copytree(source / name, dest / name)
+    for name in ("case.foam", "vortexcfd_domain.json"):
+        if (source / name).exists():
+            shutil.copy2(source / name, dest / name)
+    (dest / "system" / "decomposeParDict").unlink(missing_ok=True)
+    project = Project.open(STUDY_PROJECT / "naca0012.json")
+    project.update_inflow(alpha_deg=args.alpha)  # in memory only: the solver files of that angle
+    if args.mean_stable:
+        project.update_solver(stopping=nc.stopping_mean_stable().model_dump())
+    if args.tu is not None or args.ratio is not None:
+        project.update_inflow(**({"turbulence_intensity": args.tu} if args.tu is not None else {}),
+                              **({"viscosity_ratio": args.ratio} if args.ratio is not None else {}))
+    mesh_study.solver_writer(project)(dest)
+    if args.kw_scheme:  # e.g. "bounded Gauss linearUpwind grad(k)"; "{f}" stands for the field name
+        schemes = read_foam_file(dest / "system" / "fvSchemes")
+        div = dict(schemes["divSchemes"])
+        for f in ("k", "omega"):
+            div[f"div(phi,{f})"] = scheme_tokens(args.kw_scheme.format(f=f))
+        set_foam_entry(dest / "system" / "fvSchemes", "divSchemes", div)
+        if args.grad_kw:
+            grads = dict(schemes["gradSchemes"])
+            for f in ("k", "omega"):
+                grads[f"grad({f})"] = scheme_tokens(args.grad_kw)
+            set_foam_entry(dest / "system" / "fvSchemes", "gradSchemes", grads)
+    stopping = project.sim.solvers.stopping
+    limit = args.limit or nc.ITERATION_LIMIT
+    if args.restart:
+        t0 = latest_time(Path(args.restart))
+        shutil.copytree(t0, dest / t0.name, ignore=shutil.ignore_patterns("uniform", "wallShearStress", "yPlus"))
+        set_foam_entry(dest / "system" / "controlDict", "startFrom", "latestTime")
+        set_foam_entry(dest / "system" / "controlDict", "endTime", int(float(t0.name)) + limit)
+        set_foam_entry(dest / "system" / "controlDict", "writeInterval", int(float(t0.name)) + limit)
+        stopping = stopping.model_copy(update={"min_iterations": int(float(t0.name)) + stopping.min_iterations})
+    else:
+        set_foam_entry(dest / "system" / "controlDict", "endTime", limit)
+    run = SolverRun(dest, stopping=stopping, cores=project.sim.studies.mesh.cores, timeout_s=7200)
+    say(f"diag {args.name}: solving {dest} (restart {args.restart or 'no'}, k/omega {args.kw_scheme or 'app'}, "
+        f"Tu {args.tu or 'app'}, ratio {args.ratio or 'app'})")
+    run.start()
+    res = run.wait()
+    record = {"name": args.name, "source": str(source.relative_to(ROOT)), "restart": args.restart,
+              "kw_scheme": args.kw_scheme, "grad_kw": args.grad_kw, "tu": args.tu, "ratio": args.ratio,
+              "state": res.state, "iterations": res.iterations, "duration_s": round(res.duration_s, 1),
+              "criteria_met": list(res.criteria_met)}
+    record.update(flow_diagnostics(dest, args.alpha, stopping))
+    (dest.parent / "diag.json").write_text(json.dumps(record, indent=2) + "\n")
+    say(f"diag {args.name}: {res.state} at {res.iterations}, {res.duration_s:.0f} s, {record['values']}")
+
+
+def cmd_inspect(args) -> None:
+    """The diagnosis numbers of an existing round 1 run (no solver run)."""
+    case = Path(args.case)
+    record = {"case": str(case), **flow_diagnostics(case, args.alpha, nc.stopping())}
+    print(json.dumps(record, indent=2))
+    if args.out:
+        Path(args.out).write_text(json.dumps(record, indent=2) + "\n")
 
 
 def cmd_collect(_args) -> None:
@@ -220,6 +394,97 @@ def cmd_collect(_args) -> None:
     say(f"wrote {OUT / 'result.json'}")
 
 
+def cmd_app_study(args) -> None:
+    """Round 3: the app's Mesh Study at 10 deg on the app-pipeline project, as the Mesh Study node runs it."""
+    from vortexcfd.foam.mesh_study import write_record
+
+    folder = WORK / "r3_study"
+    project = nc.build_app_project(folder, alpha=nc.STUDY_ANGLE)
+    plan = mesh_study.plan_study(project)
+    for lp in plan.levels:
+        say(f"{lp.level.name}: base {lp.estimate.base_size:.4g} m, surface cell {1e3 * lp.estimate.surface_size:.4g} mm, "
+            f"{lp.estimate.total_cells:,} background cells, planned {lp.estimated_cells:,} cells")
+    study_dir, record, inputs = mesh_study.prepare_study(project)
+    run = StudyRun(study_dir, record, mesh_study.solver_writer(project), stopping=project.sim.solvers.stopping,
+                   parts=inputs.patches, before_solve=collapse_check, solver_timeout_s=7200,
+                   on_line=lambda line: print(line, end="") if "Turbulence stage" in line or "Mesh study" in line else None)
+    t0 = time.monotonic()
+    run.start()
+    out = run.wait()
+    write_record(study_dir, out)
+    for lv in out.levels:
+        say(f"{lv.name}: {lv.cells} cells, h {lv.h}, share > 2x {lv.first_cell_share_over_2x}, {lv.state_label}, "
+            f"{lv.iterations} it. (switch {lv.switch_iteration}), {lv.duration_s} s, values {lv.values}, error {lv.error}")
+    for q in quantity_rows(out):
+        r = q.result
+        say(f"GCI {q.quantity}: {q.values} h {q.sizes} {r.convergence if r else None} p {r.order if r else None} "
+            f"ext {r.extrapolated if r else None} GCI fine {r.gci_fine if r else None} ratio "
+            f"{r.asymptotic_ratio if r else None} {q.note}")
+    say(f"study {out.status} in {time.monotonic() - t0:.0f} s")
+
+
+def cmd_app_angle(args) -> None:
+    """Round 3: one angle as Generate Mesh then Run Solver on the app-pipeline project (the preset's mesh), A6."""
+    from vortexcfd.foam.mesh_run import MeshRun
+    from vortexcfd.foam.solver_run import SolverRun
+
+    folder = WORK / f"r3_alpha_{args.alpha:g}"
+    project = nc.build_app_project(folder, alpha=args.alpha, mean_stable=args.mean_stable)
+    job = meshing.prepare_job(project)
+    plan = meshing.plan_layers_for(project, job.box)
+    t0 = time.monotonic()
+    mesh = MeshRun(job.case_dir, parts=job.inputs.patches, first_layer=(plan.first, plan.count), cores=job.cores,
+                   step_timeout_s=3600)
+    mesh.start()
+    report = mesh.wait().report
+    record = {"alpha": args.alpha, "mesh_s": round(time.monotonic() - t0, 1), "cells": report.cells if report else None,
+              "mesh_ok": bool(report and report.valid), "planned_first_m": plan.first, "layers": plan.count,
+              "first_cell_m": report.first_cell.mean_m if report and report.first_cell else None,
+              "first_cell_share_over_2x": report.first_cell.share_over_2x if report and report.first_cell else None}
+    refusal = (None if report is not None and report.valid else "invalid mesh") or collapse_check(None, report)
+    if refusal:
+        record["error"] = refusal
+        say(f"alpha {args.alpha:g}: not solved: {refusal}")
+    else:
+        case = solving.prepare_solver_case(project)
+        stopping = project.sim.solvers.stopping
+        run = SolverRun(case, stopping=stopping, cores=project.sim.solvers.cores, timeout_s=7200,
+                        on_line=lambda line: print(line, end="") if "Turbulence stage" in line else None)
+        say(f"alpha {args.alpha:g}: solving {report.cells} cells on {project.sim.solvers.cores} cores")
+        run.start()
+        res = run.wait()
+        record.update({"state": res.state, "iterations": res.iterations, "duration_s": round(res.duration_s, 1),
+                       "switch_iteration": res.switch_iteration, "stages": list(res.stages),
+                       "criteria_met": list(res.criteria_met)})
+        record["diagnostics"] = flow_diagnostics(case, args.alpha, stopping)
+        record.update(wall_stats(case, plan.first, plan.count))
+        say(f"alpha {args.alpha:g}: {res.state} at {res.iterations} (switch {res.switch_iteration}), "
+            f"{res.duration_s:.0f} s, {record['diagnostics']['values']}")
+    (folder / "angle.json").write_text(json.dumps(record, indent=2, default=float) + "\n")
+
+
+def cmd_collect_r2(_args) -> None:
+    """Round 2: the diagnosis runs (Part B) and the per-angle runs (Part D) -> docs/validation/naca0012/
+    result_round2.json (round 1's result.json is kept)."""
+    out = {"diagnosis": [], "angles": []}
+    r2 = WORK / "r2"
+    for path in sorted(r2.glob("*/diag.json")) + sorted(r2.glob("*/diag_inspect.json")):
+        out["diagnosis"].append({"file": str(path.relative_to(ROOT)), **json.loads(path.read_text())})
+    for path in sorted(WORK.glob("alpha_*_base_1.41421_*/angle.json")):
+        out["diagnosis"].append({"file": str(path.relative_to(ROOT)), **json.loads(path.read_text())})
+    for alpha in (0, 10, 15):
+        first = WORK / f"alpha_{alpha}_base_1" / "angle.json"
+        row = {"alpha": alpha, "first_order": json.loads(first.read_text()) if first.is_file() else None}
+        restart = r2 / f"d{alpha}_kw2nd" / "diag.json"
+        row["second_order"] = json.loads(restart.read_text()) if restart.is_file() else None
+        case = restart.parent / "case" if restart.is_file() else first.parent / "case"
+        if row["first_order"] and row["first_order"].get("cells"):
+            row.update(wall_stats(case, row["first_order"]["planned_first_m"], row["first_order"]["layers"]))
+        out["angles"].append(row)
+    (OUT / "result_round2.json").write_text(json.dumps(out, indent=2, default=float) + "\n")
+    say(f"wrote {OUT / 'result_round2.json'}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -232,9 +497,35 @@ def main() -> None:
     an.add_argument("--base", type=float, default=nc.FINE_BASE)
     an.add_argument("--mesh-cores", type=int, default=None)
     an.add_argument("--radius", type=float, default=None)
+    an.add_argument("--buffer", type=int, default=None)
+    an.add_argument("--mesh-only", action="store_true")
+    an.add_argument("--mean-stable", action="store_true")
+    an.add_argument("--limit", type=int, default=None)
     sub.add_parser("collect")
+    dg = sub.add_parser("diag")
+    dg.add_argument("--name", required=True)
+    dg.add_argument("--source", default=None, help="a round 1 case to copy (default: the medium 10 deg level)")
+    dg.add_argument("--restart", default=None, help="start from this case's latest time")
+    dg.add_argument("--kw-scheme", default=None)
+    dg.add_argument("--grad-kw", default=None)
+    dg.add_argument("--tu", type=float, default=None)
+    dg.add_argument("--ratio", type=float, default=None)
+    dg.add_argument("--limit", type=int, default=None)
+    dg.add_argument("--alpha", type=float, default=nc.STUDY_ANGLE)
+    dg.add_argument("--mean-stable", action="store_true")
+    ins = sub.add_parser("inspect")
+    ins.add_argument("--case", required=True)
+    ins.add_argument("--alpha", type=float, default=nc.STUDY_ANGLE)
+    ins.add_argument("--out", default=None)
+    sub.add_parser("collect-r2")
+    sub.add_parser("app-study")
+    aa = sub.add_parser("app-angle")
+    aa.add_argument("--alpha", type=float, required=True)
+    aa.add_argument("--mean-stable", action="store_true")
     args = parser.parse_args()
-    {"setup": cmd_setup, "study": cmd_study, "angle": cmd_angle, "collect": cmd_collect}[args.command](args)
+    {"setup": cmd_setup, "study": cmd_study, "angle": cmd_angle, "collect": cmd_collect, "diag": cmd_diag,
+     "inspect": cmd_inspect, "collect-r2": cmd_collect_r2, "app-study": cmd_app_study,
+     "app-angle": cmd_app_angle}[args.command](args)
 
 
 if __name__ == "__main__":

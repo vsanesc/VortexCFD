@@ -63,6 +63,9 @@ class SolverCaseInput:
     # The 2D mode (D-121): the span of the one-cell mesh (metres); the empty patch "frontAndBack" gets every
     # field and the reference area is chord x span. None: 3D.
     span: float | None = None
+    # The two-stage turbulence scheme of the wall-resolved mode (D-126): first-order k and omega until the switch,
+    # then TURBULENCE_STAGE2's bounded second-order scheme; the criteria are evaluated by the app.
+    two_stage: bool = False
 
 
 def far_field_patches(shape: str, ground: bool, slip_strip: bool = False, two_d: bool = False) -> tuple[str, ...]:
@@ -305,7 +308,7 @@ def control_dict(inp: SolverCaseInput) -> FoamFileSpec:
     functions["wallShearStress1"] = _wall_shear_stress(inp)
     for probe in inp.reports.probes:
         functions[probe_function_name(probe.name)] = _probe(probe.location)
-    stop = run_time_control(inp.solvers.stopping)
+    stop = None if inp.two_stage else run_time_control(inp.solvers.stopping)  # two stages: app-side (D-126)
     if stop is not None:
         functions[RUN_TIME_CONTROL] = stop
     return FoamFileSpec(content={
@@ -347,6 +350,24 @@ def fv_schemes() -> FoamFileSpec:
         "snGradSchemes": {"default": "corrected"},
         "wallDist": {"method": "meshWave"},
     })
+
+
+# The two-stage turbulence scheme of the wall-resolved mode (D-126) [NUMERICS-REVIEW]: stage 2 replaces the k and
+# omega convection of fv_schemes (bounded first-order upwind) with bounded Gauss linearUpwind on cell-limited
+# gradients, the scheme of the NACA 0012 round 2 (docs/validation/naca0012/RESULT.md). Written into the case as
+# STAGES_FILE, which foam/solver_run.SolverRun reads; OpenFOAM ignores it.
+STAGES_FILE = "system/turbulenceStages"
+TURBULENCE_STAGE2 = {
+    "divSchemes": {"div(phi,k)": ("bounded", "Gauss", "linearUpwind", "grad(k)"),
+                   "div(phi,omega)": ("bounded", "Gauss", "linearUpwind", "grad(omega)")},
+    "gradSchemes": {"grad(k)": ("cellLimited", "Gauss", "linear", 1),
+                    "grad(omega)": ("cellLimited", "Gauss", "linear", 1)},
+}
+
+
+def turbulence_stages() -> FoamFileSpec:
+    """STAGES_FILE: the fvSchemes entries of stage 2 (merged into system/fvSchemes at the switch)."""
+    return FoamFileSpec(content={"stage2": {key: dict(entries) for key, entries in TURBULENCE_STAGE2.items()}})
 
 
 def fv_solution(solvers: Solvers) -> FoamFileSpec:
@@ -471,6 +492,8 @@ def build_solver_files(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
         "constant/transportProperties": transport_properties(inp.physics),
         "constant/turbulenceProperties": turbulence_properties(inp.physics),
     }
+    if inp.two_stage:  # D-126
+        files[STAGES_FILE] = turbulence_stages()
     files.update(initial_fields(inp))
     if inp.solvers.cores > 1:  # parallel run (D-063)
         files[DECOMPOSE_DICT] = decompose_par_dict(inp.solvers.cores)
