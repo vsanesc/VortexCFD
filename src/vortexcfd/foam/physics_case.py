@@ -526,8 +526,16 @@ def turbulence_stages() -> FoamFileSpec:
     return FoamFileSpec(content={"stage2": {key: dict(entries) for key, entries in TURBULENCE_STAGE2.items()}})
 
 
-def fv_solution(solvers: Solvers) -> FoamFileSpec:
-    """motorBike fvSolution (v2606), preset "robust": SIMPLEC (consistent), U 0.9, k/omega 0.7.
+# A pressure-driven internal flow (a total-pressure inlet, D-131) [NUMERICS-REVIEW]: SIMPLE (not consistent) with the
+# pressure relaxed (the v2606 tutorial pitzDaily's simpleFoam values: p 0.3, U, k and omega 0.7). With SIMPLEC (the
+# default: no pressure relaxation, U 0.9) the pipe validation's total-pressure inlet ran away from rest (the mass
+# flow passed the target at iteration 28 and diverged); with these it converged to the mass-flow run's flow.
+PRESSURE_DRIVEN_RELAXATION = {"fields": {"p": 0.3}, "equations": {"U": 0.7, "k": 0.7, "omega": 0.7}}
+
+
+def fv_solution(solvers: Solvers, pressure_driven: bool = False) -> FoamFileSpec:
+    """motorBike fvSolution (v2606), preset "robust": SIMPLEC (consistent), U 0.9, k/omega 0.7;
+    ``pressure_driven`` (a total-pressure inlet, D-131): SIMPLE with PRESSURE_DRIVEN_RELAXATION.
 
     No residualControl: the stop is the runTimeControl function object of the stopping criteria
     (controlDict) or the app's own evaluation, which honour the minimum iterations and the "any"
@@ -539,10 +547,11 @@ def fv_solution(solvers: Solvers) -> FoamFileSpec:
         "solvers": {"p": p, "Phi": dict(p), "U": dict(smooth), "k": dict(smooth), "omega": dict(smooth)},
         "SIMPLE": {
             "nNonOrthogonalCorrectors": 0,
-            "consistent": True,
+            "consistent": not pressure_driven,
         },
         "potentialFlow": {"nNonOrthogonalCorrectors": 10},
-        "relaxationFactors": {"equations": {"U": 0.9, "k": 0.7, "omega": 0.7}},
+        "relaxationFactors": (PRESSURE_DRIVEN_RELAXATION if pressure_driven
+                              else {"equations": {"U": 0.9, "k": 0.7, "omega": 0.7}}),
     })
 
 
@@ -712,7 +721,8 @@ def build_solver_files(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
     files = {
         "system/controlDict": control_dict(inp),
         "system/fvSchemes": fv_schemes(),
-        "system/fvSolution": fv_solution(inp.solvers),
+        "system/fvSolution": fv_solution(inp.solvers, inp.internal is not None and any(
+            i.kind == "total_pressure" for i in inp.internal.inlets)),
         "constant/transportProperties": transport_properties(inp.physics),
         "constant/turbulenceProperties": turbulence_properties(inp.physics),
     }

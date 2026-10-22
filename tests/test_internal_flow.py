@@ -211,6 +211,11 @@ def test_dictionaries_per_bc_kind(tmp_path: Path) -> None:
     assert files["0/U"].content["boundaryField"]["inlet_1"]["type"] == "pressureInletOutletVelocity"
     assert files["0/p"].content["boundaryField"]["inlet_1"]["type"] == "totalPressure"
     assert files["0/p"].content["boundaryField"]["inlet_1"]["p0"] == ("uniform", pytest.approx(0.5))
+    # a pressure-driven flow solves with SIMPLE and the pressure relaxed (D-131); the others with SIMPLEC
+    solution = files["system/fvSolution"].content
+    assert solution["SIMPLE"]["consistent"] is False and solution["relaxationFactors"]["fields"] == {"p": 0.3}
+    project.update_boundary("inlet", inlet={"kind": "mass_flow"})
+    assert _solver_files(project)["system/fvSolution"].content["SIMPLE"]["consistent"] is True
     # reports: no force objects; the pressure fields first, then the flow and the averages
     functions = files["system/controlDict"].content["functions"]
     assert not any(name.startswith(("forceCoeffs", "forces")) for name in functions)
