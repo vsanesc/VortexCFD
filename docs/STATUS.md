@@ -6,7 +6,7 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
 ## Current branch
 
 **task/w3-internal** (not yet published). Workstream W3, internal flow, **closed by the I5 verdicts**; then the first
-W4 slice (below, when committed). Done on it:
+W4 slice. Done on it:
 - Part 0 ([NUMERICS-REVIEW], D-127, QUESTIONS 204): every 3D study level, the current one included, is meshed with
   the distance shells and nCellsBetweenLevels 1. The check (docs/validation/study3d/RESULT.md, Round 2) does **not
   pass**: valid levels, layers and quality as before, the cell size shrinks with the ratio at 6/6 sphere points but
@@ -24,15 +24,20 @@ W4 slice (below, when committed). Done on it:
   inlet within 0.03 %); single level (docs/validation/pipe/RESULT.md).
 - Part C: TMR backward-facing step: **PASS** on the finest of five levels (x_r 6.44 H, +2.8 %; SST -1.0 %), grid
   convergence not established (docs/validation/bfs/RESULT.md, QUESTIONS 209).
+- Part D: the W3 docs.
+- W4, first slice (no OpenFOAM run): results scene objects (D-132, schema v20: a clip with the side kept, an
+  isosurface, streamlines from a line or a plane, saved views; items under a Results node, each edit one undo step);
+  image export of the viewer rendered offscreen at the chosen size, optionally transparent, with the scalar bar
+  (D-133); the HTML report (D-134).
 - Machine time about 1 h 10 min (3D check 6 min, benchmark 3 min, pipe 10 min, step 50 min, the rest tests and
   trials). No OpenFOAM process left running.
 
-Next: the owner's review of D-129 to D-131 and QUESTIONS 204 to 209. Open: docs/QUESTIONS.md items 30, 67, 69, 70,
+Next: the owner's review of D-129 to D-134 and QUESTIONS 204 to 209. Open: docs/QUESTIONS.md items 30, 67, 69, 70,
 72, 73, 75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 204 to 209.
 
 ### Previous branch (task/w2-naca-r2)
 
- Workstream W2, NACA 0012 rounds 2 and 3. **W2 closed.** Done on it:
+Workstream W2, NACA 0012 rounds 2 and 3. **W2 closed.** Done on it:
 - Round 2 (owner-reviewed: D-123 to D-125 accepted): the wall-resolved mode follows the y+ target (D-123); the
   cause of round 1's drag error, the 2D staircase's 3-cell buffer, and the 12-cell buffer (D-124); the inverted
   pyramids fixed by the medial-axis walk limit (D-125); the driver's PASS at 0, 10 and 15 deg.
@@ -92,8 +97,8 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
 | 5.4 | M4: prism layer robustness | closed (owner review of 5.4b; D-105 to D-110, benchmarks/RESULT_5.4.md, RESULT_5.4b.md): robust y+ layer defaults (cap 12, ratio up to 1.3, featureAngle 130, nOuterIter 2, tet check on), y+ target at the first cell centre, achieved first cell reported; half wing and Ahmed body above 85 % strict coverage, aircraft valid but its zones not covered |
 | 5.5 | M5: own mesher (go/no-go) | not started |
 | 6.1 | Monitors and reports | done: report slots with Cd, Cl, Cm pitch and wall y+ (D-048); reference values (D-047); stopping criteria (runTimeControl for residuals, app-side range-based asymptotic criterion), convergence banner and oscillation warning (D-058, D-059); force breakdown, body-axis x_cp, mass balance, cellPoint probes (D-060) |
-| 6.2 | Scenes and derived parts | Cp along wall sections with CSV export (D-062); Cf / Cf_x and separation highlight (D-061); scalar scenes done (D-053): field/colormap/range selection, scalar bar, section; scene saving, image export, iso-surfaces and streamlines not started |
-| 6.3 | Data export and reports | not started (section CSV export only, D-062) |
+| 6.2 | Scenes and derived parts | Cp along wall sections with CSV export (D-062); Cf / Cf_x and separation highlight (D-061); scalar scenes done (D-053): field/colormap/range selection, scalar bar, section; clips, isosurfaces, streamlines and saved views (D-132); image export (D-133) |
+| 6.3 | Data export and reports | section CSV export (D-062); the HTML report (D-134) |
 | 6.4 | Mesh independence study (GCI) | done (D-066): Mesh Study node, three levels, Celik GCI, results window and CSV; flat plate Case B not reproduced through the workflow (item 72) |
 | 6.5 | Angle-of-attack sweep (polars) | done (D-067, D-120): Polar Sweep node, one mesh per angle (the parts rotated), resumable, CL-alpha / drag polar / CM-alpha, CSV; NACA 0012 validated at 0 deg, fails on drag at 10 and 15 deg (QUESTIONS 190) |
 | 6.6 | Parallel runs (mpirun) | done (D-063 Accepted): decomposePar / mpirun / reconstructPar, clean stop through mpirun; speedup study and recommended cores (D-064); parallel snappyHexMesh reconstructed to a serial mesh, also for the mesh study levels (D-111 accepted) |
@@ -142,6 +147,12 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
 - Friction losses: put two planes in the developed region (the pipe: 50 and 70 D) and read the pressure drop
   between them; the planes are written a hair (1e-6 of the parts' extent) along their normal so they never lie on a
   layer of mesh faces.
+- Results and the report: the Results node (in the tree, after Reports & Monitors) adds a clip, an isosurface or streamlines
+  to the Results Scene (they need results on disk; the node says why one draws nothing), saves the viewer's camera
+  as a view, exports the viewer as a PNG (File > Export Image: 1920 x 1080, 2560 x 1440, 3840 x 2160 or custom,
+  rendered at that size, optionally transparent) and writes the report (File > Create Report): one HTML file in
+  <project>/reports/ with the set-up, the geometry, the mesh report, the convergence plot, the windowed force or
+  internal-flow reports and every saved view as an image; a section with no data says so in one line.
 - A mesh study of a 2D airfoil: set the Mesh Study's "current as" to medium with the preset's mesh, so the coarse
   level stays within the wall-resolved limit (QUESTIONS 199).
 
