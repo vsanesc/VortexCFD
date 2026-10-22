@@ -24,6 +24,17 @@ from vortexcfd.foam.dictfile import read_foam_file
 OPENFOAM_BASHRC = Path("/usr/lib/openfoam/openfoam2606/etc/bashrc")
 
 
+def set_bashrc(path: Path) -> None:
+    """Source ``path`` instead of the standard bashrc from now on (the start-up check found it there, D-137)."""
+    global OPENFOAM_BASHRC
+    OPENFOAM_BASHRC = Path(path)
+
+
+def bashrc() -> Path:
+    """The OpenFOAM bashrc every command sources."""
+    return OPENFOAM_BASHRC
+
+
 def session_pids(sid: int) -> list[int]:
     """Live processes of session ``sid`` (from /proc/<pid>/stat; zombies left out).
 
@@ -58,7 +69,7 @@ def signal_session(sid: int, sig: int) -> int:
 def run_foam(command: list[str], case_dir: Path, log_file: Path) -> int:
     """Run an OpenFOAM command with the OpenFOAM environment loaded.
 
-    Sources /usr/lib/openfoam/openfoam2606/etc/bashrc explicitly, runs the
+    Sources the OpenFOAM bashrc (``bashrc()``) explicitly, runs the
     specified command within the given case directory, writes combined
     stdout and stderr to log_file, and returns the process exit code.
 

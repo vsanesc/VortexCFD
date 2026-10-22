@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vortexcfd"
-version = "0.1.0"
+dynamic = ["version"]  # vortexcfd.__version__ (src/vortexcfd/__init__.py)
 description = "Integrated CFD workflow GUI for OpenFOAM"
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.scripts]
-vortexcfd = "vortexcfd.gui.main_window:main"
+vortexcfd = "vortexcfd.cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -31,6 +31,9 @@ dev = [
     "pytest-qt",
     "pytest-xdist",
 ]
+
+[tool.setuptools.dynamic]
+version = {attr = "vortexcfd.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]

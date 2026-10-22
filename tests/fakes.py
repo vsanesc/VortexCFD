@@ -44,6 +44,8 @@ class FakeDialogs:
         self.line_export_asked: list = []
         self.report_omit = None  # ask_report_sections' answer; None keeps the project's choice
         self.report_sections_asked: list = []
+        self.openfoam_answer = None  # show_openfoam's answer: (check, bashrc to remember) or None
+        self.openfoam_shown: list = []
 
     def ask_open_path(self):
         return self.open_path
@@ -120,6 +122,10 @@ class FakeDialogs:
 
     def show_about(self):
         self.about_shown += 1
+
+    def show_openfoam(self, check):
+        self.openfoam_shown.append(check)
+        return self.openfoam_answer
 
     def ask_surface_prep(self, strategies, default):
         self.surface_prep_asked.append((list(strategies), default))

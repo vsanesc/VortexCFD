@@ -58,7 +58,7 @@ from vortexcfd.core.model import (
 )
 from vortexcfd.core.presets import PresetError, PresetStore, apply_preset, preset_from_simulation
 from vortexcfd.core.reports import available_reports
-from vortexcfd.foam import convergence
+from vortexcfd.foam import convergence, installation
 from vortexcfd.foam.physics_case import flow_direction
 from vortexcfd.core.project import Project, ProjectFolderError
 from vortexcfd.core.save_rules import (
@@ -316,10 +316,15 @@ class MainWindow(StudyControlMixin, QMainWindow):
         dialogs: Dialogs | None = None,
         with_viewer: bool = True,
         parent: QWidget | None = None,
+        openfoam: "installation.OpenFOAMCheck | None" = None,
     ) -> None:
         """``project`` None: the empty start state (no tree content, "No project open", only the File
-        and Help menus active, D-077); a placeholder document stands in until one is created or opened."""
+        and Help menus active, D-077); a placeholder document stands in until one is created or opened.
+        ``openfoam``: the start-up check (D-137; None: checked here); without OpenFOAM v2606 meshing and solving are
+        disabled with the reason in their tooltips."""
         super().__init__(parent)
+        self.openfoam = openfoam if openfoam is not None else installation.check_openfoam()
+        installation.activate(self.openfoam)
         self.has_project = project is not None
         project = project if project is not None else Project.new(NO_PROJECT)
         self._project = project
@@ -1178,6 +1183,25 @@ class MainWindow(StudyControlMixin, QMainWindow):
                 apply_view(self.viewer, view)
                 self.viewer.render()
 
+    def show_openfoam_dialog(self) -> None:
+        """Help > OpenFOAM Installation, and at start-up without OpenFOAM v2606 (D-137): what was looked for, the
+        install commands as text and a bashrc path; a usable path is remembered and enables meshing and solving."""
+        answer = self.dialogs.show_openfoam(self.openfoam)
+        if answer is None:
+            return
+        check, path = answer
+        if path is not None:
+            installation.set_configured_bashrc(path)
+        self.set_openfoam(check)
+
+    def set_openfoam(self, check: "installation.OpenFOAMCheck") -> None:
+        self.openfoam = check
+        installation.activate(check)
+        if check.ok:
+            self.show_message(f"OpenFOAM {installation.VERSION}: {check.bashrc}", "success")
+        self._update_mesh_button()
+        self._update_run_button()
+
     def export_image(self):
         """File > Export Image (D-133): the viewer rendered offscreen at the chosen size; returns the image or None."""
         if self.viewer is None:
@@ -1427,7 +1451,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
 
     def _update_mesh_button(self) -> None:
         running = self.mesh_worker.is_running()
-        reason = None if running else readiness(self._project)
+        reason = None if running else (self.openfoam.problem() or readiness(self._project))
         if not self.has_project:
             reason = NO_PROJECT
         if not running and self.solver_worker.is_running():
@@ -1446,6 +1470,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
         """Generate Mesh / Stop: write the meshing case and run it in the background."""
         if self.geometry_busy and not self.mesh_worker.is_running():
             self.show_message(f"{self.geometry_worker.label} is running.", "error")
+            return
+        if self.openfoam.problem() and not self.mesh_worker.is_running():  # D-137
+            self.show_message(self.openfoam.problem(), "error")
             return
         if self.solver_worker.is_running():
             self.show_message("The solver is running: stop it first.", "error")
@@ -1615,6 +1642,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         """Why Run Solver is disabled (None: it can run)."""
         if not self.has_project:
             return NO_PROJECT
+        if self.openfoam.problem():  # D-137
+            return self.openfoam.problem()
         busy = self.study_running()
         if busy is not None:
             return busy
@@ -2357,6 +2386,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.act_save_preset = action("Save as &Preset...", self.save_as_preset)
         self.act_manage_presets = action("&Manage Presets...", self.manage_presets)
         self.act_about = action("&About VortexCFD", lambda: self.dialogs.show_about())
+        self.act_openfoam = action("&OpenFOAM Installation...", lambda: self.show_openfoam_dialog())
         self.act_import = action("&Import Geometry...", self.import_surface, "Ctrl+I")
         self.act_import_airfoil = action("Import &Airfoil...", self.import_airfoil)
         self.act_save = action("&Save", self.save, S.Save)
@@ -2445,6 +2475,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self.act_tel_fields[key] = act
             tel_menu.addAction(act)
         help_menu = self.menuBar().addMenu("&Help")
+        help_menu.addAction(self.act_openfoam)
+        help_menu.addSeparator()
         help_menu.addAction(self.act_about)
 
     def _update_actions(self) -> None:
@@ -3263,7 +3295,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         super().closeEvent(event)
 
 
-def start_window(args: list[str], dialogs: Dialogs | None = None) -> MainWindow:
+def start_window(args: list[str], dialogs: Dialogs | None = None, openfoam=None) -> MainWindow:
     """The main window for ``vortexcfd [path]``: the project at ``path`` opened directly, or the empty
     start state with the Start dialog opened once the event loop runs (D-077)."""
     error = None
@@ -3274,13 +3306,16 @@ def start_window(args: list[str], dialogs: Dialogs | None = None) -> MainWindow:
         except Exception as exc:
             log.exception("Could not open project %s", args[0])
             error = f"Could not open {args[0]}: {exc}"
-    window = MainWindow(project, dialogs)  # None: the empty start state
+    window = MainWindow(project, dialogs, openfoam=openfoam)  # None: the empty start state
     if error:
         window.show_message(error, "error")
     for note in project.migration_notes if project is not None else ():  # D-120
         log.warning("%s", note)
         window.show_message(note, "warning", log_it=False)
     window.show()
+    if not window.openfoam.ok:  # D-137: say so before anything else; the app still opens projects
+        log.warning("%s", window.openfoam.text())
+        QTimer.singleShot(0, window.show_openfoam_dialog)
     if project is None:
         QTimer.singleShot(0, window.show_start)
     return window

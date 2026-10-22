@@ -88,6 +88,8 @@ class StudyControlMixin:
         return None
 
     def _busy_for_study(self, kind: str) -> str | None:
+        if self.openfoam.problem():  # D-137: a study meshes and solves
+            return self.openfoam.problem()
         if self.mesh_worker.is_running():
             return "Meshing is running."
         if self.solver_worker.is_running():

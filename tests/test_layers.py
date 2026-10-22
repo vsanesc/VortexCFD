@@ -26,6 +26,9 @@ WORKFLOW_FORBIDDEN = ("PySide6", "pyvistaqt", "vortexcfd.gui", "vortexcfd.bench"
 BENCH_FORBIDDEN = ("PySide6", "pyvistaqt", "vortexcfd.gui")
 
 # Every module under src/vortexcfd/ lives in one of these layers; gui/ is unrestricted.
+# vortexcfd/cli.py (D-137): ``--version`` and ``--check-openfoam`` run without Qt (tests/test_openfoam_check.py
+# checks it in a subprocess); it reaches vortexcfd.gui only inside main().
+CLI_FORBIDDEN = ("PySide6", "pyvistaqt", "pyvista")
 LAYER_RULES: dict[str, tuple[str, ...]] = {
     "core": CORE_FORBIDDEN,
     "foam": FOAM_FORBIDDEN,
@@ -155,10 +158,13 @@ def test_every_module_belongs_to_a_known_layer_and_follows_its_rules() -> None:
     for py_file in sorted(package.rglob("*.py")):
         rel = py_file.relative_to(package)
         if len(rel.parts) == 1:  # a top-level module
-            if rel.name != "__init__.py":
+            if rel.name == "cli.py":  # the console script (D-137): no Qt of its own, the GUI only imported lazily
+                rules = CLI_FORBIDDEN
+            elif rel.name != "__init__.py":
                 unknown.append(str(rel))
                 continue
-            rules = CORE_FORBIDDEN  # the package __init__ must stay free of Qt, pyvista and gui
+            else:
+                rules = CORE_FORBIDDEN  # the package __init__ must stay free of Qt, pyvista and gui
         elif rel.parts[0] in LAYER_RULES:
             rules = LAYER_RULES[rel.parts[0]]
         else:

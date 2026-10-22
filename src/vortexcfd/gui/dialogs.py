@@ -209,8 +209,21 @@ class Dialogs:
         return keys[labels.index(text)] if ok and text in labels else None
 
     def show_about(self) -> None:
+        from vortexcfd import __version__
+
         QMessageBox.about(self.parent, "About VortexCFD",
-                          "VortexCFD: an integrated CFD workflow on top of OpenFOAM ESI v2606.")
+                          f"VortexCFD {__version__}\n\nAn integrated CFD workflow on top of OpenFOAM ESI v2606.\n"
+                          "Licence: GPL-3.0-or-later.")
+
+    def show_openfoam(self, check):
+        """The OpenFOAM dialog (D-137): (the new check, the bashrc to remember or None) when the user chose a usable
+        installation, None when closed."""
+        from vortexcfd.gui.openfoam_dialog import OpenFOAMDialog
+
+        dialog = OpenFOAMDialog(check, self.parent)
+        if not dialog.exec():
+            return None
+        return dialog.result_check(), dialog.configured_path()
 
     def confirm_discard(self) -> DiscardChoice:
         box = QMessageBox(self.parent)
