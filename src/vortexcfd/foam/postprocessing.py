@@ -28,6 +28,7 @@ from pathlib import Path
 
 from vortexcfd.core.reports import BREAKDOWN, MASS, split_part, split_probe
 from vortexcfd.foam.dictfile import read_foam_file
+from vortexcfd.foam.mesh_case import GROUND_PATCH
 from vortexcfd.foam.forces import (
     CoeffAxes,
     ForceRow,
@@ -199,13 +200,16 @@ class YPlusTail:
         return added
 
     def series(self, stat: str, face_counts: dict[str, int] | None = None) -> list[tuple[float, float]]:
-        """Over all wall patches per write time: the minimum of the minima ("min"), the maximum of
+        """Over all part wall patches per write time (the ground plane is left out, D-116): the minimum
+        of the minima ("min"), the maximum of
         the maxima ("max"), or the face-count-weighted average of the patch averages ("average",
         i.e. the mean over all wall faces). Without a face count for every patch the average falls
         back to the plain mean of the patch averages."""
         out = []
         for t in sorted(self.rows):
-            patches = self.rows[t]
+            patches = {name: row for name, row in self.rows[t].items() if name != GROUND_PATCH}
+            if not patches:
+                continue
             if stat == "min":
                 value = min(p[0] for p in patches.values())
             elif stat == "max":

@@ -20,7 +20,7 @@ from typing import Literal
 from pydantic import Field, ValidationError, field_serializer, field_validator
 
 from vortexcfd.core.atomic_io import write_text_atomic
-from vortexcfd.core.model import CURRENT_SCHEMA_VERSION, Mesh, Simulation, StrictModel
+from vortexcfd.core.model import CURRENT_SCHEMA_VERSION, Ground, Mesh, Simulation, StrictModel
 from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR, V13_MESH_FIELDS, V14_MESH_FIELDS
 
 # 1: no schema_version (every such file was written before schema v10); 2: schema_version (D-090).
@@ -29,7 +29,7 @@ PRESET_SUFFIX = ".json"
 
 # Boundary roles of the domain shapes (geometry/domain.py) and the one boundary type each role has
 # today (foam/physics_case.py writes them; there is no per-role choice in the model yet).
-BOUNDARY_ROLES = ("inlet", "outlet", "farfield", "sides", "top", "bottom", "symmetry")
+BOUNDARY_ROLES = ("inlet", "outlet", "farfield", "sides", "top", "bottom", "ground", "symmetry")
 DEFAULT_BOUNDARY_TYPES: dict[str, str] = {
     "inlet": "velocity_inlet",
     "outlet": "pressure_outlet",
@@ -37,13 +37,14 @@ DEFAULT_BOUNDARY_TYPES: dict[str, str] = {
     "sides": "slip",
     "top": "slip",
     "bottom": "slip",
+    "ground": "wall",  # the ground plane of a box domain (D-116)
     "symmetry": "symmetry",
 }
 ALLOWED_BOUNDARY_TYPES: dict[str, tuple[str, ...]] = {role: (t,) for role, t in DEFAULT_BOUNDARY_TYPES.items()}
 
 # The domain fields a preset carries (Domain minus "enabled", which follows the analysis type, and
 # "parts", which belongs to a project's geometry).
-DOMAIN_FIELDS = ("shape", "upstream", "downstream", "lateral", "vertical", "radius", "symmetry")
+DOMAIN_FIELDS = ("shape", "upstream", "downstream", "lateral", "vertical", "radius", "symmetry", "ground")
 
 
 class PresetError(ValueError):
@@ -58,6 +59,7 @@ class PresetDomain(StrictModel):
     vertical: float = Field(default=5.0, gt=0)
     radius: float = Field(default=5.0, gt=0)
     symmetry: Literal["none", "y_min"] = "none"
+    ground: Ground = Field(default_factory=Ground)  # schema v16 (D-116): a domain setting
 
 
 class Preset(StrictModel):
@@ -124,7 +126,8 @@ def migrate_preset(data: dict) -> dict:
             mesh.setdefault(key, value)
         data["mesh"] = mesh
     if isinstance(version, int) and version < CURRENT_SCHEMA_VERSION:
-        version = CURRENT_SCHEMA_VERSION  # v11 and v12 added nothing a preset holds (the surface preparation, D-093; refinement volumes, D-103)
+        version = CURRENT_SCHEMA_VERSION  # v11, v12 and v16 added nothing a preset must fill (the surface
+        # preparation, D-093; refinement volumes, D-103; the ground plane defaults to off, D-116)
     data["schema_version"] = version
     data["format_version"] = PRESET_FORMAT_VERSION
     return data

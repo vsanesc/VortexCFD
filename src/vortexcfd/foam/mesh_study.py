@@ -19,6 +19,18 @@ The representative cell size of a level is h = (V_domain / N_cells)^(1/3) with t
 its checkMesh report (the actual cells, not the estimate). Each level runs the project's physics
 and stopping criteria in its own directory (<project>/case_study/level_<n>/); a level whose run
 did not meet the criteria is flagged and every GCI that uses it is marked unreliable.
+
+The value recorded for a quantity, and used by the GCI, is (D-119):
+
+- the mean over the last W iterations when a mean-stable criterion watches it (W its window; D-118);
+- else, when the oscillation warning applies at the end of the run (D-059), the mean over the D-118
+  window (the mean-stable criterion's default, 500 iterations) or over the whole history if it is
+  shorter, never over the warning's own short window (a 100-iteration mean of round 1's Ahmed Cd swings
+  by 2.6 % with the 167-iteration period);
+- else the last iteration's value.
+
+The last value, the basis, the window and the oscillation amplitude (max - min) / max(|mean|, floor)
+over the window are recorded next to it.
 """
 
 import csv
@@ -38,6 +50,10 @@ DEFAULT_RATIO = math.sqrt(2.0)
 MIN_RATIO = 1.3
 LEVEL_NAMES = ("coarse", "medium", "fine")
 CURRENT_AS = ("fine", "medium")  # which level the current settings are
+# What a level's recorded value of a quantity is (D-119)
+BASIS_LAST = "last"
+BASIS_MEAN_STABLE = "mean stable"
+BASIS_OSCILLATION = "oscillation"
 
 
 def level_factors(ratio: float, current_as: str) -> tuple[float, float, float]:
@@ -134,8 +150,16 @@ class LevelResult:
     criteria_met: bool | None = None
     iterations: int | None = None
     duration_s: float | None = None
-    values: dict[str, float] = field(default_factory=dict)  # report id -> final value
+    values: dict[str, float] = field(default_factory=dict)  # report id -> recorded value (the GCI's)
     error: str | None = None
+    # D-119 (records before it: empty, the values are the last iteration's)
+    last_values: dict[str, float] = field(default_factory=dict)  # report id -> last iteration's value
+    value_basis: dict[str, str] = field(default_factory=dict)  # report id -> BASIS_*
+    windows: dict[str, int] = field(default_factory=dict)  # report id -> iterations in the mean
+    amplitudes: dict[str, float | None] = field(default_factory=dict)  # (max - min) / scale over the window
+
+    def basis(self, quantity: str) -> str:
+        return self.value_basis.get(quantity, BASIS_LAST)
 
     @property
     def reliable(self) -> bool:
@@ -198,6 +222,10 @@ def quantity_rows(record: StudyRecord) -> list[QuantityRow]:
         else:
             result = gci.study(list(values), list(sizes))
             note = "" if result.applicable else result.text
+        means = [lv.name for lv in record.levels if lv.basis(q) != BASIS_LAST]
+        if means:
+            text = "windowed means: " + ", ".join(means)
+            note = f"{note}; {text}" if note else text
         if unreliable:
             flag = "unreliable: " + ", ".join(unreliable) + " did not meet the stopping criteria"
             note = f"{note}; {flag}" if note else flag
@@ -232,8 +260,46 @@ def export_csv(record: StudyRecord, path: Path) -> None:
 
 # -- runner -------------------------------------------------------------------------------------
 
-def final_values(case_dir: Path, quantities: list[str]) -> dict[str, float]:
-    """The last value of every scalar report of a finished run (ReportMonitor, D-060)."""
+@dataclass(frozen=True)
+class RecordedValue:
+    """A level's value of one quantity (D-119): ``value`` is the one recorded and compared."""
+
+    value: float
+    last: float
+    basis: str = BASIS_LAST
+    window: int | None = None  # iterations in the mean
+    amplitude: float | None = None  # (max - min) / max(|mean|, floor) over the window
+
+
+def recorded_value(quantity: str, series, stopping=None) -> RecordedValue | None:
+    """The recorded value of a scalar series (one row per iteration) at the end of a run: the mean over
+    the window of a mean-stable criterion on ``quantity`` (from W values on), else, when the oscillation
+    warning applies, the mean over the D-118 default window (all the history if shorter), else the last
+    value. None: no scalar value."""
+    from vortexcfd.core.model import AsymptoticCriterion, MeanStableCriterion
+    from vortexcfd.foam.convergence import oscillation, unique_by_iteration, window_stats
+
+    rows = unique_by_iteration(series)
+    if not rows or not isinstance(rows[-1][1], (int, float)):
+        return None
+    last = float(rows[-1][1])
+    if stopping is None:
+        return RecordedValue(last, last)
+    stable = next((c for c in stopping.criteria if isinstance(c, MeanStableCriterion) and c.quantity == quantity),
+                  None)
+    if stable is not None and len(rows) >= stable.window:
+        stats = window_stats(rows, stable.window, stable.effective_floor, quantity)
+        return RecordedValue(stats.mean, last, BASIS_MEAN_STABLE, stats.n, stats.amplitude)
+    floor = next((c.effective_floor for c in stopping.criteria
+                  if isinstance(c, AsymptoticCriterion) and c.quantity == quantity), None)
+    if oscillation(quantity, rows, stopping.oscillation_window, stopping.oscillation_threshold, floor) is not None:
+        stats = window_stats(rows, MeanStableCriterion.model_fields["window"].default, floor, quantity)
+        return RecordedValue(stats.mean, last, BASIS_OSCILLATION, stats.n, stats.amplitude)
+    return RecordedValue(last, last)
+
+
+def final_values(case_dir: Path, quantities: list[str], stopping=None) -> dict[str, RecordedValue]:
+    """The recorded value of every scalar report of a finished run (ReportMonitor, D-060; D-119)."""
     from vortexcfd.foam.postprocessing import ReportMonitor
 
     monitor = ReportMonitor(case_dir)
@@ -244,9 +310,18 @@ def final_values(case_dir: Path, quantities: list[str]) -> dict[str, float]:
             rows = monitor.series(q)
         except KeyError:
             continue
-        if rows and isinstance(rows[-1][1], (int, float)):
-            out[q] = float(rows[-1][1])
+        value = recorded_value(q, rows, stopping)
+        if value is not None:
+            out[q] = value
     return out
+
+
+def set_values(level: LevelResult, values: dict[str, RecordedValue]) -> None:
+    level.values = {q: v.value for q, v in values.items()}
+    level.last_values = {q: v.last for q, v in values.items()}
+    level.value_basis = {q: v.basis for q, v in values.items()}
+    level.windows = {q: v.window for q, v in values.items() if v.window is not None}
+    level.amplitudes = {q: v.amplitude for q, v in values.items() if v.window is not None}
 
 
 class StudyRun:
@@ -257,7 +332,7 @@ class StudyRun:
     ``record.mesh_cores`` ranks, decomposed and reconstructed within the level, its processor*/ removed
     by MeshRun after the level, a stop or a failure, D-111), then
     ``write_solver(level_dir)`` writes the solver files, then SolverRun with the run's stopping
-    criteria and cores, then the final values of the study quantities. The record is written to
+    criteria and cores, then the recorded values of the study quantities (D-119). The record is written to
     study.json after every step. ``on_line`` / ``on_level`` / ``on_done`` are called from worker
     threads (a GUI forwards them through signals). ``request_stop`` stops the running step cleanly
     and ends the study ("stopped"); the levels not run keep no result.
@@ -387,7 +462,7 @@ class StudyRun:
                 level.criteria_met = result.state == CRITERIA_MET
                 level.iterations = result.iterations
                 level.duration_s = round(result.duration_s, 1)
-                level.values = final_values(case, self.record.quantities)
+                set_values(level, final_values(case, self.record.quantities, self._stopping))
                 if result.state == "crashed":
                     level.error = "the solver crashed"
                 self._save(level)

@@ -141,7 +141,7 @@ def test_v8_project_migrates_to_external(tmp_path: Path) -> None:
     path = Path(__file__).parent / "data" / "project_v8.json"
     assert json.loads(path.read_text())["schema_version"] == 8
     sim = load_simulation(path)
-    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 15
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 17
     assert (sim.analysis_type, sim.preset_name) == ("external", None)
     assert sim.domain == Domain(upstream=3.0, downstream=8.0, lateral=4.0, vertical=4.0, symmetry="y_min")
     assert sim.domain.shape == "box" and sim.domain.parts is None
@@ -191,7 +191,7 @@ def test_a_current_preset_round_trips_with_the_new_defaults_and_a_newer_schema_i
     store = PresetStore(tmp_path)
     path = store.save(Preset(name="New"))
     data = json.loads(path.read_text())
-    assert data["schema_version"] == CURRENT_SCHEMA_VERSION == 15
+    assert data["schema_version"] == CURRENT_SCHEMA_VERSION == 17
     mesh = store.find("New").preset.mesh
     assert (mesh.layer_sizing, mesh.surface_size_reference, mesh.curvature_levels) == ("absolute_yplus", "l_ref", 2)
     (tmp_path / "newer.json").write_text(json.dumps({**data, "name": "Newer", "schema_version": CURRENT_SCHEMA_VERSION + 1}))

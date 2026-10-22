@@ -1,50 +1,89 @@
 # Status
 
-Updated 2026-10-21 (task/5.x-parallel-mesh: parallel snappyHexMesh; owner review applied; whole-codebase review and its follow-up).
+Updated 2026-10-22 (task/validation-ahmed: ground plane boundary and the Ahmed 25 degree force validation; rounds 2 to 4; W1 closed).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
 
-**task/5.x-parallel-mesh** (not yet published). Done on it (D-111, benchmarks/RESULT_parallel_mesh.md):
-- Part A ([NUMERICS-REVIEW], schema v15): with Mesh cores N > 1 the pipeline is blockMesh, surfaceFeatureExtract,
-  decomposePar (scotch), every snappyHexMesh pass through mpirun on one decomposition, reconstructParMesh
-  -constant, then createPatch and checkMesh on the serial mesh; processor*/ removed after the reconstruction
-  and after a stop or failure; a new meshing case drops the old mesh record. Mesh properties: "Mesh cores"
-  (auto = the meshing recommendation, see the owner review below) and "Cores used"; the mesh record keeps the cores.
-  Benchmark `--mesh-cores` (default serial) and the summed memory of all ranks.
-- Part B: mesh only at 1 / 4 / 8 cores: speedup at 8 cores 2.13 sphere, 1.97 half wing, 1.85 Ahmed body,
-  4.13 aircraft (497 -> 120 s); validity, checks, strict coverage (overall and zones), first cell and
-  fidelity the same to the noise. Meshing cap rule: background cells / 12,500, at most 8. Machine time
-  about 29 min.
-- Owner review: D-111 accepted with two changes, QUESTIONS 154 and 157-161 accepted.
-  - QUESTIONS 155 ([NUMERICS-REVIEW]): automatic meshing cores = min(physical cores, background cells /
-    12,500, 8), independent of the Solvers cores (the solver's cap of 4 measured the solver); the solver
-    recommendation is unchanged. Automatic cores of the benchmark cases: sphere 8, half wing 7, Ahmed body 7,
-    aircraft 7 (99,200-100,860 background cells).
-  - QUESTIONS 156: the mesh study meshes every level on the project's meshing cores, one level at a time,
-    processor*/ cleaned per level; a real 2-level sphere study on 4 cores took 34 s.
+**task/validation-ahmed** (not yet published). Done on it:
+- Part A ([NUMERICS-REVIEW], D-116, schema v16): the box domain's ground plane: the z-min face as the wall
+  patch "ground" (stationary noSlip or moving at U_inf along +x; at the parts' lowest z or a set z; the
+  parts' wall functions; prism layers optional, off by default); forces and the part y+ leave it out;
+  presets store it; tree node and properties rows. D-117: the mesh study levels keep the refinement
+  volumes and junction curves (they were dropped before).
+- Part B: docs/validation/ahmed/SETUP.md: the half Ahmed body (25 degrees) and two 30 mm stilts generated
+  by code (tests/validation/ahmed_case.py), Ahmed et al. (1984)'s 60 m/s, Re_L 4.29e6, stationary ground
+  from 1.35 L ahead, A_ref the body's frontal area; wake helper and slant volumes;
+  scripts/validation/ahmed_study.py.
+- Part C: three levels through the app's mesh study (202,717 / 524,785 / 1,338,191 cells, all checkMesh
+  OK), 1500 iterations each; the steady solution oscillates about a stationary mean, so no level met the
+  app's stopping criteria and the values are last-1000-iteration means (QUESTIONS 170).
+- Part D: docs/validation/ahmed/RESULT.md: fine-grid body Cd 0.3250 against 0.285 (+14.0 %), oscillatory
+  GCI (no extrapolation), published SST 0.284-0.313: **verdict FAIL** (V6); Cl 0.38, pressure share
+  85.9 %; the fine grid's slant bubble reattaches at 80 % of the slant (coarser grids separate to the
+  base). tests/validation/test_ahmed.py (marker validation, not run) re-checks the verdict inputs.
+  Machine time about 2 h 17 min.
+- QUESTIONS 163 to 166 are closed (accepted as implemented by the owner); 167 stays open.
+- Round 2 (owner review of round 1; QUESTIONS 168 b, 169, 170, 173 decided):
+  - Part A ([NUMERICS-REVIEW], D-118, schema v17): the ground's slip strip (`Ground.wall_start_x`: the
+    bottom face split into `ground_slip` and `ground` by two blockMesh blocks at a background cell face)
+    and the mean-stable stopping criterion (W 500, tol 0.5 %, from round 1's Cd histories: it would have
+    stopped them at 1002 / 1003 / 1036); windowed mean and oscillation in the report slots and the Forces
+    table; the oscillation warning suggests the criterion. D-116 and D-117 Accepted.
+  - Part B: no reference papers supplied (`~/vortexcfd-geometry/refs/` absent): 0.285 kept as quoted.
+  - Part C: SETUP.md "Round 2" (inlet 5 L, ground wall from 1.35 L ahead, ground layers, mean-stable stop,
+    8 + 8 cores; project run/validation/ahmed/ahmed25_r2, round 1 untouched); the driver runs one level
+    per command with a deadline guard (`prepare_study(only=...)`).
+  - Part D: coarse and medium run (RESULT.md "Round 2"): body Cd 0.3003 / 0.3272 (round 1 0.3409 /
+    0.3468), both stopped by the mean-stable criterion (1162 / 1004); ground y+ under the body 316 / 602
+    (round 1 1,707 / 1,240); the slant still separated on both.
+  - Part E: the fine level (1,614,529 cells, mean-stable stop at 1021, 70 min on 8 cores): body Cd
+    0.3246, +13.9 % against 0.285, above the published SST range: **verdict FAIL** (V6), as round 1. GCI
+    oscillatory (+9.0 % / -0.8 %: medium and fine agree within the oscillation, coarse is the outlier);
+    the fine slant has a closed bubble reattaching at 0.6-0.7 of the slant (40 % of its area reversed).
+    The set-up fixes change Cd by -11.9 / -5.7 / -0.1 % (coarse / medium / fine). The separating coarse run
+    without ground layers (`--round 3`, QUESTIONS 177): 0.3189, about half of the coarse drop each from
+    the inlet and the ground layers, but that run converged steady (indicative only). D-118 Accepted;
+    QUESTIONS 176 and 178 accepted.
+- Owner review of round 2: recorded as FAIL under V6 (RESULT.md, "Reading of round 2": medium and fine
+  within 0.8 %, steady SST with wall functions gives 0.325, +14 %, not the set-up, cause not established; FAIL
+  until verified references are read, QUESTIONS 171 and 172 open). QUESTIONS 177 closed (the round 3 split
+  is indicative).
+  - [NUMERICS-REVIEW] D-119 (QUESTIONS 175; accepted with the owner's change of the oscillation window): the mesh study records the
+    windowed mean of a quantity watched by a mean-stable criterion (its window) or showing the D-059
+    oscillation warning (the D-118 window of 500, or the whole history if shorter), with the last value, the basis, the window and the oscillation amplitude; the last value
+    otherwise. The GCI uses the recorded value; tests on round 1's recorded Cd histories.
+  - The driver's deadline estimate uses the solver rate measured on the round's own levels at the same
+    core count, else round 1's (`ahmed_case.estimate_level`, tests/test_ahmed_driver.py).
+  - tests/validation/test_ahmed.py checks round 2's recorded verdict inputs (marker validation, not run).
+  - docs/validation/README.md: the index of the validation cases; a manual note (below).
+  - D-119 accepted with the owner's change (the oscillation case's mean over the D-118 window).
+- References read after round 2 (owner's ~/vortexcfd-geometry/refs/): Guilmineau 2008 recorded in SETUP.md
+  (k-omega SST 0.3074 at 25 degrees, wall-resolved, y+ about 0.25, 1.8 M points, no slant reattachment);
+  the files named for Ahmed 1984 and Lienhart & Becker 2003 are other papers (Grandemange et al. 2013,
+  Becker et al. 2002), so neither is read. Re-verdict of round 2 against Guilmineau and the vendor pages
+  (SST range 0.2915-0.313): **FAIL**, 3.7 % above the range; the fine slant bubble reattaches later on the
+  centre line than the experiment as described by Guilmineau. QUESTIONS 172 closed; 171 open.
 
-- Whole-codebase review (docs/REVIEW.md, 2026-10-20): 42 findings, 3 SAFE fixes applied (the surface
-  preparation's hidden-segment filter 4.2x faster with the same mask, its segments computed once, the
-  monitors' force breakdown cached per time); the dictionaries of the public cases and the cavity are
-  byte-identical before and after; the benchmark compare was not run (stopped early). The remaining
-  SAFE fixes are listed in REVIEW.md section 8; the FROZEN findings for the owner in section 7.
-- Review follow-up (2026-10-21, REVIEW.md sections 8b and 9): runs bound to the case they started in (R-01,
-  D-112); every background run reports its end after an exception (R-02, D-113); atomic project, preset and
-  record files with the umask's mode (R-04/R-05, D-114); the placeholder Add part item disabled (R-18, D-115);
-  numpy declared (R-40); DECISIONS statuses (R-39: D-068, D-088 accepted, 16 entries for the owner in
-  QUESTIONS 162); the layer walk vectorised, bitwise identical (R-25). Verified: the aircraft surface
-  preparation byte-identical before and after 773ed53; the benchmark mesh metrics equal to baseline.json;
-  the dictionaries of the public cases and the cavity identical.
-- Owner review of the Proposed decisions (2026-10-21, QUESTIONS 162): D-064, D-066, D-067, D-069 to D-073,
-  D-076, D-077, D-080 to D-082, D-100, D-102 and D-112 to D-115 accepted as implemented, with the follow-up's
-  open doubts (Edit menu tooltips, umask permissions, project-switch behaviour); no DECISIONS entry is
-  Proposed any more. Their open points (QUESTIONS 163 to 166) were then accepted as implemented too; the
-  results loader's missing test (QUESTIONS 167) stays open.
+- Round 4 (overnight 2026-10-21/22, the last Ahmed run): round 2 with target y+ 1 at the first cell
+  centre on the body and stilts (`--round 4`, project ahmed25_r4_wallres; the ground keeps round 2's stack
+  through a driver override, QUESTIONS 179; cap 3000). The y+ 1 stack collapsed (0.23-0.24 of 12 layers,
+  body y+ mean 683 medium / 562 fine; QUESTIONS 180), so the wall-function hypothesis is **not tested**.
+  Fine body Cd 0.3154 (slant attached). Owner review (2026-10-22): round 4 **INCONCLUSIVE**, it does not
+  count (QUESTIONS 182). RESULT.md "Round 4" and "Conclusion"; result_round4.json.
+- **W1 (the Ahmed 25 degree validation) closed** (owner): final verdict round 2's **FAIL**, a documented
+  known limitation of steady SST with wall functions at 25 degrees (+13.9 % against the experiment, +5.6 %
+  against Guilmineau 2008), accepted for v1. QUESTIONS 171, 177, 179, 181 and 182 closed; 180 assigned to W2.
+- docs/PLAN.md: a "v1" section (the definition, the workstreams W1 to W5, the post-v1 backlog).
 
-Next: the aircraft's zones (QUESTIONS 147); drag handles for the refinement volumes (item 132). The owner
-runs scripts/ship.sh (the slow tests, item 161). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73,
-75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147 and 167.
+Next: the aircraft's zones (QUESTIONS 147); drag handles for the refinement volumes (item 132). The owner runs
+scripts/ship.sh (the slow tests, item 161). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 71, 72, 73, 75,
+82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174 and 180 (W2).
+
+### Previous branch (task/5.x-parallel-mesh, published in PR #26)
+
+Parallel snappyHexMesh (D-111), the whole-codebase review and its follow-up (D-112 to D-115), the owner
+review of the Proposed decisions (QUESTIONS 162 to 166).
 
 ## Phases
 
@@ -63,11 +102,11 @@ runs scripts/ship.sh (the slow tests, item 161). Open: docs/QUESTIONS.md items 3
 | 3.1 | Surface mesh import and checks | done: multi-solid STL, self-intersections (D-069) |
 | 3.2 | CAD import (STEP/IGES/BREP) | done (D-070): OCP, face names and colours, assemblies, editable deflections |
 | 3.3 | Geometry repair | done (D-072): pymeshfix + fTetWild envelope, before / after report |
-| 3.4 | Domain and boundary definition | done; box, bullet and C-type shapes, Generate domain operation (D-078) |
+| 3.4 | Domain and boundary definition | done; box, bullet and C-type shapes, Generate domain operation (D-078); ground plane on the box (D-116) |
 | 3.5 | Surface-to-patch assignment | done (D-071): regions, angle split, patches in the meshing dictionary |
 | 4.1 | Physics continua | done for steady incompressible RANS (merged in PR #13) |
 | 4.2 | Boundary condition library | done for the external-aerodynamics set (D-022) |
-| 4.3 | Turbulence module | done for kOmegaSST (y+ estimator, flat plate verified against TMR: PASS WITH NOTE); docs/reference/turbulence_mapping.md not written |
+| 4.3 | Turbulence module | done for kOmegaSST (y+ estimator, flat plate verified against TMR: PASS WITH NOTE; Ahmed body 25 degrees, W1 closed: FAIL, a documented known limitation; round 4 inconclusive, docs/validation/ahmed/RESULT.md); docs/reference/turbulence_mapping.md not written |
 | 4.4 | Numerics presets | preset "robust" only (merged in PR #13) |
 | 5.0 | Meshing benchmark suite | done (D-081, D-082): sphere, wing, Ahmed-type body; baseline in benchmarks/BASELINE.md; the dirty-STL set and solver convergence are not in it |
 | 5.1 | M1: GUI over snappyHexMesh | done (published in PR #11 and #12); y+ layer sizing done (D-024, D-026, D-045); sizing defaults revised after the baseline (D-084 to D-086, task 5.1-sizing); user refinement volumes and the wake helper (D-103, task 5.x-refinement-volumes; no viewer drag handles) |
@@ -89,7 +128,24 @@ runs scripts/ship.sh (the slow tests, item 161). Open: docs/QUESTIONS.md items 3
 
 ## Known issues
 
+- The Ahmed body 25 degree validation (W1, closed) FAILS V6: a documented known limitation of steady SST with
+  wall functions at 25 degrees, accepted for v1 (round 2's fine body Cd 0.3246, +13.9 % against the
+  experiment, +5.6 % against Guilmineau 2008); no round reproduces the experiment's slant reattachment;
+  steady SST oscillates here; round 4 (wall-resolved attempt) inconclusive (docs/validation/ahmed/RESULT.md,
+  "Conclusion").
+- The app cannot yet build wall-resolved (y+ 1) layers on 3D bluff bodies: the stack collapses on the
+  interpolation-weight and determinant checks (QUESTIONS 180, W2).
+
 - Results at angle of attack != 0 are biased by the angled-inlet method with slip far field (QUESTIONS 71, open).
+
+## Notes for the user manual (draft)
+
+- Bluff bodies with strong separation: steady SST can over-predict drag by 10-15 %; use the mean-stable
+  criterion (Ahmed body 25 degrees, docs/validation/ahmed/RESULT.md).
+- Steady k-omega SST with wall functions over-predicts the drag of the Ahmed body at 25 degrees by about 14 %
+  (body Cd 0.325 against the experimental 0.285; docs/validation/ahmed/RESULT.md).
+- The app cannot yet build wall-resolved (y+ about 1) prism layers on 3D bluff bodies: the layers collapse
+  and the First cell row of the Mesh report shows the drift warning (QUESTIONS 180).
 
 ## Known debts
 

@@ -35,7 +35,7 @@ from vortexcfd.foam.mesh_case import (
 from vortexcfd.foam.mesh_estimate import BACKGROUND_MARGIN_CELLS, MeshEstimate
 from vortexcfd.foam.physics_case import LENGTH_AUTO_LABEL, reference_values
 from vortexcfd.geometry import regions
-from vortexcfd.geometry.domain import DomainBox, compute_domain, union_bounds
+from vortexcfd.geometry.domain import DomainBox, compute_domain, ground_wall_start, union_bounds
 from vortexcfd.geometry.domain_surface import ROLE_ARRAY, meshing_surface
 from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
 from vortexcfd.workflow import refinement, surface_prep
@@ -287,6 +287,12 @@ def readiness(project: Project) -> str | None:
         box, _, _ = _loaded_parts(project)
     except MeshingNotReady as exc:
         return str(exc)
+    if box.ground and box.parts_bounds is not None and box.bounds[4] >= box.parts_bounds[5]:
+        return "The ground plane is above every part: lower it (Fluid Domain > Ground plane)."
+    start = ground_wall_start(project.sim.domain, box.bounds)
+    if start is not None and start >= box.bounds[1]:
+        return (f"The ground wall starts at x = {start:.4g} m, at or behind the outlet (x = {box.bounds[1]:.4g} m): "
+                "move it upstream (Fluid Domain > Ground plane).")
     return estimate_with_volumes(project, box).limit_message()
 
 
@@ -358,6 +364,9 @@ def mesh_inputs(project: Project) -> tuple[MeshCaseInput, DomainBox, list]:
         surface_length=length.value,
         extra_features=_junction_features(project, box, length.value),
         volumes=_volume_entries(project, box, union_bounds(bounds)),
+        ground=box.ground,
+        ground_layers=box.ground and project.sim.domain.ground.layers,
+        ground_wall_start=ground_wall_start(project.sim.domain, box.bounds),
         **domain_fields(box),
     )
     return inputs, box, meshes
@@ -465,6 +474,19 @@ def _hash_file(path: Path) -> str:
     return digest
 
 
+def _domain_for_hash(domain) -> dict:
+    """The domain as the mesh hash sees it: without the ground plane when it is off (projects saved before
+    schema v16 keep their hash) and without the ground's motion, which only the solver reads (D-116)."""
+    data = domain.model_dump()
+    ground = data.pop("ground")
+    if ground["enabled"]:
+        ground.pop("motion")
+        if ground.get("wall_start_x") is None:  # no slip strip: the hash of schema v16 (D-118)
+            ground.pop("wall_start_x", None)
+        data["ground"] = ground
+    return data
+
+
 def inputs_hash(project: Project) -> str:
     """Hash of everything a mesh depends on: part names, file contents and units, the domain
     and the mesh settings. A saved mesh whose hash differs from this one is out of date."""
@@ -486,7 +508,7 @@ def inputs_hash(project: Project) -> str:
             del mesh[key]
     payload = {
         "parts": parts,
-        "domain": project.sim.domain.model_dump(),
+        "domain": _domain_for_hash(project.sim.domain),
         "mesh": mesh,
         # Absolute (y+) layer sizes depend on the flow; relative sizes do not.
         "yplus_inputs": (

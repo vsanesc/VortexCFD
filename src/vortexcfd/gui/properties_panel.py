@@ -31,6 +31,7 @@ from vortexcfd.core.model import (
     DOMAIN_SHAPES,
     RESIDUAL_FIELDS,
     AsymptoticCriterion,
+    MeanStableCriterion,
     Domain,
     Part,
     ResidualCriterion,
@@ -44,7 +45,7 @@ from vortexcfd.foam.wall_fields import case_yplus_histogram
 from vortexcfd.foam.yplus import MAX_LAYERS
 from vortexcfd.gui.charts import YPlusHistogramChart
 from vortexcfd.gui.report_views import ForcesTable
-from vortexcfd.foam.convergence import earliest_iteration
+from vortexcfd.foam.convergence import earliest_iteration, window_stats
 from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.foam.run_record import RunRecord
@@ -91,6 +92,23 @@ DOMAIN_SHAPE_FIELDS = {
 }
 DOMAIN_FIELD_LABELS = {"upstream": "Upstream", "downstream": "Downstream", "lateral": "Lateral",
                        "vertical": "Vertical", "radius": "Radius"}
+# The ground plane of a box domain (D-116): its options and the boundary conditions it gets.
+GROUND_MOTIONS = {"stationary": "Stationary wall", "moving": "Moving (free-stream speed along +x)"}
+GROUND_POSITIONS = {"parts_min": "Parts' lowest z", "value": "Value"}
+GROUND_ROWS = ("dom_ground_enabled", "dom_ground_motion", "dom_ground_position", "dom_ground_z",
+               "dom_ground_start", "dom_ground_layers", "dom_ground_bcs")
+# The wall start spin box's minimum shows "inlet": no slip strip (D-118).
+GROUND_START_INLET = -1e6
+
+
+def ground_bc_text(motion: str, strip: bool = False) -> str:
+    """The ground's boundary conditions as the solver files write them (physics_case.initial_fields)."""
+    u = "fixedValue (U_inf, 0, 0)" if motion == "moving" else "noSlip"
+    text = (f"U {u}; p zeroGradient; k kqRWallFunction; omega omegaWallFunction; "
+            "nut nutUSpaldingWallFunction (the parts' wall functions)")
+    if strip:
+        text += "; ground_slip ahead of the wall start: slip (the far field's conditions)"
+    return text
 
 # The solver's cores are limited to the machine's physical cores (read at start-up, D-063).
 PHYSICAL_CORES = physical_cores()
@@ -278,7 +296,11 @@ STOPPING_TOOLTIPS = {
                 "threshold (runTimeControl equationInitialResidual)",
     "asymptotic": "Stop when (max - min) / max(|mean|, floor) over the last N iterations <= tolerance "
                   "(evaluated by the app, which then stops the solver cleanly)",
+    "mean_stable": "Stop when the mean over the last N iterations differs from the mean over the N before by "
+                   "at most the tolerance, relative to max(|mean|, floor): for a steady run that oscillates "
+                   "about a stationary mean (evaluated by the app, which then stops the solver cleanly)",
 }
+CRITERION_TITLES = {"residual": "Residual", "asymptotic": "Asymptotic", "mean_stable": "Mean stable"}
 NO_CRITERIA = "No criteria: the run stops at the iteration limit"
 
 # Rows of the read-only mesh report on the Mesh node: (key, label).
@@ -567,6 +589,49 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         self.domain_warning.setObjectName("checkValue")
         _wrap(self.domain_warning)
         self._layout.addWidget(self.domain_warning)
+        self._section("dom_ground", "Ground plane")
+        self.ground_enabled = QCheckBox()
+        self.ground_enabled.setToolTip("The bottom face (z-min) of the box is a no-slip wall, the patch \"ground\", "
+                                       "instead of the slip far field")
+        self._layout.addWidget(self._make_row("dom_ground_enabled", "Ground plane", self.ground_enabled))
+        self.ground_motion = QComboBox()
+        for key, text in GROUND_MOTIONS.items():
+            self.ground_motion.addItem(text, key)
+        self._layout.addWidget(self._make_row("dom_ground_motion", "Motion", self.ground_motion))
+        self.ground_position = QComboBox()
+        for key, text in GROUND_POSITIONS.items():
+            self.ground_position.addItem(text, key)
+        self.ground_position.setToolTip("Where the ground plane lies: at the lowest z of the parts, or at a value "
+                                        "(e.g. below the lowest point when supports cross the plane)")
+        self._layout.addWidget(self._make_row("dom_ground_position", "Position", self.ground_position))
+        self.ground_z = QDoubleSpinBox()
+        self.ground_z.setRange(-1e6, 1e6)
+        self.ground_z.setDecimals(4)
+        self.ground_z.setSingleStep(0.01)
+        self.ground_z.setSuffix(" m")
+        self._layout.addWidget(self._make_row("dom_ground_z", "z", self.ground_z))
+        self.ground_start = QDoubleSpinBox()
+        self.ground_start.setRange(GROUND_START_INLET, 1e6)
+        self.ground_start.setDecimals(4)
+        self.ground_start.setSingleStep(0.01)
+        self.ground_start.setSuffix(" m")
+        self.ground_start.setSpecialValueText("inlet")
+        self.ground_start.setToolTip("x where the ground wall starts. Upstream of it the bottom face is the slip patch "
+                                     "\"ground_slip\" (no boundary layer grows there), e.g. where a wind tunnel's "
+                                     "ground board starts. Placed on the nearest background cell face. \"inlet\" "
+                                     "(the minimum): the wall starts at the inlet")
+        self._layout.addWidget(self._make_row("dom_ground_start", "Wall starts at x", self.ground_start))
+        self.ground_layers = QCheckBox()
+        self.ground_layers.setToolTip("Prism layers on the ground (the parts' stack). Off by default: the ground "
+                                      "uses the same wall functions on the castellated cells")
+        self._layout.addWidget(self._make_row("dom_ground_layers", "Prism layers", self.ground_layers))
+        self.ground_bcs = self._ro_row("dom_ground_bcs", "Boundary conditions")
+        self.ground_enabled.toggled.connect(lambda _: self._commit_ground("enabled"))
+        self.ground_motion.currentIndexChanged.connect(lambda _: self._commit_ground("motion"))
+        self.ground_position.currentIndexChanged.connect(lambda _: self._commit_ground("position"))
+        self.ground_z.editingFinished.connect(lambda: self._commit_ground("z"))
+        self.ground_start.editingFinished.connect(lambda: self._commit_ground("wall_start_x"))
+        self.ground_layers.toggled.connect(lambda _: self._commit_ground("layers"))
         self.domain_enabled.toggled.connect(lambda _: self._commit_domain("enabled"))
         self.domain_symmetry.currentTextChanged.connect(lambda _: self._commit_domain("symmetry"))
         # Surface Preparation node (D-093): its result and report; run / remove.
@@ -786,7 +851,9 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         self._stop_add_row = QHBoxLayout(self.stop_add)
         self.stop_add_residual = QPushButton("Add residual")
         self.stop_add_asymptotic = QPushButton("Add asymptotic")
-        for button, kind in ((self.stop_add_residual, "residual"), (self.stop_add_asymptotic, "asymptotic")):
+        self.stop_add_mean_stable = QPushButton("Add mean stable")
+        for button, kind in ((self.stop_add_residual, "residual"), (self.stop_add_asymptotic, "asymptotic"),
+                             (self.stop_add_mean_stable, "mean_stable")):
             button.setObjectName("tbBtn")
             button.setToolTip(STOPPING_TOOLTIPS[kind])
             button.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
@@ -971,7 +1038,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         if getattr(self, "_probe_count", None) is not None:
             self._probe_count = None  # rebuilt at the next refresh with the new metrics
         self._stop_add_row.setSpacing(m.s2)
-        for button in (self.stop_add_residual, self.stop_add_asymptotic):
+        for button in (self.stop_add_residual, self.stop_add_asymptotic, self.stop_add_mean_stable):
             button.setMinimumHeight(m.field)
         if getattr(self, "_criteria_kinds", None):
             self._criteria_kinds = None  # rebuilt at the next refresh with the new metrics
@@ -1025,8 +1092,9 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         self._refresh_regions(part)
         self._refresh_file_info(part)
         self._rows["name"].setVisible(show_name)
-        is_domain = self._kind in ("fluid_domain", "fluid_region")
+        is_domain = self._kind in ("fluid_domain", "fluid_region", "boundary_ground")
         self._refresh_domain(self._kind == "fluid_domain")
+        self._refresh_ground(self._kind in ("fluid_domain", "boundary_ground"))
         self._refresh_groups()
         self._refresh_run(self._kind == "solvers")
         self._refresh_stopping(self._kind == "stopping")
@@ -1465,7 +1533,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
             remove.setObjectName("tbBtn")
             remove.setToolTip(f"Remove criterion {i + 1}: {STOPPING_TOOLTIPS[kind]}")
             remove.clicked.connect(lambda _=False, n=i: self._remove_criterion(n))
-            self._criterion_row(f"{i + 1} \u00b7 {'Residual' if kind == 'residual' else 'Asymptotic'}", remove)
+            self._criterion_row(f"{i + 1} \u00b7 {CRITERION_TITLES[kind]}", remove)
             earliest = QLabel()
             earliest.setObjectName("checkValue")
             earliest.setToolTip("The first iteration at which this criterion may be met: the minimum iterations "
@@ -1486,7 +1554,10 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
                     quantity.addItem(report_label(q), q)
                 window = _spin(2, 10_000_000, " it.")
                 tolerance = _sci()
-                tolerance.setToolTip("Relative: (max - min) / max(|mean|, floor) over the window <= tolerance")
+                tolerance.setToolTip("Relative: (max - min) / max(|mean|, floor) over the window <= tolerance"
+                                     if kind == "asymptotic" else
+                                     "Relative: |mean of the last window - mean of the window before| / "
+                                     "max(|mean|, floor) <= tolerance")
                 floor = _sci()
                 floor.setToolTip("Scale floor of the relative range, in the quantity's units: |mean| is replaced by "
                                  "it when smaller (default 0.01 for force and moment coefficients; probes: set it, "
@@ -1560,11 +1631,16 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         return 0.01 * (0.5 * speed ** 2 if quantity.endswith(":p") else speed)
 
     def _add_criterion(self, kind: str) -> None:
-        """Add a criterion with defaults: a p residual of 1e-4, or an asymptotic Cd criterion."""
+        """Add a criterion with defaults: a p residual of 1e-4, or an asymptotic or mean-stable Cd
+        criterion."""
         if self._kind != "stopping":
             return
-        new = (ResidualCriterion(field="p", threshold=1e-4) if kind == "residual"
-               else AsymptoticCriterion(quantity="Cd"))
+        if kind == "residual":
+            new = ResidualCriterion(field="p", threshold=1e-4)
+        elif kind == "mean_stable":
+            new = MeanStableCriterion(quantity="Cd")
+        else:
+            new = AsymptoticCriterion(quantity="Cd")
         self._edit_stopping(lambda d: d["criteria"].append(new.model_dump()))
 
     def _remove_criterion(self, index: int) -> None:
@@ -1605,6 +1681,18 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
             self._yplus_cache = (key, result)
         return self._yplus_cache[1]
 
+    def _windowed_force(self, base: str, column: str):
+        """The windowed mean of a force coefficient column (D-118): over the window of a mean-stable
+        criterion on it, else the oscillation window."""
+        monitor = self._report_monitor
+        if monitor is None:
+            return None
+        quantity = base if column == "All walls" else f"{base}@{column}"
+        stop = self._project.sim.solvers.stopping
+        window = next((c.window for c in stop.criteria if isinstance(c, MeanStableCriterion) and c.quantity == quantity),
+                      stop.oscillation_window)
+        return window_stats(monitor.series(quantity), window, quantity=quantity)
+
     def _refresh_reports(self, show: bool) -> None:
         monitor = self._report_monitor
         rows = monitor.breakdown_rows() if (show and monitor is not None) else []
@@ -1622,7 +1710,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         self.reports_empty.setVisible(show and not has_any)
         if not show:
             return
-        self.forces_table.set_rows(rows)
+        self.forces_table.set_rows(rows, self._windowed_force)
         if balance is not None:
             inlet, outlet, pct = balance
             self.mass_inlet.setText(f"{inlet:.6g} m\u00b3/s")
@@ -1861,6 +1949,55 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
             "the cells connected to locationInMesh " + format_vector(location)
             + " (snappyHexMesh removes the cells inside the parts and outside the domain)"
             if location is not None else "\u2014")
+
+    def _refresh_ground(self, show: bool) -> None:
+        """The ground plane rows (D-116): on the Fluid Domain node of a box domain and on its ground node."""
+        domain = self._project.sim.domain
+        show = show and domain.enabled and domain.shape == "box"
+        ground = domain.ground
+        self._sections["dom_ground"].setVisible(show)
+        for key in GROUND_ROWS:
+            on = key == "dom_ground_enabled" or ground.enabled
+            self._rows[key].setVisible(show and on and (key != "dom_ground_z" or ground.position == "value"))
+        if not show:
+            return
+        widgets = (self.ground_enabled, self.ground_motion, self.ground_position, self.ground_z, self.ground_layers,
+                   self.ground_start)
+        for w in widgets:
+            w.blockSignals(True)
+        try:
+            self.ground_enabled.setChecked(ground.enabled)
+            self.ground_motion.setCurrentIndex(list(GROUND_MOTIONS).index(ground.motion))
+            self.ground_position.setCurrentIndex(list(GROUND_POSITIONS).index(ground.position))
+            self.ground_z.setValue(ground.z)
+            self.ground_layers.setChecked(ground.layers)
+            self.ground_start.setValue(GROUND_START_INLET if ground.wall_start_x is None else ground.wall_start_x)
+        finally:
+            for w in widgets:
+                w.blockSignals(False)
+        self.ground_bcs.setText(ground_bc_text(ground.motion, ground.wall_start_x is not None))
+
+    def _commit_ground(self, key: str) -> None:
+        if self._kind not in ("fluid_domain", "boundary_ground"):
+            return
+        value = {"enabled": self.ground_enabled.isChecked, "motion": self.ground_motion.currentData,
+                 "position": self.ground_position.currentData, "z": self.ground_z.value,
+                 "layers": self.ground_layers.isChecked,
+                 "wall_start_x": lambda: (None if self.ground_start.value() <= GROUND_START_INLET
+                                          else self.ground_start.value())}[key]()
+        ground = self._project.sim.domain.ground.model_dump()
+        if ground.get(key) == value:
+            return
+        if key == "position" and value == "value":
+            box = domain_box_for(self._project)
+            if box.parts_bounds is not None and ground["position"] == "parts_min":
+                ground["z"] = box.parts_bounds[4]  # start from the plane in use
+        ground[key] = value
+        try:
+            self._project.update_domain(label=f"Edit ground plane ({key})", ground=ground)
+        except (ValueError, TypeError) as exc:  # includes pydantic errors
+            self.message.emit(str(exc))
+        self.refresh()  # reverts a rejected value
 
     def _commit_domain(self, key: str) -> None:
         if self._kind != "fluid_domain":

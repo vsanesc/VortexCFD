@@ -7,6 +7,7 @@ own, <project dir>/case_study/level_<n>/.
 
 import dataclasses
 import shutil
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,11 +37,13 @@ from vortexcfd.foam.mesh_study import (
 )
 from vortexcfd.foam.run_record import read_run_record
 from vortexcfd.foam.yplus import first_layer_thickness
-from vortexcfd.geometry.domain import union_bounds
+from vortexcfd.geometry.domain import ground_wall_start, union_bounds
 from vortexcfd.workflow.meshing import (
     MeshingNotReady,
+    _junction_features,
     _loaded_parts,
     _part_overrides,
+    _volume_entries,
     case_dir_for,
     domain_fields,
     estimate_for,
@@ -48,6 +51,7 @@ from vortexcfd.workflow.meshing import (
     readiness,
     surface_length,
     write_domain_surface,
+    write_junction_features,
     write_part_surfaces,
 )
 from vortexcfd.workflow.solving import clear_results, physics_problem, solver_input
@@ -149,9 +153,11 @@ def study_readiness(project: Project, *, busy: str | None = None) -> str | None:
     return physics_problem(project)
 
 
-def prepare_study(project: Project) -> tuple[Path, StudyRecord, MeshCaseInput]:
+def prepare_study(project: Project, only: Collection[str] | None = None) -> tuple[Path, StudyRecord, MeshCaseInput]:
     """Write the meshing case of every level into <project dir>/case_study/level_<n>/ and return
-    (study dir, the initial record, the inputs of the last level).
+    (study dir, the initial record, the inputs of the last level). ``only``: the names of the levels to
+    prepare (and record); the other levels' directories are left as they are, so a level can be run on
+    its own after another one (None: every level).
 
     Raises:
         MeshingNotReady: see ``study_readiness``.
@@ -170,8 +176,16 @@ def prepare_study(project: Project) -> tuple[Path, StudyRecord, MeshCaseInput]:
     study = study_dir_for(project)
     study.mkdir(parents=True, exist_ok=True)
     fixed = (plan.layers.first, plan.layers.count) if plan.layers is not None else None
+    length = surface_length(project, box, union_bounds(bounds)).value
+    # The refinement volumes and junction curves keep the current settings' refinement levels on every
+    # level: a level scales the base size and every target size by the same factor, so each level number
+    # is unchanged and the cells inside them scale like the rest (D-117). [NUMERICS-REVIEW]
+    volumes = _volume_entries(project, box, union_bounds(bounds))
+    features = _junction_features(project, box, length)
     levels, inputs = [], None
     for lp in plan.levels:
+        if only is not None and lp.level.name not in only:
+            continue
         inputs = MeshCaseInput(
             domain_bounds=box.bounds, symmetric=project.sim.domain.symmetry == "y_min", parts=tuple(safe),
             parts_bounds=union_bounds(bounds), reference_length=box.reference_length, mesh=lp.level.mesh,
@@ -179,7 +193,9 @@ def prepare_study(project: Project) -> tuple[Path, StudyRecord, MeshCaseInput]:
             part_patches=tuple(part_patch_names(project.sim.geometry.parts)),
             fixed_layers=fixed if fixed is not None else (1.0, 0),
             layer_expansion=plan.layers.expansion if plan.layers is not None else None,
-            surface_length=surface_length(project, box, union_bounds(bounds)).value,
+            surface_length=length, volumes=volumes, extra_features=features,
+            ground=box.ground, ground_layers=box.ground and project.sim.domain.ground.layers,
+            ground_wall_start=ground_wall_start(project.sim.domain, box.bounds),
             **domain_fields(box),
         )
         case = level_dir(study, lp.level.index)
@@ -190,6 +206,7 @@ def prepare_study(project: Project) -> tuple[Path, StudyRecord, MeshCaseInput]:
         write_domain_surface(case, box, inputs)
         write_domain_guard(case, inputs)
         write_seed_edge_meshes(case, inputs)
+        write_junction_features(case, project, inputs)
         levels.append(LevelResult(lp.level.index, lp.level.name, lp.level.factor, estimated_cells=lp.estimated_cells))
     # every level meshes on the project's meshing cores (Mesh.cores, else automatic), one level at a time (D-111)
     record = StudyRecord(settings.ratio, settings.current_as, list(settings.quantities), settings.cores,

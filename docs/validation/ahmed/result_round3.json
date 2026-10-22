@@ -1,0 +1,168 @@
+{
+  "project": "run/validation/ahmed/ahmed25_r2_nolayers/ahmed25_r2_nolayers.vcfd",
+  "average_window": 500,
+  "mesh_cores": 8,
+  "solver_cores": 8,
+  "ground_wall_start_asked": -1.4094000000000002,
+  "levels": [
+    {
+      "name": "coarse",
+      "factor": 2.0000000000000004,
+      "cells": 235082,
+      "h_m": 0.12883267214747704,
+      "state": "criteria_met",
+      "state_label": "Criteria met: Cd (body) mean stable",
+      "criteria_met": true,
+      "iterations": 1007,
+      "solver_s": 321.8,
+      "values": {
+        "Cd@body": 0.3188788,
+        "Cd": 0.3509531,
+        "Cl@body": 0.4090947,
+        "Cl": 0.408579,
+        "Cd_pressure@body": 0.2758417420095716,
+        "Cd_viscous@body": 0.0430370639163025,
+        "Cd@stilt_front": 0.01953133,
+        "Cd@stilt_rear": 0.01254293,
+        "Cl_pressure@body": 0.40850767613529276,
+        "Cl_viscous@body": 0.0005870091538472002
+      },
+      "layers": {
+        "extruded_percent": 79.1968,
+        "patches": {
+          "body": {
+            "faces": 6034,
+            "mesh_layers": 6.84,
+            "thickness_percent": 82.3
+          },
+          "stilt_front": {
+            "faces": 235,
+            "mesh_layers": 3.18,
+            "thickness_percent": 30.4
+          },
+          "stilt_rear": {
+            "faces": 230,
+            "mesh_layers": 1.91,
+            "thickness_percent": 12.3
+          }
+        }
+      },
+      "check": {
+        "mesh_ok": true,
+        "failed_checks": 0,
+        "max_non_orthogonality": 78.395859,
+        "max_skewness": 2.4332741
+      },
+      "yplus_body": {
+        "min": 3.846290111541748,
+        "mean": 70.87952034764639,
+        "max": 1289.8900146484375,
+        "in_band_percent": 79.09368771158299,
+        "target": 50.0,
+        "band": [
+          25.0,
+          100.0
+        ]
+      },
+      "yplus_ground": {
+        "mean": 10712.834346088543,
+        "max": 11593.099609375,
+        "mean_near_body": 1477.9417211563616
+      },
+      "slant": {
+        "faces": 399,
+        "area_m2": 0.042519075649487245,
+        "reversed_area_percent": 9.742561968914384,
+        "centre_strip_reversed_percent": 63.34983703277104,
+        "centre_strip_reversed_from": 0.08492703580776016,
+        "centre_strip_reversed_to": 0.9213735429324147,
+        "mean_cf_downslope": 0.001754877328393266
+      },
+      "window": {
+        "Cd@body": {
+          "mean": 0.31887799099999997,
+          "std": 1.1987993118115509e-05,
+          "min": 0.3188614,
+          "max": 0.3189061,
+          "n": 500,
+          "last": 0.3188788
+        },
+        "Cd": {
+          "mean": 0.3509590728,
+          "std": 2.0103757364235014e-05,
+          "min": 0.35092,
+          "max": 0.3509996,
+          "n": 500,
+          "last": 0.3509531
+        },
+        "Cl@body": {
+          "mean": 0.40909340940000005,
+          "std": 0.00015433161053925285,
+          "min": 0.4088837,
+          "max": 0.4094376,
+          "n": 500,
+          "last": 0.4090947
+        },
+        "Cl": {
+          "mean": 0.4085778258,
+          "std": 0.00015442750957766533,
+          "min": 0.4083681,
+          "max": 0.4089223,
+          "n": 500,
+          "last": 0.408579
+        },
+        "Cd_pressure@body": {
+          "mean": 0.27584097093088406,
+          "std": 1.1367260732951871e-05,
+          "min": 0.27582530679604983,
+          "max": 0.2758677306969632,
+          "n": 500,
+          "last": 0.2758417420095716
+        },
+        "Cd_viscous@body": {
+          "mean": 0.04303701927405257,
+          "std": 7.195311234982284e-07,
+          "min": 0.04303607618425834,
+          "max": 0.04303878030313335,
+          "n": 500,
+          "last": 0.0430370639163025
+        },
+        "Cd@stilt_front": {
+          "mean": 0.019537722860000002,
+          "std": 1.3033833420003422e-05,
+          "min": 0.01951136,
+          "max": 0.01956411,
+          "n": 500,
+          "last": 0.01953133
+        },
+        "Cd@stilt_rear": {
+          "mean": 0.012543358320000001,
+          "std": 9.852725307121898e-06,
+          "min": 0.01252005,
+          "max": 0.01255607,
+          "n": 500,
+          "last": 0.01254293
+        },
+        "Cl_pressure@body": {
+          "mean": 0.40850649101876296,
+          "std": 0.00015418970422653575,
+          "min": 0.40829701394029955,
+          "max": 0.4088504677316037,
+          "n": 500,
+          "last": 0.40850767613529276
+        },
+        "Cl_viscous@body": {
+          "mean": 0.0005869167526479315,
+          "std": 1.5096121998792637e-07,
+          "min": 0.0005866236954650469,
+          "max": 0.0005871711580947718,
+          "n": 500,
+          "last": 0.0005870091538472002
+        }
+      },
+      "mesh_s": 63.0,
+      "stopped_at_deadline": false,
+      "status": "finished"
+    }
+  ]
+}

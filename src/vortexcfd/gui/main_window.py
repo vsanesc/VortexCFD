@@ -963,7 +963,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
                         "Fluid Domain" if generated else "Fluid Domain (not generated)",
                         "folder", "text")
             if domain.enabled:
-                for bname in shape_roles(domain.shape, domain.symmetry == "y_min"):
+                for bname in shape_roles(domain.shape, domain.symmetry == "y_min", domain.ground.enabled):
                     add(fluid, f"boundary_{bname}", None, bname, "dot", "accent")
             elif not generated:  # the "Empty" analysis: the domain is an operation (D-078)
                 add(fluid, "generate_domain", None, "Generate domain\u2026", "dot", "accent_secondary")

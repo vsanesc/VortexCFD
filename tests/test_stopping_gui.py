@@ -192,7 +192,8 @@ def test_oscillation_warning_from_a_real_series(make_window) -> None:
     w.project.update_reports(slots=["Cl", None, None])
     w.monitors.load_run(case, [], ("iteration_limit", (), 172))
     texts = [label.text() for label in w.monitors.convergence.warnings]
-    assert texts == ["Cl oscillates by 88% - the flow may be unsteady; a steady solution may not exist"]
+    assert texts == ["Cl oscillates by 88% - the flow may be unsteady; a steady solution may not exist. If its mean "
+                     "is steady, stop on it with a \"mean stable\" criterion on Cl"]
     assert w.monitors.convergence.warnings[0].property("warn") == "true"
     w.project.update_solver(stopping=StoppingCriteria(criteria=[], oscillation_threshold=0.95).model_dump())
     assert w.monitors.convergence.warnings == [] and not w.monitors.convergence.isVisible()

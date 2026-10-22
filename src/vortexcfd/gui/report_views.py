@@ -3,6 +3,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QGridLayout, QLabel, QSizePolicy, QWidget
 
+from vortexcfd.foam.convergence import WindowStats
 from vortexcfd.foam.forces import ForceRow
 from vortexcfd.gui.theme import mono_font
 
@@ -20,11 +21,25 @@ FORCE_TABLE_ROWS = (
      "0.001 q A_ref", "{:.4g} m"),
 )
 UNDEFINED = "undefined"  # x_cp with a near-zero normal force
+# Windowed rows under the latest values (D-118): (quantity base, row label, tooltip).
+WINDOW_TABLE_ROWS = (
+    ("Cd", "Cd mean", "Drag coefficient: mean over the last iterations \u00b1 half its range there (as a share "
+     "of |mean|); for a steady run that oscillates, judge the mean"),
+    ("Cl", "Cl mean", "Lift coefficient: mean over the last iterations \u00b1 half its range there (as a share "
+     "of |mean|)"),
+)
+
+
+def window_text(stats: WindowStats | None) -> str:
+    if stats is None:
+        return "\u2014"
+    half = "" if stats.amplitude is None else f" \u00b1{50 * stats.amplitude:.2g}%"
+    return f"{stats.mean:.4g}{half}"
 
 
 class ForcesTable(QWidget):
     """Rows: Cd and Cl with their pressure and viscous parts, Cm, x_cp; columns: all walls, then
-    each part (latest iteration)."""
+    each part (latest iteration); then the windowed means of Cd and Cl with their oscillation (D-118)."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -46,7 +61,8 @@ class ForcesTable(QWidget):
         self.grid.addWidget(label, row, col)
         label.show()  # now: the panel measures the table's height right after set_rows
 
-    def set_rows(self, rows: list[ForceRow]) -> None:
+    def set_rows(self, rows: list[ForceRow], windowed=None) -> None:
+        """``windowed(quantity base, column name)`` -> WindowStats | None (None: no windowed rows)."""
         while self.grid.count():
             item = self.grid.takeAt(0)
             if item.widget() is not None:
@@ -72,6 +88,21 @@ class ForcesTable(QWidget):
                                     "(|F_z(body)| < 0.001 q A_ref)")
                 self._add(cell, r, col)
                 self.cells[(attr, row.name)] = cell
+        if windowed is not None:
+            first = len(FORCE_TABLE_ROWS) + 1
+            for r, (base, text, tip) in enumerate(WINDOW_TABLE_ROWS, start=first):
+                name = self._label(text, muted=True, shrink=True)
+                name.setToolTip(tip)
+                self._add(name, r, 0)
+                for col, row in enumerate(rows, start=1):
+                    stats = windowed(base, row.name)
+                    cell = self._label(window_text(stats))
+                    cell.setAlignment(Qt.AlignmentFlag.AlignRight)
+                    if stats is not None:
+                        cell.setToolTip(f"Over the last {stats.n} iterations: mean {stats.mean:.6g}, "
+                                        f"max - min {stats.spread:.3g}")
+                    self._add(cell, r, col)
+                    self.cells[(f"{base}_mean", row.name)] = cell
         self.grid.setColumnStretch(0, 1)
 
     def text(self, attr: str, column: str) -> str:

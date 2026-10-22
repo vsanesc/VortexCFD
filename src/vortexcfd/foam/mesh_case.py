@@ -34,8 +34,16 @@ BOUNDARY_PATCH_TYPES = {
     "sides": "patch",
     "top": "patch",
     "bottom": "patch",
+    "ground": "wall",
+    "ground_slip": "patch",
     "symmetry": "symmetryPlane",
 }
+# The ground plane of a box domain (D-116): the blockMesh z_min face as a wall patch, never a part's
+# (the name is reserved). Forces and the part walls' y+ leave it out.
+GROUND_PATCH = "ground"
+# The slip strip of the ground plane upstream of the wall start (D-118): the part of the z_min face
+# ahead of the wall, a slip patch like the far field (the name is reserved).
+GROUND_SLIP_PATCH = "ground_slip"
 # A rounded domain (D-078): its surface constant/triSurface/domain.stl (one solid per boundary role)
 # is a refinement surface cutting the fluid out of a background box whose faces form the patch
 # "background" (y_min is the symmetry patch with symmetry); createPatch then removes the empty
@@ -122,6 +130,14 @@ class MeshCaseInput:
     # The user refinement volumes to write (D-103): enabled and not wholly outside the domain (the
     # workflow decides), each with its refinement level.
     volumes: tuple["VolumeEntry", ...] = ()
+    # The ground plane (box domains, D-116): the z_min face is the wall patch "ground" instead of the far
+    # field "bottom"; ``ground_layers`` gives it the parts' prism layers. [NUMERICS-REVIEW]
+    ground: bool = False
+    ground_layers: bool = False
+    # x where the ground wall starts (D-118): the z_min face ahead of it is the slip patch
+    # "ground_slip". The background mesh is split there into two blocks at the nearest background cell
+    # face (ground_split), so its cells are unchanged. None: the whole face is the ground. [NUMERICS-REVIEW]
+    ground_wall_start: float | None = None
 
     @property
     def rounded(self) -> bool:
@@ -136,7 +152,9 @@ class MeshCaseInput:
     def expected_domain_patches(self) -> tuple[str, ...]:
         """The domain patches the final mesh must have (each with faces)."""
         if not self.rounded:
-            names = ["inlet", "outlet", "sides", "top", "bottom"]
+            names = ["inlet", "outlet", "sides", "top", GROUND_PATCH if self.ground else "bottom"]
+            if self.ground and self.ground_wall_start is not None:
+                names.append(GROUND_SLIP_PATCH)
         else:
             names = list(self.domain_patches)
         return tuple(names + (["symmetry"] if self.symmetric else []))
@@ -417,11 +435,30 @@ def _hex_faces(bounds: Bounds) -> dict[str, list[int]]:
     }
 
 
+def ground_split(x0: float, x1: float, nx: int, wall_start: float) -> int:
+    """The background cell face where the ground wall starts (D-118): the index of the face nearest to
+    ``wall_start``, kept between 1 and nx - 1 so both the slip strip and the wall have faces."""
+    return min(nx - 1, max(1, round((wall_start - x0) / ((x1 - x0) / nx))))
+
+
+def ground_split_x(inp: MeshCaseInput) -> float | None:
+    """The x where the ground wall actually starts in the mesh (the nearest background cell face to
+    ``ground_wall_start``), or None without a slip strip."""
+    if inp.rounded or not inp.ground or inp.ground_wall_start is None:
+        return None
+    est = inp.estimate()
+    x0, x1 = est.background_bounds[0], est.background_bounds[1]
+    return x0 + ground_split(x0, x1, est.cells[0], inp.ground_wall_start) * (x1 - x0) / est.cells[0]
+
+
 def block_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
     est = inp.estimate()
     x0, x1, y0, y1, z0, z1 = est.background_bounds
     cells = est.cells
     faces = _hex_faces(est.background_bounds)
+    split = ground_split_x(inp)
+    if split is not None:  # two blocks sharing the face x = split (D-118): the same cells as one block
+        return _split_block_mesh_dict(inp, est.background_bounds, cells, split)
     if inp.rounded:  # the background box of a rounded domain (D-078)
         others = ["x_min", "x_max", "y_max", "z_min", "z_max"]
         patches = [(BACKGROUND_PATCH, others + ([] if inp.symmetric else ["y_min"]))]
@@ -431,7 +468,7 @@ def block_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
             ("outlet", ["x_max"]),
             ("sides", ["y_max"] if inp.symmetric else ["y_min", "y_max"]),
             ("top", ["z_max"]),
-            ("bottom", ["z_min"]),
+            (GROUND_PATCH if inp.ground else "bottom", ["z_min"]),
         ]
     if inp.symmetric:
         patches.append(("symmetry", ["y_min"]))
@@ -447,6 +484,46 @@ def block_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
             (name, {"type": BOUNDARY_PATCH_TYPES.get(name, "patch"), "faces": [faces[f] for f in which]})
             for name, which in patches
         ],
+        "mergePatchPairs": [],
+    })
+
+
+def _split_block_mesh_dict(inp: MeshCaseInput, bounds: Bounds, cells, xs: float) -> FoamFileSpec:
+    """The box background as two blocks split at x = ``xs`` (a background cell face): the upstream
+    block's z_min face is the slip strip "ground_slip", the downstream one's the ground wall (D-118)."""
+    x0, x1, y0, y1, z0, z1 = bounds
+    nx, ny, nz = cells
+    n_up = ground_split(x0, x1, nx, inp.ground_wall_start)
+    vertices = [[x, y, z] for z in (z0, z1) for y in (y0, y1) for x in (x0, xs, x1)]
+
+    def v(i: int, j: int, k: int) -> int:  # x index 0..2, y index 0..1, z index 0..1
+        return k * 6 + j * 3 + i
+
+    def block(i: int) -> list[int]:
+        return [v(i, 0, 0), v(i + 1, 0, 0), v(i + 1, 1, 0), v(i, 1, 0),
+                v(i, 0, 1), v(i + 1, 0, 1), v(i + 1, 1, 1), v(i, 1, 1)]
+
+    def face(i: int, which: str) -> list[int]:
+        b = block(i)  # the vertex loops of _hex_faces on this block's vertices
+        return [b[n] for n in _hex_faces(bounds)[which]]
+
+    patches = [
+        ("inlet", [face(0, "x_min")]),
+        ("outlet", [face(1, "x_max")]),
+        ("sides", [face(i, "y_max") for i in (0, 1)] + ([] if inp.symmetric else [face(i, "y_min") for i in (0, 1)])),
+        ("top", [face(i, "z_max") for i in (0, 1)]),
+        (GROUND_SLIP_PATCH, [face(0, "z_min")]),
+        (GROUND_PATCH, [face(1, "z_min")]),
+    ]
+    if inp.symmetric:
+        patches.append(("symmetry", [face(i, "y_min") for i in (0, 1)]))
+    return FoamFileSpec(content={
+        "scale": 1,
+        "vertices": vertices,
+        "blocks": ["hex", block(0), [n_up, ny, nz], "simpleGrading", [1, 1, 1],
+                   "hex", block(1), [nx - n_up, ny, nz], "simpleGrading", [1, 1, 1]],
+        "edges": [],
+        "boundary": [(name, {"type": BOUNDARY_PATCH_TYPES[name], "faces": fs}) for name, fs in patches],
         "mergePatchPairs": [],
     })
 
@@ -627,6 +704,8 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
         for i, n in enumerate(inp.parts):
             for key in (inp.patches_of(i) if inp.has_regions(i) else (f'"{n}.*"',)):
                 layers[key] = {"nSurfaceLayers": n_layers}
+        if inp.ground and inp.ground_layers:  # optional on the ground plane (D-116)
+            layers[GROUND_PATCH] = {"nSurfaceLayers": n_layers}
     content = {
         "castellatedMesh": True,
         "snap": True,

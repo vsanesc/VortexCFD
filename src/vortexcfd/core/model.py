@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 15
+CURRENT_SCHEMA_VERSION: int = 17
 
 
 class StrictModel(BaseModel):
@@ -291,7 +291,21 @@ class AsymptoticCriterion(StrictModel):
         return self.floor if self.floor is not None else default_floor(self.quantity)
 
 
-Criterion = Annotated[Union[ResidualCriterion, AsymptoticCriterion], Field(discriminator="kind")]
+class MeanStableCriterion(AsymptoticCriterion):
+    """Stop when the windowed mean of a monitored quantity has settled (schema v17, D-118): over two
+    consecutive windows of ``window`` iterations (the last W and the W before them),
+    |mean_last - mean_previous| / max(|mean_last|, floor) <= ``tolerance``. For a steady run that
+    oscillates about a stationary mean (D-059), where the range-based asymptotic criterion is never
+    met. Evaluated by the app like the asymptotic criterion (same quantities and floor, same clean
+    stop, D-058), once 2 W values exist. [NUMERICS-REVIEW]"""
+
+    kind: Literal["mean_stable"] = "mean_stable"  # type: ignore[assignment]
+    window: int = Field(default=500, ge=2)
+    tolerance: float = Field(default=0.005, gt=0)  # relative
+
+
+Criterion = Annotated[Union[ResidualCriterion, AsymptoticCriterion, MeanStableCriterion],
+                      Field(discriminator="kind")]
 
 
 def default_criteria() -> list:
@@ -409,6 +423,27 @@ class Reports(StrictModel):
 DOMAIN_SHAPES = ("box", "bullet", "c_type")
 
 
+class Ground(StrictModel):
+    """The ground plane of a box domain (schema v16, D-116): its bottom face (z-min) becomes the no-slip
+    wall patch "ground" instead of the slip far field "bottom". [NUMERICS-REVIEW]
+
+    ``motion``: "stationary" (noSlip) or "moving" (fixed tangential velocity: the free-stream speed along
+    +x, the flow direction projected on the ground). ``position``: "parts_min" puts the plane at the
+    lowest z of the parts the domain is sized around; "value" at ``z`` (metres), e.g. below the parts'
+    lowest point when supports cross the plane. ``layers``: prism layers on the ground (off by default).
+    The same wall functions as the parts in every case. ``wall_start_x`` (schema v17, D-118): the x
+    (metres) where the wall starts; upstream of it the bottom face is the slip patch "ground_slip" (a
+    slip strip, so the ground boundary layer starts there). None: the wall starts at the inlet.
+    """
+
+    enabled: bool = False
+    motion: Literal["stationary", "moving"] = "stationary"
+    position: Literal["parts_min", "value"] = "parts_min"
+    z: float = 0.0
+    layers: bool = False
+    wall_start_x: float | None = None
+
+
 class Domain(StrictModel):
     """Far-field domain around the parts, in multiples of the reference length L.
 
@@ -431,6 +466,13 @@ class Domain(StrictModel):
     radius: float = Field(default=5.0, gt=0)
     symmetry: Literal["none", "y_min"] = "none"
     parts: list[str] | None = None
+    ground: Ground = Field(default_factory=Ground)
+
+    @model_validator(mode="after")
+    def _ground_on_a_box(self) -> "Domain":
+        if self.ground.enabled and self.shape != "box":
+            raise ValueError("the ground plane needs the box domain shape")
+        return self
 
     @field_validator("parts")
     @classmethod
