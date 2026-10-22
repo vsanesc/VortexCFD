@@ -5,7 +5,9 @@ the current settings' distance shells and nCellsBetweenLevels 1) is meshed; with
 single mesh: the same MeshCaseInput as a single mesh (buffer_scale 1, study_level False: nCellsBetweenLevels 3, no
 shells). Per mesh: cells, checkMesh hard / soft failures (D-100), max non-orthogonality and faces above 70 degrees,
 the walked strict layer coverage overall and per zone, the walked first cell, the median cell size within 0.1
-reference length of the fixed points, and the size of the cell containing each point (``containing_cell_m``).
+reference length of the fixed points, the size of the cell containing each point (``containing_cell_m``) and
+(QUESTIONS 204 b) the volume-weighted mean cell size over a cube of side 2 coarse cells centred on each point
+(``cube_mean``; the coarse level's containing cell sets the side for every level).
 
     nice -n 15 .venv/bin/python scripts/validation/study3d_check.py [--cases sphere wing] [--singles] [--out NAME]
 
@@ -129,7 +131,23 @@ def measure(case, case_dir: Path, inputs, points: dict, length: float) -> dict:
         out["point_cell_m"][name] = {"median": float(np.median(size[near])) if near.any() else None,
                                      "cells": int(near.sum())}
         cell = containing_cell(poly, (fc, fv), centres, p)
-        out["containing_cell_m"][name] = float(size[cell]) if cell is not None else None
+        if cell is None:  # the point on a face or edge: the cell with the nearest centre
+            cell = int(np.argmin(((centres - np.asarray(p)) ** 2).sum(axis=1)))
+        out["containing_cell_m"][name] = float(size[cell])
+    return out
+
+
+def cube_means(case_dir: Path, points: dict, sides: dict) -> dict:
+    """QUESTIONS 204 (b): per point, the volume-weighted mean cell size (sum V h / sum V, h = V^(1/3)) of the cells
+    whose centres lie in the axis-aligned cube of side ``sides[point]`` (2 coarse cells) centred on it, and their
+    count."""
+    centres, size = cell_sizes(PolyMesh.read(case_dir))
+    volume = size ** 3
+    out = {}
+    for name, p in points.items():
+        inside = (np.abs(centres - np.asarray(p)) <= sides[name] / 2).all(axis=1)
+        out[name] = {"mean_m": float((volume[inside] * size[inside]).sum() / volume[inside].sum()) if inside.any()
+                     else None, "cells": int(inside.sum()), "side_m": sides[name]}
     return out
 
 
@@ -155,6 +173,7 @@ def run_case(name: str, singles: bool) -> dict:
     points = fixed_points(captured[0].parts_bounds, length)
     out = {"case": name, "ratio": record.ratio, "current_as": record.current_as, "points": points,
            "reference_length": length, "levels": []}
+    sides = None
     for lp, inputs in zip(plan.levels, captured):
         study_case = level_dir(study_dir, lp.level.index)
         row = {"level": lp.level.name, "factor": lp.level.factor, "base_m": lp.estimate.base_size,
@@ -169,6 +188,9 @@ def run_case(name: str, singles: bool) -> dict:
             prepare_case_dir(single_case, build_mesh_files(single_inputs))
         say(f"{name} {lp.level.name}: study level (buffer scale {inputs.buffer_scale:.4g})")
         row["study"] = measure(case, study_case, inputs, points, length)
+        if sides is None:  # the coarse level (the first): 2 of its cells around each point
+            sides = {n: 2.0 * v for n, v in row["study"]["containing_cell_m"].items()}
+        row["study"]["cube_mean"] = cube_means(study_case, points, sides)
         say(f"  {json.dumps({k: row['study'].get(k) for k in ('cells', 'valid', 'max_non_ortho', 'faces_gt70', 'coverage_percent')})}")
         if single_case is not None:
             say(f"{name} {lp.level.name}: single mesh")
