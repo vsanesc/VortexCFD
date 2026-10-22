@@ -18,8 +18,8 @@ from vortexcfd.geometry.domain import DomainBox
 FRACTION_SAMPLES = 25
 OUTLINE_SEGMENTS = 32
 
-# The wake helper's defaults (D-103, owner review) [NUMERICS-REVIEW]: a box aligned with the free stream
-# (pitched by the angle of attack), from the parts' rear, this many reference lengths L long, this many
+# The wake helper's defaults (D-103, owner review; D-120) [NUMERICS-REVIEW]: a box aligned with the free
+# stream (+x; the parts are rotated by the angle of attack, the stream is not), from the parts' rear, this many reference lengths L long, this many
 # times the parts' y extent wide and z extent high, asking for this many part surface cells as its size.
 WAKE_LENGTH_L = 2.0
 WAKE_WIDTH_FACTOR = 1.1
@@ -210,18 +210,16 @@ def rear_point(parts_bounds, direction) -> np.ndarray:
     return c + min(steps) * d
 
 
-def wake_box(parts_bounds, alpha_deg: float, surface_size: float) -> tuple[BoxShape, float]:
-    """(the wake box, its target cell size) behind the parts' box for the free stream at angle of attack
-    ``alpha_deg`` about y (direction (cos a, 0, sin a), D-103): pitched by the angle of attack; its upstream
-    face centred where the line through the centre of the parts' box along the flow leaves the box; length
-    WAKE_LENGTH_L x L (L: the box's largest extent) along the flow, width WAKE_WIDTH_FACTOR x the y extent,
-    height WAKE_HEIGHT_FACTOR x the z extent; target size WAKE_SIZE_FACTOR x the part surface cell size."""
+def wake_box(parts_bounds, surface_size: float) -> tuple[BoxShape, float]:
+    """(the wake box, its target cell size) behind the parts' box (the parts as meshed: rotated by the angle
+    of attack, D-120) along the free stream, +x (D-103): its upstream face centred where the line through the
+    centre of the parts' box along +x leaves the box; length WAKE_LENGTH_L x L (L: the box's largest extent)
+    along the flow, width WAKE_WIDTH_FACTOR x the y extent, height WAKE_HEIGHT_FACTOR x the z extent; target
+    size WAKE_SIZE_FACTOR x the part surface cell size."""
     b = parts_bounds
-    a = math.radians(alpha_deg)
-    d = _arr((math.cos(a), 0.0, math.sin(a)))
+    d = _arr((1.0, 0.0, 0.0))
     length = WAKE_LENGTH_L * max(b[1] - b[0], b[3] - b[2], b[5] - b[4])
     centre = rear_point(b, d) + 0.5 * length * d
     size = (length, WAKE_WIDTH_FACTOR * (b[3] - b[2]), WAKE_HEIGHT_FACTOR * (b[5] - b[4]))
-    box = BoxShape(centre=tuple(float(x) for x in centre), size=tuple(float(s) for s in size),
-                   pitch_deg=float(alpha_deg))
+    box = BoxShape(centre=tuple(float(x) for x in centre), size=tuple(float(s) for s in size))
     return box, WAKE_SIZE_FACTOR * surface_size

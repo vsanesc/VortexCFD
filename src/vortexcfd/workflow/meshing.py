@@ -35,6 +35,7 @@ from vortexcfd.foam.mesh_case import (
 from vortexcfd.foam.mesh_estimate import BACKGROUND_MARGIN_CELLS, MeshEstimate
 from vortexcfd.foam.physics_case import LENGTH_AUTO_LABEL, reference_values
 from vortexcfd.geometry import regions
+from vortexcfd.geometry.attitude import Attitude
 from vortexcfd.geometry.domain import DomainBox, compute_domain, ground_wall_start, union_bounds
 from vortexcfd.geometry.domain_surface import ROLE_ARRAY, meshing_surface
 from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
@@ -73,10 +74,9 @@ def _part_files(project: Project) -> list[tuple[str, Path | None, str]]:
     return out
 
 
-def _loaded_parts(project: Project, prepared: bool = True):
-    """(domain box, part names, loaded meshes in metres) for the project's parts: the surfaces the
-    current surface preparation made (D-093), else the parts' own (``prepared`` False: always the
-    parts' own)."""
+def _body_parts(project: Project, prepared: bool = True) -> tuple[list[str], list]:
+    """(part names, loaded meshes in metres) as imported, never rotated: the surfaces the current surface
+    preparation made (D-093), else the parts' own (``prepared`` False: always the parts' own)."""
     prep = surface_prep.current(project) if prepared else None
     names, meshes = [], []
     for part, (name, path, units) in zip(project.sim.geometry.parts, _part_files(project)):
@@ -88,13 +88,70 @@ def _loaded_parts(project: Project, prepared: bool = True):
         except (OSError, SurfaceLoadError) as exc:
             raise MeshingNotReady(f"Cannot load part '{name}': {exc}") from exc
         names.append(name)
-    bounds = [tuple(float(b) for b in m.bounds) for m in meshes]
-    return compute_domain(bounds, project.sim.domain, names), names, meshes
+    return names, meshes
+
+
+def _bounds_of(meshes) -> list[tuple[float, ...]]:
+    return [tuple(float(b) for b in m.bounds) for m in meshes]
+
+
+def attitude_for(project: Project, body_bounds) -> Attitude:
+    """The parts' rotation (D-120): the angle of attack about the y axis through the CofR of the Reference
+    Values (its override, else the centre of the union of the parts' boxes as imported, ``body_bounds``)."""
+    cofr = reference_values(body_bounds, project.sim.reports).cofr if body_bounds is not None else (0.0, 0.0, 0.0)
+    return Attitude(project.sim.inflow.alpha_deg, cofr)
+
+
+def project_attitude(project: Project) -> Attitude:
+    """``attitude_for`` with the parts loaded here (the rotation centre (0, 0, 0) when they cannot be)."""
+    try:
+        _names, meshes = _body_parts(project)
+    except MeshingNotReady:
+        meshes = []
+    return attitude_for(project, union_bounds(_bounds_of(meshes)) if meshes else None)
+
+
+def body_bounds(project: Project):
+    """The union of the parts' bounding boxes as imported (not rotated; None without parts): the basis of
+    the automatic reference values (D-047), whatever the angle of attack.
+
+    Raises:
+        MeshingNotReady: a part cannot be loaded.
+    """
+    _names, meshes = _body_parts(project)
+    return union_bounds(_bounds_of(meshes)) if meshes else None
+
+
+def _selected_bounds(bounds, names, domain):
+    """The boxes of the parts the domain is sized around (compute_domain's choice)."""
+    if domain.parts is not None:
+        chosen = [b for b, n in zip(bounds, names) if n in domain.parts]
+        if chosen:
+            return chosen
+    return bounds
+
+
+def _loaded_parts(project: Project, prepared: bool = True, rotated: bool = True):
+    """(domain box, part names, loaded meshes in metres) for the project's parts: the surfaces the
+    current surface preparation made (D-093), else the parts' own (``prepared`` False: always the
+    parts' own). With an angle of attack (``rotated``) the meshes are rotated copies (D-120) and the domain
+    is sized around them; a ground plane at the parts' lowest z stays where the parts as imported put it,
+    so a rotated part may cross it (``readiness`` refuses that). [NUMERICS-REVIEW]"""
+    names, meshes = _body_parts(project, prepared)
+    domain = project.sim.domain
+    if rotated and meshes and project.sim.inflow.alpha_deg != 0.0:
+        body = _bounds_of(meshes)
+        att = attitude_for(project, union_bounds(body))
+        if domain.ground.enabled and domain.ground.position == "parts_min":
+            z = union_bounds(_selected_bounds(body, names, domain))[4]
+            domain = domain.model_copy(update={"ground": domain.ground.model_copy(update={"position": "value", "z": z})})
+        meshes = [att.surface(m) for m in meshes]
+    return compute_domain(_bounds_of(meshes), domain, names), names, meshes
 
 
 def loaded_parts(project: Project):
     """(domain box, part names, meshes in metres) as meshing uses them (the surface preparation's
-    surfaces when one is current).
+    surfaces when one is current; rotated by the angle of attack, D-120).
 
     Raises:
         MeshingNotReady: a part cannot be loaded.
@@ -103,19 +160,20 @@ def loaded_parts(project: Project):
 
 
 def loaded_original_parts(project: Project):
-    """(domain box, part names, meshes in metres) of the parts' own surfaces (no preparation)."""
-    return _loaded_parts(project, prepared=False)
+    """(domain box, part names, meshes in metres) of the parts' own surfaces as imported (no preparation,
+    no rotation: the surface preparation works on the parts as imported)."""
+    return _loaded_parts(project, prepared=False, rotated=False)
 
 
 def parts_layout(project: Project) -> tuple[DomainBox, tuple[str, ...], tuple[float, ...]]:
-    """(domain box, every part wall patch name, union of the parts' bounding boxes in metres).
+    """(domain box, every part wall patch name, union of the parts' bounding boxes in metres as imported,
+    not rotated by the angle of attack: the reference values' basis, D-120).
 
     Raises:
         MeshingNotReady: a part cannot be loaded.
     """
-    box, _names, meshes = _loaded_parts(project)
-    bounds = [tuple(float(b) for b in m.bounds) for m in meshes]
-    return box, wall_patch_names(project.sim.geometry.parts), union_bounds(bounds) if bounds else None
+    box, _names, _meshes = _loaded_parts(project)
+    return box, wall_patch_names(project.sim.geometry.parts), body_bounds(project)
 
 
 def write_part_surfaces(case_dir: Path, project: Project, inputs: MeshCaseInput, meshes) -> None:
@@ -171,14 +229,13 @@ SURFACE_LENGTH_AUTO_WARNING = ("l_ref is not set: the surface cell size and the 
 
 
 def surface_length(project: Project, box: DomainBox, parts_bounds=None) -> SurfaceLength:
-    """The surface size length of ``project`` (``parts_bounds``: the union of every part's box, as
-    the solver's reference values use; None: loaded here). Never raises."""
+    """The surface size length of ``project`` (``parts_bounds``: the union of every part's box as imported,
+    as the solver's reference values use (``body_bounds``); None: loaded here). Never raises."""
     if project.sim.mesh.surface_size_reference == "largest_extent":
         return SurfaceLength(box.reference_length, "largest_extent")
     if parts_bounds is None:
         try:
-            _box, _names, meshes = _loaded_parts(project)
-            parts_bounds = union_bounds([tuple(float(b) for b in m.bounds) for m in meshes]) if meshes else None
+            parts_bounds = body_bounds(project)
         except MeshingNotReady:  # a part cannot be loaded (readiness says so): the parts the box knows
             parts_bounds = box.parts_bounds
     if parts_bounds is None:
@@ -284,11 +341,14 @@ def readiness(project: Project) -> str | None:
             return "Generate the domain first (Regions > Domain)."
         return "Enable the fluid domain."
     try:
-        box, _, _ = _loaded_parts(project)
+        box, names, meshes = _loaded_parts(project)
     except MeshingNotReady as exc:
         return str(exc)
     if box.ground and box.parts_bounds is not None and box.bounds[4] >= box.parts_bounds[5]:
         return "The ground plane is above every part: lower it (Fluid Domain > Ground plane)."
+    problem = attitude_problem(project, box, names, meshes)
+    if problem is not None:
+        return problem
     start = ground_wall_start(project.sim.domain, box.bounds)
     if start is not None and start >= box.bounds[1]:
         return (f"The ground wall starts at x = {start:.4g} m, at or behind the outlet (x = {box.bounds[1]:.4g} m): "
@@ -296,10 +356,34 @@ def readiness(project: Project) -> str | None:
     return estimate_with_volumes(project, box).limit_message()
 
 
+# A rotated part may touch the ground plane within this fraction of L (rounding of the rotation).
+GROUND_TOUCH_TOLERANCE = 1e-9
+
+
+def attitude_problem(project: Project, box: DomainBox, names, meshes) -> str | None:
+    """Why the rotated parts cannot be meshed (D-120, owner decision A2), or None: a part that leaves the
+    domain or crosses the ground plane at the angle of attack. At 0 degrees nothing is checked here (a
+    support crossing the ground is allowed, D-116; a part outside a rounded domain is a domain warning)."""
+    alpha = project.sim.inflow.alpha_deg
+    if alpha == 0.0 or box.bounds is None:
+        return None
+    from vortexcfd.geometry.refinement_volumes import inside_domain
+
+    for name, mesh in zip(names, meshes):
+        points = np.asarray(mesh.points)
+        if box.ground and points[:, 2].min() < box.bounds[4] - GROUND_TOUCH_TOLERANCE * max(box.reference_length, 1.0):
+            return (f"Part '{name}' crosses the ground plane when rotated to the angle of attack ({alpha:g} deg): "
+                    "lower the ground plane or change the angle.")
+        if not inside_domain(box, points).all():
+            return (f"Part '{name}' leaves the domain when rotated to the angle of attack ({alpha:g} deg): enlarge "
+                    "the domain or size it around every part.")
+    return None
+
+
 def estimate_with_volumes(project: Project, box: DomainBox, parts_bounds=None) -> MeshEstimate:
     """The project's mesh estimate with its refinement volumes' extra cells (D-103)."""
     est = project_estimate(project, box, parts_bounds=parts_bounds)
-    return refinement.with_volumes(est, refinement.volume_infos(project, box, est))
+    return refinement.with_volumes(est, refinement.volume_infos(project, box, est, project_attitude(project)))
 
 
 @dataclass(frozen=True)
@@ -342,7 +426,8 @@ def mesh_inputs(project: Project) -> tuple[MeshCaseInput, DomainBox, list]:
         raise MeshingNotReady(reason)
     box, names, meshes = _loaded_parts(project)
     bounds = [tuple(float(b) for b in m.bounds) for m in meshes]
-    length = surface_length(project, box, union_bounds(bounds))
+    body = body_bounds(project)
+    length = surface_length(project, box, body)
     safe = safe_part_names(names)
     first_layer = layer_count = expansion = None
     if project.sim.mesh.layer_sizing == "absolute_yplus":
@@ -363,7 +448,7 @@ def mesh_inputs(project: Project) -> tuple[MeshCaseInput, DomainBox, list]:
         part_patches=tuple(part_patch_names(project.sim.geometry.parts)),
         surface_length=length.value,
         extra_features=_junction_features(project, box, length.value),
-        volumes=_volume_entries(project, box, union_bounds(bounds)),
+        volumes=_volume_entries(project, box, body),
         ground=box.ground,
         ground_layers=box.ground and project.sim.domain.ground.layers,
         ground_wall_start=ground_wall_start(project.sim.domain, box.bounds),
@@ -373,11 +458,13 @@ def mesh_inputs(project: Project) -> tuple[MeshCaseInput, DomainBox, list]:
 
 
 def _volume_entries(project: Project, box: DomainBox, parts_bounds) -> tuple:
-    """The refinement volumes meshing writes (enabled, not wholly outside the domain; D-103)."""
+    """The refinement volumes meshing writes (enabled, not wholly outside the domain; D-103), the
+    body-frame ones turned with the parts (D-120). ``parts_bounds``: ``body_bounds``."""
     if not project.sim.refinement_volumes:
         return ()
     est = project_estimate(project, box, parts_bounds=parts_bounds)
-    return refinement.volume_entries(refinement.volume_infos(project, box, est))
+    att = attitude_for(project, parts_bounds)
+    return refinement.volume_entries(refinement.volume_infos(project, box, est, att))
 
 
 def prepare_job(project: Project) -> MeshJob:
@@ -417,14 +504,19 @@ def _junction_features(project: Project, box: DomainBox, length: float) -> tuple
 
 
 def write_junction_features(case_dir: Path, project: Project, inputs: MeshCaseInput) -> None:
-    """Copy the surface preparation's intersection curves into constant/triSurface (D-093); an earlier
-    copy is removed when the case has none."""
+    """Copy the surface preparation's intersection curves into constant/triSurface (D-093), turned with the
+    parts at an angle of attack (D-120); an earlier copy is removed when the case has none."""
     target = case_dir / TRI_SURFACE / surface_prep.JUNCTION_FILE
     prep = surface_prep.current(project)
     if not inputs.extra_features or prep is None or prep.features_file is None:
         target.unlink(missing_ok=True)
         return
-    target.write_bytes((project.folder / prep.features_file).read_bytes())
+    source = project.folder / prep.features_file
+    att = project_attitude(project)
+    if not att.rotated:
+        target.write_bytes(source.read_bytes())
+        return
+    target.write_text(att.edge_mesh_text(source.read_text(encoding="utf-8"), target.name), encoding="utf-8")
 
 
 def _part_overrides(project: Project) -> tuple[tuple[int | None, int | None], ...]:
@@ -520,9 +612,14 @@ def inputs_hash(project: Project) -> str:
     if mesh_settings.layer_controls == "robust" and mesh_settings.layer_sizing == "absolute_yplus":
         # the robust controls changed in 5.4b (D-106): a mesh made with the earlier ones is out of date
         payload["robust_controls"] = ROBUST_CONTROLS_REVISION
+    alpha = project.sim.inflow.alpha_deg
+    if alpha != 0.0:  # the parts are rotated (D-120); at 0 the hash of the projects saved before v18
+        payload["alpha_deg"] = alpha
+        payload["rotation_centre"] = project.sim.reports.center_of_rotation  # None: the parts' box centre
     enabled = [v for v in project.sim.refinement_volumes if v.enabled]
     if enabled:  # only enabled volumes reach the mesh (D-103); none: the hash of a project without volumes
-        payload["refinement_volumes"] = [v.model_dump(mode="json", exclude={"enabled"}) for v in enabled]
+        skip = {"enabled"} if alpha != 0.0 else {"enabled", "frame"}  # the frame matters only when rotated
+        payload["refinement_volumes"] = [v.model_dump(mode="json", exclude=skip) for v in enabled]
     if project.sim.mesh.surface_size_reference == "l_ref":  # l_ref sizes the surface (D-085)
         payload["surface_l_ref"] = project.sim.reports.reference_length
     prep = project.sim.surface_prep

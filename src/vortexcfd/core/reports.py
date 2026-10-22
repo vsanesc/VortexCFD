@@ -3,8 +3,9 @@
 Grammar (plain strings, stored in the project):
 
 - force coefficients of all walls, from forceCoeffs: ``Cd``, ``Cl``, ``CmPitch``;
-- their pressure and viscous parts and the centre of pressure, from the forces function object:
-  ``Cd_pressure``, ``Cd_viscous``, ``Cl_pressure``, ``Cl_viscous``, ``x_cp``;
+- their pressure and viscous parts, the body-axis axial and normal coefficients and the centre of
+  pressure, from the forces function object: ``Cd_pressure``, ``Cd_viscous``, ``Cl_pressure``,
+  ``Cl_viscous``, ``C_axial``, ``C_normal``, ``x_cp`` (D-060, D-120);
 - the same for one part's wall patch (only with several parts): ``<base>@<patch>``;
 - ``mass_imbalance`` (percent of the inlet flux);
 - ``yplus_min``, ``yplus_avg``, ``yplus_max`` (walls, at write times);
@@ -18,7 +19,9 @@ import re
 from collections.abc import Iterable
 
 FORCE_COEFFS = ("Cd", "Cl", "CmPitch")
-BREAKDOWN = ("Cd_pressure", "Cd_viscous", "Cl_pressure", "Cl_viscous")
+# C_axial and C_normal: the force coefficients along the parts' own x and z axes at the angle of attack
+# (body axes, D-120).
+BREAKDOWN = ("Cd_pressure", "Cd_viscous", "Cl_pressure", "Cl_viscous", "C_axial", "C_normal")
 PART_BASES = FORCE_COEFFS + BREAKDOWN + ("x_cp",)
 YPLUS = ("yplus_min", "yplus_avg", "yplus_max")
 MASS = "mass_imbalance"
@@ -31,6 +34,7 @@ BASE_LABELS = {
     "Cd": "Cd", "Cl": "Cl", "CmPitch": "Cm (pitch)",
     "Cd_pressure": "Cd pressure", "Cd_viscous": "Cd viscous",
     "Cl_pressure": "Cl pressure", "Cl_viscous": "Cl viscous", "x_cp": "x_cp (m)",
+    "C_axial": "C_A (body axial)", "C_normal": "C_N (body normal)",
     "yplus_min": "y+ min (walls)", "yplus_avg": "y+ avg (walls)", "yplus_max": "y+ max (walls)",
     MASS: "Mass imbalance (%)",
 }

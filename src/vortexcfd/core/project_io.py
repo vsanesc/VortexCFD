@@ -30,7 +30,13 @@ class ProjectFileError(Exception):
     """Exception raised when loading or validating a project file fails."""
 
 
-def migrate(data: dict[str, Any]) -> dict[str, Any]:
+# The v17 -> v18 note for a project whose angle of attack is not 0 (D-120).
+ALPHA_MIGRATION_NOTE = ("The angle of attack ({alpha:g} deg) is now a rotation of the parts about the reference "
+                        "centre of rotation; the free stream is always along +x. The mesh is out of date: generate "
+                        "it again.")
+
+
+def migrate(data: dict[str, Any], notes: list[str] | None = None) -> dict[str, Any]:
     """Migrate project data dictionary from older schema versions to current.
 
     v1 -> v2 adds the default far-field ``domain`` and ``mesh``; v2 -> v3 adds the default
@@ -52,7 +58,11 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
     the project's first-layer convention (V14_MESH_FIELDS: the target y+ distance as the first-layer
     height; D-107); v14 -> v15 adds the meshing cores (unset: automatic, D-111); v15 -> v16 adds the
     domain's ground plane (off: the bottom face stays slip far field, D-116); v16 -> v17 adds the ground's
-    wall start (unset: no slip strip) and the mean-stable criterion kind (D-118).
+    wall start (unset: no slip strip) and the mean-stable criterion kind (D-118); v17 -> v18 makes the angle
+    of attack a rotation of the parts (D-120): the value is kept, the refinement volumes get the "body" frame
+    (they turn with the parts, so they keep their place on them), the polar sweep loses
+    ``init_from_previous`` (every angle has its own mesh) and a project with a non-zero angle gets a note
+    in ``notes`` (its mesh hash now carries the angle, so the mesh is out of date).
     Data already at the current version (or not a dict /
     without a version) is returned unchanged.
     """
@@ -121,6 +131,17 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
         data["schema_version"] = 16  # Domain.ground defaults to off: the bottom face stays far field (D-116)
     if data.get("schema_version") == 16:
         data["schema_version"] = 17  # Ground.wall_start_x defaults to None: the wall starts at the inlet (D-118)
+    if data.get("schema_version") == 17:
+        studies = data.get("studies")
+        if isinstance(studies, dict) and isinstance(studies.get("polar"), dict):
+            polar = dict(studies["polar"])
+            polar.pop("init_from_previous", None)
+            data["studies"] = {**studies, "polar": polar}
+        inflow = data.get("inflow")
+        alpha = inflow.get("alpha_deg", 0.0) if isinstance(inflow, dict) else 0.0
+        if isinstance(alpha, (int, float)) and alpha != 0 and notes is not None:
+            notes.append(ALPHA_MIGRATION_NOTE.format(alpha=alpha))
+        data["schema_version"] = 18  # RefinementVolume.frame defaults to "body" (D-120)
     return data
 
 
@@ -136,11 +157,12 @@ def save_simulation(sim: Simulation, path: Path) -> None:
     write_text_atomic(file_path, sim.model_dump_json(indent=2) + "\n")
 
 
-def load_simulation(path: Path) -> Simulation:
+def load_simulation(path: Path, notes: list[str] | None = None) -> Simulation:
     """Load and validate a simulation from a JSON file.
 
     Args:
         path: Path to the JSON project file.
+        notes: if given, the migration's notes for the user are appended to it (D-120).
 
     Returns:
         Validated Simulation instance.
@@ -178,7 +200,7 @@ def load_simulation(path: Path) -> Simulation:
         )
 
     # Call migration hook for backwards compatibility with older schema versions
-    data = migrate(data)
+    data = migrate(data, notes)
 
     if not isinstance(data, dict):
         raise ProjectFileError(

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from tests.test_mesh_study import FakeMeshRun, FakeSolverRun
-from tests.test_polar_sweep import FakeSolver
+from tests.test_polar_sweep import FakeMesher, FakeSolver, point_alpha
 from tests.test_solver_gui import make_window  # noqa: F401 (fixture)
 from vortexcfd.foam.solver_run import CRITERIA_MET, ITERATION_LIMIT
 
@@ -42,7 +42,7 @@ def test_study_nodes_exist_and_commit_settings(make_window) -> None:
     p.ps_values.setText("0, 5 10")
     p.ps_values.editingFinished.emit()
     assert w.project.sim.studies.polar.values == [0.0, 5.0, 10.0]
-    assert p.ps_alphas.text().startswith("3:")
+    assert p.ps_alphas.text().startswith("3, one mesh each:")
     p.ps_values.setText("a b")
     p.ps_values.editingFinished.emit()
     assert w.project.sim.studies.polar.values == [0.0, 5.0, 10.0]
@@ -107,21 +107,25 @@ def test_a_running_study_blocks_the_solver_and_meshing(make_window, qtbot) -> No
 def test_polar_sweep_runs_through_the_window(make_window, qtbot, tmp_path: Path) -> None:
     w = make_window()
     w.project.update_study("polar", mode="list", values=[0.0, 5.0, 10.0], cores=1)
-    FakeSolver.states, FakeSolver.alphas, FakeSolver.created, FakeSolver.hold_index = (
-        [CRITERIA_MET, ITERATION_LIMIT, CRITERIA_MET], [0.0, 5.0, 10.0], [], None)
-    w.study_solver_run_factory = FakeSolver
+    FakeMesher.created, FakeMesher.bad, FakeMesher.hold = [], set(), None
+    FakeSolver.states, FakeSolver.created, FakeSolver.hold = {5.0: ITERATION_LIMIT}, [], None
+    w.study_mesh_run_factory, w.study_solver_run_factory = FakeMesher, FakeSolver
     _select(w, "polar_sweep")
     w.properties.ps_run.click()
     qtbot.waitUntil(lambda: w.sweep_record is not None and w.sweep_record.status == "finished", timeout=10000)
     qtbot.waitUntil(lambda: not w.sweep_worker.is_running(), timeout=5000)
     sweep = w.project.path.parent / "case_sweep"
-    assert (sweep / "sweep.json").is_file() and (sweep / "mesh" / "polyMesh" / "points").is_file()
+    assert (sweep / "sweep.json").is_file()
+    for n, alpha in ((1, 0.0), (2, 5.0), (3, 10.0)):  # one meshing case per angle (D-120)
+        assert (sweep / f"point_{n}" / "system" / "snappyHexMeshDict").is_file()
+        assert (sweep / f"point_{n}" / "constant" / "triSurface" / "Ball.stl").is_file()
+        assert point_alpha(sweep / f"point_{n}") == pytest.approx(alpha)
     assert not (w.project.path.parent / "case" / "0").exists()  # case/ untouched
     assert "1 without meeting the stopping criteria" in w.properties.ps_status.text()
     assert w.properties.ps_results.isEnabled()
     w.properties.ps_results.click()
     win = w.sweep_window
-    assert win.table.rowCount() == 3 and win.table.item(1, 6).text() == "Iteration limit"
+    assert win.table.rowCount() == 3 and win.table.item(1, 7).text() == "Iteration limit"
     assert win.cl_alpha.markers[0][1] == (5.0, pytest.approx(0.5), True)  # hollow
     w.dialogs.csv_path = tmp_path / "polar.csv"
     win.export.click()
@@ -131,9 +135,9 @@ def test_polar_sweep_runs_through_the_window(make_window, qtbot, tmp_path: Path)
 def test_a_running_sweep_blocks_the_solver_and_the_mesh_study(make_window, qtbot) -> None:
     w = make_window()
     w.project.update_study("polar", mode="list", values=[0.0, 5.0], cores=1)
-    FakeSolver.states, FakeSolver.alphas, FakeSolver.created, FakeSolver.hold_index = (
-        [CRITERIA_MET, CRITERIA_MET], [0.0, 5.0], [], 0)
-    w.study_solver_run_factory = FakeSolver
+    FakeMesher.created, FakeMesher.bad, FakeMesher.hold = [], set(), None
+    FakeSolver.states, FakeSolver.created, FakeSolver.hold = {}, [], 0.0
+    w.study_mesh_run_factory, w.study_solver_run_factory = FakeMesher, FakeSolver
     _select(w, "polar_sweep")
     w.properties.ps_run.click()
     qtbot.waitUntil(lambda: len(FakeSolver.created) == 1, timeout=5000)

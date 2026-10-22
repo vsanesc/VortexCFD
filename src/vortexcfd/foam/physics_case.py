@@ -31,6 +31,7 @@ from vortexcfd.foam.convergence import FUNCTION_NAME as RUN_TIME_CONTROL
 from vortexcfd.foam.convergence import force_coeffs_name, probe_function_name, run_time_control
 from vortexcfd.foam.mesh_case import GROUND_PATCH
 from vortexcfd.foam.parallel import DECOMPOSE_DICT, decompose_par_dict
+from vortexcfd.foam.postprocessing import BODY_COEFFS
 
 Bounds = tuple[float, float, float, float, float, float]  # xmin, xmax, ymin, ymax, zmin, zmax
 
@@ -71,10 +72,26 @@ def far_field_patches(shape: str, ground: bool, slip_strip: bool = False) -> tup
     return tuple(n for n in names if n != "bottom") + (("ground_slip",) if slip_strip else ())
 
 
-def flow_direction(alpha_deg: float) -> tuple[float, float, float]:
-    """Unit flow direction: +x rotated by the angle of attack about +y (z up)."""
+# The free stream is always along +x; the angle of attack rotates the parts (D-120).
+FLOW_DIRECTION = (1.0, 0.0, 0.0)
+# Wind axes of the force coefficients (D-120): drag along the free stream, lift +z normal to it.
+DRAG_DIR = (1.0, 0.0, 0.0)
+LIFT_DIR = (0.0, 0.0, 1.0)
+# The body-axis coefficients of all walls (D-120): a second forceCoeffs object (postprocessing.BODY_COEFFS)
+# whose drag and lift directions are the parts' own x and z axes at the angle of attack, so its Cd and Cl are
+# the axial and normal force coefficients (C_A, C_N) and its header carries the body axes (foam/forces.py).
+
+
+def flow_direction() -> tuple[float, float, float]:
+    """Unit flow direction: always +x (the angle of attack turns the parts, D-120)."""
+    return FLOW_DIRECTION
+
+
+def body_axes(alpha_deg: float) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """(x_body, z_body) in the wind axes: the parts' x and z axes turned nose up by alpha about +y,
+    (cos a, 0, -sin a) and (sin a, 0, cos a) (geometry/attitude.py, D-120)."""
     a = math.radians(alpha_deg)
-    return math.cos(a), 0.0, math.sin(a)
+    return (math.cos(a), 0.0, -math.sin(a)), (math.sin(a), 0.0, math.cos(a))
 
 
 # A_ref bases: label of the auto value (stated exactly in the GUI).
@@ -138,26 +155,28 @@ def reference_values(parts_bounds: Bounds, reports: Reports) -> ReferenceValues:
     )
 
 
-def _force_coeffs(inp: SolverCaseInput, patches: tuple[str, ...] | None = None) -> dict:
-    """The motorBike tutorial's forceCoeffs entry for the part walls (incompressible: rhoInf).
+def _force_coeffs(inp: SolverCaseInput, patches: tuple[str, ...] | None = None, body: bool = False) -> dict:
+    """The motorBike tutorial's forceCoeffs entry for the part walls (incompressible: rhoInf), in the wind
+    axes: drag along the free stream (+x), lift +z (D-120); ``body``: the body axes (BODY_COEFFS).
 
     v2606 (forces::setCoordinateSystem): with CofR, liftDir is e3 and dragDir e1 of the coefficient
-    axes and the pitch axis is e2 = e3 x e1 (+y at any angle of attack); the `pitchAxis` entry is
-    not read and is kept only as documentation. Output: postProcessing/forceCoeffs1/<start
-    time>/coefficient.dat (foam/postprocessing.py)."""
+    axes and the pitch axis is e2 = e3 x e1 (+y in both axis sets: a positive pitching moment is nose up);
+    the `pitchAxis` entry is not read and is kept only as documentation. Output:
+    postProcessing/forceCoeffs1/<start time>/coefficient.dat (foam/postprocessing.py). The CofR is the
+    rotation centre of the parts, so the moment is about the same point at every angle."""
     ref = reference_values(inp.parts_bounds, inp.reports)
-    a = math.radians(inp.inflow.alpha_deg)
+    drag, lift = body_axes(inp.inflow.alpha_deg) if body else (DRAG_DIR, LIFT_DIR)
     return {
         "type": "forceCoeffs",
         "libs": ["forces"],
         "writeControl": "timeStep",
         "writeInterval": 1,
-        "log": patches is None,  # only the total in the solver log
+        "log": patches is None and not body,  # only the total in the solver log
         "patches": list(inp.patches if patches is None else patches),
         "rho": "rhoInf",
         "rhoInf": inp.physics.rho_ref,
-        "liftDir": [-math.sin(a), 0.0, math.cos(a)],
-        "dragDir": [math.cos(a), 0.0, math.sin(a)],
+        "liftDir": list(lift),
+        "dragDir": list(drag),
         "CofR": list(ref.cofr),
         "pitchAxis": [0.0, 1.0, 0.0],
         "magUInf": inp.inflow.speed,
@@ -251,6 +270,7 @@ def control_dict(inp: SolverCaseInput) -> FoamFileSpec:
     the app evaluates the criteria and stops the solver (D-058)."""
     functions = {
         "forceCoeffs1": _force_coeffs(inp),
+        BODY_COEFFS: _force_coeffs(inp, body=True),
         "forces1": _forces(inp),
     }
     if len(inp.patches) > 1:  # per patch (D-060); with one patch these equal the totals
@@ -348,8 +368,8 @@ def turbulence_properties(physics: Physics) -> FoamFileSpec:
 
 
 def ground_velocity(inp: SolverCaseInput) -> tuple[float, float, float]:
-    """The moving ground's velocity (D-116): the free-stream speed along the flow direction projected on
-    the ground plane, which is +x for every angle of attack (the app turns the free stream about y)."""
+    """The moving ground's velocity (D-116): the free-stream velocity, +x at every angle of attack (the
+    app turns the parts, never the free stream, D-120)."""
     return inp.inflow.speed, 0.0, 0.0
 
 
@@ -381,7 +401,8 @@ def _field(inp: SolverCaseInput, cls: str, dimensions: list[int], internal, inle
 def initial_fields(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
     """0/U, 0/p, 0/k, 0/omega, 0/nut with the external-aerodynamics boundary conditions.
 
-    inlet: U fixedValue V (cos a, 0, sin a); p zeroGradient; k, omega fixedValue; nut calculated.
+    inlet: U fixedValue (V, 0, 0) at every angle of attack (D-120); p zeroGradient; k, omega fixedValue;
+    nut calculated.
     outlet: p fixedValue 0; U, k, omega inletOutlet; nut calculated.
     sides/top/bottom: slip (nut calculated); symmetry: symmetryPlane.
     part walls: U noSlip; p zeroGradient; k kqRWallFunction; omega omegaWallFunction;
@@ -389,8 +410,7 @@ def initial_fields(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
     ground plane (D-116): the part walls' conditions; a moving ground has U fixedValue
     ``ground_velocity`` instead of noSlip (the motorBike tutorial's lowerWall). [NUMERICS-REVIEW]
     """
-    d = flow_direction(inp.inflow.alpha_deg)
-    velocity = [inp.inflow.speed * c for c in d]
+    velocity = [inp.inflow.speed * c for c in FLOW_DIRECTION]
     k, omega = inlet_turbulence(inp.inflow.speed, inp.inflow.turbulence_intensity, inp.physics.nu,
                                 inp.inflow.viscosity_ratio)
     slip = {"type": "slip"}

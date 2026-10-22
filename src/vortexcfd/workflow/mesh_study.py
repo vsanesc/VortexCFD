@@ -44,6 +44,7 @@ from vortexcfd.workflow.meshing import (
     _loaded_parts,
     _part_overrides,
     _volume_entries,
+    body_bounds,
     case_dir_for,
     domain_fields,
     estimate_for,
@@ -108,9 +109,9 @@ def plan_study(project: Project) -> StudyPlan:
     if reason is not None and "background mesh would have" not in reason:
         raise MeshingNotReady(reason)
     settings = project.sim.studies.mesh
-    box, _names, meshes = _loaded_parts(project)
+    box, _names, _meshes = _loaded_parts(project)
     mesh = project.sim.mesh
-    length = surface_length(project, box, union_bounds([tuple(float(b) for b in m.bounds) for m in meshes])).value
+    length = surface_length(project, box, body_bounds(project)).value
     current = estimate_for(box, mesh, length)
     yplus_first = None
     if mesh.layer_sizing == "absolute_yplus":
@@ -176,11 +177,12 @@ def prepare_study(project: Project, only: Collection[str] | None = None) -> tupl
     study = study_dir_for(project)
     study.mkdir(parents=True, exist_ok=True)
     fixed = (plan.layers.first, plan.layers.count) if plan.layers is not None else None
-    length = surface_length(project, box, union_bounds(bounds)).value
+    body = body_bounds(project)  # the reference values' basis, never rotated (D-120)
+    length = surface_length(project, box, body).value
     # The refinement volumes and junction curves keep the current settings' refinement levels on every
     # level: a level scales the base size and every target size by the same factor, so each level number
     # is unchanged and the cells inside them scale like the rest (D-117). [NUMERICS-REVIEW]
-    volumes = _volume_entries(project, box, union_bounds(bounds))
+    volumes = _volume_entries(project, box, body)
     features = _junction_features(project, box, length)
     levels, inputs = [], None
     for lp in plan.levels:

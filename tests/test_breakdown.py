@@ -105,7 +105,7 @@ def test_function_objects_for_breakdown_mass_wall_shear_and_probes() -> None:
 
     probe = Probe(name="wake", location=(2.0, 0.0, 0.1))
     functions = build_solver_files(_inp(probes=[probe]))["system/controlDict"].content["functions"]
-    assert list(functions) == ["forceCoeffs1", "forces1", "massFlow_inlet", "massFlow_outlet", "yPlus1",
+    assert list(functions) == ["forceCoeffs1", "forceCoeffsBody", "forces1", "massFlow_inlet", "massFlow_outlet", "yPlus1",
                                "wallShearStress1", "probe_wake"]  # no criteria: no runTimeControl
     assert functions["massFlow_outlet"] == {
         "type": "surfaceFieldValue", "libs": ["fieldFunctionObjects"], "regionType": "patch", "name": "outlet",

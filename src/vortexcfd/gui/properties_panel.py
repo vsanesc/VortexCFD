@@ -238,6 +238,10 @@ YPLUS_NOTE = ("Flat-plate verification: Cf about 6% low at y+ 1, about 3.6% low 
 LAYERS_ABSOLUTE_TIP = ("Absolute (y+) layer sizing: the layer count follows from the target y+ and the surface "
                        "cell size; it is shown here and cannot be set. Choose relative sizing to set it.")
 # Added to the Target y+ tooltip with absolute layer sizing: the usual targets (owner review of 5.4b).
+# The angle of attack rotates the parts (D-120).
+ALPHA_TOOLTIP = ("Turns the parts nose up about the y axis through the centre of rotation (Reference Values > CofR); "
+                 "the free stream stays along +x, lift is +z and drag +x. A change puts the mesh out of date; the "
+                 "project's geometry itself is not changed.")
 YPLUS_GUIDANCE = ("Wall-resolved (no wall functions): about 1 at the first cell centre. Wall functions: 30-300; "
                   "the default is 50.")
 # Tooltip of the Target y+ field with absolute layer sizing, by Mesh.yplus_at (D-107), then YPLUS_GUIDANCE.
@@ -740,6 +744,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
                 self._layout.addWidget(self._make_row(f"{gkind}_{key}", label, widget))
                 _connect_commit(widget, lambda k=key, g=gkind: self._commit_group(g, k))
             self.group_fields[gkind] = fields
+        self.group_fields["inflow"]["alpha_deg"].setToolTip(ALPHA_TOOLTIP)
         self._section("inflow_computed", "Computed")
         self.inflow_k = self._ro_row("inflow_k", "Turbulence k")
         self.inflow_omega = self._ro_row("inflow_omega", "Turbulence omega")

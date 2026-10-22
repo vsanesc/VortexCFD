@@ -41,13 +41,9 @@ def test_inlet_turbulence_formulas() -> None:
     assert k2 == pytest.approx(4 * k)  # k scales with V^2
 
 
-def test_flow_direction() -> None:
-    assert flow_direction(0.0) == pytest.approx((1.0, 0.0, 0.0))
-    d = flow_direction(90.0)
-    assert d == pytest.approx((0.0, 0.0, 1.0), abs=1e-12)
-    d = flow_direction(30.0)
-    assert d == pytest.approx((math.cos(math.radians(30)), 0.0, 0.5))
-    assert flow_direction(-10.0)[2] < 0
+def test_flow_direction_is_always_x() -> None:
+    """D-120: the angle of attack rotates the parts; the free stream is always +x."""
+    assert flow_direction() == (1.0, 0.0, 0.0)
 
 
 # -- files ---------------------------------------------------------------------------------------------
@@ -100,19 +96,25 @@ def test_symmetry_plane_patch_is_present_only_with_symmetry() -> None:
         assert f[name].content["boundaryField"]["symmetry"] == {"type": "symmetryPlane"}
 
 
-def test_angle_of_attack_sets_inlet_velocity_and_force_directions() -> None:
+def test_angle_of_attack_keeps_the_free_stream_and_the_wind_axes() -> None:
+    """D-120: at any alpha the inlet is (V, 0, 0), drag +x, lift +z; the body-axis object turns its axes with
+    the parts (nose up): x_b = (cos a, 0, -sin a), z_b = (sin a, 0, cos a); the pitch axis e3 x e1 is +y."""
     a = 8.0
     f = build_solver_files(make(Inflow(speed=30.0, alpha_deg=a)))
     ra = math.radians(a)
-    v = [30 * math.cos(ra), 0.0, 30 * math.sin(ra)]
-    assert f["0/U"].content["boundaryField"]["inlet"]["value"] == pytest.approx(v)
-    assert f["0/U"].content["internalField"] == pytest.approx(v)
-    fc = f["system/controlDict"].content["functions"]["forceCoeffs1"]
-    assert fc["liftDir"] == pytest.approx([-math.sin(ra), 0.0, math.cos(ra)])
-    assert fc["dragDir"] == pytest.approx([math.cos(ra), 0.0, math.sin(ra)])
+    assert f["0/U"].content["boundaryField"]["inlet"]["value"] == pytest.approx([30.0, 0.0, 0.0])
+    assert f["0/U"].content["internalField"] == pytest.approx([30.0, 0.0, 0.0])
+    functions = f["system/controlDict"].content["functions"]
+    fc = functions["forceCoeffs1"]
+    assert fc["liftDir"] == [0.0, 0.0, 1.0] and fc["dragDir"] == [1.0, 0.0, 0.0]
     assert fc["pitchAxis"] == [0.0, 1.0, 0.0] and fc["magUInf"] == 30.0
-    # lift is perpendicular to drag and to the pitch axis
-    assert sum(x * y for x, y in zip(fc["liftDir"], fc["dragDir"])) == pytest.approx(0.0, abs=1e-12)
+    body = functions["forceCoeffsBody"]
+    assert body["dragDir"] == pytest.approx([math.cos(ra), 0.0, -math.sin(ra)])
+    assert body["liftDir"] == pytest.approx([math.sin(ra), 0.0, math.cos(ra)])
+    assert body["CofR"] == fc["CofR"] and body["log"] is False and body["patches"] == fc["patches"]
+    e1, e3 = body["dragDir"], body["liftDir"]
+    e2 = [e3[1] * e1[2] - e3[2] * e1[1], e3[2] * e1[0] - e3[0] * e1[2], e3[0] * e1[1] - e3[1] * e1[0]]
+    assert e2 == pytest.approx([0.0, 1.0, 0.0])
 
 
 def test_control_dict_force_coeffs_and_yplus() -> None:

@@ -93,6 +93,7 @@ class Project:
         self._redo: list[tuple[Simulation, str]] = []  # (state before the undo, edit label)
         self._observers: list[Observer] = []
         self.observer_errors: deque[Exception] = deque(maxlen=MAX_OBSERVER_ERRORS)
+        self.migration_notes: list[str] = []  # notes of the schema migration when opened (D-120)
 
     @classmethod
     def new(cls, name: str, *, max_depth: int = 100) -> "Project":
@@ -185,7 +186,10 @@ class Project:
     def open(cls, path: Path, *, max_depth: int = 100) -> "Project":
         """Open a project file. ProjectFileError propagates on failure."""
         path = Path(path)
-        return cls(load_simulation(path), path, saved=True, max_depth=max_depth)
+        notes: list[str] = []
+        project = cls(load_simulation(path, notes), path, saved=True, max_depth=max_depth)
+        project.migration_notes = notes  # shown to the user by the GUI (D-120)
+        return project
 
     # -- state ---------------------------------------------------------------
 

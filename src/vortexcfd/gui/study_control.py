@@ -13,7 +13,7 @@ from PySide6.QtCore import QObject, Signal
 from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError
 from vortexcfd.foam.mesh_study import StudyRun, export_csv as export_study_csv, read_record as read_study
 from vortexcfd.foam.polar_sweep import SweepRun, export_csv as export_sweep_csv, read_record as read_sweep
-from vortexcfd.workflow import mesh_study, polar_sweep
+from vortexcfd.workflow import mesh_study, meshing, polar_sweep
 from vortexcfd.workflow.meshing import MeshingNotReady
 from vortexcfd.gui.study_rows import format_seconds
 from vortexcfd.gui.study_windows import MeshStudyWindow, PolarSweepWindow
@@ -149,18 +149,16 @@ class StudyControlMixin:
         running = self.sweep_worker.is_running()
         reason = None
         if not running:
-            report = self.mesh_report
-            reason = self._busy_for_study("polar") or polar_sweep.sweep_readiness(
-                self._project, has_mesh=report is not None, mesh_stale=self.mesh_stale,
-                lost_parts=report.lost_parts if report is not None else (),
-                failed_checks=report.failed_checks_message() if report is not None else None)
+            reason = polar_sweep.sweep_readiness(self._project, busy=self._busy_for_study("polar"))
         record = self.sweep_record
         status, warn = ("Running" if running else "Not run"), False
         if record is not None:
-            done = sum(1 for p in record.points if p.state is not None)
+            done = sum(1 for p in record.points if p.finished)
             flagged = sum(1 for p in record.points if p.flagged)
-            status = (f"Running: {done} of {len(record.points)} points done" if running
-                      else f"Last sweep {record.status}: {done} of {len(record.points)} points")
+            status = (f"Running: {done} of {len(record.points)} angles done" if running
+                      else f"Last sweep {record.status}: {done} of {len(record.points)} angles")
+            if not running and record.status == "stopped" and done < len(record.points):
+                status += " (Run resumes it)"
             if flagged:
                 status += f", {flagged} without meeting the stopping criteria"
                 warn = True
@@ -204,28 +202,28 @@ class StudyControlMixin:
             mesh_run_factory=self.study_mesh_run_factory, solver_run_factory=self.study_solver_run_factory))
 
     def _start_sweep(self) -> None:
-        report = self.mesh_report
-        reason = self._busy_for_study("polar") or polar_sweep.sweep_readiness(
-            self._project, has_mesh=report is not None, mesh_stale=self.mesh_stale,
-            lost_parts=report.lost_parts if report is not None else (),
-                failed_checks=report.failed_checks_message() if report is not None else None)
+        reason = polar_sweep.sweep_readiness(self._project, busy=self._busy_for_study("polar"))
         if reason is not None:
             self.show_message(reason, "error")
             return
         try:
             sweep_dir, record = polar_sweep.prepare_sweep(self._project)
+            preparer = polar_sweep.point_preparer(self._project)
             writer = polar_sweep.point_writer(self._project)
-        except (OSError, ValueError) as exc:
+            parts = meshing.mesh_inputs(self._project)[0].patches
+        except (MeshingNotReady, OSError, ValueError) as exc:
             self.show_message(f"Could not prepare the polar sweep: {exc}", "error")
             return
         self.sweep_record = record
         stopping = self._project.sim.solvers.stopping.model_copy(deep=True)
-        log.info("Polar sweep: %d points (%s deg) in %s", len(record.points),
-                 ", ".join(f"{a:g}" for a in record.alphas), sweep_dir)
+        kept = sum(1 for p in record.points if p.finished)
+        log.info("Polar sweep: %d angles (%s deg) in %s, one mesh per angle on %d cores%s", len(record.points),
+                 ", ".join(f"{a:g}" for a in record.alphas), sweep_dir, record.mesh_cores,
+                 f"; resuming: {kept} finished angles kept" if kept else "")
         self.sweep_worker.start(lambda on_line, on_progress, on_done: SweepRun(
-            sweep_dir, record, writer, stopping=stopping, on_line=on_line, on_point=on_progress,
-            on_done=on_done, solver_timeout_s=self.study_timeout_s,
-            solver_run_factory=self.study_solver_run_factory))
+            sweep_dir, record, preparer, writer, stopping=stopping, parts=parts, on_line=on_line,
+            on_point=on_progress, on_done=on_done, solver_timeout_s=self.study_timeout_s,
+            mesh_run_factory=self.study_mesh_run_factory, solver_run_factory=self.study_solver_run_factory))
 
     def _after_study_change(self) -> None:
         self._update_study_state()

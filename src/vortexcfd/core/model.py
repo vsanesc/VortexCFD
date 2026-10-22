@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 17
+CURRENT_SCHEMA_VERSION: int = 18
 
 
 class StrictModel(BaseModel):
@@ -233,8 +233,9 @@ class Physics(StrictModel):
 
 
 class Inflow(StrictModel):
-    """Free-stream conditions at the inlet. The flow is along +x rotated by the angle of attack
-    about +y (z up); the turbulence comes from the intensity and the viscosity ratio."""
+    """Free-stream conditions at the inlet. The flow is always along +x (z up); the angle of attack
+    turns the parts nose up about the y axis through the reference centre of rotation (schema v18,
+    D-120: geometry/attitude.py); the turbulence comes from the intensity and the viscosity ratio."""
 
     speed: float = Field(default=20.0, gt=0)  # m/s
     alpha_deg: float = Field(default=0.0, ge=-90.0, le=90.0)  # angle of attack
@@ -505,9 +506,10 @@ class MeshStudySettings(StrictModel):
 
 
 class PolarSweepSettings(StrictModel):
-    """Angle-of-attack sweep (D-067): ``mode`` "range" runs start, start + step, ... up to end
-    (inclusive within 1e-9), "list" runs ``values`` in their order; every point uses the current
-    mesh; ``init_from_previous`` starts each point from the previous point's latest solution."""
+    """Angle-of-attack sweep (D-067, D-120): ``mode`` "range" runs start, start + step, ... up to end
+    (inclusive within 1e-9), "list" runs ``values`` in their order; every angle gets its own mesh (the
+    parts rotated, meshed on the project's meshing cores) and a run from the uniform free stream, one
+    angle at a time (schema v18 dropped ``init_from_previous``: the meshes differ)."""
 
     mode: Literal["range", "list"] = "range"
     start: float = Field(default=0.0, ge=-90.0, le=90.0)
@@ -515,7 +517,6 @@ class PolarSweepSettings(StrictModel):
     step: float = Field(default=2.0, gt=0.0)
     values: list[float] = Field(default_factory=list)
     cores: int = Field(default=1, ge=1)
-    init_from_previous: bool = True
 
     @field_validator("values")
     @classmethod
@@ -626,6 +627,24 @@ class ConeShape(StrictModel):
         return self
 
 
+class OrientedBoxShape(BoxShape):
+    """A box with explicit unit axes e1 and e3 (e2 = e3 x e1): a body-frame box turned by the angle of
+    attack (geometry/attitude.rotate_shape, D-120), which pitch and yaw alone cannot always express. Made
+    for the meshing case only; never stored in a project (pitch_deg and yaw_deg are unused)."""
+
+    e1: Vector = (1.0, 0.0, 0.0)
+    e3: Vector = (0.0, 0.0, 1.0)
+
+    @property
+    def rotated(self) -> bool:
+        return True
+
+    def axes(self) -> tuple[Vector, Vector, Vector]:
+        e1, e3 = self.e1, self.e3
+        e2 = (e3[1] * e1[2] - e3[2] * e1[1], e3[2] * e1[0] - e3[0] * e1[2], e3[0] * e1[1] - e3[1] * e1[0])
+        return e1, e2, e3
+
+
 VolumeShape = Annotated[Union[BoxShape, CylinderShape, SphereShape, ConeShape], Field(discriminator="kind")]
 
 
@@ -633,13 +652,16 @@ class RefinementVolume(StrictModel):
     """A user refinement volume (D-103): every cell inside it is refined to the level whose cell size is
     the first at or below ``target_size`` (metres). ``id`` is stable across renames; ``name`` is unique
     and file-safe (it names the snappyHexMesh entries). Volumes belong to the project's geometry and are
-    not part of presets."""
+    not part of presets. ``frame`` (schema v18, D-120): "body" volumes turn with the parts at an angle of
+    attack (the default: they were placed on the parts as imported); "wind" volumes stay where they are
+    (the wake helper's: along the free stream, +x)."""
 
     id: str = Field(min_length=1, max_length=32)
     name: str
     shape: VolumeShape
     target_size: float = Field(gt=0)
     enabled: bool = True
+    frame: Literal["body", "wind"] = "body"
 
     @field_validator("name")
     @classmethod

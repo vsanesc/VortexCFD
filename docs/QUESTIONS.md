@@ -337,3 +337,9 @@ settled the open ones on 2026-10-17.
      56 -> about 560 moved Cd by -2.8 % and turned the separated slant attached); a y+ 1 stack cannot be built
      with the default layer controls on 5-7 mm surface cells (watch the First cell row)." Keep the verdict
      as PASS WITH NOTE, or record round 4 as inconclusive (and W1 as FAIL / documented limitation)?
+
+## Task W2 (task/w2-aoa-2d: angle of attack, 2D mode, wall-resolved layers, NACA 0012; decisions taken while Vic was away)
+
+183. **[NUMERICS-REVIEW] Polar sweep: no initialisation from the previous angle (D-120).** Every angle now has its own mesh, so the internal fields can no longer be copied; mapFields between the meshes would work but adds a failure mode, so every angle starts from the uniform free stream and `init_from_previous` was dropped in the v18 migration. Keep, or add mapFields?
+184. **[NUMERICS-REVIEW] The ground plane at an angle of attack (D-120).** A ground at "the parts' lowest z" stays at the lowest z of the parts as imported (not rotated), and any rotated part below it blocks meshing (owner decision A2). So a body resting on the ground can only be pitched with the ground set lower by hand. Accept?
+185. **Body-axis output (D-120).** The optional body-axis coefficients are a second forceCoeffs object (`forceCoeffsBody`, all walls), report ids `C_axial` / `C_normal` (also per part, from the forces files) and two Forces table rows; x_cp is now along the rotated body x axis. Enough, or should the mesh study / sweep record them too?

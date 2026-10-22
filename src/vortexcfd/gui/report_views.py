@@ -15,15 +15,17 @@ FORCE_TABLE_ROWS = (
     ("cl", "Cl", "Lift coefficient (total)", "{:.4g}"),
     ("cl_pressure", "Cl,p", "Pressure lift coefficient", "{:.4g}"),
     ("cl_viscous", "Cl,v", "Viscous lift coefficient", "{:.4g}"),
-    ("cm", "Cm", "Pitching moment coefficient about CofR (pitch axis +y)", "{:.4g}"),
-    ("x_cp", "x_cp", "Centre of pressure along the body x axis: x_CofR - M_y / F_z(body); body axes = the "
-     "geometry axes (the free stream turns with alpha, the body does not); undefined when |F_z(body)| < "
-     "0.001 q A_ref", "{:.4g} m"),
+    ("cm", "Cm", "Pitching moment coefficient about CofR (pitch axis +y, nose up positive)", "{:.4g}"),
+    ("c_axial", "C_A", "Axial force coefficient along the parts' own x axis (body axes: turned with the angle "
+     "of attack)", "{:.4g}"),
+    ("c_normal", "C_N", "Normal force coefficient along the parts' own z axis (body axes)", "{:.4g}"),
+    ("x_cp", "x_cp", "Centre of pressure along the body x axis: x_CofR - M_y / F_N, in the coordinates of the "
+     "parts as imported; undefined when |F_N| < 0.001 q A_ref", "{:.4g} m"),
 )
 UNDEFINED = "undefined"  # x_cp with a near-zero normal force
 # Windowed rows under the latest values (D-118): (quantity base, row label, tooltip).
 WINDOW_TABLE_ROWS = (
-    ("Cd", "Cd mean", "Drag coefficient: mean over the last iterations \u00b1 half its range there (as a share "
+    ("Cd", "Cd mean", "Drag coefficient (wind axes): mean over the last iterations \u00b1 half its range there (as a share "
      "of |mean|); for a steady run that oscillates, judge the mean"),
     ("Cl", "Cl mean", "Lift coefficient: mean over the last iterations \u00b1 half its range there (as a share "
      "of |mean|)"),

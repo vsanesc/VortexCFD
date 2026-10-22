@@ -40,6 +40,9 @@ from vortexcfd.foam.forces import (
 )
 
 FORCE_COEFFS = "forceCoeffs1"
+# The body-axis forceCoeffs object of all walls (written by foam/physics_case.py, D-120): its header gives the
+# body axes of the breakdown; its Cd and Cl are the axial and normal coefficients.
+BODY_COEFFS = "forceCoeffsBody"
 FORCE_COEFFS_FILE = "coefficient.dat"
 FORCES = "forces1"
 FORCES_FILE = "force.dat"
@@ -162,14 +165,13 @@ class ForcesTail:
         return added
 
 
-def project_coefficients(force: tuple[float, float, float], alpha_deg: float, rho: float, speed: float,
+def project_coefficients(force: tuple[float, float, float], rho: float, speed: float,
                          area: float) -> tuple[float, float]:
-    """(Cd, Cl) of a global force vector: its components along dragDir = (cos a, 0, sin a) and
-    liftDir = (-sin a, 0, cos a) divided by 0.5 rho U^2 A_ref (the app's forceCoeffs axes)."""
-    a = math.radians(alpha_deg)
+    """(Cd, Cl) of a global force vector in the wind axes (D-120): its components along dragDir = +x and
+    liftDir = +z divided by 0.5 rho U^2 A_ref (the app's forceCoeffs axes at every angle of attack)."""
     q = 0.5 * rho * speed**2 * area
     fx, _fy, fz = force
-    return (fx * math.cos(a) + fz * math.sin(a)) / q, (-fx * math.sin(a) + fz * math.cos(a)) / q
+    return fx / q, fz / q
 
 
 @dataclass
@@ -311,8 +313,8 @@ class _Breakdown:
     final row, a truncated file is re-read), computed again only when one of them changes, with the
     axes and rho the rows were read with. ``rows`` keeps the times in order of first appearance."""
 
-    def __init__(self, axes: CoeffAxes, rho: float) -> None:
-        self.axes, self.rho = axes, rho
+    def __init__(self, axes: CoeffAxes, rho: float, body=None) -> None:
+        self.axes, self.rho, self.body = axes, rho, body
         self.force: dict[float, tuple] = {}
         self.moment: dict[float, tuple] = {}
         self.rows: dict[float, ForceRow] = {}
@@ -331,7 +333,8 @@ class _Breakdown:
             self.done_moment = len(moments.rows)
         for t in changed:
             if t in self.force:
-                self.rows[t] = breakdown("", ForceSample(t, self.force[t], self.moment.get(t)), self.axes, self.rho)
+                self.rows[t] = breakdown("", ForceSample(t, self.force[t], self.moment.get(t)), self.axes, self.rho,
+                                         self.body)
         return [(t, self.rows[t]) for t in self.force]
 
 
@@ -356,6 +359,7 @@ class ReportMonitor:
         self._face_counts: dict[str, int] = {}
         self._rho: float | None = None
         self._breakdowns: dict[str | None, _Breakdown] = {}
+        self._body: tuple | None = None  # (x_b, z_b) from BODY_COEFFS' header (D-120)
 
     # -- discovery --------------------------------------------------------------------------
 
@@ -421,6 +425,16 @@ class ReportMonitor:
                 return None
         return self._rho
 
+    def body_axes(self):
+        """(x_b, z_b): the body axes from the body-axis forceCoeffs object's header (physics_case.BODY_COEFFS,
+        D-120); None when the case has none (older cases: the global axes)."""
+        if self._body is None:
+            path = output_file(self.case_dir, BODY_COEFFS, FORCE_COEFFS_FILE)
+            axes = read_coeff_axes(path) if path is not None else None
+            if axes is not None:
+                self._body = (axes.drag_dir, axes.lift_dir)
+        return self._body
+
     def axes(self, key: str | None) -> CoeffAxes | None:
         if key not in self._axes and key in self._coeffs:
             axes = read_coeff_axes(self._coeffs[key].path)
@@ -441,14 +455,15 @@ class ReportMonitor:
         axes, rho = self.axes(key), self.rho()
         if forces is None or axes is None or rho is None:
             return []
+        body = self.body_axes()
         cache = self._breakdowns.get(key)
-        if cache is None or cache.axes != axes or cache.rho != rho:
-            cache = self._breakdowns[key] = _Breakdown(axes, rho)
+        if cache is None or cache.axes != axes or cache.rho != rho or cache.body != body:
+            cache = self._breakdowns[key] = _Breakdown(axes, rho, body)
         return cache.update(forces, self._moment.get(key))
 
     def _breakdown_series(self, base: str, key: str | None) -> list[tuple[float, float]]:
         attr = {"Cd_pressure": "cd_pressure", "Cd_viscous": "cd_viscous", "Cl_pressure": "cl_pressure",
-                "Cl_viscous": "cl_viscous", "x_cp": "x_cp"}[base]
+                "Cl_viscous": "cl_viscous", "x_cp": "x_cp", "C_axial": "c_axial", "C_normal": "c_normal"}[base]
         out = []
         for t, row in self._breakdown(key):
             value = getattr(row, attr)

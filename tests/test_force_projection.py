@@ -36,9 +36,11 @@ def compare(coeff_file: Path, force_file: Path, alpha: float) -> list[tuple[floa
     header = _header(coeff_file)
     area = float(header["Aref"])
     assert float(header["magUInf"]) == pytest.approx(SPEED)
-    a = math.radians(alpha)
-    assert _vector(header["dragDir"]) == pytest.approx((math.cos(a), 0.0, math.sin(a)), abs=1e-6)
-    assert _vector(header["liftDir"]) == pytest.approx((-math.sin(a), 0.0, math.cos(a)), abs=1e-6)
+    a = math.radians(alpha)  # the fixture is from before D-120: the free stream was turned by alpha
+    drag, lift = _vector(header["dragDir"]), _vector(header["liftDir"])
+    assert drag == pytest.approx((math.cos(a), 0.0, math.sin(a)), abs=1e-6)
+    assert lift == pytest.approx((-math.sin(a), 0.0, math.cos(a)), abs=1e-6)
+    q_a = 0.5 * RHO * SPEED ** 2 * area
     coeffs = ForceCoeffsTail(coeff_file)
     coeffs.poll()
     forces = ForcesTail(force_file)
@@ -47,7 +49,8 @@ def compare(coeff_file: Path, force_file: Path, alpha: float) -> list[tuple[floa
     rows = []
     for t, force in forces.total:
         if t in cd:
-            md, ml = project_coefficients(force, alpha, RHO, SPEED, area)
+            md = sum(f * d for f, d in zip(force, drag)) / q_a
+            ml = sum(f * d for f, d in zip(force, lift)) / q_a
             rows.append((t, cd[t], md, cl[t], ml))
     return rows
 
@@ -70,11 +73,10 @@ def test_projection_agrees_on_the_real_fixture() -> None:
 
 
 def test_projection_helper_hand_values() -> None:
-    # a force along the flow at 10 deg is pure drag
-    a = math.radians(10)
-    cd, cl = project_coefficients((math.cos(a) * 245.0, 0.0, math.sin(a) * 245.0), 10.0, 1.225, 20.0, 1.0)
+    """Wind axes at every angle (D-120): drag is the x force, lift the z force."""
+    cd, cl = project_coefficients((245.0, 0.0, 0.0), 1.225, 20.0, 1.0)  # q A = 245 N
     assert cd == pytest.approx(1.0) and cl == pytest.approx(0.0, abs=1e-12)
-    cd, cl = project_coefficients((0.0, 0.0, 245.0), 0.0, 1.225, 20.0, 1.0)  # q A = 245 N
+    cd, cl = project_coefficients((0.0, 0.0, 245.0), 1.225, 20.0, 1.0)
     assert (cd, cl) == pytest.approx((0.0, 1.0))
 
 

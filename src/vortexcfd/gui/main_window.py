@@ -1063,13 +1063,28 @@ class MainWindow(StudyControlMixin, QMainWindow):
         """Bring the viewer's part actors in line with the project (add, remove, edit, undo)."""
         if self.scene is None:
             return
-        changed = self.scene.sync(self._project, self.part_visibility, self._selected_part_index())
+        attitude = meshing.project_attitude(self._project) if self._project.sim.inflow.alpha_deg else None
+        changed = self.scene.sync(self._project, self.part_visibility, self._selected_part_index(), attitude)
+        self._show_attitude_note(attitude)
         self._apply_representation()
         if changed or self._framed_visibility != self.scene.has_visible():
             self._frame_parts()
         self._framed_visibility = self.scene.has_visible()
         self._update_empty_state()
         self.viewer.render()
+
+    ATTITUDE_NOTE = ("Parts shown rotated to the angle of attack: alpha = {alpha:g}\u00b0 nose up about y through "
+                     "CofR ({x:.4g}, {y:.4g}, {z:.4g}) m; the free stream is along +x. The project's geometry is unchanged.")
+
+    def _show_attitude_note(self, attitude) -> None:
+        """A note in the viewer's top-left corner while the parts are drawn rotated (D-120)."""
+        name = "attitude_note"
+        if attitude is None or not attitude.rotated:
+            self.viewer.remove_actor(name, render=False)
+            return
+        x, y, z = attitude.centre
+        self.viewer.add_text(self.ATTITUDE_NOTE.format(alpha=attitude.alpha_deg, x=x, y=y, z=z), position="upper_left",
+                             font_size=9, color=self._theme.muted_text, name=name, render=False)
 
     def _frame_parts(self) -> None:
         bounds = self.scene.visible_bounds()
@@ -1119,8 +1134,12 @@ class MainWindow(StudyControlMixin, QMainWindow):
             return
         preview = self._volume_preview if self._volume_preview is not None and \
             self._volume_preview.id == self._selected_volume_id() else None
-        self.volume_view.update(self._project.sim.refinement_volumes, self._selected_volume_id(),
-                                self._scene_mode == "geometry", preview)
+        volumes = self._project.sim.refinement_volumes
+        if self._project.sim.inflow.alpha_deg:  # drawn where meshing puts them: body volumes turn (D-120)
+            attitude = meshing.project_attitude(self._project)
+            volumes = [refinement.meshing_volume(v, attitude) for v in volumes]
+            preview = refinement.meshing_volume(preview, attitude) if preview is not None else None
+        self.volume_view.update(volumes, self._selected_volume_id(), self._scene_mode == "geometry", preview)
 
     def _log_renderer(self) -> None:
         """Write the OpenGL renderer string (and the GPU variables set at start-up) to the console log."""
@@ -1756,7 +1775,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             fixed_range=(self.range_min.value(), self.range_max.value()) if fixed else None,
             display=self.display_combo.currentText(),
             u_ref=self._project.sim.inflow.speed,
-            flow_direction=flow_direction(self._project.sim.inflow.alpha_deg),
+            flow_direction=flow_direction(),
             highlight_separation=self.separation_toggle.isChecked(),
             font_size=self._point_size,
         )
@@ -2901,6 +2920,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.set_project(project)
         log.info("Opened %s", path)
         self.show_message(f"Opened {path}")
+        for note in project.migration_notes:  # e.g. the angle of attack became a rotation (D-120)
+            log.warning("%s: %s", path, note)
+            self.show_message(note, "warning", log_it=False)
 
     def _fill_recent_menu(self) -> None:
         self.recent_menu.clear()
@@ -2971,6 +2993,9 @@ def start_window(args: list[str], dialogs: Dialogs | None = None) -> MainWindow:
     window = MainWindow(project, dialogs)  # None: the empty start state
     if error:
         window.show_message(error, "error")
+    for note in project.migration_notes if project is not None else ():  # D-120
+        log.warning("%s", note)
+        window.show_message(note, "warning", log_it=False)
     window.show()
     if project is None:
         QTimer.singleShot(0, window.show_start)

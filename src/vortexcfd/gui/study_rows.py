@@ -20,7 +20,8 @@ STUDY_TOOLTIPS = {
     "quantities": "Reports judged with the grid convergence index (Celik et al. 2008)",
     "cores": "MPI ranks of each level's solver run",
     "mode": "range: start, start + step, ... up to end; list: the angles in the order given",
-    "init": "Start each point from the latest solution of the last point that met its stopping criteria",
+    "angles": "Every angle gets its own mesh (the parts rotated to it) and a run from the free stream, one angle "
+              "after another; a stopped sweep resumes at the first unfinished angle",
 }
 
 
@@ -76,23 +77,20 @@ class StudyRowsMixin:
         self.ps_values = QLineEdit()
         self.ps_values.setPlaceholderText("e.g. 0 2 4 6 8")
         self.ps_cores = spin(1, cores)
-        self.ps_init = QCheckBox("from the previous converged point")
         self.ps_mode.setToolTip(STUDY_TOOLTIPS["mode"])
-        self.ps_init.setToolTip(STUDY_TOOLTIPS["init"])
         self.ps_cores.setToolTip("MPI ranks of each point's solver run")
         for key, text, widget in (("mode", "Angles", self.ps_mode), ("start", "Start", self.ps_start),
                                   ("end", "End", self.ps_end), ("step", "Step", self.ps_step),
                                   ("values", "Values", self.ps_values),
-                                  ("cores", f"Cores ({cores} physical)", self.ps_cores),
-                                  ("init", "Initialise", self.ps_init)):
+                                  ("cores", f"Cores ({cores} physical)", self.ps_cores)):
             self._layout.addWidget(self._make_row(f"ps_{key}", text, widget))
         self.ps_mode.currentTextChanged.connect(lambda t: self._commit_study("polar", "mode", t))
         for key, w in (("start", self.ps_start), ("end", self.ps_end), ("step", self.ps_step)):
             w.editingFinished.connect(lambda k=key, w=w: self._commit_study("polar", k, w.value()))
         self.ps_cores.editingFinished.connect(lambda: self._commit_study("polar", "cores", self.ps_cores.value()))
         self.ps_values.editingFinished.connect(self._commit_angles)
-        self.ps_init.toggled.connect(lambda on: self._commit_study("polar", "init_from_previous", on))
         self.ps_alphas = self._ro_row("ps_alphas", "Points")
+        self.ps_alphas.setToolTip(STUDY_TOOLTIPS["angles"])
         self.ps_status = self._ro_row("ps_status", "Status")
         self.ps_run, self.ps_results, self._ps_buttons = self._study_buttons("polar", "Run polar sweep")
 
@@ -181,7 +179,7 @@ class StudyRowsMixin:
         self._fill_status(self.ms_status, self.ms_run, self.ms_results, state, "Run mesh study")
 
     def _refresh_polar(self, show: bool) -> None:
-        keys = ["ps_mode", "ps_start", "ps_end", "ps_step", "ps_values", "ps_cores", "ps_init", "ps_alphas",
+        keys = ["ps_mode", "ps_start", "ps_end", "ps_step", "ps_values", "ps_cores", "ps_alphas",
                 "ps_status"]
         s = self._project.sim.studies.polar
         for k in keys:
@@ -195,7 +193,7 @@ class StudyRowsMixin:
         if not show:
             return
         state = self._study_state["polar"]
-        widgets = (self.ps_mode, self.ps_start, self.ps_end, self.ps_step, self.ps_cores, self.ps_init, self.ps_values)
+        widgets = (self.ps_mode, self.ps_start, self.ps_end, self.ps_step, self.ps_cores, self.ps_values)
         for w in widgets:
             w.blockSignals(True)
         try:
@@ -204,13 +202,13 @@ class StudyRowsMixin:
             self.ps_end.setValue(s.end)
             self.ps_step.setValue(s.step)
             self.ps_cores.setValue(s.cores)
-            self.ps_init.setChecked(s.init_from_previous)
             self.ps_values.setText(" ".join(f"{v:g}" for v in s.values))
         finally:
             for w in widgets:
                 w.blockSignals(False)
         alphas = s.alphas()
-        self.ps_alphas.setText(f"{len(alphas)}: " + ", ".join(f"{a:g}°" for a in alphas) if alphas else "none")
+        self.ps_alphas.setText(f"{len(alphas)}, one mesh each: " + ", ".join(f"{a:g}°" for a in alphas)
+                               if alphas else "none")
         self._fill_status(self.ps_status, self.ps_run, self.ps_results, state, "Run polar sweep")
 
     def _fill_status(self, label: QLabel, run: QPushButton, results: QPushButton, state: dict, run_text: str) -> None:

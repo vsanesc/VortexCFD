@@ -42,11 +42,11 @@ def _ground(**kw) -> Domain:
 
 def test_ground_defaults_off_and_a_v15_project_migrates_unchanged(tmp_path: Path) -> None:
     assert Domain().ground == Ground() and not Ground().enabled
-    assert migrate({"schema_version": 15, "x": 1}) == {"schema_version": 17, "x": 1}
+    assert migrate({"schema_version": 15, "x": 1}) == {"schema_version": 18, "x": 1}
     path = tmp_path / "old.vcfd"
     path.write_text('{"schema_version": 15, "name": "old", "domain": {"upstream": 3.0}}', encoding="utf-8")
     sim = load_simulation(path)
-    assert sim.schema_version == 17 and sim.domain.upstream == 3.0 and not sim.domain.ground.enabled
+    assert sim.schema_version == 18 and sim.domain.upstream == 3.0 and not sim.domain.ground.enabled
 
 
 def test_the_ground_needs_the_box_shape() -> None:
@@ -286,12 +286,12 @@ def _strip_input(start: float | None, layers: bool = False) -> MeshCaseInput:
 
 
 def test_a_v16_project_migrates_without_a_slip_strip(tmp_path: Path) -> None:
-    assert migrate({"schema_version": 16, "x": 1}) == {"schema_version": 17, "x": 1}
+    assert migrate({"schema_version": 16, "x": 1}) == {"schema_version": 18, "x": 1}
     path = tmp_path / "v16.vcfd"
     path.write_text('{"schema_version": 16, "name": "v16", "domain": {"ground": {"enabled": true}}}',
                     encoding="utf-8")
     sim = load_simulation(path)
-    assert sim.schema_version == 17 and sim.domain.ground.enabled and sim.domain.ground.wall_start_x is None
+    assert sim.schema_version == 18 and sim.domain.ground.enabled and sim.domain.ground.wall_start_x is None
     # no slip strip: the mesh hash of schema v16
     assert "wall_start_x" not in meshing._domain_for_hash(_ground())["ground"]
     assert meshing._domain_for_hash(_ground(wall_start_x=-1.0))["ground"]["wall_start_x"] == -1.0
