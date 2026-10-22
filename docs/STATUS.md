@@ -20,8 +20,13 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
   CD -2.5 %), 15 deg **PASS** (CL -2.3 %, CD +3.9 %); docs/validation/naca0012/RESULT.md, Round 3.
 - Machine time: round 2 about 62 min, round 3 about 42 min. No OpenFOAM process left running.
 
-Next: the owner's review of D-126, D-127 and QUESTIONS 199 to 203. Open: docs/QUESTIONS.md items 30, 67, 69, 70, 72,
-73, 75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 199 to 203.
+- Follow-up (owner review of round 3: D-126 accepted): D-127's 3D part checked on real mesh-only studies of the
+  sphere and the half wing (docs/validation/study3d/RESULT.md): valid, same layers and quality as single meshes, but
+  the transition zone is not refined by the level ratio: does not pass, D-127 stays Proposed (QUESTIONS 204); a
+  wall-resolved study places the current settings within the first-layer limit itself (D-128).
+
+Next: the owner's review of D-127, D-128 and QUESTIONS 204. Open: docs/QUESTIONS.md items 30, 67, 69, 70, 72,
+73, 75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 204.
 
 ### Previous branch (task/w2-aoa-2d, published in PR #28)
 

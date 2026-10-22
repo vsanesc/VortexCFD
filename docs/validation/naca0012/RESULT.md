@@ -246,8 +246,9 @@ limit of 220; as the medium level the three levels are 1.848 / 1.307 / 0.924 mm 
 | medium (the preset) | 1.307 mm | 176,110 | 19 | 0.6 % | 1577 | 2363, criteria met | stage 2 only: 89 s | 1.0602 | 0.012155 | 0.006477 | 0.005678 |
 | fine | 0.924 mm | 329,801 | 17 | 0.3 % | 1828 | 2701, criteria met | stage 2 only: 221 s | 1.0656 | 0.011991 | 0.006259 | 0.005732 |
 
-(The study's solver times are those of stage 2 only: the result's duration was the last stage's; fixed after
-the study, the 0 and 15 deg runs below include both stages.)
+Note (owner review of round 3, QUESTIONS 201): the study's solver times above (34 / 89 / 221 s) are those of
+stage 2 only, as are those in its study.json: the result's duration was the last stage's. The fix came after the
+study; the 0 and 15 deg runs below include both stages.
 
 GCI (Celik, h = (A / N)^(1/2), D-121; h = 0.610 / 0.451 / 0.329 m, ratios 1.35 / 1.37):
 
