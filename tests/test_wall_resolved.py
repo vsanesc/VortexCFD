@@ -76,7 +76,7 @@ def test_meshing_raises_the_surface_level_to_the_first_layer(tmp_path: Path) -> 
     assert plain.surface_size > WR_MAX_CELL_TO_FIRST * plan.first
     assert est.surface_size <= WR_MAX_CELL_TO_FIRST * plan.first * (1 + 1e-9) < 2 * est.surface_size
     assert est.level_max == math.ceil(math.log2(est.base_size / (WR_MAX_CELL_TO_FIRST * plan.first)))
-    project.update_mesh(layer_controls="robust")
+    project.update_mesh(layer_controls="robust", target_yplus=5.0)  # below 5 robust gives way (D-123)
     assert meshing.project_estimate(project, box).level_max == plain.level_max  # robust: the settings as they are
 
 
@@ -137,3 +137,55 @@ def test_each_2d_level_uses_its_own_span_for_the_reference_area(tmp_path: Path) 
         writer(case)
         areas.append(float(read_foam_file(case / "system" / "controlDict")["functions"]["forceCoeffs1"]["Aref"]))
     assert areas[0] == pytest.approx(2 * areas[1])
+
+
+def test_a_target_y_plus_below_5_selects_the_wall_resolved_controls(tmp_path: Path) -> None:
+    """D-123 (QUESTIONS 187): the robust controls with absolute sizing and a target y+ below 5 mesh with the
+    wall-resolved controls; the stored choice is kept, so a target of 5 or more gives the robust controls back."""
+    from vortexcfd.core.model import WALL_RESOLVED_AUTO_YPLUS
+    from vortexcfd.workflow import meshing
+
+    assert WALL_RESOLVED_AUTO_YPLUS == 5.0
+    assert Mesh(target_yplus=1.0).effective_layer_controls == "wall_resolved" and Mesh(target_yplus=1.0).wall_resolved_auto
+    assert Mesh(target_yplus=4.99).effective_layer_controls == "wall_resolved"
+    assert Mesh(target_yplus=5.0).effective_layer_controls == "robust"
+    assert Mesh(target_yplus=1.0, layer_sizing="relative").effective_layer_controls == "robust"
+    assert Mesh(target_yplus=1.0, layer_controls="legacy").effective_layer_controls == "legacy"  # pre-v13 projects
+    assert not Mesh(target_yplus=1.0, layer_controls="wall_resolved").wall_resolved_auto  # chosen, not automatic
+
+    project = airfoil_project(tmp_path, target_surface_size=0.02)
+    box = meshing.loaded_parts(project)[0]
+    chosen = (meshing.project_estimate(project, box), meshing.plan_layers_for(project, box),
+              meshing.inputs_hash(project))
+    project.update_mesh(layer_controls="robust")  # y+ 1 (the preset): automatic
+    assert project.sim.mesh.layer_controls == "robust" and project.sim.mesh.wall_resolved_auto
+    settings = meshing.meshing_settings(project, box)
+    assert settings.layer_controls == "wall_resolved" and project.sim.mesh.layer_controls == "robust"
+    assert meshing.project_estimate(project, box).level_max == chosen[0].level_max  # the surface refined (D-122)
+    assert meshing.plan_layers_for(project, box) == chosen[1]
+    assert meshing.inputs_hash(project) != chosen[2]  # recorded as automatic: a robust mesh made before is stale
+    job_inputs = meshing.prepare_job(project).inputs
+    assert job_inputs.mesh.layer_controls == "wall_resolved"
+    shm = snappy_hex_mesh_dict(job_inputs).content
+    assert shm["meshQualityControls"]["relaxed"] == WALL_RESOLVED_RELAXED_QUALITY
+    project.update_mesh(target_yplus=30.0)  # out of the viscous sublayer: robust again
+    assert meshing.meshing_settings(project, box).layer_controls == "robust" and not project.sim.mesh.wall_resolved_auto
+
+
+def test_the_2d_study_uses_the_domain_area_for_the_cell_size(tmp_path: Path) -> None:
+    """QUESTIONS 189: a 2D study's h is (A / N)^(1/2) with A the domain's x-z area (not area x span); round 1's
+    NACA 0012 10 deg study (docs/validation/naca0012/RESULT.md) recomputed from its recorded values."""
+    from vortexcfd.workflow import mesh_study, meshing
+
+    project = airfoil_project(tmp_path)
+    plan = mesh_study.plan_study(project)
+    box = meshing.loaded_parts(project)[0]
+    assert plan.domain_volume == pytest.approx(box.volume / (box.bounds[3] - box.bounds[2]))
+    area, cells = 35806.46779498581, (68331, 119064, 210526)  # round 1's record
+    h = [gci.cell_size(area, n, dimensions=2) for n in cells]
+    assert h == pytest.approx([0.7238888, 0.5483912, 0.4124088], rel=1e-6)
+    assert h[0] / h[1] == pytest.approx(1.32, abs=0.005) and h[1] / h[2] == pytest.approx(1.33, abs=0.005)
+    viscous = gci.study([0.005404367044595616, 0.005465528902118417, 0.005509831046611236], h)
+    assert viscous.convergence == "monotonic" and viscous.order == pytest.approx(1.24, abs=0.02)
+    assert viscous.gci_fine == pytest.approx(0.0237, abs=0.0005) and viscous.extrapolated == pytest.approx(0.005614, abs=1e-6)
+    assert gci.study([1.040667, 1.034575, 1.047405], h).convergence == "oscillatory"  # CL: no GCI

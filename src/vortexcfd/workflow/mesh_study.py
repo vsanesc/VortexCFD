@@ -82,7 +82,8 @@ def level_layers(project: Project, plan: "StudyPlan", lp: "LevelPlan") -> tuple[
     [NUMERICS-REVIEW]"""
     if plan.layers is None:
         return None
-    if project.sim.mesh.layer_controls == "wall_resolved" and project.sim.mesh.layer_sizing == "absolute_yplus":
+    mesh = project.sim.mesh
+    if mesh.effective_layer_controls == "wall_resolved" and mesh.layer_sizing == "absolute_yplus":  # D-123 too
         own = plan_wall_resolved(plan.layers.first, lp.estimate.surface_size)
         return plan.layers.first, own.count, own.expansion
     return plan.layers.first, plan.layers.count, plan.layers.expansion

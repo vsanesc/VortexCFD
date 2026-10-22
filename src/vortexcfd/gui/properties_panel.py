@@ -36,7 +36,8 @@ from vortexcfd.core.model import (
     Part,
     ResidualCriterion,
 )
-from vortexcfd.core.model import DIMENSION_LABELS, DIMENSIONS, MAX_CURVATURE_LEVELS, Probe, SurfaceRegion
+from vortexcfd.core.model import (DIMENSION_LABELS, DIMENSIONS, MAX_CURVATURE_LEVELS, WALL_RESOLVED_AUTO_YPLUS, Probe,
+                                   SurfaceRegion)
 from vortexcfd.core.reports import (PROBE_NAME_RE, criterion_quantities, default_floor, missing_reference,
                                     report_label)
 from vortexcfd.foam.forces import MASS_WARNING
@@ -253,6 +254,30 @@ YPLUS_AT_TIPS = {
                     "as the first-layer height, so OpenFOAM reports about half the target y+ (at the first cell "
                     "centre)."),
 }
+
+
+def layer_mode_text(mesh) -> tuple[str, str]:
+    """(the "Layer mode in use" row, its tooltip and the Layer controls tooltip): the controls meshing uses and why
+    (D-122, D-123)."""
+    limit = f"{WALL_RESOLVED_AUTO_YPLUS:g}"
+    if mesh.wall_resolved_auto:
+        return (f"wall-resolved (automatic: target y+ {mesh.target_yplus:g} < {limit})",
+                f"The target y+ ({mesh.target_yplus:g}) is below {limit}, in the viscous sublayer: the robust "
+                "controls cannot build that stack, so the wall-resolved controls are used (a stack one surface "
+                f"cell thick, a finer surface, relaxed layer-phase checks). Set the target y+ to {limit} or more to "
+                "choose the layer controls.")
+    if mesh.layer_controls == "wall_resolved" and mesh.layer_sizing == "absolute_yplus":
+        locked = mesh.target_yplus < WALL_RESOLVED_AUTO_YPLUS
+        return ("wall-resolved" + (f" (target y+ {mesh.target_yplus:g} < {limit})" if locked else " (chosen)"),
+                "Wall-resolved controls: a stack one surface cell thick, a finer surface, relaxed layer-phase "
+                "checks." + (f" Kept while the target y+ is below {limit}." if locked else ""))
+    if mesh.layer_sizing != "absolute_yplus":
+        return (f"{mesh.layer_controls} (relative sizing)", "Relative layer sizing: the layer controls do not "
+                "change the relative stack.")
+    return mesh.layer_controls, (f"A target y+ below {limit} switches to the wall-resolved controls."
+                                 if mesh.layer_controls == "robust" else "")
+
+
 # Tooltip of the disabled Target y+ field with relative layer sizing (D-086).
 YPLUS_RELATIVE_TIP = ("Relative layer sizing: the layer thickness follows the surface cell size, so y+ is not "
                       "targeted. Choose absolute_yplus to size the layers for this y+.")
@@ -691,6 +716,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
                 self.mesh_base_used = self._ro_row("mset_base_used", "Base size used")
             if key == "surface_level_max":
                 self.mesh_levels_used = self._ro_row("mset_levels_used", "Levels used")
+            if key == "layer_controls":  # what meshing uses, and why (D-123)
+                self.mesh_layer_mode = self._ro_row("mset_layer_mode", "Layer mode in use")
             if key == "cores":
                 widget.setToolTip(MESH_CORES_TIP)
                 self.mesh_cores_used = self._ro_row("mset_cores_used", "Cores used")
@@ -1148,7 +1175,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         keys = [f"mset_{k}" for k, _, _ in MESH_SETTINGS]
         return keys + ["mset_base_used", "mset_levels_used", "mset_bg_cells", "mset_volume_cells", "mset_surface_length",
                        "mset_surface_cells", "mset_curvature", "mset_first_layer", "mset_layer_count",
-                       "mset_layer_stack", "mset_cores_used"]
+                       "mset_layer_stack", "mset_cores_used", "mset_layer_mode"]
 
     def _refresh_mesh_settings(self, show: bool) -> None:
         for key in self._mesh_setting_rows():
@@ -1182,9 +1209,19 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
                     widget.setValue(widget.minimum())  # the "auto" special value
                 else:
                     _widget_set(widget, value)
+            controls = self.mesh_fields["layer_controls"]
+            if mesh.wall_resolved_auto or (mesh.layer_controls == "wall_resolved" and yplus_used
+                                           and mesh.target_yplus < WALL_RESOLVED_AUTO_YPLUS):
+                _widget_set(controls, "wall_resolved")  # locked while the target needs it (D-123)
+            controls.setEnabled(not (yplus_used and mesh.layer_controls != "legacy"
+                                     and mesh.target_yplus < WALL_RESOLVED_AUTO_YPLUS))
+            controls.setToolTip(layer_mode_text(mesh)[1])
         finally:
             for w in widgets:
                 w.blockSignals(False)
+        mode, why = layer_mode_text(mesh)
+        self.mesh_layer_mode.setText(mode)
+        self.mesh_layer_mode.setToolTip(why)
         box = domain_box_for(self._project)
         absolute = mesh.layer_sizing == "absolute_yplus"
         plan = plan_layers_for(self._project, box) if box.bounds is not None and absolute else None

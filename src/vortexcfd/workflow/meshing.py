@@ -293,8 +293,11 @@ def yplus_first_layer(project: Project, length: float) -> float:
 def meshing_settings(project: Project, box: DomainBox, length: float | None = None):
     """The Mesh settings meshing uses: the project's, except that the wall-resolved layer controls (D-122) raise
     the surface levels until the surface cell is at most WR_MAX_CELL_TO_FIRST first layers (an explicit maximum
-    level that is already fine enough is kept; a coarser one is raised). [NUMERICS-REVIEW]"""
+    level that is already fine enough is kept; a coarser one is raised). A target y+ below 5 with the robust controls
+    selects the wall-resolved ones (D-123): the copy returned carries "wall_resolved". [NUMERICS-REVIEW]"""
     mesh = project.sim.mesh
+    if mesh.wall_resolved_auto:
+        mesh = mesh.model_copy(update={"layer_controls": "wall_resolved"})
     if mesh.layer_controls != "wall_resolved" or mesh.layer_sizing != "absolute_yplus" or box.bounds is None:
         return mesh
     length = surface_length(project, box).value if length is None else length
@@ -351,7 +354,7 @@ def plan_layers_for(project: Project, box: DomainBox) -> LayerPlan:
     length = surface_length(project, box)
     first = yplus_first_layer(project, length.value)  # at the first cell centre by default (D-107)
     est = estimate_for(box, meshing_settings(project, box, length.value), length.value)
-    if mesh.layer_controls == "wall_resolved":  # one surface cell thick at ratio 1.2 (D-122)
+    if mesh.effective_layer_controls == "wall_resolved":  # one surface cell thick at ratio 1.2 (D-122, D-123)
         return plan_wall_resolved(first, est.surface_size)
     return plan_layers(first, mesh.expansion_ratio, est.surface_size, **layer_cap(mesh.layer_controls))
 
@@ -673,7 +676,9 @@ def inputs_hash(project: Project) -> str:
         ),
     }
     mesh_settings = project.sim.mesh
-    if mesh_settings.layer_controls == "robust" and mesh_settings.layer_sizing == "absolute_yplus":
+    if mesh_settings.wall_resolved_auto:  # the robust controls gave way to the wall-resolved ones (D-123)
+        payload["wall_resolved_auto"] = True
+    elif mesh_settings.layer_controls == "robust" and mesh_settings.layer_sizing == "absolute_yplus":
         # the robust controls changed in 5.4b (D-106): a mesh made with the earlier ones is out of date
         payload["robust_controls"] = ROBUST_CONTROLS_REVISION
     if project.sim.dimension == "2d":  # D-121; 3D projects keep their hash
