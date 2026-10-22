@@ -65,7 +65,6 @@ class SceneRowsMixin:
         self.sc_report.clicked.connect(lambda: self.scene_action.emit("report"))
         for b in (self.sc_save_view, self.sc_image, self.sc_report):
             box.addWidget(b)
-        self.sc_report.setVisible(False)  # built in Part G (HTML report)
         self._layout.addWidget(self._make_row("sc_actions", "", actions))
         # one object
         self._section("sc_object", "Scene object")

@@ -1162,6 +1162,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
                 self.show_message(f"Saved view '{name}'", "success")
         elif action == "image":
             self.export_image()
+        elif action == "report":
+            self.create_report()
         elif action.startswith("go_view:") and self.viewer is not None:
             name = action.split(":", 1)[1]
             view = next((v for v in self._project.sim.results.views if v.name == name), None)
@@ -1189,6 +1191,40 @@ class MainWindow(StudyControlMixin, QMainWindow):
             return None
         self.show_message(f"Exported {spec.size[0]} x {spec.size[1]} image to {spec.path}", "success")
         return image
+
+    REPORT_IMAGE_SIZE = (1600, 900)
+
+    def create_report(self):
+        """File > Create Report (D-134): the HTML report in <project>/reports/, the saved views rendered offscreen
+        in the Results Scene when the case has results; returns its path or None."""
+        from vortexcfd.workflow.report import ReportImage, write_report
+
+        images = []
+        views = self._project.sim.results.views
+        if self.viewer is not None and views:
+            from vortexcfd.gui.image_export import png_bytes
+
+            previous_mode = self._scene_mode
+            camera = self.viewer.camera.copy()
+            switch = previous_mode != "results" and self.results_view is not None and self.results_view.has_results
+            if switch:
+                self._set_scene_mode("results")
+            try:
+                for view in views:
+                    apply_view(self.viewer, view)
+                    images.append(ReportImage(f"View: {view.name}", png_bytes(self.viewer, self.REPORT_IMAGE_SIZE)))
+            finally:
+                if switch:
+                    self._set_scene_mode(previous_mode)
+                self.viewer.camera = camera  # after the mode: entering a scene frames the camera
+                self.viewer.render()
+        try:
+            path = write_report(self._project, images)
+        except (OSError, ValueError) as exc:
+            self.show_message(f"Could not write the report: {exc}", "error")
+            return None
+        self.show_message(f"Report written to {path}", "success")
+        return path
 
     def _run_edit_value(self, edit):
         try:
@@ -2280,6 +2316,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.act_new = action("&New Simulation...", self.new_project, S.New)
         self.act_open = action("&Open...", lambda: self.open_project(), S.Open)
         self.act_export_image = action("Export &Image...", lambda: self.export_image())
+        self.act_create_report = action("Create &Report", lambda: self.create_report())
         self.act_save_preset = action("Save as &Preset...", self.save_as_preset)
         self.act_manage_presets = action("&Manage Presets...", self.manage_presets)
         self.act_about = action("&About VortexCFD", lambda: self.dialogs.show_about())
@@ -2328,7 +2365,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         file_menu.addSeparator()
         file_menu.addActions([self.act_save, self.act_save_as])
         file_menu.addSeparator()
-        file_menu.addAction(self.act_export_image)
+        file_menu.addActions([self.act_export_image, self.act_create_report])
         file_menu.addSeparator()
         file_menu.addActions([self.act_save_preset, self.act_manage_presets])
         file_menu.addSeparator()
@@ -2381,6 +2418,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         for act in (self.act_save, self.act_save_as, self.act_save_preset):
             act.setEnabled(loaded)
         self.act_export_image.setEnabled(loaded and self.viewer is not None)  # D-133
+        self.act_create_report.setEnabled(loaded and self._project.path is not None)  # D-134
         # A pending field edit is committed by Undo first, so it counts as undoable.
         self.act_undo.setEnabled(p.can_undo or self.properties.has_pending)
         self.act_undo.setText(f"Undo {p.undo_label}" if p.undo_label else "Undo")

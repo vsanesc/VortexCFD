@@ -144,7 +144,7 @@ def test_the_results_node_adds_draws_and_edits_objects(results_window, qtbot: Qt
     view = w.results_view
     w._select_node("results", None)
     panel = w.properties
-    assert panel.sc_save_view.isEnabled() and not panel.sc_image.isVisibleTo(panel)  # not built yet: hidden (P4)
+    assert panel.sc_save_view.isEnabled() and panel.sc_image.isEnabled() and panel.sc_report.isEnabled()
     for kind in ("clip", "isosurface", "streamlines"):
         panel.sc_add_buttons[kind].click()
         w._select_node("results", None)
