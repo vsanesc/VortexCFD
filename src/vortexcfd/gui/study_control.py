@@ -116,10 +116,11 @@ class StudyControlMixin:
 
     def _update_mesh_study_state(self) -> None:
         running = self.study_worker.is_running()
-        levels, layers = None, "—"
+        levels, layers, current_as, current_note = None, "—", None, None
         reason = None if running else (self._busy_for_study("mesh") or mesh_study.study_readiness(self._project))
         try:
             plan = mesh_study.plan_study(self._project)
+            current_as, current_note = plan.current_as, plan.current_as_note  # D-128
             basis = "" if plan.measured else ", assumed"
             levels = [f"{lp.estimated_cells:,} cells ({lp.estimate.total_cells:,} background{basis}), "
                       f"up to {format_seconds(lp.estimated_seconds)}" for lp in plan.levels]
@@ -142,6 +143,7 @@ class StudyControlMixin:
             done = sum(1 for lv in record.levels if lv.state is not None)
             status = f"Running: {done} of 3 levels done"
         self.properties.set_study_state("mesh", running=running, reason=reason, levels=levels, layers=layers,
+                                        current_as=current_as, current_note=current_note,
                                         status=status, warn=warn,
                                         has_results=record is not None and any(lv.values for lv in record.levels))
 

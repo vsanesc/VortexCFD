@@ -49,7 +49,9 @@ STUDY_JSON = "study.json"
 DEFAULT_RATIO = math.sqrt(2.0)
 MIN_RATIO = 1.3
 LEVEL_NAMES = ("coarse", "medium", "fine")
-CURRENT_AS = ("fine", "medium")  # which level the current settings are
+CURRENT_AS = ("fine", "medium")  # which level the current settings are (the user's choice)
+# ... and "coarse", which the study may choose itself so that no level breaks the wall-resolved limit (D-128)
+LEVEL_POSITIONS = ("fine", "medium", "coarse")
 # What a level's recorded value of a quantity is (D-119)
 BASIS_LAST = "last"
 BASIS_MEAN_STABLE = "mean stable"
@@ -65,7 +67,9 @@ def level_factors(ratio: float, current_as: str) -> tuple[float, float, float]:
         return ratio**2, ratio, 1.0
     if current_as == "medium":
         return ratio, 1.0, 1.0 / ratio
-    raise ValueError(f"current_as must be one of {CURRENT_AS}")
+    if current_as == "coarse":
+        return 1.0, 1.0 / ratio, 1.0 / ratio**2
+    raise ValueError(f"current_as must be one of {LEVEL_POSITIONS}")
 
 
 @dataclass(frozen=True)
@@ -186,6 +190,8 @@ class StudyRecord:
     inputs_hash: str = ""
     mesh_cores: int = 1  # snappyHexMesh ranks of every level (D-111; records before it: 1)
     dimensions: int = 3  # 2 for a 2D section (D-121): domain_volume is then the area and h = (A / N)^(1/2)
+    # Why the study chose ``current_as`` itself (D-128: the wall-resolved first-layer limit), None: the user's choice
+    current_as_note: str | None = None
 
 
 def write_record(study_dir: Path, record: StudyRecord) -> None:

@@ -316,3 +316,56 @@ def test_a_3d_study_level_gets_the_current_buffer_distances() -> None:
         reach += 3 * 0.5 * base / 2 ** k  # 3 cells of the current settings' size of each level
         expected.append([pytest.approx(reach), k])
     assert shells["levels"] == expected
+
+
+
+def test_the_study_places_the_current_settings_within_the_wall_resolved_limit(tmp_path: Path) -> None:
+    """D-128 (QUESTIONS 199): with the wall-resolved controls the study keeps the user's "current as" when its
+    coarse level stays within WR_MAX_CELL_TO_FIRST first layers, else it takes the next position that does, and its
+    plan and record say so; other modes keep the user's choice."""
+    from vortexcfd.foam.mesh_study import level_factors, read_record, write_record
+    from vortexcfd.workflow import mesh_study
+
+    assert level_factors(2.0, "coarse") == (1.0, 0.5, 0.25)
+    project = airfoil_project(tmp_path)  # the "2D airfoil" preset: 1.307 mm cells, 147 first layers
+    assert project.sim.studies.mesh.current_as == "fine"
+    plan = mesh_study.plan_study(project)
+    over = 2.0 * plan.levels[1].estimate.surface_size  # the coarse level as if the preset's mesh were the fine one
+    assert plan.current_as == "medium" and f"({1e3 * over:.3g} mm)" in plan.current_as_note
+    assert "220 first layers" in plan.current_as_note
+    sizes = [lp.estimate.surface_size for lp in plan.levels]
+    assert max(sizes) <= WR_MAX_CELL_TO_FIRST * FIRST * 1.000001 and sizes[1] == pytest.approx(1.31e-3, rel=0.01)
+    study_dir, record, _ = mesh_study.prepare_study(project)
+    assert record.current_as == "medium" and record.current_as_note == plan.current_as_note
+    write_record(study_dir, record)
+    assert read_record(study_dir).current_as_note == plan.current_as_note  # kept in study.json
+    project.update_study("mesh", current_as="medium")  # the user's own choice fits: no note
+    plan = mesh_study.plan_study(project)
+    assert plan.current_as == "medium" and plan.current_as_note is None
+    project.update_study("mesh", ratio=2.0)  # 2.6 mm even as the medium level: the current settings are the coarse
+    plan = mesh_study.plan_study(project)
+    assert plan.current_as == "coarse" and "as the medium level" in plan.current_as_note
+    assert [lp.level.factor for lp in plan.levels] == [1.0, 0.5, 0.25]
+    project.update_study("mesh", ratio=2.0 ** 0.5, current_as="fine")
+    project.update_mesh(target_yplus=50.0, layer_controls="robust")  # wall functions: the user's choice stands
+    plan = mesh_study.plan_study(project)
+    assert plan.current_as == "fine" and plan.current_as_note is None
+
+
+def test_the_study_node_shows_the_automatic_choice(qtbot, tmp_path: Path) -> None:
+    from tests.fakes import FakeDialogs
+    from vortexcfd.gui.main_window import MainWindow
+
+    project = airfoil_project(tmp_path)
+    w = MainWindow(project, FakeDialogs(), with_viewer=False)
+    qtbot.addWidget(w)
+    w.show()
+    try:
+        w.tree.setCurrentItem(w._items[("mesh_study", None)])
+        p = w.properties
+        assert p.ms_current.currentText() == "fine"  # the user's setting, unchanged
+        assert p.ms_current_used.text() == "medium (automatic)"
+        assert "wall-resolved limit" in p.ms_current_used.toolTip()
+    finally:
+        w.project.save = lambda *a, **k: None
+        w.close()

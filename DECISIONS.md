@@ -140,8 +140,9 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 | D-123 | 2026-10-22 | A target y+ below 5 selects the wall-resolved layer controls | Accepted |
 | D-124 | 2026-10-22 | Wall-resolved 2D sections: a staircase buffer of 12 cells per level | Accepted |
 | D-125 | 2026-10-22 | Wall-resolved 2D sections: the layer phase's medial-axis walk limited to 10 edges | Accepted |
-| D-126 | 2026-10-22 | Two-stage turbulence scheme for the wall-resolved mode | Proposed |
+| D-126 | 2026-10-22 | Two-stage turbulence scheme for the wall-resolved mode | Accepted |
 | D-127 | 2026-10-22 | Mesh study levels keep the current settings' refinement regions in metres (2D staircases, 3D distance shells) | Proposed |
+| D-128 | 2026-10-22 | A wall-resolved mesh study places the current settings within the first-layer limit | Proposed |
 
 ---
 
@@ -1280,7 +1281,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Alternatives considered: a stricter relaxed non-orthogonality (D-122's study: 75 is needed for the stack); changing the hard / soft checkMesh classes (excluded by the owner); moving the staircase corner (D-124 alone did not remove the faces).
 
 ## D-126 Two-stage turbulence scheme for the wall-resolved mode
-- Status: Proposed (task w2-naca-r2, round 3, Part A; QUESTIONS 193; owner review of round 2: the round 2 PASS came from the validation driver and W2 closes only when the app reproduces it). [NUMERICS-REVIEW]
+- Status: Accepted (owner review of round 3, 2026-10-22). Was Proposed (task w2-naca-r2, round 3, Part A; QUESTIONS 193; owner review of round 2: the round 2 PASS came from the validation driver and W2 closes only when the app reproduces it). [NUMERICS-REVIEW]
 - Context: the NACA 0012 round 2 passed only with a driver restart that switched k and omega from first-order upwind (D-022) to a bounded second-order scheme after a converged first-order run (+1.4 to +2.2 % CL at 10 deg; at 15 deg CL steady to 0.8 % instead of 14.5 %). Round 1's second-order run from the free stream diverged (iteration 201).
 - Decision: in the wall-resolved mode (chosen or automatic, D-123; `workflow/solving.two_stage_turbulence`) one solver run has two stages:
   - stage 1: the app's fvSchemes (bounded Gauss upwind for k and omega), from the free stream;
@@ -1303,5 +1304,12 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   The current level's dictionaries, and every single mesh, are unchanged (the public benchmark's meshing and solver dictionaries byte-identical, 48 files).
 - Check: tests/test_wall_resolved.py (the planned cell one chord ahead, one chord above and two chords down the wake shrinks by the study ratio, 1.414, from coarse to medium to fine; the staircase boxes identical on the three levels; the 3D shells), tests/test_mesh_study.py (a 3D sphere study: the coarse and medium shells identical); measured on the NACA 0012 study meshes in docs/validation/naca0012/RESULT.md, Round 3.
 - Alternatives considered: integer nCellsBetweenLevels per level (3 / 2 / 2 for a "fine" current level: not a constant ratio); scaling the current level's buffer up (the study's current level would no longer be the user's mesh).
+- Check of the 3D part (owner review of round 3, item 1; docs/validation/study3d/RESULT.md): real mesh-only studies of the sphere and the half wing: every level valid, coverage, layers and quality within noise of the single meshes at the same settings (the 1-cell transitions do not hurt), but inside the transition zone the cell size at fixed points does not shrink with the level ratio (the wing one length ahead: 318 / 450 / 318 mm; the sphere half a length ahead: 137 / 96 / 135 mm): the shells do not reproduce the current level's own snappyHexMesh transitions (the sphere's non-current levels have twice the single mesh's cells). The 3D part does not pass; the entry stays Proposed; fix proposed in QUESTIONS 204 (not applied).
 - Consequences: a study's coarse level is coarser than before in the near field (its transition zone is the current settings' in metres with its own larger cells), so the levels are geometrically similar everywhere and the GCI covers the near field. A 3D study's non-current levels mesh differently from before (shells, 1-cell buffers); existing study records stay as they were.
+
+## D-128 A wall-resolved mesh study places the current settings within the first-layer limit
+- Status: Proposed (task w2-naca-r2, round 3 follow-up, item 2; QUESTIONS 199). [NUMERICS-REVIEW]
+- Context: the "2D airfoil" preset's surface cell (1.307 mm on the NACA 0012) is 147 first layers; as a study's fine level (the default "current as fine") the coarse level is 2.61 mm, 293 first layers, beyond D-122's tested limit of 220 (WR_MAX_CELL_TO_FIRST), where the stacks collapse erratically. Round 3 set "current as" medium by hand.
+- Decision: with the wall-resolved controls (chosen or automatic, D-123) the study chooses the level the current settings are (`workflow/mesh_study.study_current_as`): the user's choice when its coarsest level's surface cell is within the limit, else the next position that is (fine -> medium -> coarse; the new internal position "coarse", factors 1, 1/r, 1/r^2, is always within it, since meshing keeps the current settings within the limit, D-122). The plan and the record carry the position used and why (`StudyPlan.current_as` / `current_as_note`, `StudyRecord.current_as` / `current_as_note`, e.g. "current settings as the medium level: as the fine level the coarse level's surface cell (2.61 mm) would exceed the wall-resolved limit (1.96 mm, 220 first layers, D-122)"); the Mesh Study node shows "Current settings used as: medium (automatic)" with the reason as its tooltip, and the "Current settings are" field keeps the user's setting. Other modes keep the user's choice; the user's options are still fine and medium.
+- Consequences: the preset needs no "current as"; a wall-resolved study's levels never exceed 220 first layers. Old study records read with no note.
 

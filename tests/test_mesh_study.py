@@ -35,8 +35,9 @@ def test_level_factors() -> None:
     assert level_factors(r, "medium") == pytest.approx((r, 1.0, 1 / r))
     with pytest.raises(ValueError):
         level_factors(1.2, "fine")
+    assert level_factors(r, "coarse") == pytest.approx((1.0, 1 / r, 0.5))  # the study's own choice (D-128)
     with pytest.raises(ValueError):
-        level_factors(1.5, "coarse")
+        level_factors(1.5, "finest")
 
 
 def test_levels_scale_cells_by_r_cubed_and_keep_the_surface_levels() -> None:

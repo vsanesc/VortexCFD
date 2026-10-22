@@ -25,6 +25,7 @@ from vortexcfd.foam.mesh_case import (
 from vortexcfd.foam.mesh_estimate import MAX_BACKGROUND_CELLS, MeshEstimate
 from vortexcfd.foam.mesh_record import read_mesh_record
 from vortexcfd.foam.mesh_study import (
+    LEVEL_POSITIONS,
     STUDY_DIR_NAME,
     LayerStack,
     LevelResult,
@@ -32,11 +33,13 @@ from vortexcfd.foam.mesh_study import (
     StudyRecord,
     estimate_seconds,
     level_dir,
+    level_factors,
     reference_layers,
     study_levels,
 )
 from vortexcfd.foam.run_record import read_run_record
-from vortexcfd.foam.yplus import first_layer_thickness, plan_wall_resolved
+from vortexcfd.foam.yplus import (WR_MAX_CELL_TO_FIRST, first_layer_thickness, plan_wall_resolved,
+                                  wall_resolved_surface_size)
 from vortexcfd.geometry.domain import ground_wall_start, union_bounds
 from vortexcfd.workflow.meshing import (
     MeshingNotReady,
@@ -118,6 +121,8 @@ class StudyPlan:
     measured: bool  # cells_per_background and the time come from the current case
     warning: str | None  # a level above the background cell limit, etc.
     current_base: float | None = None  # the current settings' background cell (D-127: the regions' metres)
+    current_as: str = "fine"  # the level the current settings are: the user's choice, or the study's (D-128)
+    current_as_note: str | None = None  # why the study chose it, None: the user's choice
 
 
 def _seconds_per_cell_iteration(project: Project) -> tuple[float | None, int]:
@@ -164,7 +169,8 @@ def plan_study(project: Project) -> StudyPlan:
         ratio, measured = record.report.cells / current.total_cells, True
     per_cell_it, last_cores = _seconds_per_cell_iteration(project)
     plans, warning = [], None
-    for level in study_levels(mesh, settings.ratio, settings.current_as, dimensions(box)):
+    current_as, note = study_current_as(mesh, current.surface_size, yplus_first, settings.ratio, settings.current_as)
+    for level in study_levels(mesh, settings.ratio, current_as, dimensions(box)):
         est = estimate_for(box, level.mesh, length)
         cells = round(est.total_cells * ratio)
         seconds = estimate_seconds(per_cell_it, cells, project.sim.solvers.iterations, last_cores, settings.cores)
@@ -172,7 +178,30 @@ def plan_study(project: Project) -> StudyPlan:
         if est.too_many_cells:
             warning = (f"The {level.name} level would have {est.total_cells:,} background cells (limit "
                        f"{MAX_BACKGROUND_CELLS:,}): lower the ratio or the background cell target.")
-    return StudyPlan(plans, layers, volume, ratio, measured, warning, current.base_size)
+    return StudyPlan(plans, layers, volume, ratio, measured, warning, current.base_size, current_as, note)
+
+
+def study_current_as(mesh, surface_size: float, yplus_first: float | None, ratio: float,
+                     chosen: str) -> tuple[str, str | None]:
+    """(the level the current settings are, why the study chose it or None) (D-128) [NUMERICS-REVIEW]: with the
+    wall-resolved controls (chosen or automatic) the coarsest level's surface cell must stay within the
+    first-layer limit (WR_MAX_CELL_TO_FIRST first layers, D-122), so the user's choice is kept when its coarse level
+    does, else the next position that does (fine -> medium -> coarse; as the coarse level the current settings,
+    which meshing keeps within the limit, are the coarsest)."""
+    if mesh.effective_layer_controls != "wall_resolved" or yplus_first is None:
+        return chosen, None
+    limit = wall_resolved_surface_size(yplus_first)
+    order = LEVEL_POSITIONS[LEVEL_POSITIONS.index(chosen):]
+    for position in order:
+        coarsest = surface_size * max(level_factors(ratio, position))
+        if coarsest <= limit * (1 + 1e-9):
+            break
+    if position == chosen:
+        return chosen, None
+    over = surface_size * max(level_factors(ratio, chosen))
+    return position, (f"current settings as the {position} level: as the {chosen} level the coarse level's surface "
+                      f"cell ({1e3 * over:.3g} mm) would exceed the wall-resolved limit ({1e3 * limit:.3g} mm, "
+                      f"{WR_MAX_CELL_TO_FIRST:g} first layers, D-122)")
 
 
 def study_readiness(project: Project, *, busy: str | None = None) -> str | None:
@@ -253,8 +282,9 @@ def prepare_study(project: Project, only: Collection[str] | None = None) -> tupl
         levels.append(LevelResult(lp.level.index, lp.level.name, lp.level.factor, estimated_cells=lp.estimated_cells,
                                   planned_layers=planned))
     # every level meshes on the project's meshing cores (Mesh.cores, else automatic), one level at a time (D-111)
-    record = StudyRecord(settings.ratio, settings.current_as, list(settings.quantities), settings.cores,
-                         plan.domain_volume, levels, mesh_cores=mesh_cores(project, box).used, dimensions=dimensions(box))
+    record = StudyRecord(settings.ratio, plan.current_as, list(settings.quantities), settings.cores,
+                         plan.domain_volume, levels, mesh_cores=mesh_cores(project, box).used, dimensions=dimensions(box),
+                         current_as_note=plan.current_as_note)
     return study, record, inputs
 
 

@@ -67,6 +67,7 @@ class StudyRowsMixin:
         self._section("ms_estimate", "Levels (estimate)")
         self.ms_levels = [self._ro_row(f"ms_level_{i}", name) for i, name in enumerate(("Coarse", "Medium", "Fine"))]
         self.ms_layers = self._ro_row("ms_layers", "Prism layers (all levels)")
+        self.ms_current_used = self._ro_row("ms_current_used", "Current settings used as")  # D-128
         self.ms_status = self._ro_row("ms_status", "Status")
         self.ms_run, self.ms_results, self._ms_buttons = self._study_buttons("mesh", "Run mesh study")
         # Polar Sweep
@@ -147,7 +148,7 @@ class StudyRowsMixin:
 
     def _refresh_mesh_study(self, show: bool, patches: list[str], probes: list[str]) -> None:
         keys = ["ms_ratio", "ms_current_as", "ms_quantities", "ms_cores", "ms_level_0", "ms_level_1", "ms_level_2",
-                "ms_layers", "ms_status"]
+                "ms_layers", "ms_current_used", "ms_status"]
         for k in keys:
             self._rows[k].setVisible(show)
         self._sections["ms_estimate"].setVisible(show)
@@ -176,6 +177,9 @@ class StudyRowsMixin:
         for label, text in zip(self.ms_levels, levels):
             label.setText(text)
         self.ms_layers.setText(state.get("layers", "—"))
+        used, note = state.get("current_as"), state.get("current_note")
+        self.ms_current_used.setText("—" if used is None else (f"{used} (automatic)" if note else used))
+        self.ms_current_used.setToolTip(f"The study chose this itself: {note}." if note else "")
         self._fill_status(self.ms_status, self.ms_run, self.ms_results, state, "Run mesh study")
 
     def _refresh_polar(self, show: bool) -> None:
