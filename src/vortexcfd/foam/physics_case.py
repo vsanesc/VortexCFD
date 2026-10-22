@@ -29,7 +29,7 @@ from vortexcfd.core.model import Inflow, Physics, Reports, Solvers
 from vortexcfd.foam.case_writer import FoamFileSpec
 from vortexcfd.foam.convergence import FUNCTION_NAME as RUN_TIME_CONTROL
 from vortexcfd.foam.convergence import force_coeffs_name, probe_function_name, run_time_control
-from vortexcfd.foam.mesh_case import GROUND_PATCH
+from vortexcfd.foam.mesh_case import FRONT_AND_BACK, GROUND_PATCH
 from vortexcfd.foam.parallel import DECOMPOSE_DICT, decompose_par_dict
 from vortexcfd.foam.postprocessing import BODY_COEFFS
 
@@ -60,13 +60,16 @@ class SolverCaseInput:
     # The ground plane's motion ("stationary" or "moving"; None: no ground, D-116). Its patch is
     # GROUND_PATCH and replaces "bottom" in ``far_field`` (far_field_patches).
     ground: str | None = None
+    # The 2D mode (D-121): the span of the one-cell mesh (metres); the empty patch "frontAndBack" gets every
+    # field and the reference area is chord x span. None: 3D.
+    span: float | None = None
 
 
-def far_field_patches(shape: str, ground: bool, slip_strip: bool = False) -> tuple[str, ...]:
+def far_field_patches(shape: str, ground: bool, slip_strip: bool = False, two_d: bool = False) -> tuple[str, ...]:
     """The far-field (slip) patches of a domain shape; the ground plane replaces the box's bottom (D-116),
     and its slip strip ahead of the wall start, "ground_slip", takes the far field's slip conditions
-    (D-118). [NUMERICS-REVIEW]"""
-    names = FAR_FIELD_BY_SHAPE[shape]
+    (D-118). In 2D the spanwise "sides" are not in the mesh (the empty "frontAndBack" is, D-121). [NUMERICS-REVIEW]"""
+    names = tuple(n for n in FAR_FIELD_BY_SHAPE[shape] if not (two_d and n == "sides"))
     if not (ground and shape == "box"):
         return names
     return tuple(n for n in names if n != "bottom") + (("ground_slip",) if slip_strip else ())
@@ -140,11 +143,21 @@ def auto_reference(parts_bounds: Bounds) -> ReferenceValues:
                            ((b[0] + b[1]) / 2, (b[2] + b[3]) / 2, (b[4] + b[5]) / 2))
 
 
-def reference_values(parts_bounds: Bounds, reports: Reports) -> ReferenceValues:
-    """The user's choices where set, the bounding-box values otherwise."""
+SECTION_AREA_LABEL = "auto: 2D section, chord (x extent) * span"
+
+
+def reference_values(parts_bounds: Bounds, reports: Reports, span: float | None = None) -> ReferenceValues:
+    """The user's choices where set, the bounding-box values otherwise. ``span``: a 2D section's mesh span
+    (D-121): the automatic area is then the chord (x extent) times the span, whatever the basis, so the
+    coefficients are those of the section per unit span."""
     auto = auto_reference(parts_bounds)
     basis = reports.reference_area_basis
-    area = reports.reference_area if basis == "custom" else bounding_box_area(parts_bounds, basis)
+    if basis == "custom":
+        area = reports.reference_area
+    elif span is not None:
+        area = (parts_bounds[1] - parts_bounds[0]) * span
+    else:
+        area = bounding_box_area(parts_bounds, basis)
     return ReferenceValues(
         l_ref=reports.reference_length if reports.reference_length is not None else auto.l_ref,
         a_ref=area,
@@ -164,7 +177,7 @@ def _force_coeffs(inp: SolverCaseInput, patches: tuple[str, ...] | None = None, 
     the `pitchAxis` entry is not read and is kept only as documentation. Output:
     postProcessing/forceCoeffs1/<start time>/coefficient.dat (foam/postprocessing.py). The CofR is the
     rotation centre of the parts, so the moment is about the same point at every angle."""
-    ref = reference_values(inp.parts_bounds, inp.reports)
+    ref = reference_values(inp.parts_bounds, inp.reports, inp.span)
     drag, lift = body_axes(inp.inflow.alpha_deg) if body else (DRAG_DIR, LIFT_DIR)
     return {
         "type": "forceCoeffs",
@@ -189,8 +202,8 @@ def _forces(inp: SolverCaseInput, patches: tuple[str, ...] | None = None) -> dic
     """Total, pressure and viscous force and moment on the part walls in the GLOBAL axes (CofR with
     no direction entries: e1 = x, e3 = z), next to forceCoeffs so its projection can be checked
     (D-050). Output: postProcessing/forces1/<start time>/force.dat and moment.dat (N and N m with
-    rho = rhoInf)."""
-    ref = reference_values(inp.parts_bounds, inp.reports)
+    rho = rhoInf; in 2D the force on the span, D-121)."""
+    ref = reference_values(inp.parts_bounds, inp.reports, inp.span)
     return {
         "type": "forces",
         "libs": ["forces"],
@@ -388,6 +401,8 @@ def _field(inp: SolverCaseInput, cls: str, dimensions: list[int], internal, inle
         boundary[name] = dict(far)
     if inp.symmetric:
         boundary["symmetry"] = {"type": "symmetryPlane"}
+    if inp.span is not None:  # 2D (D-121)
+        boundary[FRONT_AND_BACK] = {"type": "empty"}
     if inp.ground is not None:
         boundary[GROUND_PATCH] = dict(ground if ground is not None else wall)
     for name in inp.patches:

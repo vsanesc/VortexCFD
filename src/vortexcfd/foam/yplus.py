@@ -171,3 +171,44 @@ def plan_layers(first: float, expansion: float, surface_size: float, max_layers:
         planned_count=planned_count, planned_expansion=expansion, planned_total=planned_total,
         capped=capped, thickness_warning=thickness_warning,
     )
+
+
+# The wall-resolved layer controls (Mesh.layer_controls "wall_resolved", schema v18, D-122), from the NACA 0012
+# slab study (DECISIONS D-122) [NUMERICS-REVIEW]: the stack grows at WR_EXPANSION until it is one surface cell
+# thick (its last layer then about (r - 1) / r = 0.17 of the core cell next to it), at most WR_LAYER_CAP
+# layers; the surface is refined until its cell is at most WR_MAX_CELL_TO_FIRST first layers (h / t1 <= 220:
+# the measured stacks held at 219 and collapsed at 438).
+WR_EXPANSION = 1.2
+WR_LAYER_CAP = 40
+WR_MAX_CELL_TO_FIRST = 220.0
+WR_STACK_CELLS = 1.0  # the stack's thickness in surface cells
+
+
+def wall_resolved_surface_size(first: float) -> float:
+    """The largest surface cell the wall-resolved mode allows next to a ``first`` layer (D-122)."""
+    return WR_MAX_CELL_TO_FIRST * first
+
+
+def plan_wall_resolved(first: float, surface_size: float) -> LayerPlan:
+    """The wall-resolved stack (D-122) [NUMERICS-REVIEW]: the smallest count whose stack at WR_EXPANSION reaches
+    WR_STACK_CELLS surface cells, n = ceil(ln(1 + h (r - 1) / t1) / ln r), at most WR_LAYER_CAP (then the stack
+    is thinner: ``thickness_warning``); ``warning`` when the surface cell is more than WR_MAX_CELL_TO_FIRST first
+    layers (the layers collapse there: refine the surface)."""
+    r = WR_EXPANSION
+    target = WR_STACK_CELLS * surface_size
+    raw = max(1, math.ceil(math.log(1.0 + target * (r - 1.0) / first) / math.log(r) - 1e-9))
+    count = min(raw, WR_LAYER_CAP)
+    total = stack_thickness(first, r, count)
+    planned = stack_thickness(first, r, raw)
+    thickness_warning = None
+    if raw > WR_LAYER_CAP:
+        thickness_warning = (f"The wall-resolved stack is thinner than one surface cell: {count} layers (the cap) at "
+                             f"ratio {r:g} reach {total:.3g} m of {target:.3g} m; refine the surface.")
+    warning = None
+    if surface_size > WR_MAX_CELL_TO_FIRST * first * (1 + 1e-9):
+        warning = (f"The surface cell ({surface_size:.3g} m) is more than {WR_MAX_CELL_TO_FIRST:g} first layers "
+                   f"({first:.3g} m): wall-resolved layers collapse on it; refine the surface.")
+    return LayerPlan(count=count, first=first, expansion=r, total=total, final=first * r ** (count - 1),
+                     surface_size=surface_size, needed=0.5 * surface_size / first, warning=warning,
+                     planned_count=raw, planned_expansion=r, planned_total=planned, capped=raw > WR_LAYER_CAP,
+                     thickness_warning=thickness_warning)

@@ -21,7 +21,7 @@ from vortexcfd.core.presets import (
 from vortexcfd.core.project_io import load_simulation
 
 # Every field a preset may carry; anything about physics, turbulence, inflow or solvers is forbidden.
-PRESET_KEYS = {"format_version", "schema_version", "name", "analysis_type", "domain", "boundary_types", "mesh"}
+PRESET_KEYS = {"format_version", "schema_version", "name", "analysis_type", "dimension", "domain", "boundary_types", "mesh"}
 FORBIDDEN = ("physics", "inflow", "solvers", "turbulence", "nu", "speed", "alpha", "iterations", "cores",
              "stopping", "relaxation", "reports")
 
@@ -38,11 +38,14 @@ def _custom_sim() -> Simulation:
 
 
 def test_builtins_are_external_flow_and_empty() -> None:
-    assert [p.name for p in BUILTIN_PRESETS] == ["External flow", "Empty"]
-    assert [p.analysis_type for p in BUILTIN_PRESETS] == ["external", "empty"]
-    for preset in BUILTIN_PRESETS:
-        assert preset.domain == PresetDomain() and preset.mesh == Mesh()
+    assert [p.name for p in BUILTIN_PRESETS] == ["External flow", "Empty", "2D airfoil"]
+    assert [p.analysis_type for p in BUILTIN_PRESETS] == ["external", "empty", "external"]
+    for preset in BUILTIN_PRESETS[:2]:
+        assert preset.domain == PresetDomain() and preset.mesh == Mesh() and preset.dimension == "3d"
         assert preset.boundary_types == DEFAULT_BOUNDARY_TYPES
+    airfoil = BUILTIN_PRESETS[2]  # D-121, D-122
+    assert airfoil.dimension == "2d" and airfoil.domain.shape == "c_type"
+    assert airfoil.mesh.layer_controls == "wall_resolved" and airfoil.mesh.target_yplus == 1.0
 
 
 def test_a_preset_never_carries_physics(tmp_path: Path) -> None:

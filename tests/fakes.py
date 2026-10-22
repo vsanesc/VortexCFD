@@ -26,6 +26,7 @@ class FakeDialogs:
         self.confirm_calls = 0
         self.start_choice = None  # ask_start's answer
         self.start_asked = 0
+        self.airfoil = None  # ask_airfoil's answer: (path, scale, closure) or None
         self.new_simulation = None  # ask_new_simulation's answer (a NewSimulationSpec or None)
         self.new_asked = 0
         self.preset_name = None
@@ -57,6 +58,9 @@ class FakeDialogs:
 
     def ask_csv_path(self, suggested):
         return self.csv_path
+
+    def ask_airfoil(self):
+        return self.airfoil
 
     def ask_import_path(self):
         return self.import_path

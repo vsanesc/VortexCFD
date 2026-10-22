@@ -70,6 +70,7 @@ class Preset(StrictModel):
     schema_version: int = Field(default=CURRENT_SCHEMA_VERSION, ge=1, le=CURRENT_SCHEMA_VERSION)
     name: str
     analysis_type: Literal["external", "empty"] = "external"
+    dimension: Literal["3d", "2d"] = "3d"  # schema v18 (D-121)
     domain: PresetDomain = Field(default_factory=PresetDomain)
     boundary_types: dict[str, str] = Field(default_factory=lambda: dict(DEFAULT_BOUNDARY_TYPES))
     mesh: Mesh = Field(default_factory=Mesh)
@@ -149,6 +150,12 @@ def validate_preset_name(name: str) -> str:
 BUILTIN_PRESETS: tuple[Preset, ...] = (
     Preset(name="External flow", analysis_type="external"),
     Preset(name="Empty", analysis_type="empty"),
+    # A 2D airfoil (D-121, D-122): a C-type domain 100 chords across (radius and wake 50 chords), the section
+    # meshed wall-resolved for y+ 1 at the first cell centre. [NUMERICS-REVIEW]
+    Preset(name="2D airfoil", analysis_type="external", dimension="2d",
+           domain=PresetDomain(shape="c_type", radius=50.0, downstream=50.0, lateral=1.0),
+           mesh=Mesh(background_cells_target=20_000, target_surface_size=0.002, curvature_levels=0,
+                     target_yplus=1.0, layer_controls="wall_resolved")),
 )
 
 
@@ -157,11 +164,12 @@ def is_builtin_name(name: str) -> bool:
 
 
 def apply_preset(sim: Simulation, preset: Preset) -> Simulation:
-    """``sim`` set up from ``preset``: analysis type, provenance, domain and mesh. Physics, inflow,
+    """``sim`` set up from ``preset``: analysis type, dimension, provenance, domain and mesh. Physics, inflow,
     solvers, reports and geometry are kept. The domain is generated automatically (enabled) only
     for the external analysis; the "empty" analysis waits for "Generate domain"."""
     data = sim.model_dump()
     data["analysis_type"] = preset.analysis_type
+    data["dimension"] = preset.dimension
     data["preset_name"] = preset.name
     data["domain"] = {**data["domain"], **preset.domain.model_dump(),
                       "enabled": preset.analysis_type == "external", "parts": None}
@@ -172,7 +180,7 @@ def apply_preset(sim: Simulation, preset: Preset) -> Simulation:
 def preset_from_simulation(sim: Simulation, name: str) -> Preset:
     """A user preset from an open project: its analysis type, domain set-up and mesh settings."""
     domain = {key: getattr(sim.domain, key) for key in DOMAIN_FIELDS}
-    return Preset(name=name, analysis_type=sim.analysis_type, domain=PresetDomain(**domain),
+    return Preset(name=name, analysis_type=sim.analysis_type, dimension=sim.dimension, domain=PresetDomain(**domain),
                   mesh=sim.mesh.model_copy(deep=True, update={"cores": None}))
 
 

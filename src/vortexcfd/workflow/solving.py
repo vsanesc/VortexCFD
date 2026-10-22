@@ -21,7 +21,7 @@ from vortexcfd.foam.mesh_report import lost_part_message
 from vortexcfd.geometry.domain import ground_wall_start
 from vortexcfd.foam.parallel import physical_cores
 from vortexcfd.foam.physics_case import SolverCaseInput, far_field_patches, build_solver_files, reference_values
-from vortexcfd.workflow.meshing import MeshingNotReady, case_dir_for, inputs_hash, parts_layout
+from vortexcfd.workflow.meshing import MeshingNotReady, case_dir_for, inputs_hash, parts_layout, project_estimate
 
 
 class SolvingNotReady(Exception):
@@ -56,7 +56,7 @@ def physics_problem(project: Project) -> str | None:
             why = missing_reference(c.quantity, _names, probes)
             if why is not None:
                 return f"Stopping criterion {i} watches {report_label(c.quantity)}: {why}."
-    ref = reference_values(bounds, project.sim.reports)
+    ref = reference_values(bounds, project.sim.reports, section_span(project) if project.sim.dimension == "2d" else None)
     if ref.l_ref <= 0:
         return "The reference length is zero (the parts have no extent along x): set l_ref."
     if ref.a_ref <= 0:
@@ -93,15 +93,26 @@ def readiness(project: Project, *, has_mesh: bool, mesh_stale: bool, meshing: bo
     return physics_problem(project)
 
 
+def section_span(project: Project, box=None) -> float | None:
+    """The span of a 2D section's mesh (D-121; the surface cell size of the meshing estimate), None in 3D."""
+    if project.sim.dimension != "2d":
+        return None
+    box = box if box is not None else parts_layout(project)[0]
+    return project_estimate(project, box).span
+
+
 def solver_input(project: Project) -> SolverCaseInput:
     box, names, bounds = parts_layout(project)
     sim = project.sim
     ground = sim.domain.ground.enabled and sim.domain.shape == "box"
     strip = ground_wall_start(sim.domain, box.bounds) is not None  # the slip strip (D-118)
+    two_d = sim.dimension == "2d"
     return SolverCaseInput(sim.physics, sim.inflow, sim.solvers, names, bounds,
                            sim.domain.symmetry == "y_min", sim.reports,
-                           part_force_groups(sim.geometry.parts), far_field_patches(sim.domain.shape, ground, strip),
-                           ground=sim.domain.ground.motion if ground else None)
+                           part_force_groups(sim.geometry.parts),
+                           far_field_patches(sim.domain.shape, ground, strip, two_d),
+                           ground=sim.domain.ground.motion if ground else None,
+                           span=section_span(project, box) if two_d else None)
 
 
 def clear_results(case_dir: Path) -> list[str]:

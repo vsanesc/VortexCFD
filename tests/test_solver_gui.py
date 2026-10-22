@@ -313,10 +313,7 @@ def test_a_mesh_with_hard_checkmesh_failures_blocks_run_solver(make_window) -> N
     text = w.properties.mesh_values["failed"].text()
     assert text.startswith("5\nhard: Zero or negative cell volume") and "warning: Max skewness" in text
     assert text.endswith("Run Solver is blocked: the mesh has hard checkMesh failures")
-    from vortexcfd.workflow import polar_sweep
-
-    assert polar_sweep.sweep_readiness(w.project, has_mesh=True, mesh_stale=False,
-                                       failed_checks=report.failed_checks_message()).startswith("The mesh failed checkMesh")
+    # the polar sweep meshes every angle itself (D-120): a failed point mesh is recorded there, not blocked here
     assert solving.readiness(w.project, has_mesh=True, mesh_stale=False, meshing=False,
                              failed_checks=REPORT.failed_checks_message()) is None  # a passing mesh: no block
 

@@ -61,6 +61,20 @@ class CadSource(StrictModel):
     bodies: list[int] | None = None  # the file's bodies in this part (None: all of them)
 
 
+class AirfoilSource(StrictModel):
+    """The airfoil coordinate file a 2D section Part was built from (schema v18, D-121): ``file`` relative to
+    the project folder (a copy in <project>/geometry/), its ``format`` ("selig" or "lednicer"), the ``scale``
+    applied to its coordinates (the chord of a file in chord units) and the trailing-edge closure ("blunt": an
+    open trailing edge closed by a straight base; "sharp": the surfaces moved to meet). The Part's
+    ``source_file`` is the section extruded into a slab (geometry/section.py)."""
+
+    file: str
+    format: Literal["selig", "lednicer"] = "selig"
+    scale: float = Field(default=1.0, gt=0)
+    te_closure: Literal["blunt", "sharp"] = "blunt"
+    name: str | None = None  # the airfoil's name in the file
+
+
 class Part(StrictModel):
     """A geometric part defined by a source mesh file.
 
@@ -83,6 +97,7 @@ class Part(StrictModel):
     regions: list[SurfaceRegion] = Field(default_factory=list)
     region_ids: str | None = None
     cad: CadSource | None = None
+    section: AirfoilSource | None = None  # a 2D section from an airfoil file (D-121)
 
     @model_validator(mode="after")
     def _levels_ordered(self) -> "Part":
@@ -198,8 +213,11 @@ class Mesh(StrictModel):
     # The prism-layer controls of absolute (y+) sizing (schema v13, D-106): "robust", the default, caps
     # the layer count (the expansion ratio raised up to 1.3 to keep the planned stack thickness) and
     # writes the 5.4 layer controls; "legacy" keeps the controls and the uncapped count of every
-    # project saved before v13. Relative sizing is the same in both.
-    layer_controls: Literal["legacy", "robust"] = "robust"
+    # project saved before v13. Relative sizing is the same in both. "wall_resolved" (schema v18, D-122) is for
+    # targets in the viscous sublayer (y+ about 1): the stack is grown until it is one surface cell thick (at
+    # expansion 1.2, up to 40 layers), the surface is refined until its cell is at most 220 first layers, and
+    # the layer phase relaxes the determinant and non-orthogonality checks.
+    layer_controls: Literal["legacy", "robust", "wall_resolved"] = "robust"
     # Where target_yplus is placed (schema v14, D-107): "cell_centre", the default, sizes the first layer
     # so that the target falls at the first cell centre, where OpenFOAM evaluates y+ (first layer = twice
     # the target wall distance); "cell_height" (every project saved before v14) uses the target distance
@@ -677,6 +695,10 @@ class RefinementVolume(StrictModel):
 # operation). "internal" is reserved for internal flow and not selectable yet.
 ANALYSIS_TYPES = ("external", "empty")
 RESERVED_ANALYSIS_TYPES = ("internal",)
+# The analysis dimension (schema v18, D-121): "3d", or "2d", a section in the x-z plane meshed as one cell
+# across the span (y) with empty front and back patches.
+DIMENSIONS = ("3d", "2d")
+DIMENSION_LABELS = {"3d": "3D", "2d": "2D section (x-z plane)"}
 
 
 class Simulation(StrictModel):
@@ -691,6 +713,7 @@ class Simulation(StrictModel):
     )
     name: str
     analysis_type: Literal["external", "empty"] = "external"
+    dimension: Literal["3d", "2d"] = "3d"
     preset_name: str | None = None
     geometry: Geometry = Field(default_factory=Geometry)
     domain: Domain = Field(default_factory=Domain)
@@ -702,6 +725,15 @@ class Simulation(StrictModel):
     studies: Studies = Field(default_factory=Studies)
     surface_prep: SurfacePrep | None = None
     refinement_volumes: list[RefinementVolume] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _two_d_domain(self) -> "Simulation":
+        if self.dimension == "2d":
+            if self.domain.shape == "bullet":
+                raise ValueError("a 2D section needs the box or C-type domain shape")
+            if self.domain.symmetry != "none":
+                raise ValueError("a 2D section has no symmetry plane")
+        return self
 
     @field_validator("refinement_volumes")
     @classmethod

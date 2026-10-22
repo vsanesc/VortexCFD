@@ -254,6 +254,19 @@ class Project:
         name = self._clean_name(name, "Simulation")
         self._edit(f"Rename simulation to '{name}'", lambda data: data.update(name=name))
 
+    def set_dimension(self, dimension: str) -> None:
+        """The analysis dimension (D-121): "3d" or "2d" (a section in x-z); one undoable step. A 2D section takes a
+        box or C-type domain without symmetry: a bullet becomes a C-type and the symmetry is turned off."""
+        def mutate(data: dict[str, Any]) -> None:
+            data["dimension"] = dimension
+            if dimension == "2d":
+                domain = data["domain"]
+                domain["symmetry"] = "none"
+                if domain["shape"] == "bullet":
+                    domain["shape"] = "c_type"
+
+        self._edit("2D section" if dimension == "2d" else "3D analysis", mutate)
+
     def add_part(self, part: Part) -> None:
         part_data = part.model_dump()
         part_data["name"] = self._clean_name(part_data["name"], "Part")

@@ -4,8 +4,10 @@ Lives in workflow/: it joins core (project), geometry (surfaces, domain) and
 foam (case files), and foam/ must not depend on geometry/ (which imports pyvista).
 """
 
+import dataclasses
 import hashlib
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,7 +17,14 @@ from vortexcfd.core.project import Project
 from vortexcfd.core.project_io import V10_MESH_FIELDS, V13_MESH_FIELDS, V14_MESH_FIELDS
 from vortexcfd.foam.mesh_estimate import estimate_mesh
 from vortexcfd.foam.parallel import MESH_CELLS_PER_CORE, physical_cores, recommended_mesh_cores
-from vortexcfd.foam.yplus import LayerPlan, first_layer_thickness, layer_cap, plan_layers
+from vortexcfd.foam.yplus import (
+    LayerPlan,
+    first_layer_thickness,
+    layer_cap,
+    plan_layers,
+    plan_wall_resolved,
+    wall_resolved_surface_size,
+)
 from vortexcfd.foam.mesh_case import (
     DOMAIN_SURFACE,
     ROBUST_CONTROLS_REVISION,
@@ -34,7 +43,7 @@ from vortexcfd.foam.mesh_case import (
 )
 from vortexcfd.foam.mesh_estimate import BACKGROUND_MARGIN_CELLS, MeshEstimate
 from vortexcfd.foam.physics_case import LENGTH_AUTO_LABEL, reference_values
-from vortexcfd.geometry import regions
+from vortexcfd.geometry import regions, section
 from vortexcfd.geometry.attitude import Attitude
 from vortexcfd.geometry.domain import DomainBox, compute_domain, ground_wall_start, union_bounds
 from vortexcfd.geometry.domain_surface import ROLE_ARRAY, meshing_surface
@@ -146,7 +155,10 @@ def _loaded_parts(project: Project, prepared: bool = True, rotated: bool = True)
             z = union_bounds(_selected_bounds(body, names, domain))[4]
             domain = domain.model_copy(update={"ground": domain.ground.model_copy(update={"position": "value", "z": z})})
         meshes = [att.surface(m) for m in meshes]
-    return compute_domain(_bounds_of(meshes), domain, names), names, meshes
+    box = compute_domain(_bounds_of(meshes), domain, names)
+    if project.sim.dimension == "2d":
+        box = dataclasses.replace(box, two_d=True)
+    return box, names, meshes
 
 
 def loaded_parts(project: Project):
@@ -178,7 +190,16 @@ def parts_layout(project: Project) -> tuple[DomainBox, tuple[str, ...], tuple[fl
 
 def write_part_surfaces(case_dir: Path, project: Project, inputs: MeshCaseInput, meshes) -> None:
     """The part STLs of a meshing case (metres): a part with several patches (or one renamed patch)
-    gets one solid per patch, named after it (D-071); other parts are written as loaded."""
+    gets one solid per patch, named after it (D-071); other parts are written as loaded. In 2D (D-121) a part
+    is its section (cut at its mid y) extruded across the slab and one slab span beyond it on each side, so
+    snappyHexMesh cuts it at the slab's faces."""
+    if inputs.two_d:
+        est = inputs.estimate()
+        y0, y1 = est.background_bounds[2], est.background_bounds[3]
+        for name, mesh in zip(inputs.parts, meshes):
+            slab_surface = section.slab(section.section_loops(mesh), y0 - (y1 - y0), y1 + (y1 - y0))
+            slab_surface.save(str(case_dir / TRI_SURFACE / f"{name}.stl"))
+        return
     for i, (name, mesh) in enumerate(zip(inputs.parts, meshes)):
         path = case_dir / TRI_SURFACE / f"{name}.stl"
         if not inputs.has_regions(i):
@@ -201,11 +222,11 @@ def part_patch_labels(project: Project, index: int, mesh) -> np.ndarray:
 
 
 def estimate_for(box: DomainBox, mesh, surface_length: float | None = None) -> MeshEstimate:
-    """The mesh estimate of ``box`` (its actual volume; the background box of a rounded shape) with
-    the surface size from ``surface_length`` (None: the domain's L; see ``surface_length``)."""
+    """The mesh estimate of ``box`` (its actual volume; the background box of a rounded shape; a 2D slab,
+    D-121) with the surface size from ``surface_length`` (None: the domain's L; see ``surface_length``)."""
     length = box.reference_length if surface_length is None else surface_length
     return estimate_mesh(box.bounds, length, mesh, volume=box.volume, rounded=box.rounded,
-                         symmetric=box.symmetric)
+                         symmetric=box.symmetric, two_d=box.two_d)
 
 
 @dataclass(frozen=True)
@@ -256,8 +277,34 @@ def surface_length_warning(length: SurfaceLength) -> str | None:
 
 def project_estimate(project: Project, box: DomainBox, mesh=None, parts_bounds=None) -> MeshEstimate:
     """The mesh estimate of ``project`` in ``box`` with its surface length (``mesh``: other settings,
-    e.g. a mesh study level)."""
-    return estimate_for(box, mesh or project.sim.mesh, surface_length(project, box, parts_bounds).value)
+    e.g. a mesh study level; None: ``meshing_settings``)."""
+    length = surface_length(project, box, parts_bounds).value
+    return estimate_for(box, mesh or meshing_settings(project, box, length), length)
+
+
+def yplus_first_layer(project: Project, length: float) -> float:
+    """The first layer of absolute (y+) sizing: the estimator with Re on the surface size length (D-088), the
+    target at the first cell centre by default (D-107). [NUMERICS-REVIEW]"""
+    mesh = project.sim.mesh
+    return first_layer_thickness(mesh.target_yplus, project.sim.inflow.speed, project.sim.physics.nu, length,
+                                 mesh.yplus_at)
+
+
+def meshing_settings(project: Project, box: DomainBox, length: float | None = None):
+    """The Mesh settings meshing uses: the project's, except that the wall-resolved layer controls (D-122) raise
+    the surface levels until the surface cell is at most WR_MAX_CELL_TO_FIRST first layers (an explicit maximum
+    level that is already fine enough is kept; a coarser one is raised). [NUMERICS-REVIEW]"""
+    mesh = project.sim.mesh
+    if mesh.layer_controls != "wall_resolved" or mesh.layer_sizing != "absolute_yplus" or box.bounds is None:
+        return mesh
+    length = surface_length(project, box).value if length is None else length
+    est = estimate_for(box, mesh, length)
+    limit = wall_resolved_surface_size(yplus_first_layer(project, length))
+    if est.surface_size <= limit * (1 + 1e-9):
+        return mesh
+    level = max(0, math.ceil(math.log2(est.base_size / limit) - 1e-9))
+    low = mesh.surface_level_min if mesh.surface_level_min is not None else level - 1
+    return mesh.model_copy(update={"surface_level_max": level, "surface_level_min": max(0, min(low, level))})
 
 
 def domain_fields(box: DomainBox) -> dict:
@@ -291,7 +338,7 @@ def fluid_location(project: Project) -> tuple[float, float, float] | None:
         return None
     if box.bounds is None:
         return None
-    est = estimate_for(box, project.sim.mesh)
+    est = project_estimate(project, box)
     parts = union_bounds([tuple(float(b) for b in m.bounds) for m in meshes])
     return location_in_mesh(est.background_bounds, parts, est.cells, box.inlet_x if box.rounded else None)
 
@@ -302,9 +349,10 @@ def plan_layers_for(project: Project, box: DomainBox) -> LayerPlan:
     at the maximum refinement level (see foam/yplus.plan_layers). [NUMERICS-REVIEW]"""
     mesh = project.sim.mesh
     length = surface_length(project, box)
-    first = first_layer_thickness(mesh.target_yplus, project.sim.inflow.speed, project.sim.physics.nu,
-                                  length.value, mesh.yplus_at)  # at the first cell centre by default (D-107)
-    est = estimate_for(box, mesh, length.value)
+    first = yplus_first_layer(project, length.value)  # at the first cell centre by default (D-107)
+    est = estimate_for(box, meshing_settings(project, box, length.value), length.value)
+    if mesh.layer_controls == "wall_resolved":  # one surface cell thick at ratio 1.2 (D-122)
+        return plan_wall_resolved(first, est.surface_size)
     return plan_layers(first, mesh.expansion_ratio, est.surface_size, **layer_cap(mesh.layer_controls))
 
 
@@ -346,7 +394,7 @@ def readiness(project: Project) -> str | None:
         return str(exc)
     if box.ground and box.parts_bounds is not None and box.bounds[4] >= box.parts_bounds[5]:
         return "The ground plane is above every part: lower it (Fluid Domain > Ground plane)."
-    problem = attitude_problem(project, box, names, meshes)
+    problem = attitude_problem(project, box, names, meshes) or section_problem(project, names, meshes)
     if problem is not None:
         return problem
     start = ground_wall_start(project.sim.domain, box.bounds)
@@ -377,6 +425,21 @@ def attitude_problem(project: Project, box: DomainBox, names, meshes) -> str | N
         if not inside_domain(box, points).all():
             return (f"Part '{name}' leaves the domain when rotated to the angle of attack ({alpha:g} deg): enlarge "
                     "the domain or size it around every part.")
+    return None
+
+
+def section_problem(project: Project, names, meshes) -> str | None:
+    """Why the parts cannot be meshed as a 2D section (D-121), or None (3D: never): a part split into several
+    patches, or one whose cut at its mid y gives no closed section curve."""
+    if project.sim.dimension != "2d":
+        return None
+    for part, name, mesh in zip(project.sim.geometry.parts, names, meshes):
+        if len(part.patch_names()) > 1:
+            return f"Part '{name}' has several patches: a 2D section takes one patch per part."
+        try:
+            section.section_loops(mesh)
+        except ValueError as exc:
+            return f"Part '{name}' has no 2D section: {exc}."
     return None
 
 
@@ -439,7 +502,7 @@ def mesh_inputs(project: Project) -> tuple[MeshCaseInput, DomainBox, list]:
         parts=tuple(safe),
         parts_bounds=union_bounds(bounds),
         reference_length=box.reference_length,
-        mesh=project.sim.mesh,
+        mesh=meshing_settings(project, box, length.value),
         first_layer_thickness=first_layer,
         layer_count=layer_count,
         layer_expansion=expansion,
@@ -452,6 +515,7 @@ def mesh_inputs(project: Project) -> tuple[MeshCaseInput, DomainBox, list]:
         ground=box.ground,
         ground_layers=box.ground and project.sim.domain.ground.layers,
         ground_wall_start=ground_wall_start(project.sim.domain, box.bounds),
+        two_d=box.two_d,
         **domain_fields(box),
     )
     return inputs, box, meshes
@@ -491,7 +555,7 @@ def junction_level(project: Project, box: DomainBox, length: float) -> int:
     plus the curvature refinement levels (D-085). The parts' maximum surface level alone is often below
     what curvature refinement already gives the cells at a junction, and then the curves refine
     nothing (the 5.2 aircraft: level 5 against cells at level 7). [NUMERICS-REVIEW]"""
-    est = estimate_for(box, project.sim.mesh, length)
+    est = estimate_for(box, meshing_settings(project, box, length), length)
     top = max(part_level_range(est.level_min, est.level_max, o)[1] for o in _part_overrides(project))
     return top + project.sim.mesh.curvature_levels
 
@@ -612,6 +676,8 @@ def inputs_hash(project: Project) -> str:
     if mesh_settings.layer_controls == "robust" and mesh_settings.layer_sizing == "absolute_yplus":
         # the robust controls changed in 5.4b (D-106): a mesh made with the earlier ones is out of date
         payload["robust_controls"] = ROBUST_CONTROLS_REVISION
+    if project.sim.dimension == "2d":  # D-121; 3D projects keep their hash
+        payload["dimension"] = "2d"
     alpha = project.sim.inflow.alpha_deg
     if alpha != 0.0:  # the parts are rotated (D-120); at 0 the hash of the projects saved before v18
         payload["alpha_deg"] = alpha

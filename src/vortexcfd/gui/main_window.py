@@ -2124,6 +2124,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.act_manage_presets = action("&Manage Presets...", self.manage_presets)
         self.act_about = action("&About VortexCFD", lambda: self.dialogs.show_about())
         self.act_import = action("&Import Geometry...", self.import_surface, "Ctrl+I")
+        self.act_import_airfoil = action("Import &Airfoil...", self.import_airfoil)
         self.act_save = action("&Save", self.save, S.Save)
         self.act_save_as = action("Save &As (Duplicate Project)...", self.save_as, S.SaveAs)
         self.act_quit = action("&Quit", self.close, S.Quit)
@@ -2163,6 +2164,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.recent_menu = file_menu.addMenu("Open &Recent")
         self.recent_menu.aboutToShow.connect(self._fill_recent_menu)
         file_menu.addAction(self.act_import)
+        file_menu.addAction(self.act_import_airfoil)
         file_menu.addSeparator()
         file_menu.addActions([self.act_save, self.act_save_as])
         file_menu.addSeparator()
@@ -2224,6 +2226,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.act_remove_part.setEnabled(self._selected_part_index() is not None)
         self.act_repair_part.setEnabled(self._selected_part_file() is not None and not self.geometry_busy)
         self.act_import.setEnabled(loaded and not self.geometry_busy)
+        self.act_import_airfoil.setEnabled(loaded and not self.geometry_busy)
         self.act_prepare_surfaces.setEnabled(loaded and not self.geometry_busy
                                              and bool(self._project.sim.geometry.parts))
         self.act_add_wake.setEnabled(loaded and bool(self._project.sim.geometry.parts)
@@ -2765,6 +2768,39 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._request_checks(parts)
         self.show_message(f"Imported {source.name} as {names}", "success", log_it=False)
 
+    def import_airfoil(self) -> None:
+        """File > Import Airfoil: a Selig or Lednicer coordinate file as a 2D section part (D-121): the file is
+        copied into <project folder>/geometry/, its section (scaled, trailing edge closed as asked) becomes a slab
+        STL, the part's surface; one undoable step."""
+        if self._import_folder() is None:
+            return
+        answer = self.dialogs.ask_airfoil()
+        if answer is None:
+            return
+        source, scale, closure = answer
+        taken = {p.name for p in self._project.sim.geometry.parts}
+        try:
+            part = part_ops.airfoil_part(self._project.folder, Path(source), Path(source).stem, taken, scale, closure)
+        except (OSError, ValueError) as exc:  # AirfoilFormatError is a ValueError
+            self.show_message(f"Could not import {Path(source).name}: {exc}", "error")
+            return
+        previous = self._selection
+        self._selection = ("part", len(taken))
+        try:
+            self._project.add_part(part)
+        except (ValueError, TypeError) as exc:
+            self._selection = previous
+            self.show_message(f"Could not import {Path(source).name}: {exc}", "error")
+            return
+        sec = part.section
+        log.info("Imported airfoil %s (%s, %s format, scale %g, trailing edge %s) as part '%s'", Path(source).name,
+                 sec.name, sec.format, sec.scale, sec.te_closure, part.name)
+        if self._project.sim.dimension != "2d":
+            log.warning("Part '%s' is a 2D section: set the analysis to 2D (Simulation properties) to mesh its section",
+                        part.name)
+        self._request_checks([part])
+        self.show_message(f"Imported {Path(source).name} as '{part.name}'", "success", log_it=False)
+
     def _import_folder(self) -> Path | None:
         """The project folder imports go to; None (with a message) without one."""
         folder = self._project.folder if self.has_project else None
@@ -2892,6 +2928,13 @@ class MainWindow(StudyControlMixin, QMainWindow):
             return
         sim = apply_preset(Simulation(name=spec.name), spec.preset)
         sim = sim.model_copy(update={"solvers": sim.solvers.model_copy(update={"cores": spec.cores})})
+        dimension = getattr(spec, "dimension", sim.dimension)
+        if dimension != sim.dimension:  # the dialog's analysis option (D-121)
+            domain = sim.domain
+            if dimension == "2d":  # a 2D section takes a box or C-type domain without symmetry
+                domain = domain.model_copy(update={"symmetry": "none",
+                                                   "shape": "c_type" if domain.shape == "bullet" else domain.shape})
+            sim = Simulation.model_validate({**sim.model_dump(), "dimension": dimension, "domain": domain.model_dump()})
         try:
             project = Project.create(spec.parent, spec.name, sim)
         except (ProjectFolderError, ValueError, OSError) as exc:
