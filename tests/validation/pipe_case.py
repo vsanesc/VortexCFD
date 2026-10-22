@@ -61,7 +61,7 @@ def stopping() -> StoppingCriteria:
     after at least 500 iterations; the iteration limit is ITERATIONS. [NUMERICS-REVIEW: the validation's choice]"""
     return StoppingCriteria(criteria=[
         AsymptoticCriterion(quantity=f"dp:{MAIN_DROP}:static", window=200, tolerance=1e-3, floor=1.0),
-        AsymptoticCriterion(quantity="flow:mdot:patch:outlet_1", window=200, tolerance=1e-4, floor=0.01),
+        AsymptoticCriterion(quantity="flow:mdot:patch:outlet", window=200, tolerance=1e-4, floor=0.01),
     ], combine="all", min_iterations=500)
 
 
@@ -81,7 +81,7 @@ def build_project(folder: Path, inlet: dict | None = None) -> Project:
     planes = [{"name": f"x{n}D", "point": (n * D, 0.0, 0.0), "normal": (1.0, 0.0, 0.0)} for n in PLANES_D]
     drops = [{"name": name, "upstream": f"plane:x{a}D", "downstream": f"plane:x{b}D"} for name, (a, b) in DROPS.items()]
     project.update_reports(planes=planes, pressure_drops=drops,
-                           slots=[f"dp:{MAIN_DROP}:static", "flow:mdot:patch:outlet_1", "mass_imbalance"])
+                           slots=[f"dp:{MAIN_DROP}:static", "flow:mdot:patch:outlet", "mass_imbalance"])
     project.update_solver(iterations=ITERATIONS, write_interval=ITERATIONS, cores=CORES, stopping=stopping())
     project.update_study("mesh", quantities=[f"dp:{MAIN_DROP}:static"])
     project.save()

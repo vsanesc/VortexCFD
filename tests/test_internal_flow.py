@@ -86,9 +86,16 @@ def test_roles_default_to_wall_and_each_edit_is_one_undo_step(tmp_path: Path) ->
 
 def test_the_roles_need_an_inlet_and_an_outlet(tmp_path: Path) -> None:
     project = pipe_project(tmp_path)
+    # no domain patch is reserved in internal flow (QUESTIONS 206): the regions keep their names
     assert [(p.name, p.safe, p.role) for p in internal.patches(project)] == [
-        ("wall", "wall", "wall"), ("inlet", "inlet_1", "inlet"), ("outlet", "outlet_1", "outlet")]
-    assert internal.open_patches(project) == (("inlet_1", "inlet"), ("outlet_1", "outlet"))
+        ("wall", "wall", "wall"), ("inlet", "inlet", "inlet"), ("outlet", "outlet", "outlet")]
+    from vortexcfd.foam.mesh_case import part_patch_names, safe_part_names
+
+    assert safe_part_names(["inlet", "top", "background", "frontAndBack"], internal=True) == [
+        "inlet", "top", "background_1", "frontAndBack_1"]  # the background box and 2D slab names stay reserved
+    assert safe_part_names(["inlet", "top"]) == ["inlet_1", "top_1"]  # external projects keep the reservation
+    assert part_patch_names(project.sim.geometry.parts) == [("wall", "inlet_1", "outlet_1")]
+    assert internal.open_patches(project) == (("inlet", "inlet"), ("outlet", "outlet"))
     project.update_boundary("outlet", role="wall")
     assert meshing.readiness(project) == "Set at least one patch as an outlet (Boundaries)."
     project.update_boundary("inlet", role="wall")
@@ -135,14 +142,14 @@ def test_meshing_has_no_domain_and_layers_on_walls_only(tmp_path: Path) -> None:
     assert meshing.readiness(project) is None
     length = meshing.surface_length(project, meshing.loaded_parts(project)[0])
     assert length.source == "dh_auto" and length.value == pytest.approx(D, rel=0.01)  # the inlet's D_h
-    area = internal.inlet_measures(project, meshing._body_parts(project)[1])["inlet_1"].area
+    area = internal.inlet_measures(project, meshing._body_parts(project)[1])["inlet"].area
     assert meshing.flow_speed(project) == pytest.approx(2.0 / (RHO * area))  # m / (rho A)
     job = meshing.prepare_job(project)
     case = job.case_dir
     snappy = read_foam_file(case / "system" / "snappyHexMeshDict")
     regions = snappy["castellatedMeshControls"]["refinementSurfaces"]["pipe"]["regions"]
-    assert {k: v["patchInfo"]["type"] for k, v in regions.items()} == {"wall": "wall", "inlet_1": "patch",
-                                                                       "outlet_1": "patch"}
+    assert {k: v["patchInfo"]["type"] for k, v in regions.items()} == {"wall": "wall", "inlet": "patch",
+                                                                       "outlet": "patch"}
     assert list(snappy["addLayersControls"]["layers"]) == ["wall"]
     x, y, z = snappy["castellatedMeshControls"]["locationInMesh"]
     assert 0 < x < LENGTH and math.hypot(y, z) < D / 2  # inside the pipe
@@ -150,7 +157,7 @@ def test_meshing_has_no_domain_and_layers_on_walls_only(tmp_path: Path) -> None:
     assert [name for name, _ in block["boundary"]] == ["background"]
     assert (case / "system" / "createPatchDict").is_file()
     guard = json.loads((case / "vortexcfd_domain.json").read_text())
-    assert guard == {"shape": "internal", "expected": ["inlet_1", "outlet_1"], "background": ["background"]}
+    assert guard == {"shape": "internal", "expected": ["inlet", "outlet"], "background": ["background"]}
     assert job.inputs.estimate().background_bounds[0] < 0  # the box encloses the parts with a margin
     hash_before = meshing.inputs_hash(project)
     project.update_boundary("outlet", outlet={"pressure": 5.0})  # a solver input only
@@ -167,10 +174,10 @@ def test_a_2d_internal_section_keeps_a_patch_per_segment(tmp_path: Path) -> None
     assert meshing.readiness(project) is None
     job = meshing.prepare_job(project)
     stl = job.case_dir / "constant" / "triSurface" / "pipe.stl"
-    assert stl_solid_names(stl) == ["lower", "outlet_1", "upper", "inlet_1"]
+    assert stl_solid_names(stl) == ["lower", "outlet", "upper", "inlet"]
     assert (job.case_dir / "system" / "extrudeMeshDict").is_file()
-    assert set(job.inputs.expected_domain_patches()) == {"inlet_1", "outlet_1", "frontAndBack"}
-    m = internal.inlet_measures(project, meshing._body_parts(project)[1])["inlet_1"]
+    assert set(job.inputs.expected_domain_patches()) == {"inlet", "outlet", "frontAndBack"}
+    m = internal.inlet_measures(project, meshing._body_parts(project)[1])["inlet"]
     assert m.hydraulic_diameter == pytest.approx(1.0)  # 2 x the inlet's height
     # a patch the section does not cut (the end caps on a patch of their own) is refused before meshing
     solids = extruded_outline_solids(outline, ["lower", "outlet", "upper", "inlet"], -0.5, 0.5, "caps")
@@ -188,34 +195,34 @@ def _solver_files(project: Project) -> dict:
 
 def test_dictionaries_per_bc_kind(tmp_path: Path) -> None:
     project = pipe_project(tmp_path)
-    dh = internal.inlet_measures(project, meshing._body_parts(project)[1])["inlet_1"].hydraulic_diameter
+    dh = internal.inlet_measures(project, meshing._body_parts(project)[1])["inlet"].hydraulic_diameter
     files = _solver_files(project)
     u, p = files["0/U"].content["boundaryField"], files["0/p"].content["boundaryField"]
     k, omega = files["0/k"].content["boundaryField"], files["0/omega"].content["boundaryField"]
     # mass-flow inlet: Q = m / rho_ref
-    assert u["inlet_1"]["type"] == "flowRateInletVelocity"
-    assert u["inlet_1"]["volumetricFlowRate"] == pytest.approx(2.0 / RHO)
-    assert p["inlet_1"] == {"type": "zeroGradient"}
-    assert k["inlet_1"]["type"] == "turbulentIntensityKineticEnergyInlet" and k["inlet_1"]["intensity"] == 0.05
-    assert omega["inlet_1"]["type"] == "turbulentMixingLengthFrequencyInlet"
-    assert omega["inlet_1"]["mixingLength"] == pytest.approx(0.07 * dh)
+    assert u["inlet"]["type"] == "flowRateInletVelocity"
+    assert u["inlet"]["volumetricFlowRate"] == pytest.approx(2.0 / RHO)
+    assert p["inlet"] == {"type": "zeroGradient"}
+    assert k["inlet"]["type"] == "turbulentIntensityKineticEnergyInlet" and k["inlet"]["intensity"] == 0.05
+    assert omega["inlet"]["type"] == "turbulentMixingLengthFrequencyInlet"
+    assert omega["inlet"]["mixingLength"] == pytest.approx(0.07 * dh)
     # static outlet, kinematic; backflow-safe velocity and turbulence
-    assert p["outlet_1"]["type"] == "fixedValue" and p["outlet_1"]["value"] == pytest.approx(0.1)
-    assert u["outlet_1"]["type"] == k["outlet_1"]["type"] == omega["outlet_1"]["type"] == "inletOutlet"
+    assert p["outlet"]["type"] == "fixedValue" and p["outlet"]["value"] == pytest.approx(0.1)
+    assert u["outlet"]["type"] == k["outlet"]["type"] == omega["outlet"]["type"] == "inletOutlet"
     assert u["wall"] == {"type": "noSlip"} and files["0/nut"].content["boundaryField"]["wall"]["type"] == \
         "nutUSpaldingWallFunction"
     # velocity inlet
     project.update_boundary("inlet", inlet={"kind": "velocity", "speed": 3.0, "length_scale": 0.004})
     files = _solver_files(project)
-    assert files["0/U"].content["boundaryField"]["inlet_1"]["type"] == "surfaceNormalFixedValue"
-    assert files["0/U"].content["boundaryField"]["inlet_1"]["refValue"] == -3.0
-    assert files["0/omega"].content["boundaryField"]["inlet_1"]["mixingLength"] == 0.004
+    assert files["0/U"].content["boundaryField"]["inlet"]["type"] == "surfaceNormalFixedValue"
+    assert files["0/U"].content["boundaryField"]["inlet"]["refValue"] == -3.0
+    assert files["0/omega"].content["boundaryField"]["inlet"]["mixingLength"] == 0.004
     # total-pressure inlet, kinematic
     project.update_boundary("inlet", inlet={"kind": "total_pressure", "total_pressure": 500.0})
     files = _solver_files(project)
-    assert files["0/U"].content["boundaryField"]["inlet_1"]["type"] == "pressureInletOutletVelocity"
-    assert files["0/p"].content["boundaryField"]["inlet_1"]["type"] == "totalPressure"
-    assert files["0/p"].content["boundaryField"]["inlet_1"]["p0"] == ("uniform", pytest.approx(0.5))
+    assert files["0/U"].content["boundaryField"]["inlet"]["type"] == "pressureInletOutletVelocity"
+    assert files["0/p"].content["boundaryField"]["inlet"]["type"] == "totalPressure"
+    assert files["0/p"].content["boundaryField"]["inlet"]["p0"] == ("uniform", pytest.approx(0.5))
     # a pressure-driven flow solves with SIMPLE and the pressure relaxed (D-131); the others with SIMPLEC
     solution = files["system/fvSolution"].content
     assert solution["SIMPLE"]["consistent"] is False and solution["relaxationFactors"]["fields"] == {"p": 0.3}
@@ -226,15 +233,15 @@ def test_dictionaries_per_bc_kind(tmp_path: Path) -> None:
     assert not any(name.startswith(("forceCoeffs", "forces")) for name in functions)
     names = list(functions)
     assert names[:2] == ["pStatic", "pTotal"]
-    assert {"massFlow_inlet_1", "pArea_outlet_1", "pMass_inlet_1"} <= set(names)
-    assert functions["pMass_inlet_1"]["weightField"] == "U"
+    assert {"massFlow_inlet", "pArea_outlet", "pMass_inlet"} <= set(names)
+    assert functions["pMass_inlet"]["weightField"] == "U"
     assert functions["pTotal"]["rhoInf"] == RHO and functions["pTotal"]["mode"] == "total"
 
 
 def test_planes_and_pressure_drops_reach_the_case(tmp_path: Path) -> None:
     project = pipe_project(tmp_path)
     project.update_reports(planes=[{"name": "a", "point": (0.2, 0, 0), "normal": (2, 0, 0)}],
-                           pressure_drops=[{"name": "dp1", "upstream": "patch:inlet_1", "downstream": "plane:a"}])
+                           pressure_drops=[{"name": "dp1", "upstream": "patch:inlet", "downstream": "plane:a"}])
     assert solving.internal_problem(project) is None
     files = _solver_files(project)
     plane = files["system/controlDict"].content["functions"]["planeFlow_a"]
@@ -243,12 +250,12 @@ def test_planes_and_pressure_drops_reach_the_case(tmp_path: Path) -> None:
     # off any layer of mesh faces: 1e-6 of the parts' largest extent (the pipe's 0.6 m) along the normal
     assert plane["sampledSurfaceDict"]["pointAndNormalDict"]["point"] == [pytest.approx(0.2 + 0.6e-6), 0.0, 0.0]
     reports = files[INTERNAL_REPORTS_FILE].content
-    assert reports == {"rho": RHO, "pressureDrops": {"dp1": {"upstream": "patch:inlet_1", "downstream": "plane:a"}}}
-    project.update_reports(pressure_drops=[{"name": "dp1", "upstream": "patch:inlet_1", "downstream": "plane:b"}])
+    assert reports == {"rho": RHO, "pressureDrops": {"dp1": {"upstream": "patch:inlet", "downstream": "plane:a"}}}
+    project.update_reports(pressure_drops=[{"name": "dp1", "upstream": "patch:inlet", "downstream": "plane:b"}])
     assert solving.internal_problem(project) == "Pressure drop dp1: no inlet, outlet or plane 'b'."
     scope = solving.report_scope(project)
     options = available_reports(**scope)
-    assert "Cd" not in options and "flow:mdot:patch:inlet_1" in options and "dp:dp1:total" in options
+    assert "Cd" not in options and "flow:mdot:patch:inlet" in options and "dp:dp1:total" in options
 
 
 # -- reports from a recorded run ----------------------------------------------------------------------------
@@ -331,7 +338,7 @@ def test_planes_and_drops_rows(internal_window) -> None:
     assert plane.name == "plane1" and plane.normal == (1.0, 0.0, 0.0) and plane.point[0] == pytest.approx(LENGTH / 2)
     panel.ir_add_drop.click()
     (drop,) = w.project.sim.reports.pressure_drops
-    assert (drop.upstream, drop.downstream) == ("patch:inlet_1", "patch:outlet_1")
+    assert (drop.upstream, drop.downstream) == ("patch:inlet", "patch:outlet")
     combo = panel.ir_widgets["drops"][0]["downstream"]
     combo.setCurrentIndex(combo.findData("plane:plane1"))
     assert w.project.sim.reports.pressure_drops[0].downstream == "plane:plane1"

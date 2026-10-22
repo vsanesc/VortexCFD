@@ -253,7 +253,7 @@ def prepare_study(project: Project, only: Collection[str] | None = None) -> tupl
     from vortexcfd.foam.mesh_case import part_patch_names, safe_part_names
 
     bounds = [tuple(float(x) for x in m.bounds) for m in meshes]
-    safe = safe_part_names(names)
+    safe = safe_part_names(names, project.sim.internal)
     study = study_dir_for(project)
     study.mkdir(parents=True, exist_ok=True)
     fixed = (plan.layers.first, plan.layers.count) if plan.layers is not None else None
@@ -273,7 +273,7 @@ def prepare_study(project: Project, only: Collection[str] | None = None) -> tupl
             domain_bounds=box.bounds, symmetric=project.sim.domain.symmetry == "y_min", parts=tuple(safe),
             parts_bounds=union_bounds(bounds), reference_length=box.reference_length, mesh=lp.level.mesh,
             part_bounds=tuple(bounds), part_levels=_part_overrides(project),
-            part_patches=tuple(part_patch_names(project.sim.geometry.parts)),
+            part_patches=tuple(part_patch_names(project.sim.geometry.parts, project.sim.internal)),
             fixed_layers=(stack[0], stack[1]) if stack is not None else (1.0, 0),
             layer_expansion=stack[2] if stack is not None else None,
             surface_length=length, volumes=volumes, extra_features=features,

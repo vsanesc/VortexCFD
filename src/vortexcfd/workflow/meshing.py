@@ -209,7 +209,7 @@ def parts_layout(project: Project) -> tuple[DomainBox, tuple[str, ...], tuple[fl
         MeshingNotReady: a part cannot be loaded.
     """
     box, _names, _meshes = _loaded_parts(project)
-    return box, wall_patch_names(project.sim.geometry.parts), body_bounds(project)
+    return box, wall_patch_names(project.sim.geometry.parts, project.sim.internal), body_bounds(project)
 
 
 def write_part_surfaces(case_dir: Path, project: Project, inputs: MeshCaseInput, meshes) -> None:
@@ -606,7 +606,7 @@ def mesh_inputs(project: Project) -> tuple[MeshCaseInput, DomainBox, list]:
     bounds = [tuple(float(b) for b in m.bounds) for m in meshes]
     body = body_bounds(project)
     length = surface_length(project, box, body)
-    safe = safe_part_names(names)
+    safe = safe_part_names(names, project.sim.internal)
     first_layer = layer_count = expansion = None
     if project.sim.mesh.layer_sizing == "absolute_yplus":
         plan = plan_layers_for(project, box)
@@ -623,7 +623,7 @@ def mesh_inputs(project: Project) -> tuple[MeshCaseInput, DomainBox, list]:
         layer_expansion=expansion,
         part_bounds=tuple(bounds),
         part_levels=_part_overrides(project),
-        part_patches=tuple(part_patch_names(project.sim.geometry.parts)),
+        part_patches=tuple(part_patch_names(project.sim.geometry.parts, project.sim.internal)),
         surface_length=length.value,
         extra_features=_junction_features(project, box, length.value),
         volumes=_volume_entries(project, box, body),

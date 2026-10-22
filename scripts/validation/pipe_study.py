@@ -109,7 +109,7 @@ def cmd_total(_args) -> None:
     on a copy of the mass-flow run's mesh."""
     monitor = ReportMonitor(project_file(MAIN).parent / "case")
     monitor.poll()
-    p0 = window_stats(monitor.series("flow:p0_mass:patch:inlet_1"), WINDOW).mean
+    p0 = window_stats(monitor.series("flow:p0_mass:patch:inlet"), WINDOW).mean
     if TOTAL.exists():
         shutil.rmtree(TOTAL)
     project = pc.build_project(TOTAL, inlet={"kind": "total_pressure", "total_pressure": round(p0, 3)})
@@ -128,8 +128,8 @@ def summarise(folder: Path) -> dict:
     monitor = ReportMonitor(case)
     monitor.poll()
     project = Project.open(project_file(folder))
-    measures = internal.inlet_measures(project, meshing._body_parts(project)[1])["inlet_1"]
-    outlet = window_stats(monitor.series("flow:mdot:patch:outlet_1"), WINDOW).mean
+    measures = internal.inlet_measures(project, meshing._body_parts(project)[1])["inlet"]
+    outlet = window_stats(monitor.series("flow:mdot:patch:outlet"), WINDOW).mean
     u_bulk = outlet / (pc.RHO * measures.area)  # the run's own flow through the polygonal pipe, and its D_h
     out: dict = {"drops_pa": {}, "friction": {}, "friction_nominal": {},
                  "geometry": {"area_m2": measures.area, "hydraulic_diameter_m": measures.hydraulic_diameter,
@@ -146,8 +146,8 @@ def summarise(folder: Path) -> dict:
     out["mass_flow_kg_s"] = flows
     balance = monitor.mass_balance()
     out["mass_imbalance_percent"] = balance[2] if balance else None
-    out["inlet_p0_mass_pa"] = window_stats(monitor.series("flow:p0_mass:patch:inlet_1"), WINDOW).mean
-    out["inlet_p_area_pa"] = window_stats(monitor.series("flow:p_area:patch:inlet_1"), WINDOW).mean
+    out["inlet_p0_mass_pa"] = window_stats(monitor.series("flow:p0_mass:patch:inlet"), WINDOW).mean
+    out["inlet_p_area_pa"] = window_stats(monitor.series("flow:p_area:patch:inlet"), WINDOW).mean
     time_name = latest_result_time(case)
     values = wall_face_values(case / time_name / "yPlus", ("wall",)) if time_name else {}
     if values:

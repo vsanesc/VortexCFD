@@ -263,12 +263,18 @@ def searchable_geometry(shape) -> dict:
 INSIDE_DISTANCE = 1e15
 
 
-def safe_part_names(names: Sequence[str]) -> list[str]:
-    """Patch/file-safe unique names: [A-Za-z0-9_], never a reserved boundary name.
+# Internal flow has no domain (D-129, QUESTIONS 206): only the background box's and the 2D slab's own patch names are
+# reserved, so a region named "inlet" or "outlet" keeps its name.
+INTERNAL_RESERVED_PATCH_NAMES = frozenset({BACKGROUND_PATCH, FRONT_PATCH, BACK_PATCH, FRONT_AND_BACK})
+
+
+def safe_part_names(names: Sequence[str], internal: bool = False) -> list[str]:
+    """Patch/file-safe unique names: [A-Za-z0-9_], never a reserved boundary name (``internal``: only the
+    background and 2D slab names, INTERNAL_RESERVED_PATCH_NAMES).
 
     A name that is already taken (by an earlier part or a domain boundary) gets the first free
     numeric suffix ``_1``, ``_2``, ... so the result is deterministic."""
-    used: set[str] = set(RESERVED_PATCH_NAMES)
+    used: set[str] = set(INTERNAL_RESERVED_PATCH_NAMES if internal else RESERVED_PATCH_NAMES)
     result = []
     for name in names:
         base = re.sub(r"[^A-Za-z0-9_]", "_", name).strip("_") or "part"
@@ -283,14 +289,14 @@ def safe_part_names(names: Sequence[str]) -> list[str]:
     return result
 
 
-def part_patch_names(parts: Sequence) -> list[tuple[str, ...]]:
+def part_patch_names(parts: Sequence, internal: bool = False) -> list[tuple[str, ...]]:
     """Per part (core.model.Part), its safe wall patch names in Part.patch_names() order.
 
     Every name of every part goes through ``safe_part_names`` together, so a patch name used by
     two parts becomes two patches (the second gets a suffix); a part without regions has the one
     patch it always had."""
     raw = [part.patch_names() for part in parts]
-    safe = safe_part_names([name for names in raw for name in names])
+    safe = safe_part_names([name for names in raw for name in names], internal)
     out, k = [], 0
     for names in raw:
         out.append(tuple(safe[k:k + len(names)]))
@@ -298,9 +304,9 @@ def part_patch_names(parts: Sequence) -> list[tuple[str, ...]]:
     return out
 
 
-def wall_patch_names(parts: Sequence) -> tuple[str, ...]:
-    """Every part wall patch of the mesh, in part and region order."""
-    return tuple(name for names in part_patch_names(parts) for name in names)
+def wall_patch_names(parts: Sequence, internal: bool = False) -> tuple[str, ...]:
+    """Every part patch of the mesh, in part and region order."""
+    return tuple(name for names in part_patch_names(parts, internal) for name in names)
 
 
 def part_force_groups(parts: Sequence) -> tuple[tuple[str, tuple[str, ...]], ...]:

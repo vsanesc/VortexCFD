@@ -33,7 +33,7 @@ def patches(project: Project) -> list[InternalPatch]:
     """Every surface patch of the project in part and region order, with its role."""
     sim = project.sim
     out = []
-    for i, (part, safe_names) in enumerate(zip(sim.geometry.parts, part_patch_names(sim.geometry.parts))):
+    for i, (part, safe_names) in enumerate(zip(sim.geometry.parts, part_patch_names(sim.geometry.parts, internal=True))):
         for k, (name, safe) in enumerate(zip(part.patch_names(), safe_names)):
             out.append(InternalPatch(name, safe, i, k, sim.boundary(name).role))
     return out

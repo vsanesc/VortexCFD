@@ -1157,7 +1157,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                 spin.setValue(spin.minimum() if value is None else value)
                 spin.blockSignals(False)
         if part is not None:
-            patches = part_patch_names(sim.geometry.parts)
+            patches = part_patch_names(sim.geometry.parts, sim.internal)
             self.patch_label.setText(", ".join(patches[self._index]))
         self._refresh_cad(part)
         self._refresh_regions(part)
