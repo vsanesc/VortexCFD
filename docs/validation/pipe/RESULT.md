@@ -66,3 +66,9 @@ parallel meshing decomposes the mesh only"; D-131 in the commit of this record):
 (within 0.1 %), the layers are complete, and the total-pressure inlet reproduces the friction factor within 0.03 %.
 Single level only: no mesh study (QUESTIONS 204), so no GCI; the discretisation error of this level is not
 estimated.
+
+## Mesh study (task w3-close)
+
+Not run. The owner's condition was that the 3D study's level-scaled buffers pass the D-127 check first; they did not
+(docs/validation/study3d/RESULT.md, Round 4: the levels' near-field sizes do not scale by the ratio), and by the
+owner's closure rule W3 closes with the pipe's single-level PASS above, without a GCI of the friction factor.
