@@ -194,3 +194,16 @@ def test_about_shows_the_version(qtbot: QtBot, monkeypatch) -> None:
 def test_this_machine_passes() -> None:
     check = installation.check_openfoam(env={"HOME": "/nonexistent"}, other_patterns=())
     assert check.ok and check.bashrc == installation.STANDARD_BASHRCS[0]
+
+
+def test_help_opens_the_local_manual(qtbot: QtBot, tmp_path: Path) -> None:
+    from vortexcfd.gui.main_window import manual_path
+
+    path = manual_path()
+    assert path is not None and path.name == "README.md" and path.parent.name == "manual"
+    missing = installation.OpenFOAMCheck(None)
+    w = _window(qtbot, tmp_path, missing)
+    assert w.act_manual.isEnabled() and w.act_manual in w.menuBar().actions()[-1].menu().actions()
+    opened = []
+    assert w.open_manual(opener=lambda url: opened.append(url.toLocalFile()) or True) == path
+    assert opened == [str(path)]

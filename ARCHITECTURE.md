@@ -12,7 +12,7 @@
 - OpenFOAM is **never assumed to be on `PATH`**.
 - Every OpenFOAM process is launched through `vortexcfd.foam.runner`, which sources `/usr/lib/openfoam/openfoam2606/etc/bashrc` explicitly.
 - The bashrc is located at start-up (`foam/installation.py`, D-137: `VORTEXCFD_OPENFOAM_BASHRC`, the user's configured path, the standard ESI places); without OpenFOAM v2606 the app opens with meshing and solving disabled (`gui/openfoam_dialog.py`).
-- Installation: `scripts/install.sh` (a venv under ~/.local/share/vortexcfd, the pinned `scripts/requirements-v1.txt`, the launcher and desktop entry); `vortexcfd.cli` is the console script (`--version`, `--check-openfoam` without Qt); the version is `vortexcfd.__version__` only.
+- Installation: `scripts/install.sh` (a venv under ~/.local/share/vortexcfd, the pinned `scripts/requirements-v1.txt`, the launcher and desktop entry); `vortexcfd.cli` is the console script (`--version`, `--check-openfoam` without Qt); the version is `vortexcfd.__version__` only. The user manual is docs/manual/ (its images made by the app itself, `scripts/manual_images.py`); Help > User Manual opens it (`main_window.manual_path`).
 
 ## 4. Technology Stack
 - **Python**: >= 3.11 (developed on 3.12)

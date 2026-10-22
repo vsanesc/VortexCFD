@@ -181,3 +181,16 @@ def test_the_results_node_adds_draws_and_edits_objects(results_window, qtbot: Qt
     w._select_node("saved_view", 0)
     panel.sv_go.click()
     assert tuple(w.viewer.camera.position) == pytest.approx(saved.position)
+
+
+def test_the_section_values_survive_a_scene_object(results_window, qtbot: QtBot) -> None:
+    """With display "Section" a scene object used to empty the section actor's mapper input (PyVista's pipeline) and
+    the telemetry's field range raised KeyError '_shown'; the view keeps the section's values itself."""
+    w = results_window()
+    w.results_tab.click()
+    qtbot.waitUntil(lambda: w.results_view.has_results, timeout=15000)
+    w.display_combo.setCurrentText("Section")
+    before = w.results_view.shown_values().size
+    w.project.add_scene_object("clip", origin=(1.0, 0.0, 0.5))
+    assert before > 0 and w.results_view.shown_values().size == before
+    assert w.results_view.field_range() is not None

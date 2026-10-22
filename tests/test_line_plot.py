@@ -96,7 +96,7 @@ def test_streamlines_have_their_own_scalar_bar(results_window, qtbot: QtBot) -> 
     panel.sc_add_buttons["streamlines"].click()
     (obj,) = w.project.sim.results.objects
     view = w.results_view
-    assert len(view.object_bars) == 1 and view.object_bars[0].GetTitle() == "Streamlines 1: |U| [m/s]"
+    assert len(view.object_bars) == 1 and view.object_bars[0].GetTitle() == "Streamlines 1\n|U| [m/s]"
     assert view.scalar_bar is not None  # the scene's bar for the walls stays
     assert render_image(w.viewer, (320, 200)).scalar_bars == 2
     # the same controls as the scene's: colormap, range mode and fixed limits

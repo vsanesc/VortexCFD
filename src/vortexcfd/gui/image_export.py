@@ -75,12 +75,14 @@ def render_image(plotter, size: tuple[int, int], transparent: bool = False) -> R
             if isinstance(prop, vtk.vtkScalarBarActor):
                 bar = vtk.vtkScalarBarActor()
                 bar.ShallowCopy(prop)
+                bar.SetUnconstrainedFontSize(prop.GetUnconstrainedFontSize())  # not part of ShallowCopy
                 off.renderer.AddViewProp(bar)
                 bars += 1
             elif isinstance(prop, vtk.vtkActor):
                 off.renderer.AddActor(_copy_actor(prop))
                 actors += 1
         off.renderer.GetActiveCamera().DeepCopy(plotter.renderer.GetActiveCamera())
+        off.camera_set = True  # else PyVista's first render replaces the copied camera with its default view
         off.renderer.ResetCameraClippingRange()
         pixels = off.screenshot(transparent_background=transparent, return_img=True)
     finally:

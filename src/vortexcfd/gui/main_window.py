@@ -10,11 +10,12 @@ from pathlib import Path
 
 import numpy as np
 
-from PySide6.QtCore import QEvent, QPointF, QRect, QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QPointF, QRect, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
     QColor,
+    QDesktopServices,
     QIcon,
     QKeySequence,
     QPainter,
@@ -1182,6 +1183,17 @@ class MainWindow(StudyControlMixin, QMainWindow):
             if view is not None:
                 apply_view(self.viewer, view)
                 self.viewer.render()
+
+    def open_manual(self, opener=None) -> Path | None:
+        """Help > User Manual: the local docs/manual/README.md in the system's viewer; returns its path."""
+        path = manual_path()
+        if path is None:
+            self.show_message("The user manual was not found.", "error")
+            return None
+        opener = opener or (lambda url: QDesktopServices.openUrl(url))
+        if not opener(QUrl.fromLocalFile(str(path))):
+            self.show_message(f"No viewer opened the manual: it is at {path}", "warning")
+        return path
 
     def show_openfoam_dialog(self) -> None:
         """Help > OpenFOAM Installation, and at start-up without OpenFOAM v2606 (D-137): what was looked for, the
@@ -2387,6 +2399,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.act_manage_presets = action("&Manage Presets...", self.manage_presets)
         self.act_about = action("&About VortexCFD", lambda: self.dialogs.show_about())
         self.act_openfoam = action("&OpenFOAM Installation...", lambda: self.show_openfoam_dialog())
+        self.act_manual = action("User &Manual", lambda: self.open_manual())
+        self.act_manual.setEnabled(manual_path() is not None)
+        self.act_manual.setToolTip("" if manual_path() is not None else "The manual was not found (docs/manual)")
         self.act_import = action("&Import Geometry...", self.import_surface, "Ctrl+I")
         self.act_import_airfoil = action("Import &Airfoil...", self.import_airfoil)
         self.act_save = action("&Save", self.save, S.Save)
@@ -2475,6 +2490,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self.act_tel_fields[key] = act
             tel_menu.addAction(act)
         help_menu = self.menuBar().addMenu("&Help")
+        help_menu.addAction(self.act_manual)
         help_menu.addAction(self.act_openfoam)
         help_menu.addSeparator()
         help_menu.addAction(self.act_about)
@@ -3293,6 +3309,16 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self.viewer.close()  # release VTK interactor resources
         console_log.detach(self._console_handler)
         super().closeEvent(event)
+
+
+def manual_path() -> Path | None:
+    """The user manual's index: the copy the install script puts next to the environment
+    (<prefix>/share/vortexcfd/manual), else the checkout's docs/manual (D-137)."""
+    for candidate in (Path(sys.prefix) / "share" / "vortexcfd" / "manual" / "README.md",
+                      Path(__file__).resolve().parents[3] / "docs" / "manual" / "README.md"):
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def start_window(args: list[str], dialogs: Dialogs | None = None, openfoam=None) -> MainWindow:

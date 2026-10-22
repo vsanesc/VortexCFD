@@ -150,6 +150,9 @@ class ResultsView:
         self._object_bar_titles: list[str] = []
         self._points = None  # the internal mesh with point fields (cached per data)
         self.section_actor = None
+        # The section as drawn (with SHOWN): the actor's mapper.dataset is the output of PyVista's pipeline, empty
+        # once a later add_mesh modified the pipeline until the next render, so the values are read from here.
+        self.section_data = None
         self.scalar_bar = None
         self._bar_title = ""
         self._visible = True
@@ -245,8 +248,8 @@ class ResultsView:
                 v = self._values(surface)
                 if v is not None:
                     parts.append(v)
-        if self.display in ("Section", "Both") and self.section_actor is not None:
-            parts.append(np.asarray(self.section_actor.mapper.dataset.cell_data[SHOWN]))
+        if self.display in ("Section", "Both") and self.section_data is not None:
+            parts.append(np.asarray(self.section_data.cell_data[SHOWN]))
         return np.concatenate(parts) if parts else np.array([])
 
     def field_range(self) -> tuple[float, float] | None:
@@ -282,6 +285,7 @@ class ResultsView:
         self.object_actors = []
         self.plotter.remove_actor(self.SECTION_NAME, render=False)
         self.section_actor = None
+        self.section_data = None
         if self.scalar_bar is not None:
             try:
                 self.plotter.remove_scalar_bar(self._bar_title, render=False)
@@ -395,6 +399,7 @@ class ResultsView:
                     mapper.SetRelativeCoincidentTopologyPolygonOffsetParameters(-1.0, -1.0)
                     self.separation_actors.append(actor)
         if section is not None:
+            self.section_data = section
             self.section_actor = self.plotter.add_mesh(section, name=self.SECTION_NAME,
                                                        **{**common, "lighting": False})
         own_bars = []
@@ -440,7 +445,7 @@ class ResultsView:
 
     def object_bar_title(self, obj) -> str:
         spec = FIELDS_BY_KEY.get(obj.color_field)
-        return f"{obj.name}: {spec.title if spec is not None else obj.color_field}"
+        return f"{obj.name}\n{spec.title if spec is not None else obj.color_field}"
 
     def _add_object_bar(self, mapper, obj, index: int) -> None:
         """A streamlines object's own scalar bar (D-136): the same style as the scene's, on the left, one column
@@ -454,6 +459,7 @@ class ResultsView:
             height=0.7, bold=False, shadow=False, font_family="arial", render=False,
         )
         bar.SetVerticalTitleSeparation(size)
+        bar.SetUnconstrainedFontSize(True)  # a two-line title would be shrunk to the bar's width
         self.object_bars.append(bar)
         self._object_bar_titles.append(title)
 

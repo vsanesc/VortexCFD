@@ -62,3 +62,21 @@ def test_the_dialog_presets_and_custom_size(qtbot: QtBot, tmp_path: Path) -> Non
     assert dialog.spec() == ExportSpec(tmp_path / "a.png", (1000, 500), True)
     with pytest.raises(ValueError):
         render_image(None, (0, 10))
+
+
+def test_the_render_uses_the_viewer_camera() -> None:
+    """The offscreen render keeps the source camera (PyVista resets an unset camera to its default view on the first
+    render: before the fix every export and report view was drawn from that default view)."""
+    import pyvista as pv
+
+    source = pv.Plotter(off_screen=True, window_size=(200, 100))
+    try:
+        source.set_background("black")
+        source.add_mesh(pv.Sphere(radius=0.2, center=(1.0, 0.0, 0.0)), color="white", lighting=False)
+        # the sphere left of the image centre: the camera looks along +y at x = 1.6, from 4 m away
+        source.camera.position, source.camera.focal_point, source.camera.up = (1.6, -4.0, 0.0), (1.6, 0.0, 0.0), (0, 0, 1)
+        image = render_image(source, (200, 100))
+    finally:
+        source.close()
+    bright = np.argwhere(image.pixels.sum(axis=2) > 300)
+    assert bright.size and 65 < bright[:, 1].mean() < 80  # 0.6 m left at 4 m, 30 degrees: column 72 (default view: 100)
