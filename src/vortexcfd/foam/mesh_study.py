@@ -163,6 +163,8 @@ class LevelResult:
     planned_layers: list[float] = field(default_factory=list)
     first_cell_m: float | None = None
     first_cell_share_over_2x: float | None = None
+    # The last iteration of the first turbulence stage of a two-stage run (D-126), None for one stage
+    switch_iteration: int | None = None
 
     def basis(self, quantity: str) -> str:
         return self.value_basis.get(quantity, BASIS_LAST)
@@ -481,6 +483,7 @@ class StudyRun:
                 level.state_label = state_label(result.state, names)
                 level.criteria_met = result.state == CRITERIA_MET
                 level.iterations = result.iterations
+                level.switch_iteration = getattr(result, "switch_iteration", None)  # D-126
                 level.duration_s = round(result.duration_s, 1)
                 set_values(level, final_values(case, self.record.quantities, self._stopping))
                 if result.state == "crashed":

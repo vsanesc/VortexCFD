@@ -16,6 +16,7 @@ class SolverWorker(QObject):
     line = Signal(str)  # one line of solver output
     step = Signal(object)  # logparse.TimeStep of a completed iteration
     finished = Signal(object)  # solver_run.SolverRunResult
+    stage = Signal(int, int, str)  # the second turbulence stage began: (stage, switch iteration, reason), D-126
 
     def __init__(self, parent: QObject | None = None, runner_factory=FoamRun) -> None:
         super().__init__(parent)
@@ -29,6 +30,7 @@ class SolverWorker(QObject):
             raise RuntimeError("the solver is already running")
         self._run = SolverRun(
             case_dir, on_line=self.line.emit, on_step=self.step.emit, on_done=self.finished.emit,
+            on_stage=self.stage.emit,
             timeout_s=timeout_s, runner_factory=self.runner_factory, stopping=stopping, cores=cores,
         )
         self._run.start()

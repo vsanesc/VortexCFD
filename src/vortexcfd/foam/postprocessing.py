@@ -62,20 +62,35 @@ def _time_key(name: str) -> float:
         return float("-inf")
 
 
-def output_file(case_dir: Path, function: str, file_name: str) -> Path | None:
-    """The function object's file in the latest start-time directory, or None."""
+def output_file(case_dir: Path, function: str, file_name: str, earliest: bool = False) -> Path | None:
+    """The function object's file in the latest (``earliest``: the first) start-time directory, or None."""
     folder = Path(case_dir) / "postProcessing" / function
     if not folder.is_dir():
         return None
     for start in sorted((d for d in folder.iterdir() if d.is_dir()), key=lambda d: _time_key(d.name),
-                        reverse=True):
+                        reverse=not earliest):
         if (start / file_name).is_file():
             return start / file_name
     return None
 
 
+def next_start_file(path: Path) -> Path | None:
+    """The same function object file in the next later start-time directory (a run continued from a later time
+    writes a new one: the second turbulence stage, D-126), or None."""
+    path = Path(path)
+    here = _time_key(path.parent.name)
+    folder = path.parent.parent
+    if here == float("-inf") or not folder.is_dir():
+        return None
+    later = sorted((d for d in folder.iterdir() if d.is_dir() and _time_key(d.name) > here
+                    and (d / path.name).is_file()), key=lambda d: _time_key(d.name))
+    return later[0] / path.name if later else None
+
+
 class TailReader:
-    """Reads the complete lines appended to a file since the last call."""
+    """Reads the complete lines appended to a file since the last call; at the end of a function object's file
+    whose run was continued from a later time it goes on with the file of the next start-time directory
+    (``next_start_file``), so the rows of both runs follow each other (D-126)."""
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
@@ -89,15 +104,22 @@ class TailReader:
             return []
         if size < self._offset:  # the file was replaced or truncated: start again
             self._offset, self._partial = 0, b""
-        if size == self._offset:
-            return []
-        with open(self.path, "rb") as fh:
-            fh.seek(self._offset)
-            data = fh.read(size - self._offset)
-        self._offset += len(data)
-        data = self._partial + data
-        *complete, self._partial = data.split(b"\n")
-        return [line.decode("utf-8", errors="replace").rstrip("\r") for line in complete]
+        lines: list[str] = []
+        if size > self._offset:
+            with open(self.path, "rb") as fh:
+                fh.seek(self._offset)
+                data = fh.read(size - self._offset)
+            self._offset += len(data)
+            data = self._partial + data
+            *complete, self._partial = data.split(b"\n")
+            lines = [line.decode("utf-8", errors="replace").rstrip("\r") for line in complete]
+        following = next_start_file(self.path)
+        if following is not None:  # this file is finished: the run went on in a later start-time directory
+            if self._partial:
+                lines.append(self._partial.decode("utf-8", errors="replace").rstrip("\r"))
+            self.path, self._offset, self._partial = following, 0, b""
+            lines += self.read_lines()
+        return lines
 
 
 def _floats(parts: list[str]) -> list[float] | None:
@@ -372,28 +394,28 @@ class ReportMonitor:
             if name == FORCE_COEFFS or name.startswith("forceCoeffs_"):
                 key = None if name == FORCE_COEFFS else name[len("forceCoeffs_"):]
                 if key not in self._coeffs:
-                    path = output_file(self.case_dir, name, FORCE_COEFFS_FILE)
+                    path = output_file(self.case_dir, name, FORCE_COEFFS_FILE, earliest=True)
                     if path is not None:
                         self._coeffs[key] = ForceCoeffsTail(path)
             elif name == FORCES or name.startswith("forces_"):
                 key = None if name == FORCES else name[len("forces_"):]
                 for store, file_name in ((self._force, FORCES_FILE), (self._moment, MOMENT_FILE)):
                     if key not in store:
-                        path = output_file(self.case_dir, name, file_name)
+                        path = output_file(self.case_dir, name, file_name, earliest=True)
                         if path is not None:
                             store[key] = ForceVectorTail(path)
             elif name.startswith("massFlow_") and name[len("massFlow_"):] not in self._mass:
-                path = output_file(self.case_dir, name, MASS_FILE)
+                path = output_file(self.case_dir, name, MASS_FILE, earliest=True)
                 if path is not None:
                     self._mass[name[len("massFlow_"):]] = ScalarTail(path)
             elif name.startswith("probe_"):
                 probe = name[len("probe_"):]
-                if probe not in self._probe_p and (path := output_file(self.case_dir, name, "p")) is not None:
+                if probe not in self._probe_p and (path := output_file(self.case_dir, name, "p", earliest=True)) is not None:
                     self._probe_p[probe] = ScalarTail(path)
-                if probe not in self._probe_u and (path := output_file(self.case_dir, name, "U")) is not None:
+                if probe not in self._probe_u and (path := output_file(self.case_dir, name, "U", earliest=True)) is not None:
                     self._probe_u[probe] = VectorTail(path)
             elif name == YPLUS and self._yplus is None:
-                path = output_file(self.case_dir, YPLUS, YPLUS_FILE)
+                path = output_file(self.case_dir, YPLUS, YPLUS_FILE, earliest=True)
                 if path is not None:
                     self._yplus = YPlusTail(path)
                     self._face_counts = patch_face_counts(self.case_dir)

@@ -31,6 +31,10 @@ class RunRecord:
     # time estimate (D-066). Absent in older records (None / 1).
     duration_s: float | None = None
     cores: int = 1
+    # The turbulence stages of a two-stage run (D-126; solver_run.SolverRunResult.stages) and the last iteration
+    # of stage 1. Absent in single-stage and older records.
+    stages: tuple[dict, ...] = ()
+    switch_iteration: int | None = None
 
     @property
     def label(self) -> str:
@@ -50,6 +54,8 @@ def _data(record: RunRecord) -> dict:
         "met_iteration": record.met_iteration,
         "duration_s": record.duration_s,
         "cores": record.cores,
+        **({"stages": [dict(s) for s in record.stages], "switch_iteration": record.switch_iteration}
+           if record.stages else {}),
     }
 
 
@@ -77,7 +83,9 @@ def read_run_record(case_dir: Path) -> RunRecord | None:
                            tuple(str(c) for c in data.get("met_labels", [])),
                            None if met_it is None else int(met_it),
                            None if data.get("duration_s") is None else float(data["duration_s"]),
-                           int(data.get("cores", 1)))
+                           int(data.get("cores", 1)),
+                           tuple(dict(s) for s in data.get("stages", [])),
+                           None if data.get("switch_iteration") is None else int(data["switch_iteration"]))
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
     if migrated:

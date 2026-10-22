@@ -187,6 +187,7 @@ class FoamRun:
         timeout_s: float | None = None,
         clean_stop: bool = False,
         keep_last_lines: int | None = None,
+        append: bool = False,
     ) -> None:
         """Start an OpenFOAM command asynchronously.
 
@@ -199,6 +200,7 @@ class FoamRun:
             clean_stop: If True, request_stop() sends SIGUSR1 once the solver has entered its
                 time-stepping loop ("Time = " gate). If False, stops escalate directly to SIGTERM.
             keep_last_lines: Optional override for the in-memory line buffer size.
+            append: Append to log_file instead of replacing it (the second turbulence stage, D-126).
 
         Raises:
             ValueError: If command is empty, or if clean_stop=True and the case's
@@ -232,8 +234,8 @@ class FoamRun:
             f"source {shlex.quote(str(OPENFOAM_BASHRC))} && exec {cmd_str}"
         )
 
-        self._log_file_handle = open(
-            self._log_file_path, "w", encoding="utf-8"
+        self._log_file_handle = open(  # append: a run continued in the same log (D-126)
+            self._log_file_path, "a" if append else "w", encoding="utf-8"
         )
         self._start_time = time.monotonic()
         self._process = subprocess.Popen(

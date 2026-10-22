@@ -126,6 +126,12 @@ def for_case(inp: SolverCaseInput, case_dir: Path) -> SolverCaseInput:
     return dataclasses.replace(inp, span=span) if span is not None else inp
 
 
+def two_stage_turbulence(project: Project) -> bool:
+    """The wall-resolved mode (chosen or automatic, D-123) solves k and omega in two stages (D-126)."""
+    mesh = project.sim.mesh
+    return mesh.effective_layer_controls == "wall_resolved" and mesh.layer_sizing == "absolute_yplus"
+
+
 def solver_input(project: Project) -> SolverCaseInput:
     box, names, bounds = parts_layout(project)
     sim = project.sim
@@ -137,7 +143,8 @@ def solver_input(project: Project) -> SolverCaseInput:
                            part_force_groups(sim.geometry.parts),
                            far_field_patches(sim.domain.shape, ground, strip, two_d),
                            ground=sim.domain.ground.motion if ground else None,
-                           span=section_span(project, box) if two_d else None)
+                           span=section_span(project, box) if two_d else None,
+                           two_stage=two_stage_turbulence(project))
 
 
 def clear_results(case_dir: Path) -> list[str]:
@@ -188,4 +195,6 @@ def results_hash(project: Project) -> str:
     }
     if sim.domain.ground.enabled:  # the ground's motion is a solver input only (D-116)
         payload["ground_motion"] = sim.domain.ground.motion
+    if two_stage_turbulence(project):  # D-126; single-stage projects keep their hash
+        payload["turbulence_stages"] = 2
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()

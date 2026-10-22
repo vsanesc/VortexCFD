@@ -60,8 +60,9 @@ class FakeRunner:
         FakeRunner.instances.append(self)
 
     def start(self, command, case_dir, log_file, *, on_line=None, timeout_s=None, clean_stop=False,
-              keep_last_lines=None) -> None:
+              keep_last_lines=None, append=False) -> None:
         self.command, self.case_dir, self.log_file = command, Path(case_dir), Path(log_file)
+        self.append = append
         self.clean_stop, self.on_line = clean_stop, on_line
         self._thread = threading.Thread(target=self._play, daemon=True)
         self._thread.start()
@@ -73,7 +74,7 @@ class FakeRunner:
                 self.on_line(line)
 
     def _play(self) -> None:
-        with open(self.log_file, "w", encoding="utf-8") as log:
+        with open(self.log_file, "a" if getattr(self, "append", False) else "w", encoding="utf-8") as log:
             self._emit(self.lines, log)
             if self.hold:
                 while not (self._stop.is_set() or self._release.is_set()):
