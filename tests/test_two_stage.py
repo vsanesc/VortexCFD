@@ -75,6 +75,7 @@ def test_the_switch_at_the_criteria_then_stage_2_to_the_criteria(tmp_path: Path)
     assert stage1.stop_requested and stage1.clean_stop and not stage1.append  # the switch: the D-058 clean stop
     assert stage2.append and stage2.clean_stop and stage2.command == stage1.command
     assert result.state == CRITERIA_MET and result.met_iteration == 7 and result.iterations == 8
+    assert result.duration_s == pytest.approx(0.2)  # both stages' solver time (0.1 s per fake run)
     assert result.switch_iteration == 4 and stages == [(2, 4, SWITCH_CRITERIA)]
     assert result.stages == (
         {"stage": 1, "k_omega": STAGE1_SCHEME, "first": 1, "last": 4, "switch": SWITCH_CRITERIA,

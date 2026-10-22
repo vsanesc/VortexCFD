@@ -218,6 +218,7 @@ class SolverRun:
         self._switch_reason: str | None = None
         self._switch_met_at: int | None = None
         self._stage1_end: int | None = None  # the last iteration of stage 1 once stage 2 runs
+        self._stage1_duration = 0.0  # stage 1's solver time (s), added to the result's
         self._half_limit = (lambda end: end // 2 if end else None)(_end_time(self.case_dir)) if self._stage2 else None
         two_stage_criteria = self._stage2 is not None and stopping is not None and bool(stopping.criteria)
         self._stopping = stopping if convergence.app_side(stopping) or two_stage_criteria else None
@@ -387,6 +388,7 @@ class SolverRun:
                 command = solver_command(SOLVER, self.cores, self.binding)
                 res = self._step(command, LOG_NAME, self._line, clean_stop=True)
                 if self._switch_ready(res):
+                    self._stage1_duration = res.duration_s
                     res = self._second_stage(command)
                 if self.cores > 1 and res.exit_code == 0:
                     reconstructed = self._reconstruct()
@@ -417,7 +419,7 @@ class SolverRun:
                 met, met_iteration = (), None
             result = SolverRunResult(
                 state, res.exit_code, _iterations(self.parser), final_residuals(self.parser),
-                self.parser.crash or self.parser.fatal_error, res.log_file, res.duration_s,
+                self.parser.crash or self.parser.fatal_error, res.log_file, self._stage1_duration + res.duration_s,
                 met, met_iteration, self.cores, decomposition, reconstructed, stages, switch_iteration,
             )
         return result

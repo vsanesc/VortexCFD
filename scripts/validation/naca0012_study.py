@@ -394,6 +394,75 @@ def cmd_collect(_args) -> None:
     say(f"wrote {OUT / 'result.json'}")
 
 
+def cmd_app_study(args) -> None:
+    """Round 3: the app's Mesh Study at 10 deg on the app-pipeline project, as the Mesh Study node runs it."""
+    from vortexcfd.foam.mesh_study import write_record
+
+    folder = WORK / "r3_study"
+    project = nc.build_app_project(folder, alpha=nc.STUDY_ANGLE)
+    plan = mesh_study.plan_study(project)
+    for lp in plan.levels:
+        say(f"{lp.level.name}: base {lp.estimate.base_size:.4g} m, surface cell {1e3 * lp.estimate.surface_size:.4g} mm, "
+            f"{lp.estimate.total_cells:,} background cells, planned {lp.estimated_cells:,} cells")
+    study_dir, record, inputs = mesh_study.prepare_study(project)
+    run = StudyRun(study_dir, record, mesh_study.solver_writer(project), stopping=project.sim.solvers.stopping,
+                   parts=inputs.patches, before_solve=collapse_check, solver_timeout_s=7200,
+                   on_line=lambda line: print(line, end="") if "Turbulence stage" in line or "Mesh study" in line else None)
+    t0 = time.monotonic()
+    run.start()
+    out = run.wait()
+    write_record(study_dir, out)
+    for lv in out.levels:
+        say(f"{lv.name}: {lv.cells} cells, h {lv.h}, share > 2x {lv.first_cell_share_over_2x}, {lv.state_label}, "
+            f"{lv.iterations} it. (switch {lv.switch_iteration}), {lv.duration_s} s, values {lv.values}, error {lv.error}")
+    for q in quantity_rows(out):
+        r = q.result
+        say(f"GCI {q.quantity}: {q.values} h {q.sizes} {r.convergence if r else None} p {r.order if r else None} "
+            f"ext {r.extrapolated if r else None} GCI fine {r.gci_fine if r else None} ratio "
+            f"{r.asymptotic_ratio if r else None} {q.note}")
+    say(f"study {out.status} in {time.monotonic() - t0:.0f} s")
+
+
+def cmd_app_angle(args) -> None:
+    """Round 3: one angle as Generate Mesh then Run Solver on the app-pipeline project (the preset's mesh), A6."""
+    from vortexcfd.foam.mesh_run import MeshRun
+    from vortexcfd.foam.solver_run import SolverRun
+
+    folder = WORK / f"r3_alpha_{args.alpha:g}"
+    project = nc.build_app_project(folder, alpha=args.alpha, mean_stable=args.mean_stable)
+    job = meshing.prepare_job(project)
+    plan = meshing.plan_layers_for(project, job.box)
+    t0 = time.monotonic()
+    mesh = MeshRun(job.case_dir, parts=job.inputs.patches, first_layer=(plan.first, plan.count), cores=job.cores,
+                   step_timeout_s=3600)
+    mesh.start()
+    report = mesh.wait().report
+    record = {"alpha": args.alpha, "mesh_s": round(time.monotonic() - t0, 1), "cells": report.cells if report else None,
+              "mesh_ok": bool(report and report.valid), "planned_first_m": plan.first, "layers": plan.count,
+              "first_cell_m": report.first_cell.mean_m if report and report.first_cell else None,
+              "first_cell_share_over_2x": report.first_cell.share_over_2x if report and report.first_cell else None}
+    refusal = (None if report is not None and report.valid else "invalid mesh") or collapse_check(None, report)
+    if refusal:
+        record["error"] = refusal
+        say(f"alpha {args.alpha:g}: not solved: {refusal}")
+    else:
+        case = solving.prepare_solver_case(project)
+        stopping = project.sim.solvers.stopping
+        run = SolverRun(case, stopping=stopping, cores=project.sim.solvers.cores, timeout_s=7200,
+                        on_line=lambda line: print(line, end="") if "Turbulence stage" in line else None)
+        say(f"alpha {args.alpha:g}: solving {report.cells} cells on {project.sim.solvers.cores} cores")
+        run.start()
+        res = run.wait()
+        record.update({"state": res.state, "iterations": res.iterations, "duration_s": round(res.duration_s, 1),
+                       "switch_iteration": res.switch_iteration, "stages": list(res.stages),
+                       "criteria_met": list(res.criteria_met)})
+        record["diagnostics"] = flow_diagnostics(case, args.alpha, stopping)
+        record.update(wall_stats(case, plan.first, plan.count))
+        say(f"alpha {args.alpha:g}: {res.state} at {res.iterations} (switch {res.switch_iteration}), "
+            f"{res.duration_s:.0f} s, {record['diagnostics']['values']}")
+    (folder / "angle.json").write_text(json.dumps(record, indent=2, default=float) + "\n")
+
+
 def cmd_collect_r2(_args) -> None:
     """Round 2: the diagnosis runs (Part B) and the per-angle runs (Part D) -> docs/validation/naca0012/
     result_round2.json (round 1's result.json is kept)."""
@@ -449,9 +518,14 @@ def main() -> None:
     ins.add_argument("--alpha", type=float, default=nc.STUDY_ANGLE)
     ins.add_argument("--out", default=None)
     sub.add_parser("collect-r2")
+    sub.add_parser("app-study")
+    aa = sub.add_parser("app-angle")
+    aa.add_argument("--alpha", type=float, required=True)
+    aa.add_argument("--mean-stable", action="store_true")
     args = parser.parse_args()
     {"setup": cmd_setup, "study": cmd_study, "angle": cmd_angle, "collect": cmd_collect, "diag": cmd_diag,
-     "inspect": cmd_inspect, "collect-r2": cmd_collect_r2}[args.command](args)
+     "inspect": cmd_inspect, "collect-r2": cmd_collect_r2, "app-study": cmd_app_study,
+     "app-angle": cmd_app_angle}[args.command](args)
 
 
 if __name__ == "__main__":

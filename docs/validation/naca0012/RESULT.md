@@ -220,3 +220,84 @@ run/validation/naca0012/r2/bench/20261022T100159Z_9c63edb-dirty.json, git-ignore
 the three public cases (sphere 233,534 cells, max non-orthogonality 46.46, coverage 99.59 %; half wing 300,025,
 64.91, 94.37 %, trailing edge 38.36 %; Ahmed body 231,606, 64.28, 96.55 %, slant edges 56.01 %; fidelity unchanged;
 0 hard failures): "no regressions".
+
+# Round 3 (app pipeline, task w2-naca-r2, 2026-10-22)
+
+Owner review of round 2: D-123 to D-125 accepted; the round 2 PASS came from the validation driver, and W2 closes
+only when the app reproduces it. Round 3 runs the case as a user would (`naca0012_case.build_app_project`,
+`naca0012_study.py app-study | app-angle`): the "2D airfoil" preset with only the TMR inputs (the airfoil, U 90 m/s
+and nu 1.5e-5 for Re 6e6, the angle, Tu 0.052 % and nut / nu 0.009, chord 1 m and the quarter chord as reference,
+the 100-chord C-type domain) and the user's solver and study settings (round 1's stopping criteria, limit 8000;
+at 15 deg the mean-stable criterion on Cl and Cd and limit 12,000; 8 cores; the study with the preset's mesh as its
+medium level, see below). Everything else is the app's: the surface refined to the wall-resolved limit (D-122,
+automatic for y+ 1, D-123), the 12-cell staircase (D-124), the medial-axis walk (D-125), the two turbulence stages
+(D-126: first-order k, omega to the criteria, then second order to the criteria again) and the study levels'
+refinement of the whole domain (D-127). No driver override.
+
+The study's current settings are its medium level (Mesh Study "current as" medium): the preset's surface cell is
+1.307 mm (h / t1 = 147), so as the fine level the coarse one would be 2.61 mm (h / t1 = 293), beyond D-122's tested
+limit of 220; as the medium level the three levels are 1.848 / 1.307 / 0.924 mm (h / t1 207 / 147 / 104).
+
+## Mesh study at 10 degrees (through the app)
+
+| Level | Surface cell | Cells | Layers | Share > 2x | Switch (iteration) | Iterations, stop | Solver time | CL | CD | CD pressure | CD viscous |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| coarse | 1.848 mm | 96,322 | 21 | 1.2 % | 1323 | 1973, criteria met | stage 2 only recorded: 34 s | 1.0534 | 0.012614 | 0.006933 | 0.005681 |
+| medium (the preset) | 1.307 mm | 176,110 | 19 | 0.6 % | 1577 | 2363, criteria met | stage 2 only: 89 s | 1.0602 | 0.012155 | 0.006477 | 0.005678 |
+| fine | 0.924 mm | 329,801 | 17 | 0.3 % | 1828 | 2701, criteria met | stage 2 only: 221 s | 1.0656 | 0.011991 | 0.006259 | 0.005732 |
+
+(The study's solver times are those of stage 2 only: the result's duration was the last stage's; fixed after
+the study, the 0 and 15 deg runs below include both stages.)
+
+GCI (Celik, h = (A / N)^(1/2), D-121; h = 0.610 / 0.451 / 0.329 m, ratios 1.35 / 1.37):
+
+| Quantity | Convergence | Order p | Extrapolated | GCI fine | Asymptotic ratio |
+|---|---|---|---|---|---|
+| CL | monotonic | 0.90 | 1.0822 (TMR 1.0794, +0.26 %) | 1.9 % | 1.005 |
+| CD | monotonic | 3.49 | 0.011908 (TMR 0.012467, -4.5 %) | 0.86 % | 0.987 |
+| CD pressure | monotonic | 2.53 | 0.006078 | 3.6 % | 0.966 |
+| CD viscous | oscillatory (0.005681 / 0.005678 / 0.005732) | - | - | - | - |
+| CM | monotonic | 0.95 | 0.00562 | 40 % | 0.90 |
+
+Round 1's study gave CL and CD oscillatory or divergent within a 1.2 % spread; with D-124 and D-127 both converge
+monotonically in the asymptotic range. Cell size at fixed points (median within 0.1 chord, coarse / medium /
+fine): one chord above the quarter chord 59.0 / 41.9 / 29.6 mm (ratio 1.41, 1.41); one chord ahead of the leading
+edge 71.3 / 41.9 / 29.6 mm (1.70, 1.41); two chords behind the trailing edge 236 / 167 / 59 mm (1.41, 2.83). The
+planned sizes (the dictionaries) scale by 1.414 at all three points (tests/test_wall_resolved.py); the measured
+exceptions lie within a few cells of a staircase box edge (one chord ahead is 16 mm outside the level-5 box), where
+snappyHexMesh places the transition on each level's own cells (QUESTIONS). Round 1's meshes had no cell centre within
+0.1 chord of most of these points (cells of 0.18-0.7 m).
+
+Level used for 0 and 15 degrees: the medium, the preset's own mesh. The study is in the asymptotic range for CL
+and CD (ratios 1.005, 0.987), the medium level is within 0.5 % (CL) and 1.4 % (CD) of the fine one and within
+GCI-sized distance of the extrapolated values, and it is the mesh a user of the preset gets.
+
+## Per angle (through the app, medium level)
+
+| Angle | Cells | y+ mean | y+ within 2x | Coverage | Share > 2x | Switch | Iterations, stop | Solver time | CL | CD | CD pressure | CD viscous |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0 | 126,688 | 1.050 | 99.8 % | 98.9 % | 0.6 % | 589 | 1259, criteria met | 82 s | -0.0000022 | 0.007527 | 0.001283 | 0.006244 |
+| 10 (study medium) | 176,110 | - | - | - | 0.6 % | 1577 | 2363, criteria met | see above | 1.0602 | 0.012155 | 0.006477 | 0.005678 |
+| 15 | 218,711 | 0.901 | 80.4 % | 98.8 % | 0.7 % | 2918 | 4402, mean stable | 625 s | 1.4752 (amplitude 0.17 %) | 0.023147 (0.76 %) | 0.018303 | 0.004844 |
+
+15 degrees: 500-iteration means (D-119); the run is close to steady after the switch (round 2's driver run
+oscillated by 7.8 % in CD). Upper-surface Cf against CFL3D at x/c 0.9 / 0.95 / 0.99: 1.34e-4 / 3.7e-5 / -7.9e-6
+(CFL3D 2.01e-4 / 7.7e-5 / -5.3e-5): a small reversed-flow region from x/c 0.972, as in CFL3D's solution near the
+trailing edge; Cp at 0.99 0.036 (0.054). 0 degrees: Cf 1.85e-3 at x/c 0.9, Cp 0.196 at 0.99.
+
+## Round 3 comparison and verdict (owner rule A6)
+
+| Angle | CL | CL error | CD | CD error | Round 2 (driver, fine): CL / CD error | Verdict |
+|---|---|---|---|---|---|---|
+| 0 | -0.0000022 | 0.0002 % of the 10 deg CL | 0.007527 | -6.9 % | about 0 / -6.5 % | **PASS** |
+| 10 | 1.0602 | -1.8 % | 0.012155 | -2.5 % | -1.4 % / -2.3 % | **PASS** |
+| 15 | 1.4752 | -2.3 % | 0.023147 | +3.9 % | -1.3 % / +1.3 % | **PASS** |
+
+Verdict: PASS at 0, 10 and 15 degrees through the app pipeline, within 1 % (CL) and 2.6 % (CD) of round 2's driver
+result; the differences are mostly the level (the preset's 1.307 mm against the driver's 0.977 mm; at 10 degrees the
+app's fine level, 0.924 mm, gives CL -1.3 % and CD -3.8 %). No level collapsed (share > 2x at most 1.2 %). The
+0 degree drag is -6.9 %: inside PASS; round 1's -0.1 % was a cancellation and the likely cause of the remaining gap
+is the SST-2003 (v2606) against SSTm (TMR) difference, not established (owner review of round 2, QUESTIONS 194).
+
+Machine time of round 3: about 42 min at nice 15 (the two-stage slow test 2.5, the benchmark check 3.0, the study
+21.9, 0 deg 2.1, 15 deg 11.8, dictionary dumps about 1). No OpenFOAM process is left running.

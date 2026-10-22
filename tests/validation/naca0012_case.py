@@ -150,3 +150,36 @@ def build_project(folder: Path, alpha: float = STUDY_ANGLE, base_size: float = F
     project.add_part(part_ops.airfoil_part(folder, dat, "naca0012", set()))
     project.save()
     return project
+
+
+def build_app_project(folder: Path, alpha: float = STUDY_ANGLE, cores: int = 8, mean_stable: bool = False):
+    """Round 3 (the app pipeline): the project as a user sets it up, the "2D airfoil" preset with only the TMR
+    inputs (the airfoil, Re through U and nu, the angle, the freestream turbulence, the chord and quarter chord as
+    reference, the 100-chord domain) and the solver and study settings a user chooses (stopping criteria, iteration
+    limit, cores; the study with the preset's mesh as its medium level). No mesh setting is overridden: the
+    surface size, the layers (D-122, D-123), the staircase (D-124, D-125), the two turbulence stages (D-126) and
+    the study's levels (D-127) are the app's."""
+    from vortexcfd.core.presets import BUILTIN_PRESETS, apply_preset
+    from vortexcfd.core.project import Project
+    from vortexcfd.workflow import part_ops
+
+    folder = Path(folder)
+    (folder / "geometry").mkdir(parents=True, exist_ok=True)
+    project = Project.new("naca0012")
+    project._sim = apply_preset(project.sim, next(p for p in BUILTIN_PRESETS if p.name == "2D airfoil"))
+    project.update_physics(nu=NU)
+    project.update_inflow(speed=SPEED, alpha_deg=alpha, turbulence_intensity=TURBULENCE_INTENSITY,
+                          viscosity_ratio=VISCOSITY_RATIO)
+    project.update_reports(reference_length=CHORD, center_of_rotation=CENTRE)
+    project.update_domain(radius=DOMAIN_RADIUS, downstream=DOMAIN_WAKE)
+    stop = stopping_mean_stable() if mean_stable else stopping()
+    limit = 12000 if mean_stable else ITERATION_LIMIT
+    project.update_solver(iterations=limit, write_interval=limit, cores=cores, stopping=stop.model_dump())
+    project.update_study("mesh", quantities=["Cl", "Cd", "CmPitch", "Cd_pressure", "Cd_viscous"], cores=cores,
+                         current_as="medium")
+    project.save(folder / "naca0012.json")
+    dat = write_dat(folder / "naca0012_tmr.dat")
+    project.add_part(part_ops.airfoil_part(folder, dat, "naca0012", set()))
+    project.save()
+    return project
+
