@@ -291,38 +291,29 @@ def test_a_2d_study_level_is_finer_everywhere(tmp_path: Path) -> None:
                 [boxes[2][key]["min"][0], boxes[2][key]["min"][2], boxes[2][key]["max"][0], boxes[2][key]["max"][2]])
 
 
-def test_a_3d_study_level_gets_the_current_buffer_distances() -> None:
-    """D-127 (QUESTIONS 204): every 3D study level, the current one included, has distance shells around each part
-    at the current settings' buffer distances and nCellsBetweenLevels 1; a single mesh has neither."""
-    from vortexcfd.foam.mesh_case import CELLS_BETWEEN_LEVELS, STUDY_CELLS_BETWEEN_LEVELS
+def test_a_3d_study_level_scales_its_buffers_with_its_cells() -> None:
+    """D-127 (QUESTIONS 204, owner decision of W3 close): a 3D study level of factor f gets nCellsBetweenLevels
+    max(1, round(3 / f)) (half up) and no distance shells; the current level (f = 1) and every single mesh get 3."""
+    import math
 
-    def controls(scale: float, study: bool = True) -> tuple[dict, float, int]:
+    from vortexcfd.foam.mesh_case import CELLS_BETWEEN_LEVELS, study_cells_between_levels
+
+    r = math.sqrt(2)
+    assert [study_cells_between_levels(f) for f in (r**2, r, 1.0, 1 / r, 1 / r**2)] == [2, 2, 3, 4, 6]
+    assert study_cells_between_levels(8.0) == 1 and study_cells_between_levels(1.0) == CELLS_BETWEEN_LEVELS
+
+    def controls(count: int | None) -> dict:
         mesh = Mesh(layer_sizing="relative", surface_level_min=3, surface_level_max=4)
+        extra = {} if count is None else {"cells_between_levels": count}
         inp = MeshCaseInput(domain_bounds=(-5.0, 10.0, -5.0, 5.0, -5.0, 5.0), symmetric=False, parts=("ball",),
                             parts_bounds=(-0.5, 0.5, -0.5, 0.5, -0.5, 0.5), reference_length=1.0, mesh=mesh,
-                            part_bounds=((-0.5, 0.5, -0.5, 0.5, -0.5, 0.5),), buffer_scale=scale, study_level=study)
-        cm = snappy_hex_mesh_dict(inp).content["castellatedMeshControls"]
-        return cm, inp.estimate().base_size, inp.estimate().level_max
+                            part_bounds=((-0.5, 0.5, -0.5, 0.5, -0.5, 0.5),), **extra)
+        return snappy_hex_mesh_dict(inp).content["castellatedMeshControls"]
 
-    single, base, top = controls(1.0, study=False)
-    assert "ball" not in single["refinementRegions"] and single["nCellsBetweenLevels"] == CELLS_BETWEEN_LEVELS
-    current, _, _ = controls(1.0)
-    assert current["nCellsBetweenLevels"] == STUDY_CELLS_BETWEEN_LEVELS
-    reach = 0.0
-    for (d, k), level in zip(current["refinementRegions"]["ball"]["levels"], range(top, 0, -1)):
-        reach += 3 * base / 2 ** level
-        assert d == pytest.approx(reach) and k == level
-    # buffer_scale: the current settings' background cell over this level's; here the level's own base is
-    # ``base`` (same settings), so the current base the shells use is scale x base
-    coarse, _, _ = controls(0.5)
-    shells = coarse["refinementRegions"]["ball"]
-    assert shells["mode"] == "distance" and coarse["nCellsBetweenLevels"] == STUDY_CELLS_BETWEEN_LEVELS == 1
-    expected, reach = [], 0.0
-    for k in range(top, 0, -1):
-        reach += 3 * 0.5 * base / 2 ** k  # 3 cells of the current settings' size of each level
-        expected.append([pytest.approx(reach), k])
-    assert shells["levels"] == expected
-
+    single, coarse = controls(None), controls(2)
+    assert single["nCellsBetweenLevels"] == CELLS_BETWEEN_LEVELS and coarse["nCellsBetweenLevels"] == 2
+    assert single["refinementRegions"] == coarse["refinementRegions"] == {}
+    assert controls(CELLS_BETWEEN_LEVELS) == single
 
 
 def test_the_study_places_the_current_settings_within_the_wall_resolved_limit(tmp_path: Path) -> None:

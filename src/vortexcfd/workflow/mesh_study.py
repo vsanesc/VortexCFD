@@ -19,6 +19,7 @@ from vortexcfd.foam.mesh_case import (
     MeshCaseInput,
     build_mesh_files,
     prepare_case_dir,
+    study_cells_between_levels,
     write_domain_guard,
     write_seed_edge_meshes,
 )
@@ -97,7 +98,7 @@ def level_layers(project: Project, plan: "StudyPlan", lp: "LevelPlan") -> tuple[
 
 def level_buffer_scale(plan: "StudyPlan", lp: "LevelPlan") -> float:
     """The current settings' background cell over the level's (about 1 / its factor; exactly 1 for the current
-    level): the level keeps the current settings' refinement regions in metres (D-127). [NUMERICS-REVIEW]"""
+    level): a 2D level keeps the current settings' staircase boxes in metres (D-127). [NUMERICS-REVIEW]"""
     if plan.current_base is None or not lp.estimate.base_size or lp.level.factor == 1.0:
         return 1.0
     return plan.current_base / lp.estimate.base_size
@@ -279,8 +280,8 @@ def prepare_study(project: Project, only: Collection[str] | None = None) -> tupl
             surface_length=length, volumes=volumes, extra_features=features,
             ground=box.ground, ground_layers=box.ground and project.sim.domain.ground.layers,
             ground_wall_start=ground_wall_start(project.sim.domain, box.bounds),
-            two_d=box.two_d, buffer_scale=level_buffer_scale(plan, lp),  # the current regions everywhere (D-127)
-            study_level=True,  # every 3D level with the shells, the current one included (D-127)
+            two_d=box.two_d, buffer_scale=level_buffer_scale(plan, lp),  # the current 2D staircases (D-127)
+            cells_between_levels=study_cells_between_levels(lp.level.factor),  # 3D buffers scaled (D-127)
             **domain_fields(box),
             **internal_fields(project, box),
         )

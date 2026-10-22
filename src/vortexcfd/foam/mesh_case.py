@@ -152,12 +152,13 @@ class MeshCaseInput:
     # cell with the empty patch "frontAndBack". [NUMERICS-REVIEW]
     two_d: bool = False
     # A mesh study level (D-127): the current settings' cell size over this level's (1 / its factor; 1 for the
-    # current level and every single mesh). Other than 1, the regions between the parts and the background keep
-    # the current level's extent in metres (study_buffer_shells), so a finer level is finer everywhere.
+    # current level and every single mesh). Other than 1, a 2D section's staircase boxes keep the current level's
+    # extent in metres (section_staircases), so a finer level is finer everywhere.
     buffer_scale: float = 1.0
-    # A mesh study level (D-127): in 3D every level, the current one included, gets the distance shells and
-    # nCellsBetweenLevels 1 (one transition mechanism for the whole family); False for every single mesh.
-    study_level: bool = False
+    # snappyHexMesh's nCellsBetweenLevels in 3D (D-127): CELLS_BETWEEN_LEVELS for every single mesh and a study's
+    # current level, study_cells_between_levels for the other levels of a 3D study. 2D always uses
+    # CELLS_BETWEEN_LEVELS (its transitions are the staircases).
+    cells_between_levels: int = CELLS_BETWEEN_LEVELS
     # Internal flow (D-129) [NUMERICS-REVIEW]: no domain; the background box encloses the parts (domain_bounds are
     # their bounds, domain_volume the fluid volume) with BACKGROUND_MARGIN_CELLS base cells on every side, its faces
     # the patch "background", which the fluid inside the parts never touches (createPatch removes it; the domain
@@ -770,29 +771,15 @@ def section_staircases(inp: MeshCaseInput, est, part_max_levels: list[int]) -> t
 
 
 # A 3D mesh study level (D-127) [NUMERICS-REVIEW]: snappyHexMesh's buffers are nCellsBetweenLevels cells of each
-# level, so between a part and the background the cell at a distance d is about d / (2 x 3) on every level and only
-# the near-wall cells and the background scale with the level. Every level of a 3D study, the current one included
-# (QUESTIONS 204: one mechanism for the whole family), gets distance shells around every part at the current
-# settings' buffer distances (D_k = the sum over the levels from the part's maximum down to k of 3 cells of the
-# current settings' size of that level) and nCellsBetweenLevels 1, so at a fixed distance every level has the same
-# refinement level and its cells scale with the base size. The study's current level is then not the single mesh.
-STUDY_CELLS_BETWEEN_LEVELS = 1
-
-
-def study_buffer_shells(inp: MeshCaseInput, est, part_max_levels: list[int]) -> dict:
-    """The refinementRegions entries of a 3D study level's distance shells (none for a single mesh or 2D)."""
-    if inp.two_d or not inp.study_level:
-        return {}
-    regions = {}
-    current_base = est.base_size * inp.buffer_scale
-    for i, name in enumerate(inp.parts):
-        top, reach, levels = part_max_levels[i], 0.0, []
-        for k in range(top, 0, -1):
-            reach += CELLS_BETWEEN_LEVELS * current_base / 2 ** k
-            levels.append([reach, k])
-        if levels:
-            regions[name] = {"mode": "distance", "levels": levels}
-    return regions
+# level, so with a fixed count the cell at a distance d from a part is about d / (2 x 3) on every level and only the
+# near-wall cells and the background scale with the level. A study level scales the count with its cells instead:
+# level k gets max(1, round(3 r^(k - k_current))) (r^(k - k_current) = 1 / the level's factor), so the buffers keep
+# about the current settings' extent in metres and the current level, with 3, is the user's single mesh. Rounded
+# half up (3 / 2 = 1.5 gives 2): an exact half must not depend on the factor's last bit.
+def study_cells_between_levels(factor: float) -> int:
+    """nCellsBetweenLevels of a 3D study level of linear size factor ``factor`` (> 1 coarser, 1 the current
+    settings)."""
+    return max(1, math.floor(CELLS_BETWEEN_LEVELS / factor + 0.5 + 1e-9))
 
 
 def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
@@ -851,7 +838,6 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
         boxes, staircases = section_staircases(inp, est, part_max)
         geometry.update(boxes)
         regions.update(staircases)
-    regions.update(study_buffer_shells(inp, est, part_max))  # 3D study levels (D-127)
     if with_seeds:
         features += [{"file": f'"{seed_file_name(inp.parts[i])}"', "level": levels[i][1]}
                      for i in seeded_parts(inp, est.base_size, est.level_min, est.level_max)]
@@ -881,8 +867,7 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
             "maxGlobalCells": MAX_GLOBAL_CELLS,
             "minRefinementCells": 10,
             "maxLoadUnbalance": 0.10,
-            "nCellsBetweenLevels": (STUDY_CELLS_BETWEEN_LEVELS if not inp.two_d and inp.study_level
-                                    else CELLS_BETWEEN_LEVELS),
+            "nCellsBetweenLevels": CELLS_BETWEEN_LEVELS if inp.two_d else inp.cells_between_levels,
             "features": features,
             "refinementSurfaces": refinement_surfaces,
             "resolveFeatureAngle": m.feature_angle,

@@ -476,20 +476,19 @@ def test_every_level_keeps_the_refinement_volumes_and_the_ground(tmp_path: Path)
     project.add_refinement_volume(refinement.wake_volume(project, [0], [m.bounds for m in meshes], est))
     level = refinement.volume_entries(refinement.volume_infos(project, box, est))[0].level
     study_dir, record, _ = prepare_study(project)
-    shells = []
+    counts = []
     for lr in record.levels:
         case = study_dir / f"level_{lr.index + 1}"
         snappy = read_foam_file(case / "system" / "snappyHexMeshDict")
         regions = snappy["castellatedMeshControls"]["refinementRegions"]
-        # D-127 (QUESTIONS 204): every level, the current (fine) one included, has the current settings' buffer
-        # distances as the part's distance shells and nCellsBetweenLevels 1
-        shells.append([d for d, _ in regions["Sphere"]["levels"]])
-        assert snappy["castellatedMeshControls"]["nCellsBetweenLevels"] == 1
-        assert list(regions) == ["volume_wake", "Sphere"]
+        # D-127 (QUESTIONS 204): the levels scale snappyHexMesh's buffers with their cells, max(1, round(3 / f)),
+        # with no distance shells; the current (fine) level keeps 3
+        counts.append(snappy["castellatedMeshControls"]["nCellsBetweenLevels"])
+        assert list(regions) == ["volume_wake"]
         assert regions["volume_wake"]["levels"][0][1] == level
         block = read_foam_file(case / "system" / "blockMeshDict")
         assert [name for name, _ in block["boundary"]][-1] == "ground"
-    assert len(shells) == 3 and shells[0] == pytest.approx(shells[2]) and shells[1] == pytest.approx(shells[2])
+    assert counts == [2, 2, 3]
 
 
 def test_one_level_can_be_prepared_without_touching_the_others(tmp_path: Path) -> None:
