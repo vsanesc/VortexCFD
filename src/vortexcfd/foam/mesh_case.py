@@ -631,8 +631,14 @@ ROBUST_CONTROLS_REVISION = "5.4b"
 # determinant 1e-5 instead of 0.001 (snappyHexMesh's determinant of a layer cell of height t on a face h x s is
 # about 27 t^2 / (h s): 1.4e-4 to 5.6e-4 for a y+ 1 first layer on 2-4 mm cells, so 0.001 removes every such
 # layer, while a degenerate cell still tends to 0); maxNonOrtho 75 instead of 65 (the stack tapering at a sharp
-# trailing edge). checkMesh still judges the final mesh with its own limits.
-WALL_RESOLVED_RELAXED_QUALITY = {"minTetQuality": 1e-15, "minDeterminant": 1e-5, "maxNonOrtho": 75}
+# trailing edge); minFaceWeight 0.02 instead of 0.05 (D-135: a sliver wall face that snapping leaves at a convex corner
+# gives the first layers' faces beside it weights of 0.042-0.05, and removing their extrusion thinned the stack over
+# half of the backward-facing step's face). checkMesh still judges the final mesh with its own limits.
+WALL_RESOLVED_RELAXED_QUALITY = {"minTetQuality": 1e-15, "minDeterminant": 1e-5, "maxNonOrtho": 75,
+                                 "minFaceWeight": 0.02}
+# The meshing hash's revision of the wall-resolved layer-phase set (D-135): a mesh made with an earlier set is out of
+# date; other projects keep their hash.
+WALL_RESOLVED_CONTROLS_REVISION = "w3-close"
 # The layer phase's medial-axis walk of a wall-resolved 2D section (D-125) [NUMERICS-REVIEW]: v2606's default walks
 # the whole mesh (medialAxisMeshMover.C: nMedialAxisIter = the point count), and on the sharp trailing edge's medial
 # axis, 60 cells from the wall, the shrink inverted 2 face pyramids of the NACA 0012's fine 0 deg mesh (QUESTIONS

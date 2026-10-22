@@ -56,7 +56,8 @@ def test_the_relaxed_quality_set_of_the_layer_phase() -> None:
     wr = snappy_hex_mesh_dict(inputs("wall_resolved")).content
     q = wr["meshQualityControls"]
     assert q["relaxed"] == WALL_RESOLVED_RELAXED_QUALITY == {"minTetQuality": 1e-15, "minDeterminant": 1e-5,
-                                                             "maxNonOrtho": 75}
+                                                             "maxNonOrtho": 75, "minFaceWeight": 0.02}  # D-135
+    assert q["minFaceWeight"] == MESH_QUALITY["minFaceWeight"] == 0.05  # snapping keeps the main value
     assert q["minDeterminant"] == MESH_QUALITY["minDeterminant"] == 0.001 and q["maxNonOrtho"] == 65  # snapping
     layers = wr["addLayersControls"]
     assert layers["nRelaxedIter"] == 0 and layers["featureAngle"] == 130 and layers["nOuterIter"] == 2

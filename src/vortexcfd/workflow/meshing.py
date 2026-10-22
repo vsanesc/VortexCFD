@@ -32,6 +32,7 @@ from vortexcfd.foam.mesh_case import (
     SECTION_BUFFER_CELLS,
     TRI_SURFACE,
     WALL_RESOLVED_2D_LAYER_CONTROLS,
+    WALL_RESOLVED_CONTROLS_REVISION,
     MeshCaseInput,
     build_mesh_files,
     location_in_mesh,
@@ -807,6 +808,8 @@ def inputs_hash(project: Project) -> str:
     elif mesh_settings.layer_controls == "robust" and mesh_settings.layer_sizing == "absolute_yplus":
         # the robust controls changed in 5.4b (D-106): a mesh made with the earlier ones is out of date
         payload["robust_controls"] = ROBUST_CONTROLS_REVISION
+    if mesh_settings.effective_layer_controls == "wall_resolved":  # the layer phase's relaxed set changed (D-135)
+        payload["wall_resolved_controls"] = WALL_RESOLVED_CONTROLS_REVISION
     if project.sim.internal:  # the roles set the patch types and the layered walls (D-129); others keep their hash
         payload["internal"] = [[p.safe, p.role] for p in internal.patches(project)]
         payload["internal_l_ref"] = project.sim.reports.reference_length

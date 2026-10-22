@@ -47,7 +47,9 @@ OUT = ROOT / "docs" / "validation" / "bfs"
 PROJECT = WORK / "bfs" / "bfs.vcfd"
 FAMILIES = {"preset": (WORK, None, "", bc.X_INLET), "fine": (ROOT / "run" / "validation" / "bfs_fine", bc.FINE_FAMILY, "_finefamily", bc.X_INLET),
             # round 2 (QUESTIONS 209): the finer family with the inlet moved to match TMR's boundary layer
-            "round2": (ROOT / "run" / "validation" / "bfs_r2", bc.FINE_FAMILY_ROUND2, "_round2", bc.X_INLET_ROUND2)}
+            "round2": (ROOT / "run" / "validation" / "bfs_r2", bc.FINE_FAMILY_ROUND2, "_round2", bc.X_INLET_ROUND2),
+            # round 3 (task w3-close): round 2's project, the medium level meshed again with D-135; its own outputs
+            "round3": (ROOT / "run" / "validation" / "bfs_r2", bc.FINE_FAMILY_ROUND2, "_round3", bc.X_INLET_ROUND2)}
 WINDOW = 500
 SHARE_LIMIT = 0.10  # I5: more than 10 % of the wall above twice the planned first cell: collapsed
 
