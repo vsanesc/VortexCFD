@@ -2274,6 +2274,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
                                              and bool(self._project.sim.geometry.parts))
         self.act_add_wake.setEnabled(loaded and bool(self._project.sim.geometry.parts)
                                      and self._project.sim.domain.enabled)
+        self.act_generate_domain.setEnabled(loaded and not self._project.sim.internal)  # no domain (D-129)
 
     def _on_item_activated(self, item: QTreeWidgetItem, _column: int = 0) -> None:
         kind, _index = item.data(0, ROLE_NODE)

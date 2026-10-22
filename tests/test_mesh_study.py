@@ -628,3 +628,22 @@ def test_a_record_before_d119_reads_its_values_as_last_values(tmp_path: Path) ->
     back = read_record(tmp_path)
     assert all(lv.basis("Cd") == "last" and lv.values == {"Cd": 0.3} for lv in back.levels)
     assert "windowed" not in quantity_rows(back)[0].note
+
+
+def test_study_run_measures_the_first_cell_on_the_given_walls(tmp_path: Path) -> None:
+    """Internal flow (D-129): the inlets and outlets have no layers, so the first cell of every level is measured on
+    the walls only, as a single mesh does; without ``walls`` the mesh runs get no such argument."""
+    seen = []
+
+    class WallsMeshRun(FakeMeshRun):
+        def __init__(self, case, *, walls=None, **kwargs):
+            super().__init__(case, **kwargs)
+            seen.append(walls)
+
+    FakeMeshRun.calls, FakeSolverRun.n = [], 0
+    rec = StudyRecord(math.sqrt(2), "fine", ["Cd"], 1, 8.0,
+                      [LevelResult(i, n, f) for i, (n, f) in enumerate([("coarse", 2.0), ("medium", 1.41), ("fine", 1.0)])])
+    run = StudyRun(tmp_path, rec, lambda case: None, mesh_run_factory=WallsMeshRun, solver_run_factory=FakeSolverRun,
+                   walls=("wall",))
+    run.start()
+    assert run.wait(10).status == "finished" and seen == [("wall",)] * 3

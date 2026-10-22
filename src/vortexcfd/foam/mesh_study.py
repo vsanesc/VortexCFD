@@ -357,7 +357,7 @@ class StudyRun:
                  parts: tuple[str, ...] = (), binding: str | None = None,
                  on_line=None, on_level=None, on_done=None, mesh_timeout_s: float | None = 3600.0,
                  solver_timeout_s: float | None = None, mesh_run_factory=None, solver_run_factory=None,
-                 before_solve=None) -> None:
+                 before_solve=None, walls: tuple[str, ...] | None = None) -> None:
         import threading
 
         from vortexcfd.foam.mesh_run import MeshRun
@@ -372,6 +372,8 @@ class StudyRun:
         self._mesh_factory = mesh_run_factory or MeshRun
         self._solver_factory = solver_run_factory or SolverRun
         self._before_solve = before_solve  # (level, mesh report) -> a reason not to solve it, or None
+        # the patches with layers, where the first cell is measured (None: every part patch; internal flow, D-129)
+        self._walls = tuple(walls) if walls is not None else None
         self._lock = threading.Lock()
         self._stop = False
         self._current = None
@@ -433,9 +435,11 @@ class StudyRun:
                 case = level_dir(self.study_dir, level.index)
                 self._say(f"Mesh study: meshing level {level.index + 1} ({level.name}) in {case}")
                 planned = level.planned_layers
+                extra = {"walls": self._walls} if self._walls is not None else {}
                 mesh_run = self._mesh_factory(case, on_line=self._on_line, step_timeout_s=self._mesh_timeout,
                                               parts=self._parts, cores=self.record.mesh_cores,
-                                              first_layer=(float(planned[0]), int(planned[1])) if planned else None)
+                                              first_layer=(float(planned[0]), int(planned[1])) if planned else None,
+                                              **extra)
                 mesh_run.start()
                 self._attach(mesh_run)
                 mesh = mesh_run.wait()

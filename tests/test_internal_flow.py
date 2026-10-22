@@ -302,6 +302,7 @@ def test_tree_rows_and_role_editing(internal_window) -> None:
     kinds = {key[0] for key in w._items}
     assert "internal_patch" in kinds and "internal_reports" in kinds
     assert not kinds & {"inflow", "fluid_domain", "polar_sweep", "generate_domain"}
+    assert not w.act_generate_domain.isEnabled() and not w.act_add_wake.isEnabled()  # nothing unbuilt enabled (P4)
     texts = [w._items[("internal_patch", i)].text(0) for i in range(3)]
     assert texts == ["wall (Wall)", "inlet (Mass-flow inlet)", "outlet (Static-pressure outlet)"]
     w._select_node("internal_patch", 1)
