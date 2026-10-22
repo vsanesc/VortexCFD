@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 18
+CURRENT_SCHEMA_VERSION: int = 20
 
 
 class StrictModel(BaseModel):
@@ -399,6 +399,111 @@ class Probe(StrictModel):
         return value
 
 
+# -- internal flow (schema v19, D-129) ------------------------------------------------------------
+
+# The role of a surface patch in an internal-flow analysis: the fluid is the inside of the imported closed
+# geometry and every patch of it is an inlet, an outlet or a wall (the default).
+PATCH_ROLES = ("inlet", "outlet", "wall")
+PATCH_ROLE_LABELS = {"inlet": "Inlet", "outlet": "Outlet", "wall": "Wall"}
+# Inlet kinds (D-129): a velocity normal to the patch, a mass flow rate (converted to a volumetric flow rate with
+# the reference density: the solver is incompressible) or a total pressure (gauge, with an inlet velocity
+# derived from the flux, inflow normal to the patch); the outlet is a static pressure (gauge).
+INLET_KINDS = ("velocity", "mass_flow", "total_pressure")
+INLET_KIND_LABELS = {"velocity": "Velocity inlet", "mass_flow": "Mass-flow inlet", "total_pressure": "Total-pressure inlet"}
+OUTLET_KINDS = ("static_pressure",)
+OUTLET_KIND_LABELS = {"static_pressure": "Static-pressure outlet"}
+# The default inlet length scale is this fraction of the inlet patch's hydraulic diameter (the mixing length of
+# fully developed duct flow; owner decision I2). [NUMERICS-REVIEW]
+LENGTH_SCALE_OF_DH = 0.07
+
+
+class InletSpec(StrictModel):
+    """An internal-flow inlet (D-129). ``kind`` selects which value is used: ``speed`` (m/s, normal to the patch,
+    into the domain), ``mass_flow`` (kg/s, into the domain) or ``total_pressure`` (Pa, gauge: relative to the
+    outlet's reference level 0). The inlet turbulence comes from ``turbulence_intensity`` (a fraction of the
+    patch velocity) and ``length_scale`` (m; None: LENGTH_SCALE_OF_DH times the patch's hydraulic diameter).
+    [NUMERICS-REVIEW]"""
+
+    kind: Literal["velocity", "mass_flow", "total_pressure"] = "velocity"
+    speed: float = Field(default=1.0, gt=0)
+    mass_flow: float = Field(default=1.0, gt=0)
+    total_pressure: float = 0.0
+    turbulence_intensity: float = Field(default=0.05, gt=0, le=1.0)
+    length_scale: float | None = Field(default=None, gt=0)
+
+
+class OutletSpec(StrictModel):
+    """An internal-flow outlet (D-129): the static pressure ``pressure`` (Pa, gauge), backflow-safe velocity and
+    turbulence. [NUMERICS-REVIEW]"""
+
+    kind: Literal["static_pressure"] = "static_pressure"
+    pressure: float = 0.0
+
+
+class PatchBoundary(StrictModel):
+    """The role of one surface patch in an internal-flow analysis (D-129), keyed by the patch name of the model
+    (Part.patch_names(): a region's patch, or a part's own name). A patch without an entry is a wall. The inlet
+    and outlet settings are kept when the role changes (switching back restores them)."""
+
+    patch: str = Field(min_length=1)
+    role: Literal["inlet", "outlet", "wall"] = "wall"
+    inlet: InletSpec = Field(default_factory=InletSpec)
+    outlet: OutletSpec = Field(default_factory=OutletSpec)
+
+
+# A cutting plane of the internal-flow reports (D-129): mass flow and averaged pressures across the plane.
+PLANE_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,31}$")
+
+
+class CutPlane(StrictModel):
+    """A plane through ``point`` with normal ``normal`` (metres) for the internal-flow reports (D-129): the
+    volumetric flow through it and its area- and mass-averaged static and total pressure."""
+
+    name: str
+    point: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    normal: tuple[float, float, float] = (1.0, 0.0, 0.0)
+
+    @field_validator("name")
+    @classmethod
+    def _valid_name(cls, value: str) -> str:
+        if not PLANE_NAME_RE.match(value):
+            raise ValueError("a plane name starts with a letter and has only letters, digits and _ "
+                             "(at most 32 characters)")
+        return value
+
+    @field_validator("normal")
+    @classmethod
+    def _non_zero(cls, value: tuple[float, float, float]) -> tuple[float, float, float]:
+        if math.sqrt(sum(c * c for c in value)) == 0:
+            raise ValueError("the plane normal must not be zero")
+        return value
+
+
+class PressureDrop(StrictModel):
+    """A pressure drop between two locations (D-129): ``upstream`` minus ``downstream`` of the mass-averaged static
+    and total pressure. A location is ``patch:<patch>`` (an inlet or outlet) or ``plane:<plane>``."""
+
+    name: str
+    upstream: str
+    downstream: str
+
+    @field_validator("name")
+    @classmethod
+    def _valid_name(cls, value: str) -> str:
+        if not PLANE_NAME_RE.match(value):
+            raise ValueError("a pressure-drop name starts with a letter and has only letters, digits and _ "
+                             "(at most 32 characters)")
+        return value
+
+    @field_validator("upstream", "downstream")
+    @classmethod
+    def _location(cls, value: str) -> str:
+        kind, sep, name = value.partition(":")
+        if not sep or kind not in ("patch", "plane") or not name:
+            raise ValueError("a location is 'patch:<name>' or 'plane:<name>'")
+        return value
+
+
 class Reports(StrictModel):
     """Reference values for the force coefficients and the report slot assignment.
 
@@ -418,6 +523,25 @@ class Reports(StrictModel):
         default_factory=lambda: [None] * REPORT_SLOTS, min_length=REPORT_SLOTS, max_length=REPORT_SLOTS,
     )
     probes: list[Probe] = Field(default_factory=list)
+    # Internal flow (schema v19, D-129): cutting planes and pressure drops between two locations.
+    planes: list[CutPlane] = Field(default_factory=list)
+    pressure_drops: list[PressureDrop] = Field(default_factory=list)
+
+    @field_validator("planes")
+    @classmethod
+    def _unique_planes(cls, planes: list[CutPlane]) -> list[CutPlane]:
+        names = [p.name for p in planes]
+        if len(set(names)) != len(names):
+            raise ValueError("plane names must be unique")
+        return planes
+
+    @field_validator("pressure_drops")
+    @classmethod
+    def _unique_drops(cls, drops: list[PressureDrop]) -> list[PressureDrop]:
+        names = [d.name for d in drops]
+        if len(set(names)) != len(names):
+            raise ValueError("pressure-drop names must be unique")
+        return drops
 
     @field_validator("slots")
     @classmethod
@@ -706,11 +830,116 @@ class RefinementVolume(StrictModel):
         return value
 
 
+# -- results scene objects (schema v20, D-132) -----------------------------------------------------
+
+SCENE_OBJECT_KINDS = ("clip", "isosurface", "streamlines")
+SCENE_OBJECT_LABELS = {"clip": "Clip", "isosurface": "Isosurface", "streamlines": "Streamlines"}
+SCENE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_ .-]{0,63}$")
+
+
+class _SceneObject(StrictModel):
+    """A results scene object (D-132): an item under Results with an id that survives renames, a name and a
+    visibility. Its geometry is computed from the latest results (workflow/results_objects.py)."""
+
+    id: str = Field(min_length=1, max_length=32)
+    name: str
+    visible: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def _valid_name(cls, value: str) -> str:
+        if not SCENE_NAME_RE.match(value):
+            raise ValueError("a name has letters, digits, spaces and _ . - (at most 64 characters)")
+        return value
+
+
+class ClipObject(_SceneObject):
+    """The fluid volume clipped by the plane through ``origin`` with ``normal``; ``keep`` "behind" keeps the side the
+    normal points away from, "front" the side it points to. Coloured by the scene's field."""
+
+    kind: Literal["clip"] = "clip"
+    origin: Vector = (0.0, 0.0, 0.0)
+    normal: Vector = (1.0, 0.0, 0.0)
+    keep: Literal["behind", "front"] = "behind"
+
+    @field_validator("normal")
+    @classmethod
+    def _non_zero(cls, value: Vector) -> Vector:
+        if math.sqrt(sum(c * c for c in value)) == 0:
+            raise ValueError("the normal must not be zero")
+        return value
+
+
+class IsoObject(_SceneObject):
+    """The surface where ``field`` (a scalar field key of foam/results.FIELD_SPECS) equals ``value``. Coloured by the
+    scene's field."""
+
+    kind: Literal["isosurface"] = "isosurface"
+    field: str = "U_mag"
+    value: float = 0.0
+
+
+class StreamlinesObject(_SceneObject):
+    """Streamlines of U from ``n_seeds`` seeds on a line (``point1`` to ``point2``) or on a square plane (centre
+    ``point1``, normal ``normal``, side ``size``), integrated ``direction`` (both ways by default) up to
+    ``max_length`` metres, coloured by ``color_field``."""
+
+    kind: Literal["streamlines"] = "streamlines"
+    seed: Literal["line", "plane"] = "line"
+    point1: Vector = (0.0, 0.0, 0.0)
+    point2: Vector = (0.0, 0.0, 1.0)
+    normal: Vector = (1.0, 0.0, 0.0)
+    size: float = Field(default=1.0, gt=0)
+    n_seeds: int = Field(default=20, ge=1, le=10_000)
+    max_length: float = Field(default=10.0, gt=0)
+    direction: Literal["both", "forward", "backward"] = "both"
+    color_field: str = "U_mag"
+
+
+SceneObject = Annotated[Union[ClipObject, IsoObject, StreamlinesObject], Field(discriminator="kind")]
+
+
+class SavedView(StrictModel):
+    """A camera of the viewer saved by name (D-132): the report renders each one."""
+
+    name: str = Field(min_length=1, max_length=64)
+    position: Vector
+    focal_point: Vector
+    view_up: Vector
+    parallel: bool = False
+    parallel_scale: float = 1.0
+
+
+class ResultsScene(StrictModel):
+    """The results scene objects and the saved views (schema v20, D-132)."""
+
+    objects: list[SceneObject] = Field(default_factory=list)
+    views: list[SavedView] = Field(default_factory=list)
+
+    @field_validator("objects")
+    @classmethod
+    def _unique_ids(cls, values: list) -> list:
+        ids = [v.id for v in values]
+        if len(set(ids)) != len(ids):
+            raise ValueError("two scene objects have the same id")
+        return values
+
+    @field_validator("views")
+    @classmethod
+    def _unique_views(cls, values: list[SavedView]) -> list[SavedView]:
+        names = [v.name for v in values]
+        if len(set(names)) != len(names):
+            raise ValueError("two saved views have the same name")
+        return values
+
+
 # Analysis types (schema v9, D-077): "external" (a far-field domain generated around the parts on the
-# first import) and "empty" (nothing created automatically: the domain is a "Generate domain"
-# operation). "internal" is reserved for internal flow and not selectable yet.
-ANALYSIS_TYPES = ("external", "empty")
-RESERVED_ANALYSIS_TYPES = ("internal",)
+# first import), "empty" (nothing created automatically: the domain is a "Generate domain"
+# operation) and "internal" (schema v19, D-129: the fluid is the inside of the closed geometry; no domain,
+# every surface patch is an inlet, an outlet or a wall).
+ANALYSIS_TYPES = ("external", "empty", "internal")
+RESERVED_ANALYSIS_TYPES: tuple[str, ...] = ()
+ANALYSIS_TYPE_LABELS = {"external": "External flow", "empty": "Empty", "internal": "Internal flow"}
 # The analysis dimension (schema v18, D-121): "3d", or "2d", a section in the x-z plane meshed as one cell
 # across the span (y) with empty front and back patches.
 DIMENSIONS = ("3d", "2d")
@@ -728,7 +957,7 @@ class Simulation(StrictModel):
         default=CURRENT_SCHEMA_VERSION, ge=1, le=CURRENT_SCHEMA_VERSION
     )
     name: str
-    analysis_type: Literal["external", "empty"] = "external"
+    analysis_type: Literal["external", "empty", "internal"] = "external"
     dimension: Literal["3d", "2d"] = "3d"
     preset_name: str | None = None
     geometry: Geometry = Field(default_factory=Geometry)
@@ -741,6 +970,26 @@ class Simulation(StrictModel):
     studies: Studies = Field(default_factory=Studies)
     surface_prep: SurfacePrep | None = None
     refinement_volumes: list[RefinementVolume] = Field(default_factory=list)
+    # Internal flow (schema v19, D-129): the role of each patch (a patch not listed is a wall).
+    boundaries: list[PatchBoundary] = Field(default_factory=list)
+    # The results scene objects and saved views (schema v20, D-132).
+    results: ResultsScene = Field(default_factory=ResultsScene)
+
+    @property
+    def internal(self) -> bool:
+        return self.analysis_type == "internal"
+
+    def boundary(self, patch: str) -> PatchBoundary:
+        """The patch's boundary (a wall when it has no entry)."""
+        return next((b for b in self.boundaries if b.patch == patch), PatchBoundary(patch=patch))
+
+    @field_validator("boundaries")
+    @classmethod
+    def _unique_boundaries(cls, values: list[PatchBoundary]) -> list[PatchBoundary]:
+        names = [b.patch for b in values]
+        if len(set(names)) != len(names):
+            raise ValueError("a patch has two boundary entries")
+        return values
 
     @model_validator(mode="after")
     def _two_d_domain(self) -> "Simulation":

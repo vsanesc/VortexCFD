@@ -69,7 +69,7 @@ class Preset(StrictModel):
     # The project schema version the preset's settings follow (D-090).
     schema_version: int = Field(default=CURRENT_SCHEMA_VERSION, ge=1, le=CURRENT_SCHEMA_VERSION)
     name: str
-    analysis_type: Literal["external", "empty"] = "external"
+    analysis_type: Literal["external", "empty", "internal"] = "external"
     dimension: Literal["3d", "2d"] = "3d"  # schema v18 (D-121)
     domain: PresetDomain = Field(default_factory=PresetDomain)
     boundary_types: dict[str, str] = Field(default_factory=lambda: dict(DEFAULT_BOUNDARY_TYPES))
@@ -156,6 +156,15 @@ BUILTIN_PRESETS: tuple[Preset, ...] = (
            domain=PresetDomain(shape="c_type", radius=50.0, downstream=50.0, lateral=1.0),
            mesh=Mesh(background_cells_target=20_000, target_surface_size=0.002, curvature_levels=0,
                      target_yplus=1.0, layer_controls="wall_resolved")),
+    # Internal flow (D-129): no domain (the fluid is the inside of the closed geometry), wall functions at the
+    # default target y+ 50; the surface size is relative to the first inlet's hydraulic diameter (the internal
+    # surface length): 1/20 of it. [NUMERICS-REVIEW]
+    Preset(name="Internal flow", analysis_type="internal", mesh=Mesh(target_surface_size=0.05)),
+    # The 2D variant (D-121, D-129): the section outline bounds the fluid, wall-resolved for y+ 1 at the first cell
+    # centre (D-122) with the two-stage turbulence scheme (D-126). [NUMERICS-REVIEW]
+    Preset(name="2D internal flow", analysis_type="internal", dimension="2d",
+           mesh=Mesh(background_cells_target=20_000, target_surface_size=0.02, curvature_levels=0,
+                     target_yplus=1.0, layer_controls="wall_resolved")),
 )
 
 
@@ -166,7 +175,8 @@ def is_builtin_name(name: str) -> bool:
 def apply_preset(sim: Simulation, preset: Preset) -> Simulation:
     """``sim`` set up from ``preset``: analysis type, dimension, provenance, domain and mesh. Physics, inflow,
     solvers, reports and geometry are kept. The domain is generated automatically (enabled) only
-    for the external analysis; the "empty" analysis waits for "Generate domain"."""
+    for the external analysis; the "empty" analysis waits for "Generate domain"; an internal analysis has none
+    (the fluid is the inside of the geometry, D-129)."""
     data = sim.model_dump()
     data["analysis_type"] = preset.analysis_type
     data["dimension"] = preset.dimension
@@ -174,6 +184,8 @@ def apply_preset(sim: Simulation, preset: Preset) -> Simulation:
     data["domain"] = {**data["domain"], **preset.domain.model_dump(),
                       "enabled": preset.analysis_type == "external", "parts": None}
     data["mesh"] = preset.mesh.model_dump()
+    if preset.analysis_type == "internal":  # the study's default quantity, Cd, does not exist there (D-129)
+        data["studies"]["mesh"]["quantities"] = []
     return Simulation.model_validate(data)
 
 

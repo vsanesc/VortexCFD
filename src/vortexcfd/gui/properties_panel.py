@@ -45,7 +45,7 @@ from vortexcfd.foam.parallel import CELLS_PER_CORE, EFFICIENT_CORES, physical_co
 from vortexcfd.foam.wall_fields import case_yplus_histogram
 from vortexcfd.foam.yplus import MAX_LAYERS
 from vortexcfd.gui.charts import YPlusHistogramChart
-from vortexcfd.gui.report_views import ForcesTable
+from vortexcfd.gui.report_views import ForcesTable, InternalFlowTable
 from vortexcfd.foam.convergence import earliest_iteration, window_stats
 from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_report import MeshReport
@@ -54,7 +54,8 @@ from vortexcfd.foam.mesh_case import force_report_keys, part_patch_names, wall_p
 from vortexcfd.geometry.cad import CadImportError
 from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.geometry.regions import RegionError
-from vortexcfd.workflow import part_ops, surface_prep
+from vortexcfd.workflow import internal as internal_flow
+from vortexcfd.workflow import part_ops, solving, surface_prep
 from vortexcfd.foam.physics_case import (
     AREA_BASIS_LABELS,
     CENTRE_AUTO_LABEL,
@@ -64,6 +65,7 @@ from vortexcfd.foam.physics_case import (
 )
 from vortexcfd.workflow.refinement import OVERLAP_NOTE
 from vortexcfd.workflow.meshing import (
+    flow_speed,
     MeshingNotReady,
     estimate_with_volumes,
     fluid_location,
@@ -76,6 +78,8 @@ from vortexcfd.workflow.meshing import (
 )
 from vortexcfd.geometry.domain import SHAPE_LABELS
 from vortexcfd.gui.scene import ERROR, MISSING, NONE, OK, domain_box_for, part_file, part_status, report_for_part
+from vortexcfd.gui.internal_rows import InternalRowsMixin
+from vortexcfd.gui.scene_rows import SceneRowsMixin
 from vortexcfd.gui.study_rows import StudyRowsMixin
 from vortexcfd.gui.volume_rows import VolumeRowsMixin
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
@@ -423,7 +427,7 @@ MESH_SECTIONS = {
 }
 
 
-class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
+class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneRowsMixin, QWidget):
     """Form for the selected node. Never mutates the model: all edits use the Project API.
 
     The panel does not subscribe to the project; its owner calls ``refresh()`` on changes.
@@ -439,6 +443,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
     remove_surface_prep_requested = Signal()
     volume_action = Signal(str)  # refinement volumes (D-103): "add:<shape>", "wake", "duplicate", "delete"
     volume_preview = Signal(object)  # a RefinementVolume being edited (drawn uncommitted), None: back to the project
+    scene_action = Signal(str)  # results scene (D-132): "add:<kind>", "save_view", "go_view:<name>", "image", "report"
     # part index, linear (m) or None, angular (deg) or None: re-tessellate on the worker (D-073)
     retessellate_requested = Signal(int, object, object)
 
@@ -842,6 +847,12 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         self._forces_box = QVBoxLayout(self._forces_host)
         self._forces_box.addWidget(self.forces_table)
         self._layout.addWidget(self._forces_host)
+        self._section("rep_internal", "Internal flow (latest iteration)")  # D-129
+        self.internal_table = InternalFlowTable()
+        self._internal_host = QWidget()
+        internal_box = QVBoxLayout(self._internal_host)
+        internal_box.addWidget(self.internal_table)
+        self._layout.addWidget(self._internal_host)
         self._section("rep_mass", "Mass balance")
         self.mass_inlet = self._ro_row("rep_mass_inlet", "Inlet flux sum(phi)")
         self.mass_outlet = self._ro_row("rep_mass_outlet", "Outlet flux sum(phi)")
@@ -927,6 +938,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         self._build_study_rows(_dspin, _spin, _combo)
         # Refinement volumes node and each volume (under Mesh; gui/volume_rows.py, D-103).
         self._build_volume_rows()
+        self._build_internal_rows()
+        self._build_scene_rows()
         self._layout.addWidget(self.info_label)
         self._layout.addStretch(1)
         self.apply_metrics(metrics(), DARK)
@@ -1014,7 +1027,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
 
     def _dynamic_titles(self) -> list[tuple[QWidget, "ElidedLabel"]]:
         """Rows built at refresh time (layer coverage, stopping criteria) with their labels."""
-        return [*self._layer_titles, *getattr(self, "_criteria_titles", []), *getattr(self, "_probe_titles", [])]
+        return [*self._layer_titles, *getattr(self, "_criteria_titles", []), *getattr(self, "_probe_titles", []),
+                *getattr(self, "_ir_titles", [])]
 
     def _fit_content_height(self) -> None:
         """Make the scroll area aware of the rows' real height (a layout change inside the content
@@ -1079,6 +1093,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         self._forces_box.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
         self._yplus_box.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
         self.forces_table.configure(m.s3)
+        self.internal_table.configure(m.s3)
         self.yplus_chart.configure(theme, 8 * m.u)
         for label in (self.reports_empty, self.probes_empty):
             label.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
@@ -1142,7 +1157,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
                 spin.setValue(spin.minimum() if value is None else value)
                 spin.blockSignals(False)
         if part is not None:
-            patches = part_patch_names(sim.geometry.parts)
+            patches = part_patch_names(sim.geometry.parts, sim.internal)
             self.patch_label.setText(", ".join(patches[self._index]))
         self._refresh_cad(part)
         self._refresh_regions(part)
@@ -1163,10 +1178,13 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         self._refresh_mesh_settings(self._kind == "mesh")
         self._refresh_mesh(self._kind == "mesh")
         self._refresh_volumes()
+        self._refresh_internal()
+        self._refresh_scene()
         self.info_label.setVisible(
             not show_name and not is_domain
             and self._kind not in ("mesh", "reference_values", "stopping", "reports", "probes", "surface_prep",
-                                   "prepare_surfaces", "refinement_volumes", "refinement_volume")
+                                   "prepare_surfaces", "refinement_volumes", "refinement_volume", "internal_patch",
+                                   "internal_reports", "results", "scene_object", "saved_view")
             and self._kind not in GROUPS
         )
         self._apply_label_column()
@@ -1451,7 +1469,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
             for w in widgets:
                 w.blockSignals(False)
         self.ref_area.setEnabled(rep.reference_area_basis == "custom")
-        self.ref_u.setText(f"{sim.inflow.speed:.4g} m/s (inflow speed)")
+        self.ref_u.setText(f"{flow_speed(self._project):.4g} m/s (the first inlet's bulk speed)" if sim.internal
+                           else f"{sim.inflow.speed:.4g} m/s (inflow speed)")
         try:
             _box, _names, bounds = parts_layout(self._project)
         except MeshingNotReady:
@@ -1544,8 +1563,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
                 else:
                     combo = row["quantity"]
                     if combo.findData(c.quantity) < 0:  # a removed part or probe: kept, flagged
-                        names, probes = self._patches_and_probes()
-                        why = missing_reference(c.quantity, names, probes) or "not available"
+                        why = missing_reference(c.quantity, **solving.report_scope(self._project)) or "not available"
                         combo.addItem(f"{report_label(c.quantity)} ({why})", c.quantity)
                     combo.setCurrentIndex(combo.findData(c.quantity))
                     row["window"].setValue(c.window)
@@ -1583,7 +1601,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
 
     def _quantity_options(self) -> list[str]:
         """Quantities an asymptotic criterion can watch in this project (D-060)."""
-        return criterion_quantities(*self._patches_and_probes())
+        return criterion_quantities(**solving.report_scope(self._project))
 
     def _build_criteria_rows(self, kinds: list[str], options: list[str] | None = None) -> None:
         """One block of rows per criterion: a title row (type and Remove), then its settings."""
@@ -1693,7 +1711,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
     def _probe_floor(self, quantity: str) -> float:
         """Suggested scale floor of a probe criterion: 1% of the free-stream dynamic pressure
         (kinematic, 0.5 U^2) for p, 1% of the free-stream speed for U."""
-        speed = self._project.sim.inflow.speed
+        speed = flow_speed(self._project)  # internal flow: the reference inlet's bulk speed (D-129)
         return 0.01 * (0.5 * speed ** 2 if quantity.endswith(":p") else speed)
 
     def _add_criterion(self, kind: str) -> None:
@@ -1739,7 +1757,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         time = latest_result_time(case)
         key = (str(case), time)
         if self._yplus_cache is None or self._yplus_cache[0] != key:
-            patches = wall_patch_names(self._project.sim.geometry.parts)
+            patches = (internal_flow.wall_patches(self._project) if self._project.sim.internal
+                       else wall_patch_names(self._project.sim.geometry.parts))
             try:
                 result = case_yplus_histogram(case, patches)
             except Exception:  # unreadable field file: shown as missing
@@ -1759,12 +1778,28 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
                       stop.oscillation_window)
         return window_stats(monitor.series(quantity), window, quantity=quantity)
 
+    def _windowed_flow(self, quantity: str, kind: str, name: str):
+        """The windowed mean of an internal-flow quantity (D-118, D-129): over the window of a mean-stable criterion on
+        it, else the oscillation window. ``quantity`` "dp" with ``kind`` static / total: a pressure drop."""
+        monitor = self._report_monitor
+        if monitor is None:
+            return None
+        report_id = f"dp:{name}:{kind}" if quantity == "dp" else f"flow:{quantity}:{kind}:{name}"
+        stop = self._project.sim.solvers.stopping
+        window = next((c.window for c in stop.criteria if isinstance(c, MeanStableCriterion) and c.quantity == report_id),
+                      stop.oscillation_window)
+        return window_stats(monitor.series(report_id), window, quantity=report_id)
+
     def _refresh_reports(self, show: bool) -> None:
         monitor = self._report_monitor
         rows = monitor.breakdown_rows() if (show and monitor is not None) else []
+        internal_rows = monitor.internal_rows() if (show and monitor is not None) else []
+        drops = monitor.drop_rows() if (show and monitor is not None) else []
         balance = monitor.mass_balance() if (show and monitor is not None) else None
         yplus = self._yplus_histogram() if show else None
-        has_any = bool(rows) or balance is not None or yplus is not None
+        has_any = bool(rows) or bool(internal_rows) or balance is not None or yplus is not None
+        self._sections["rep_internal"].setVisible(show and bool(internal_rows or drops))
+        self._internal_host.setVisible(show and bool(internal_rows or drops))
         self._sections["rep_forces"].setVisible(show and bool(rows))
         self._sections["rep_mass"].setVisible(show and balance is not None)
         self._sections["rep_yplus"].setVisible(show and has_any)
@@ -1777,10 +1812,13 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         if not show:
             return
         self.forces_table.set_rows(rows, self._windowed_force)
+        self.internal_table.set_internal(internal_rows, drops, self._windowed_flow)
         if balance is not None:
             inlet, outlet, pct = balance
-            self.mass_inlet.setText(f"{inlet:.6g} m\u00b3/s")
-            self.mass_outlet.setText(f"{outlet:.6g} m\u00b3/s")
+            rho = (monitor.internal_definitions() or {}).get("rho")
+            kg = (lambda q: f" ({rho * q:.6g} kg/s)") if rho else (lambda q: "")
+            self.mass_inlet.setText(f"{inlet:.6g} m\u00b3/s" + kg(inlet))
+            self.mass_outlet.setText(f"{outlet:.6g} m\u00b3/s" + kg(outlet))
             if pct is None:
                 self.mass_imbalance.setText("\u2014 (no inflow)")
                 self._set_warn(self.mass_imbalance, False)
@@ -2002,6 +2040,18 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, QWidget):
         if not show:
             return
         sim = self._project.sim
+        if sim.internal:  # D-129: the inside of the closed geometry
+            self.fluid_definition.setText("inside the closed geometry (internal flow)")
+            box = domain_box_for(self._project)
+            self.fluid_domain.setText("none" if box.bounds is None else f"none; fluid volume {box.volume:.4g} m\u00b3")
+            names = [p.name for p in sim.geometry.parts]
+            self.fluid_parts.setText(", ".join(names) if names else "none")
+            location = fluid_location(self._project)
+            self.fluid_location.setText(
+                "the cells connected to locationInMesh " + format_vector(location)
+                + " (found inside the geometry; snappyHexMesh removes the cells outside it)"
+                if location is not None else "\u2014 (the geometry must be closed)")
+            return
         self.fluid_definition.setText("domain minus parts")
         box = domain_box_for(self._project)
         if not sim.domain.enabled or box.bounds is None:

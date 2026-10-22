@@ -26,7 +26,7 @@ import math
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from vortexcfd.core.reports import BREAKDOWN, MASS, split_part, split_probe
+from vortexcfd.core.reports import BREAKDOWN, MASS, split_drop, split_flow, split_part, split_probe
 from vortexcfd.foam.dictfile import read_foam_file
 from vortexcfd.foam.mesh_case import GROUND_PATCH
 from vortexcfd.foam.forces import (
@@ -284,6 +284,39 @@ class ScalarTail:
         return added
 
 
+class ColumnsTail:
+    """Named columns of a surfaceFieldValue.dat with several fields (``# Time  areaAverage(p_static)  ...``): the
+    names from the last header line, (time, value) rows per name (internal-flow reports, D-129)."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+        self.names: list[str] = []
+        self.values: dict[str, list[tuple[float, float]]] = {}
+        self._reader = TailReader(self.path)
+
+    def poll(self) -> int:
+        added = 0
+        for line in self._reader.read_lines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                parts = stripped.lstrip("#").split()
+                if parts and parts[0] == "Time":
+                    self.names = parts[1:]
+                    for name in self.names:
+                        self.values.setdefault(name, [])
+                continue
+            values = _floats(stripped.split())
+            if values is None or not self.names or len(values) != len(self.names) + 1:
+                continue
+            for name, v in zip(self.names, values[1:]):
+                self.values[name].append((values[0], v))
+            added += 1
+        return added
+
+    def column(self, operation: str, field_name: str) -> list[tuple[float, float]]:
+        return list(self.values.get(f"{operation}({field_name})", []))
+
+
 class VectorTail:
     """(time, (x, y, z)) rows of a one-probe vector file (``1  (18.8 -9.6e-05 -0.0003)``)."""
 
@@ -360,6 +393,35 @@ class _Breakdown:
         return [(t, self.rows[t]) for t in self.force]
 
 
+# Internal flow (D-129): the function objects of foam/physics_case (names kept in sync by a test) and the file of the
+# report definitions the solver writer adds (OpenFOAM ignores it): the reference density and the pressure drops.
+INTERNAL_REPORTS_FILE = "system/internalReports"
+AREA_PREFIX = {"patch": "pArea_", "plane": "planePArea_"}
+MASS_PREFIX = {"patch": "pMass_", "plane": "planePMass_"}
+PLANE_FLOW_PREFIX = "planeFlow_"
+STATIC_FIELD, TOTAL_FIELD = "p_static", "p_total"
+
+
+@dataclass(frozen=True)
+class InternalRow:
+    """The latest internal-flow values at one location (D-129): the mass flow (kg/s; out of the domain on a patch,
+    along the normal on a plane) and the area- and mass-averaged static and total pressures (Pa)."""
+
+    name: str
+    kind: str  # "patch" or "plane"
+    mdot: float | None
+    p_area: float | None
+    p_mass: float | None
+    p0_area: float | None
+    p0_mass: float | None
+
+
+def _difference(a: list[tuple[float, float]], b: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """a - b at the times both have (the last value of each time)."""
+    bb = _last_per_time(b)
+    return [(t, v - bb[t]) for t, v in _last_per_time(a).items() if t in bb]
+
+
 class ReportMonitor:
     """All report series of a run, polled from the case's postProcessing files (D-048, D-060).
 
@@ -382,6 +444,8 @@ class ReportMonitor:
         self._rho: float | None = None
         self._breakdowns: dict[str | None, _Breakdown] = {}
         self._body: tuple | None = None  # (x_b, z_b) from BODY_COEFFS' header (D-120)
+        self._columns: dict[str, ColumnsTail] = {}  # internal flow (D-129): object name -> tail
+        self._internal: dict | None = None  # INTERNAL_REPORTS_FILE
 
     # -- discovery --------------------------------------------------------------------------
 
@@ -414,6 +478,9 @@ class ReportMonitor:
                     self._probe_p[probe] = ScalarTail(path)
                 if probe not in self._probe_u and (path := output_file(self.case_dir, name, "U", earliest=True)) is not None:
                     self._probe_u[probe] = VectorTail(path)
+            elif name.startswith(tuple(AREA_PREFIX.values()) + tuple(MASS_PREFIX.values()) + (PLANE_FLOW_PREFIX,)):
+                if name not in self._columns and (path := output_file(self.case_dir, name, MASS_FILE, earliest=True)):
+                    self._columns[name] = ColumnsTail(path)
             elif name == YPLUS and self._yplus is None:
                 path = output_file(self.case_dir, YPLUS, YPLUS_FILE, earliest=True)
                 if path is not None:
@@ -427,6 +494,7 @@ class ReportMonitor:
         yield from self._mass.values()
         yield from self._probe_p.values()
         yield from self._probe_u.values()
+        yield from self._columns.values()
         if self._yplus is not None:
             yield self._yplus
 
@@ -494,7 +562,10 @@ class ReportMonitor:
         return out
 
     def mass_series(self) -> list[tuple[float, float]]:
-        """Mass imbalance (% of the inlet flux) per iteration, from massFlow_inlet / _outlet."""
+        """Mass imbalance (% of the inlet flux) per iteration, from massFlow_inlet / _outlet; in internal flow (D-129)
+        the net flux of every inlet and outlet over the inflow (the negative fluxes)."""
+        if self.internal_definitions() is not None:
+            return self._internal_imbalance()
         if "inlet" not in self._mass or "outlet" not in self._mass:
             return []
         inlet = _last_per_time(self._mass["inlet"].values)
@@ -507,9 +578,107 @@ class ReportMonitor:
                     out.append((t, value))
         return out
 
+    # -- internal flow (D-129) ------------------------------------------------------------------
+
+    def internal_definitions(self) -> dict | None:
+        """INTERNAL_REPORTS_FILE: {"rho": float, "pressureDrops": {name: {"upstream", "downstream"}}}; None when the
+        case has none (external flow)."""
+        if self._internal is None:
+            path = self.case_dir / INTERNAL_REPORTS_FILE
+            if not path.is_file():
+                return None
+            try:
+                data = read_foam_file(path)
+                drops = {str(k): {"upstream": str(v["upstream"]), "downstream": str(v["downstream"])}
+                         for k, v in dict(data.get("pressureDrops", {}) or {}).items()}
+                self._internal = {"rho": float(data["rho"]), "pressureDrops": drops}
+            except Exception:  # an unreadable file: no internal reports
+                return None
+        return self._internal
+
+    def _internal_imbalance(self) -> list[tuple[float, float]]:
+        if not self._mass:
+            return []
+        flows = [_last_per_time(tail.values) for tail in self._mass.values()]
+        common = set(flows[0]).intersection(*flows[1:])
+        out = []
+        for t in sorted(common):
+            values = [f[t] for f in flows]
+            inflow = sum(v for v in values if v < 0)
+            value = mass_imbalance(inflow, sum(v for v in values if v >= 0))
+            if value is not None:
+                out.append((t, value))
+        return out
+
+    def flow_series(self, quantity: str, kind: str, name: str) -> list[tuple[float, float]]:
+        """An internal-flow quantity at a patch or plane (core/reports.FLOW_QUANTITIES), SI units."""
+        defs = self.internal_definitions()
+        if defs is None:
+            return []
+        if quantity == "mdot":
+            rho = defs["rho"]
+            if kind == "patch":
+                tail = self._mass.get(name)
+                return [(t, rho * v) for t, v in tail.values] if tail is not None else []
+            tail = self._columns.get(PLANE_FLOW_PREFIX + name)
+            return [(t, rho * v) for t, v in tail.column("areaNormalIntegrate", "U")] if tail is not None else []
+        mass = quantity.endswith("_mass")
+        tail = self._columns.get((MASS_PREFIX if mass else AREA_PREFIX)[kind] + name)
+        if tail is None:
+            return []
+        operation = "weightedAreaAverage" if mass else "areaAverage"
+        return tail.column(operation, TOTAL_FIELD if quantity.startswith("p0") else STATIC_FIELD)
+
+    def drop_series(self, name: str, kind: str) -> list[tuple[float, float]]:
+        """A pressure drop (Pa): the mass-averaged static or total pressure upstream minus downstream."""
+        defs = self.internal_definitions()
+        drop = (defs or {}).get("pressureDrops", {}).get(name)
+        if drop is None:
+            return []
+        quantity = "p_mass" if kind == "static" else "p0_mass"
+        sides = [self.flow_series(quantity, *drop[side].split(":", 1)) for side in ("upstream", "downstream")]
+        return _difference(*sides)
+
+    def internal_locations(self) -> list[tuple[str, str]]:
+        """(kind, name) of every inlet / outlet and plane with reports, patches first, sorted."""
+        found = set()
+        for obj in self._columns:
+            for kind, prefix in (*AREA_PREFIX.items(), *MASS_PREFIX.items()):
+                if obj.startswith(prefix):
+                    found.add((kind, obj[len(prefix):]))
+            if obj.startswith(PLANE_FLOW_PREFIX):
+                found.add(("plane", obj[len(PLANE_FLOW_PREFIX):]))
+        return sorted(found, key=lambda kn: (kn[0] != "patch", kn[1]))
+
+    def internal_rows(self) -> list[InternalRow]:
+        """The latest values at every location (internal flow)."""
+        if self.internal_definitions() is None:
+            return []
+        rows = []
+        for kind, name in self.internal_locations():
+            last = {q: (series[-1][1] if (series := self.flow_series(q, kind, name)) else None)
+                    for q in ("mdot", "p_area", "p_mass", "p0_area", "p0_mass")}
+            rows.append(InternalRow(name, kind, **last))
+        return rows
+
+    def drop_rows(self) -> list[tuple[str, float | None, float | None]]:
+        """(pressure drop, static, total) at the latest iteration (Pa)."""
+        defs = self.internal_definitions()
+        out = []
+        for name in sorted((defs or {}).get("pressureDrops", {})):
+            values = [(series[-1][1] if (series := self.drop_series(name, k)) else None) for k in ("static", "total")]
+            out.append((name, *values))
+        return out
+
     def series(self, report_id: str) -> list:
         """(iteration, value) pairs of a report (core/reports.py ids), empty when not written yet.
         ``probe:<name>:U`` gives (iteration, (Ux, Uy, Uz))."""
+        flow = split_flow(report_id)
+        if flow is not None:
+            return self.flow_series(*flow)
+        drop = split_drop(report_id)
+        if drop is not None:
+            return self.drop_series(*drop)
         probe = split_probe(report_id)
         if probe is not None:
             name, comp = probe
@@ -549,7 +718,18 @@ class ReportMonitor:
         return rows
 
     def mass_balance(self) -> tuple[float, float, float | None] | None:
-        """(inlet flux, outlet flux, imbalance %) at the latest iteration (None: not written)."""
+        """(inlet flux, outlet flux, imbalance %) at the latest iteration (None: not written); in internal flow
+        (D-129) the sums of the negative (in) and positive (out) fluxes of every inlet and outlet."""
+        if self.internal_definitions() is not None:
+            if not self._mass:
+                return None
+            flows = [_last_per_time(tail.values) for tail in self._mass.values()]
+            common = sorted(set(flows[0]).intersection(*flows[1:]))
+            if not common:
+                return None
+            values = [f[common[-1]] for f in flows]
+            inflow, outflow = sum(v for v in values if v < 0), sum(v for v in values if v >= 0)
+            return inflow, outflow, mass_imbalance(inflow, outflow)
         if "inlet" not in self._mass or "outlet" not in self._mass:
             return None
         inlet = _last_per_time(self._mass["inlet"].values)

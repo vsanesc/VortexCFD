@@ -72,3 +72,110 @@ cell size (the current level then no longer equals the single mesh: report the s
 or, keeping the current level as the single mesh, shells that reproduce snappyHexMesh's buffers (no level-max band
 beyond the cut cells: D_k = the sum of 3 cells from level max - 1 down to k), which needs a check of how close it
 comes. Either way the check here, with the points chosen inside and outside the transition zone, is the test.
+
+## Round 2: one mechanism for every 3D level (QUESTIONS 204)
+
+Task w3-internal, Part 0 (2026-10-22). Owner decision on QUESTIONS 204: every level of a 3D study, the current one
+included, is meshed with the distance shells and nCellsBetweenLevels 1 (`MeshCaseInput.study_level`); the study's
+current level is then no longer the user's single mesh. Same script (`--out result.json`; round 1's numbers moved to
+result_q203.json), the same points plus the transition-zone points of round 1 (0.5 L ahead and above, 1 L behind),
+each measured by the size of the cell that contains it (`containing_cell`: the cell whose faces all have the point on
+their inner side, among the 64 nearest centres). Single meshes not meshed again (round 1 has them; meshing is
+deterministic: the coarse and medium study levels reproduce round 1's to the cell). Machine time 5.9 min.
+
+| Case | Level | Cells (round 1) | Valid | Strict cov. (round 1) | Zones TE / tips / root (round 1) | Max non-ortho (round 1) | Max skew | First cell |
+|---|---|---|---|---|---|---|---|---|
+| sphere | coarse | 93,976 (93,976) | yes, 0 hard / 0 soft | 100.00 % (100.00) | - | 39.4 (39.4) | 0.53 | 1.8007 mm |
+| sphere | medium | 219,071 (219,071) | yes, 0 / 0 | 100.00 % (100.00) | - | 39.0 (39.0) | 0.52 | 1.8010 mm |
+| sphere | fine | 530,395 (233,534 single) | yes, 0 / 0 | 92.30 % (99.59) | - | 40.3 (46.5) | 0.54 | 1.8011 mm |
+| wing | coarse | 86,384 (86,384) | yes, 0 / 0 | 86.61 % (86.61) | 0.0 / 0.0 / 87.2 (same) | 63.2 (63.2) | 1.48 | 1.9341 mm |
+| wing | medium | 193,367 (193,367) | yes, 0 / 0 | 93.23 % (93.23) | 21.5 / 54.8 / 95.7 (same) | 61.7 (61.7) | 2.35 | 1.7957 mm |
+| wing | fine | 459,674 (300,025 single) | yes, 0 / 0 | 94.50 % (94.37) | 38.4 / 51.6 / 97.1 (38.4 / 50.0 / 97.1) | 65.0 (64.9) | 2.81 | 1.7885 mm |
+
+Every level valid, no face above 70 degrees. The sphere's fine level walks at 92.30 % against 99.59 %: an artefact
+of the walk's aspect limit (`layer_walk.MAX_ASPECT` 0.6): snappyHexMesh's table gives 6 of 6 layers at 100 %
+thickness on every face, and the same walk with the limit at 0.8 counts 6 layers or more on 100.00 % of the area
+(5,020 faces stop at 5 with 0.6: the sixth layer, about 4.5 mm, is just over 0.6 of the level-5 faces next to the
+1-cell buffer). Layers and quality are otherwise within noise of round 1. Cost: the fine level has 2.27 x (sphere)
+and 1.53 x (wing) the single mesh's cells (the shells' level-5 band; the study plan's estimate does not include it).
+
+Size of the cell containing each point, coarse / medium / fine (ratio r = 1.414; pass: each ratio within 15 %, i.e.
+1.20 to 1.63):
+
+| Case, point (distance to the surface) | Cells (mm) | Ratios c/m, m/f | Pass |
+|---|---|---|---|
+| sphere, 1 L ahead (1.000 m) | 547.1 / 382.0 / 269.3 | 1.43, 1.42 | yes |
+| sphere, 1 L above (1.000 m) | 547.6 / 382.1 / 268.8 | 1.43, 1.42 | yes |
+| sphere, 2 L wake (2.000 m) | 545.8 / 381.7 / 268.3 | 1.43, 1.42 | yes |
+| sphere, 0.5 L ahead (0.500 m) | 274.3 / 191.7 / 135.1 | 1.43, 1.42 | yes |
+| sphere, 0.5 L above (0.500 m) | 275.0 / 191.8 / 135.3 | 1.43, 1.42 | yes |
+| sphere, 1 L wake (1.000 m) | 546.8 / 382.3 / 269.1 | 1.43, 1.42 | yes |
+| wing, 1 L ahead (1.001 m) | 317.9 / 449.8 / 317.8 | 0.71, 1.42 | **no** |
+| wing, 1 L above (1.005 m) | 318.7 / 449.0 / 317.7 | 0.71, 1.41 | **no** |
+| wing, 2 L wake (2.006 m) | 635.7 / 448.8 / 318.0 | 1.42, 1.41 | yes |
+| wing, 0.5 L ahead (0.501 m) | 160.7 / 113.4 / 79.6 | 1.42, 1.42 | yes |
+| wing, 0.5 L above (0.506 m) | 158.9 / 224.2 / 158.8 | 0.71, 1.41 | **no** |
+| wing, 1 L wake (1.006 m) | 317.6 / 448.7 / 159.0 | 0.71, 2.82 | **no** |
+
+Diagnosis: the shells are now the same in metres on every level (wing: D_1 = 0.922 m, D_2 = 0.446 m, D_3 = 0.208 m;
+sphere: D_1 = 0.780 m, D_2 = 0.378 m), and the failing wing points lie 0.06-0.08 m outside a shell edge (1.001-1.006 m
+against D_1, 0.506 m against D_2), within half a coarse cell (0.32 m) of it. snappyHexMesh tests a shell at
+the cell centres of the level being refined (v2606 meshRefinementRefine.C, markInternalRefinement), so a coarse
+cell whose centre is inside the edge is refined and its children
+contain the point, while the smaller medium cell is outside; at the wake point 1 L behind the fine level is refined
+one level further for the same reason (159 against 318 mm). The sphere's points are 0.22 m or more from every edge
+and all pass. The transitions are now one mechanism on every level (round 1's cause, the current level's own
+buffers, is gone: the current level's sizes are geometrically similar to the others wherever a point is not within
+about half a coarse cell of a shell edge), but a fixed point near a shell edge still sees a level jump.
+
+### Verdict (round 2)
+
+**Not passed.** Every level valid; layers (with the walk artefact explained) and quality within noise of round 1; the
+cell size shrinks by the level ratio at all 6 sphere points but at only 2 of 6 wing points (4 fail by a whole level
+at a shell edge). D-127 stays Proposed and QUESTIONS 204 stays open with these numbers. As instructed, the pipe mesh
+study of task w3-internal Part B is not run (a single level instead).
+
+## Round 3: shell distances in coarse cells, a cube-averaged size (QUESTIONS 204, owner review)
+
+Task w3-internal, owner review of W3 (2026-10-22), item 1. Two changes: (a) every shell distance rounded up to a whole
+number of the coarse level's cells of the level the shell refines from (coarse base / 2^(k-1) for the shell of level k,
+the cells whose centres snappyHexMesh tests), so the edges are the same in metres AND in coarse cells on every level;
+(b) the measure: the volume-weighted mean cell size (sum V h / sum V, h = V^(1/3)) of the cells whose centres lie in an
+axis-aligned cube of side 2 coarse cells (the coarse level's containing cell) centred on each point
+(`study3d_check.cube_means`; result_q204b.json). Machine time 12.8 min (meshed beside a 2D run).
+
+| Case | Level | Cells (round 2) | Valid | Strict cov. (round 2) | Zones TE / tips / root | Max non-ortho | First cell |
+|---|---|---|---|---|---|---|---|
+| sphere | coarse | 105,036 (93,976) | yes, 0 / 0 | 100.00 % (100.00) | - | 37.7 | 1.8007 mm |
+| sphere | medium | 260,133 (219,071) | yes, 0 / 0 | 100.00 % (100.00) | - | 39.0 | 1.8010 mm |
+| sphere | fine | 646,056 (530,395) | yes, 0 / 0 | 92.30 % (92.30) | - | 40.2 | 1.8011 mm |
+| wing | coarse | 91,431 (86,384) | yes, 0 / 0 | 86.61 % (86.61) | 0.0 / 0.0 / 87.2 | 63.2 | 1.9342 mm |
+| wing | medium | 226,391 (193,367) | yes, 0 / 0 | 93.18 % (93.23) | 21.5 / 54.0 / 95.7 | 61.9 | 1.7978 mm |
+| wing | fine | 545,984 (459,674) | yes, 0 / 0 | 94.50 % (94.50) | 38.4 / 51.6 / 97.1 | 65.0 | 1.7884 mm |
+
+Mean cell size in the cube, coarse / medium / fine (cells counted), ratios (pass: 1.20 to 1.63 each):
+
+| Case, point | Cube side | Mean size (mm) | Cells | Ratios c/m, m/f | Pass |
+|---|---|---|---|---|---|
+| sphere, 1 L ahead | 548 mm | 273.6 / 190.8 / 227.5 | 8 / 8 / 41 | 1.43, 0.84 | no |
+| sphere, 1 L above | 548 mm | 273.6 / 190.7 / 215.1 | 4 / 18 / 38 | 1.43, 0.89 | no |
+| sphere, 2 L wake | 1092 mm | 545.6 / 381.0 / 268.5 | 8 / 18 / 100 | 1.43, 1.42 | yes |
+| sphere, 0.5 L ahead | 275 mm | 137.5 / 95.9 / 101.3 | 4 / 12 / 36 | 1.43, 0.95 | no |
+| sphere, 0.5 L above | 275 mm | 137.6 / 176.4 / 91.0 | 8 / 10 / 64 | 0.78, 1.94 | no |
+| sphere, 1 L wake | 1094 mm | 410.0 / 310.7 / 216.9 | 36 / 97 / 369 | 1.32, 1.43 | yes |
+| wing, 1 L ahead | 636 mm | 317.7 / 221.9 / 222.4 | 4 / 14 / 52 | 1.43, 1.00 | no |
+| wing, 1 L above | 636 mm | 317.9 / 224.2 / 222.5 | 4 / 27 / 52 | 1.42, 1.01 | no |
+| wing, 2 L wake | 1272 mm | 635.8 / 448.9 / 318.0 | 8 / 18 / 64 | 1.42, 1.41 | yes |
+| wing, 0.5 L ahead | 322 mm | 265.6 / 112.5 / 79.6 | 5 / 12 / 64 | 2.36, 1.41 | no |
+| wing, 0.5 L above | 318 mm | 158.9 / 111.9 / 111.1 | 4 / 18 / 52 | 1.42, 1.01 | no |
+| wing, 1 L wake | 635 mm | 572.1 / 224.4 / 159.0 | 6 / 12 / 64 | 2.55, 1.41 | no |
+
+### Verdict (round 3)
+
+**Not passed**: every level valid, coverage, layers and quality as in round 2 (the rounded shells add 12-22 % cells),
+but the mean size shrinks by the ratio at 2 of 6 sphere points and 1 of 6 wing points. The rounding moved the shell
+edges outwards by up to a coarse cell, so other points now straddle them; each level still decides the refinement at
+its own cell centres, whose positions relative to an edge differ between levels whatever the distance (a cube of 2
+coarse cells holds 4 to 8 coarse cells, so its mean still flips with one cell). Change (a) is reverted in the app (it
+costs cells and does not pass); the measure (b) stays in the check script. D-127 stays Proposed, QUESTIONS 204 open;
+the pipe's mesh study is not run (owner's instruction).

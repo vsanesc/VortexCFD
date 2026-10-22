@@ -93,7 +93,8 @@ def volume_staircase(level: int, base_size: float,
 
 
 def estimate_mesh(domain_bounds: Bounds, surface_length: float, mesh: Mesh, volume: float | None = None,
-                  rounded: bool = False, symmetric: bool = False, two_d: bool = False) -> MeshEstimate:
+                  rounded: bool = False, symmetric: bool = False, two_d: bool = False,
+                  internal: bool = False) -> MeshEstimate:
     """Background cells, refinement levels and surface cell size for ``mesh`` in the domain.
 
     ``surface_length`` is the length the target surface size multiplies (l_ref or L, see
@@ -104,6 +105,9 @@ def estimate_mesh(domain_bounds: Bounds, surface_length: float, mesh: Mesh, volu
     level_min = max(level_max - 1, 0), unless given explicitly. A ``rounded`` domain's background box
     is its bounds grown by BACKGROUND_MARGIN_CELLS base cells (not at y_min when ``symmetric``); the
     cell counts are those of the background box.
+
+    ``internal`` (D-129): ``domain_bounds`` are the parts' bounds and ``volume`` the fluid volume inside them; the
+    background box is the bounds grown by BACKGROUND_MARGIN_CELLS base cells on every side, like a rounded domain's.
 
     ``two_d`` (D-121): the domain is a section in x-z; base_size = (domain area / background_cells_target)^(1/2)
     with the area = volume / y extent; the background is one cell across the span, which is the surface cell
@@ -123,7 +127,7 @@ def estimate_mesh(domain_bounds: Bounds, surface_length: float, mesh: Mesh, volu
     else:
         base = mesh.base_size if overridden else (volume / mesh.background_cells_target) ** (1 / 3)
     background = tuple(domain_bounds)
-    if rounded:
+    if rounded or internal:
         m = BACKGROUND_MARGIN_CELLS * base
         background = tuple(
             v - m if i % 2 == 0 and not (i == 2 and symmetric) else v + m if i % 2 else v

@@ -207,7 +207,7 @@ def test_new_simulation_dialog(qtbot: QtBot, tmp_path: Path) -> None:
     dialog = NewSimulationDialog(store, physical=8)
     qtbot.addWidget(dialog)
     assert [dialog.preset_combo.itemText(i) for i in range(dialog.preset_combo.count())] == [
-        "External flow", "Empty", "2D airfoil", "Big (user)"]
+        "External flow", "Empty", "2D airfoil", "Internal flow", "2D internal flow", "Big (user)"]
     assert dialog.cores_spin.maximum() == 8
     expected = recommended_cores(BUILTIN_PRESETS[0].mesh.background_cells_target, 8)
     assert dialog.cores_spin.value() == expected == default_cores(BUILTIN_PRESETS[0], 8)

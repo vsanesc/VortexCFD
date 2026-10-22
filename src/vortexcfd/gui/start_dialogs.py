@@ -152,6 +152,15 @@ def default_cores(preset: Preset, physical: int) -> int:
     return recommended_cores(preset.mesh.background_cells_target, physical)
 
 
+# What each analysis type creates (D-077, D-078, D-129).
+ANALYSIS_DESCRIPTIONS = {
+    "external": "External flow: a far-field domain is generated around the parts.",
+    "empty": "Empty: nothing is generated; the domain is a Generate domain operation.",
+    "internal": "Internal flow: no domain; the fluid is the inside of the closed geometry, each surface patch an "
+                "inlet, an outlet or a wall.",
+}
+
+
 class NewSimulationDialog(QDialog):
     """Project name, parent folder, analysis preset and parallel run settings."""
 
@@ -178,6 +187,9 @@ class NewSimulationDialog(QDialog):
             builtin = i < len(BUILTIN_PRESETS)
             self.preset_combo.addItem(preset.name if builtin else f"{preset.name} (user)")
         form.addRow("Analysis preset", self.preset_combo)
+        self.analysis_label = QLabel()  # the preset's analysis type (D-077, D-129)
+        self.analysis_label.setWordWrap(True)
+        form.addRow("Analysis type", self.analysis_label)
         self.dimension_combo = QComboBox()
         for key in DIMENSIONS:
             self.dimension_combo.addItem(DIMENSION_LABELS[key], key)
@@ -227,6 +239,7 @@ class NewSimulationDialog(QDialog):
 
     def _preset_changed(self, *_args) -> None:
         self.dimension_combo.setCurrentIndex(DIMENSIONS.index(self.preset.dimension))
+        self.analysis_label.setText(ANALYSIS_DESCRIPTIONS[self.preset.analysis_type])
         cores = default_cores(self.preset, self.physical)
         self.cores_spin.setValue(cores)
         self.parallel_check.setChecked(cores > 1)

@@ -9,10 +9,15 @@ Grammar (plain strings, stored in the project):
 - the same for one part's wall patch (only with several parts): ``<base>@<patch>``;
 - ``mass_imbalance`` (percent of the inlet flux);
 - ``yplus_min``, ``yplus_avg``, ``yplus_max`` (walls, at write times);
-- probes: ``probe:<name>:<p|Ux|Uy|Uz|Umag>``.
+- probes: ``probe:<name>:<p|Ux|Uy|Uz|Umag>``;
+- internal flow (D-129): ``flow:<quantity>:<patch|plane>:<name>`` with the quantity ``mdot`` (mass flow rate in kg/s,
+  positive out of the domain on a patch, along the normal on a plane), ``p_area`` / ``p_mass`` (area- and
+  mass-averaged static pressure, Pa) or ``p0_area`` / ``p0_mass`` (total pressure, Pa); a pressure drop
+  ``dp:<name>:<static|total>`` (mass-averaged upstream minus downstream, Pa).
 
-Asymptotic criteria accept the coefficients (all walls or one part, not x_cp) and ``probe:<name>:p``
-or ``probe:<name>:U`` (the velocity vector: the change is the length of the vector difference).
+Asymptotic criteria accept the coefficients (all walls or one part, not x_cp), ``probe:<name>:p``
+or ``probe:<name>:U`` (the velocity vector: the change is the length of the vector difference) and the internal-flow
+quantities (no default floor: it is set in their units).
 """
 
 import re
@@ -29,6 +34,13 @@ PROBE_COMPONENTS = ("p", "Ux", "Uy", "Uz", "Umag")
 PROBE_CRITERION_COMPONENTS = ("p", "U")
 PROBE_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,31}$")
 _PROBE_ID_RE = re.compile(r"^probe:([A-Za-z][A-Za-z0-9_]{0,31}):(\w+)$")
+# Internal flow (D-129).
+FLOW_QUANTITIES = ("mdot", "p_area", "p_mass", "p0_area", "p0_mass")
+FLOW_QUANTITY_LABELS = {"mdot": "Mass flow (kg/s)", "p_area": "p area-avg (Pa)", "p_mass": "p mass-avg (Pa)",
+                        "p0_area": "p0 area-avg (Pa)", "p0_mass": "p0 mass-avg (Pa)"}
+DROP_KINDS = ("static", "total")
+_FLOW_ID_RE = re.compile(r"^flow:(\w+):(patch|plane):(.+)$")
+_DROP_ID_RE = re.compile(r"^dp:([A-Za-z][A-Za-z0-9_]{0,31}):(static|total)$")
 
 BASE_LABELS = {
     "Cd": "Cd", "Cl": "Cl", "CmPitch": "Cm (pitch)",
@@ -52,9 +64,28 @@ def split_probe(report_id: str) -> tuple[str, str] | None:
     return (m.group(1), m.group(2)) if m else None
 
 
+def split_flow(report_id: str) -> tuple[str, str, str] | None:
+    """(quantity, "patch" or "plane", name) of an internal-flow id, or None."""
+    m = _FLOW_ID_RE.match(report_id)
+    return (m.group(1), m.group(2), m.group(3)) if m and m.group(1) in FLOW_QUANTITIES else None
+
+
+def split_drop(report_id: str) -> tuple[str, str] | None:
+    """(pressure-drop name, "static" or "total") of a pressure-drop id, or None."""
+    m = _DROP_ID_RE.match(report_id)
+    return (m.group(1), m.group(2)) if m else None
+
+
+def flow_id(quantity: str, location: str) -> str:
+    """The id of ``quantity`` at ``location`` ("patch:<name>" or "plane:<name>")."""
+    return f"flow:{quantity}:{location}"
+
+
 def is_report_id(report_id: str) -> bool:
     """Syntactically valid report id (the part or probe may no longer exist)."""
     if report_id in FORCE_COEFFS + BREAKDOWN + ("x_cp",) + YPLUS + (MASS,):
+        return True
+    if split_flow(report_id) is not None or split_drop(report_id) is not None:
         return True
     base, patch = split_part(report_id)
     if patch is not None:
@@ -64,6 +95,8 @@ def is_report_id(report_id: str) -> bool:
 
 
 def is_criterion_quantity(quantity: str) -> bool:
+    if split_flow(quantity) is not None or split_drop(quantity) is not None:
+        return True
     base, patch = split_part(quantity)
     if base in FORCE_COEFFS + BREAKDOWN:
         return patch is None or bool(patch)
@@ -85,6 +118,12 @@ def default_floor(quantity: str) -> float | None:
 
 
 def report_label(report_id: str) -> str:
+    flow = split_flow(report_id)
+    if flow is not None:
+        return f"{FLOW_QUANTITY_LABELS[flow[0]]} {flow[1]} {flow[2]}"
+    drop = split_drop(report_id)
+    if drop is not None:
+        return f"dp {drop[1]} {drop[0]} (Pa)"
     base, patch = split_part(report_id)
     if patch is not None:
         return f"{BASE_LABELS.get(base, base)} ({patch})"
@@ -95,31 +134,50 @@ def report_label(report_id: str) -> str:
     return BASE_LABELS.get(report_id, report_id)
 
 
-def available_reports(patches: Iterable[str], probes: Iterable[str]) -> list[str]:
+def available_reports(patches: Iterable[str], probes: Iterable[str], locations: Iterable[str] = (),
+                      drops: Iterable[str] = (), internal: bool = False) -> list[str]:
     """The ids a report slot can be assigned, for the parts' patches and the probe names (per-part
-    reports only with several parts: with one part they equal the totals)."""
+    reports only with several parts: with one part they equal the totals). Internal flow (D-129): no force
+    reports; the flow quantities of every ``locations`` entry ("patch:<inlet or outlet>", "plane:<name>") and
+    both kinds of every pressure drop in ``drops``."""
     patches = list(patches)
-    ids = [*FORCE_COEFFS, *BREAKDOWN, "x_cp"]
-    if len(patches) > 1:
+    ids = [] if internal else [*FORCE_COEFFS, *BREAKDOWN, "x_cp"]
+    if len(patches) > 1 and not internal:
         ids += [f"{b}@{p}" for p in patches for b in PART_BASES]
     ids += [MASS, *YPLUS]
+    ids += [flow_id(q, loc) for loc in locations for q in FLOW_QUANTITIES]
+    ids += [f"dp:{d}:{k}" for d in drops for k in DROP_KINDS]
     ids += [f"probe:{n}:{c}" for n in probes for c in PROBE_COMPONENTS]
     return ids
 
 
-def criterion_quantities(patches: Iterable[str], probes: Iterable[str]) -> list[str]:
+def criterion_quantities(patches: Iterable[str], probes: Iterable[str], locations: Iterable[str] = (),
+                         drops: Iterable[str] = (), internal: bool = False) -> list[str]:
     patches = list(patches)
-    ids = [*FORCE_COEFFS, *BREAKDOWN]
-    if len(patches) > 1:
+    ids = [] if internal else [*FORCE_COEFFS, *BREAKDOWN]
+    if len(patches) > 1 and not internal:
         ids += [f"{b}@{p}" for p in patches for b in FORCE_COEFFS + BREAKDOWN]
+    ids += [flow_id(q, loc) for loc in locations for q in FLOW_QUANTITIES]
+    ids += [f"dp:{d}:{k}" for d in drops for k in DROP_KINDS]
     ids += [f"probe:{n}:{c}" for n in probes for c in PROBE_CRITERION_COMPONENTS]
     return ids
 
 
-def missing_reference(report_id: str, patches: Iterable[str], probes: Iterable[str]) -> str | None:
-    """Why ``report_id`` cannot be computed for this project (a removed part or probe), or None."""
+def missing_reference(report_id: str, patches: Iterable[str], probes: Iterable[str], locations: Iterable[str] = (),
+                      drops: Iterable[str] = (), internal: bool = False) -> str | None:
+    """Why ``report_id`` cannot be computed for this project (a removed part, probe, inlet / outlet, plane or
+    pressure drop, or a force report in an internal-flow project), or None."""
+    flow = split_flow(report_id)
+    if flow is not None:
+        location = f"{flow[1]}:{flow[2]}"
+        return None if location in set(locations) else f"no inlet, outlet or plane {flow[2]!r}"
+    drop = split_drop(report_id)
+    if drop is not None:
+        return None if drop[0] in set(drops) else f"no pressure drop {drop[0]!r}"
     patches = list(patches)
-    _base, patch = split_part(report_id)
+    base, patch = split_part(report_id)
+    if internal and base in PART_BASES:
+        return "an internal-flow analysis has no force reports"
     if patch is not None:
         if patch not in patches:
             return f"no part patch {patch!r}"

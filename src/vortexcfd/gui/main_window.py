@@ -1,6 +1,7 @@
 """Main window bound to a Project, laid out after the owner's local design mockup (D-041)."""
 
 import logging
+import math
 import os
 import shutil
 import subprocess
@@ -45,7 +46,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from vortexcfd.core.model import VOLUME_SHAPES, Part, Simulation, StoppingCriteria
+from vortexcfd.core.model import (
+    INLET_KIND_LABELS,
+    OUTLET_KIND_LABELS,
+    PATCH_ROLE_LABELS,
+    SCENE_OBJECT_LABELS,
+    VOLUME_SHAPES,
+    Part,
+    Simulation,
+    StoppingCriteria,
+)
 from vortexcfd.core.presets import PresetError, PresetStore, apply_preset, preset_from_simulation
 from vortexcfd.core.reports import available_reports
 from vortexcfd.foam import convergence
@@ -81,7 +91,7 @@ from vortexcfd.foam.mesh_case import (
 )
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.gui.geometry_worker import GeometryWorker, IntersectionChecker, OverlapChecker, snapshot
-from vortexcfd.workflow import meshing, refinement, surface_prep
+from vortexcfd.workflow import internal, meshing, refinement, surface_prep
 from vortexcfd.workflow.refinement import OUTSIDE_IGNORED
 from vortexcfd.geometry.refinement_volumes import domain_fraction
 from vortexcfd.gui.mesh_worker import MeshWorker
@@ -94,7 +104,7 @@ from vortexcfd.gui.study_control import StudyControlMixin
 from vortexcfd.foam.results import latest_result_time
 from vortexcfd.gui import paraview
 from vortexcfd.gui.colormaps import COLORMAPS, DEFAULT_COLORMAP
-from vortexcfd.gui.results_scene import DISPLAY_MODES, RANGE_MODES, ResultsLoader, ResultsView
+from vortexcfd.gui.results_scene import DISPLAY_MODES, RANGE_MODES, ResultsLoader, ResultsView, apply_view
 from vortexcfd.gui.section_tool import SectionTool
 from vortexcfd.foam.mesh_record import MeshRecord, read_mesh_record, write_mesh_record
 from vortexcfd.workflow.meshing import (
@@ -398,6 +408,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.properties.generate_domain_requested.connect(self.generate_domain)
         self.properties.prepare_surfaces_requested.connect(self.prepare_surfaces)
         self.properties.volume_action.connect(self._on_volume_action)
+        self.properties.scene_action.connect(self._on_scene_action)
         self.properties.volume_preview.connect(self._on_volume_preview)
         self.properties.remove_surface_prep_requested.connect(self.remove_surface_prep)
         self._build_actions()
@@ -881,8 +892,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._update_mesh_button()
         self._update_results_stale()
         self._update_run_button()
-        self.monitors.kpis.set_options(available_reports(
-            force_report_keys(sim.geometry.parts), [p.name for p in sim.reports.probes]))
+        self.monitors.kpis.set_options(available_reports(**solving.report_scope(self._project)))
         self.monitors.set_assignments(list(sim.reports.slots))
         if not self.solver_worker.is_running():  # a running solver keeps the criteria it started with
             self.monitors.set_stopping(sim.solvers.stopping)
@@ -956,30 +966,44 @@ class MainWindow(StudyControlMixin, QMainWindow):
                     item.setIcon(0, self._node_icon("dot", "warning"))
                     item.setToolTip(0, OUTSIDE_IGNORED)
             physics_item = add(continua, "physics", None, "Physics", "dot", "accent")
-            add(physics_item, "inflow", None, "Inflow", "dot", "accent")
+            internal_flow = self._project.sim.internal
+            if not internal_flow:  # internal flow: the inlets carry the flow conditions (D-129)
+                add(physics_item, "inflow", None, "Inflow", "dot", "accent")
             regions = add(root, "regions", None, "Regions", "folder", "text")
             domain = self._project.sim.domain
             generated = domain.enabled or self._project.sim.analysis_type != "empty"
-            fluid = add(regions, "fluid_domain", None,
-                        "Fluid Domain" if generated else "Fluid Domain (not generated)",
-                        "folder", "text")
-            if domain.enabled:
-                for bname in shape_roles(domain.shape, domain.symmetry == "y_min", domain.ground.enabled):
-                    add(fluid, f"boundary_{bname}", None, bname, "dot", "accent")
-            elif not generated:  # the "Empty" analysis: the domain is an operation (D-078)
-                add(fluid, "generate_domain", None, "Generate domain\u2026", "dot", "accent_secondary")
-            labels = [label for part, patches in zip(parts, part_patch_names(parts))
-                      for label in (patches if part.regions else (part.name,))]
-            for i, label in enumerate(labels):  # one wall per patch (D-071); a plain part shows its name
-                add(fluid, "wall", i, f"{label} (wall)", "dot", "accent")
-            add(regions, "fluid_region", None, "Fluid Region (domain minus parts)", "dot", "accent")
+            if internal_flow:  # no domain; every surface patch is an inlet, an outlet or a wall (D-129)
+                fluid = add(regions, "fluid_region", None, "Fluid Region (inside the geometry)", "folder", "text")
+                for i, patch in enumerate(internal.patches(self._project)):
+                    entry = self._project.sim.boundary(patch.name)
+                    role = PATCH_ROLE_LABELS[patch.role]
+                    if patch.role == "inlet":
+                        role = INLET_KIND_LABELS[entry.inlet.kind]
+                    elif patch.role == "outlet":
+                        role = OUTLET_KIND_LABELS[entry.outlet.kind]
+                    add(fluid, "internal_patch", i, f"{patch.name} ({role})", "dot",
+                        "accent" if patch.role != "wall" else "accent_secondary")
+            else:
+                self._domain_tree(add, regions, parts, domain, generated)
             solvers_item = add(root, "solvers", None, "Solvers", "folder", "text")
             add(solvers_item, "stopping", None, "Stopping Criteria", "dot", "accent")
             reports = add(root, "reports", None, "Reports & Monitors", "folder", "text")
             add(reports, "reference_values", None, "Reference Values", "dot", "accent")
+            if internal_flow:
+                add(reports, "internal_reports", None, "Planes & Pressure Drops", "dot", "accent")
             add(reports, "probes", None, "Probes", "dot", "accent")
             add(reports, "mesh_study", None, "Mesh Study", "dot", "accent")
-            add(reports, "polar_sweep", None, "Polar Sweep", "dot", "accent")
+            if not internal_flow:  # the angle of attack turns the parts: external flow only (D-120)
+                add(reports, "polar_sweep", None, "Polar Sweep", "dot", "accent")
+            results = add(root, "results", None, "Results", "folder", "text")  # the scene objects (D-132)
+            scene = self._project.sim.results
+            for i, obj in enumerate(scene.objects):
+                item = add(results, "scene_object", i, f"{obj.name} ({SCENE_OBJECT_LABELS[obj.kind].lower()})", "dot",
+                           "accent" if obj.visible else "muted_text")
+                if not obj.visible:
+                    item.setForeground(0, QColor(t.muted_text))
+            for i, view in enumerate(scene.views):
+                add(results, "saved_view", i, f"View: {view.name}", "dot", "accent_secondary")
             self.tree.expandAll()
             self._root_item = root
             self.tree.setRootIndex(self.tree.indexFromItem(root))  # hide the root row
@@ -992,6 +1016,22 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self.tree.blockSignals(False)
         self.node_badge.setText(f"{self.node_count()} Nodes")
         self._apply_filter()
+
+    def _domain_tree(self, add, regions, parts, domain, generated: bool) -> None:
+        """The Fluid Domain with its boundaries and walls and the Fluid Region of external flow."""
+        fluid = add(regions, "fluid_domain", None,
+                    "Fluid Domain" if generated else "Fluid Domain (not generated)",
+                    "folder", "text")
+        if domain.enabled:
+            for bname in shape_roles(domain.shape, domain.symmetry == "y_min", domain.ground.enabled):
+                add(fluid, f"boundary_{bname}", None, bname, "dot", "accent")
+        elif not generated:  # the "Empty" analysis: the domain is an operation (D-078)
+            add(fluid, "generate_domain", None, "Generate domain\u2026", "dot", "accent_secondary")
+        labels = [label for part, patches in zip(parts, part_patch_names(parts))
+                  for label in (patches if part.regions else (part.name,))]
+        for i, label in enumerate(labels):  # one wall per patch (D-071); a plain part shows its name
+            add(fluid, "wall", i, f"{label} (wall)", "dot", "accent")
+        add(regions, "fluid_region", None, "Fluid Region (domain minus parts)", "dot", "accent")
 
     def _loadable(self, part: Part) -> bool:
         return report_for_part(self._project, part) is not None
@@ -1060,8 +1100,142 @@ class MainWindow(StudyControlMixin, QMainWindow):
         parts = self._project.sim.geometry.parts
         return parts[index] if index is not None and index < len(parts) else None
 
+    def _sync_scene_objects(self) -> None:
+        """Push the project's results scene objects into the Results Scene (D-132) and tell the properties rows."""
+        view = self.results_view
+        if view is not None:
+            objects = list(self._project.sim.results.objects)
+            if objects != view.scene_objects:
+                view.scene_objects = objects
+                if view.has_results:
+                    view.rebuild()
+                    view.set_visible(self._scene_mode == "results")
+                    self.viewer.render()
+        self.properties.set_scene_status(view.object_errors if view is not None else {},
+                                         view is not None and view.has_results, self.viewer is not None)
+
+    def _scene_bounds(self):
+        """The results' volume bounds, else the parts' box (metres), else None."""
+        view = self.results_view
+        if view is not None and view.has_results and view.volume_bounds() is not None:
+            return view.volume_bounds()
+        try:
+            return meshing.parts_layout(self._project)[2]
+        except meshing.MeshingNotReady:
+            return None
+
+    def _new_scene_fields(self, kind: str) -> dict:
+        """The settings a new object starts with, from the results' (or the parts') box: a clip through its centre
+        normal to x, an isosurface of |U| at its median, streamlines from a line across it near the inflow side."""
+        b = self._scene_bounds()
+        if b is None:
+            return {}
+        centre = ((b[0] + b[1]) / 2, (b[2] + b[3]) / 2, (b[4] + b[5]) / 2)
+        if kind == "clip":
+            return {"origin": centre, "normal": (1.0, 0.0, 0.0)}
+        if kind == "isosurface":
+            value = 0.0
+            view = self.results_view
+            if view is not None and view.has_results and view.data.internal is not None and "U" in view.data.internal.cell_data:
+                value = float(np.median(np.linalg.norm(np.asarray(view.data.internal.cell_data["U"]), axis=1)))
+            return {"field": "U_mag", "value": value}
+        x = b[0] + 0.05 * (b[1] - b[0])
+        diag = math.sqrt(sum((b[2 * i + 1] - b[2 * i]) ** 2 for i in range(3)))
+        return {"point1": (x, centre[1], b[4] + 0.1 * (b[5] - b[4])), "point2": (x, centre[1], b[5] - 0.1 * (b[5] - b[4])),
+                "normal": (1.0, 0.0, 0.0), "size": 0.5 * max(b[3] - b[2], b[5] - b[4], 1e-9), "max_length": 2.0 * diag}
+
+    def _on_scene_action(self, action: str) -> None:
+        """The Results node's buttons (D-132)."""
+        if action.startswith("add:"):
+            kind = action.split(":", 1)[1]
+            object_id = self._run_edit_value(lambda: self._project.add_scene_object(kind, **self._new_scene_fields(kind)))
+            if object_id is not None:
+                index = next(i for i, o in enumerate(self._project.sim.results.objects) if o.id == object_id)
+                self._select_node("scene_object", index)
+        elif action == "save_view" and self.viewer is not None:
+            cam = self.viewer.camera
+            name = self._run_edit_value(lambda: self._project.add_view(
+                f"View {len(self._project.sim.results.views) + 1}", position=tuple(cam.position),
+                focal_point=tuple(cam.focal_point), view_up=tuple(cam.up), parallel=bool(cam.parallel_projection),
+                parallel_scale=float(cam.parallel_scale)))
+            if name is not None:
+                self.show_message(f"Saved view '{name}'", "success")
+        elif action == "image":
+            self.export_image()
+        elif action == "report":
+            self.create_report()
+        elif action.startswith("go_view:") and self.viewer is not None:
+            name = action.split(":", 1)[1]
+            view = next((v for v in self._project.sim.results.views if v.name == name), None)
+            if view is not None:
+                apply_view(self.viewer, view)
+                self.viewer.render()
+
+    def export_image(self):
+        """File > Export Image (D-133): the viewer rendered offscreen at the chosen size; returns the image or None."""
+        if self.viewer is None:
+            return None
+        from datetime import datetime
+
+        from vortexcfd.gui.image_export import export_image
+
+        folder = self._project.folder / "images" if self._project.path is not None else Path.home()
+        suggested = folder / f"{self._project.sim.name}_{datetime.now():%Y%m%d_%H%M%S}.png"
+        spec = self.dialogs.ask_export_image(suggested)
+        if spec is None:
+            return None
+        try:
+            image = export_image(self.viewer, spec.path, spec.size, spec.transparent)
+        except (OSError, ValueError, RuntimeError) as exc:
+            self.show_message(f"Could not export the image: {exc}", "error")
+            return None
+        self.show_message(f"Exported {spec.size[0]} x {spec.size[1]} image to {spec.path}", "success")
+        return image
+
+    REPORT_IMAGE_SIZE = (1600, 900)
+
+    def create_report(self):
+        """File > Create Report (D-134): the HTML report in <project>/reports/, the saved views rendered offscreen
+        in the Results Scene when the case has results; returns its path or None."""
+        from vortexcfd.workflow.report import ReportImage, write_report
+
+        images = []
+        views = self._project.sim.results.views
+        if self.viewer is not None and views:
+            from vortexcfd.gui.image_export import png_bytes
+
+            previous_mode = self._scene_mode
+            camera = self.viewer.camera.copy()
+            switch = previous_mode != "results" and self.results_view is not None and self.results_view.has_results
+            if switch:
+                self._set_scene_mode("results")
+            try:
+                for view in views:
+                    apply_view(self.viewer, view)
+                    images.append(ReportImage(f"View: {view.name}", png_bytes(self.viewer, self.REPORT_IMAGE_SIZE)))
+            finally:
+                if switch:
+                    self._set_scene_mode(previous_mode)
+                self.viewer.camera = camera  # after the mode: entering a scene frames the camera
+                self.viewer.render()
+        try:
+            path = write_report(self._project, images)
+        except (OSError, ValueError) as exc:
+            self.show_message(f"Could not write the report: {exc}", "error")
+            return None
+        self.show_message(f"Report written to {path}", "success")
+        return path
+
+    def _run_edit_value(self, edit):
+        try:
+            return edit()
+        except (ValueError, TypeError, KeyError) as exc:
+            self.show_message(str(exc), "error")
+            return None
+
     def _sync_scene(self) -> None:
         """Bring the viewer's part actors in line with the project (add, remove, edit, undo)."""
+        self._sync_scene_objects()
         if self.scene is None:
             return
         attitude = meshing.project_attitude(self._project) if self._project.sim.inflow.alpha_deg else None
@@ -1273,7 +1447,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         planned = job.inputs.first_layer_thickness
         first_layer = (planned, job.inputs.layer_count or 1) if planned is not None else None  # y+ layers (D-109)
         self._mesh_run = (job.case_dir, job.inputs.patches)
-        self.mesh_worker.start(job.case_dir, job.inputs.patches, first_layer, job.cores)
+        walls = internal.wall_patches(self._project) if job.inputs.internal else None  # layers on walls only (D-129)
+        self.mesh_worker.start(job.case_dir, job.inputs.patches, first_layer, job.cores, walls)
         self._update_mesh_stale()
         self._update_mesh_button()
         self._update_run_button()
@@ -1757,6 +1932,10 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._results_loading_time = time
         self.results_loader.start(case_dir_for(self._project), time, self._mesh_patches)
 
+    def _on_results_loaded_objects(self) -> None:
+        if self.results_view is not None:
+            self.results_view.scene_objects = list(self._project.sim.results.objects)
+
     def _on_results_loaded(self, data) -> None:
         if self.results_view is None:
             return
@@ -1764,7 +1943,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
             log.info("Ignored the results of %s: the project changed while they were read", data.case_dir)
             return
         self._results_shown_time = data.time
+        self._on_results_loaded_objects()
         self._apply_results_controls(data)
+        self._sync_scene_objects()
         log.info("Results loaded: time %s, fields %s", data.time, ", ".join(f.label for f in data.fields))
         self.show_message(f"Results at time {data.time}", "success", log_it=False)
         if self._scene_mode == "results":
@@ -1788,7 +1969,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             range_mode=self.range_combo.currentText(),
             fixed_range=(self.range_min.value(), self.range_max.value()) if fixed else None,
             display=self.display_combo.currentText(),
-            u_ref=self._project.sim.inflow.speed,
+            u_ref=meshing.flow_speed(self._project),  # internal flow: the first inlet's bulk speed (D-129)
             flow_direction=flow_direction(),
             highlight_separation=self.separation_toggle.isChecked(),
             font_size=self._point_size,
@@ -1860,7 +2041,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
 
     def _feed_section_tool(self) -> None:
         view = self.results_view
-        self.section_tool.set_results(view.data.patches, self._project.sim.inflow.speed, view.parts_bounds())
+        self.section_tool.set_results(view.data.patches, meshing.flow_speed(self._project), view.parts_bounds())
 
     def open_sections(self) -> None:
         """The Sections tool (D-062): Cp against x/c on wall sections of the shown results."""
@@ -2134,6 +2315,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         S = QKeySequence.StandardKey
         self.act_new = action("&New Simulation...", self.new_project, S.New)
         self.act_open = action("&Open...", lambda: self.open_project(), S.Open)
+        self.act_export_image = action("Export &Image...", lambda: self.export_image())
+        self.act_create_report = action("Create &Report", lambda: self.create_report())
         self.act_save_preset = action("Save as &Preset...", self.save_as_preset)
         self.act_manage_presets = action("&Manage Presets...", self.manage_presets)
         self.act_about = action("&About VortexCFD", lambda: self.dialogs.show_about())
@@ -2181,6 +2364,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         file_menu.addAction(self.act_import_airfoil)
         file_menu.addSeparator()
         file_menu.addActions([self.act_save, self.act_save_as])
+        file_menu.addSeparator()
+        file_menu.addActions([self.act_export_image, self.act_create_report])
         file_menu.addSeparator()
         file_menu.addActions([self.act_save_preset, self.act_manage_presets])
         file_menu.addSeparator()
@@ -2232,6 +2417,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
             menu.menuAction().setEnabled(loaded)
         for act in (self.act_save, self.act_save_as, self.act_save_preset):
             act.setEnabled(loaded)
+        self.act_export_image.setEnabled(loaded and self.viewer is not None)  # D-133
+        self.act_create_report.setEnabled(loaded and self._project.path is not None)  # D-134
         # A pending field edit is committed by Undo first, so it counts as undoable.
         self.act_undo.setEnabled(p.can_undo or self.properties.has_pending)
         self.act_undo.setText(f"Undo {p.undo_label}" if p.undo_label else "Undo")
@@ -2245,6 +2432,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
                                              and bool(self._project.sim.geometry.parts))
         self.act_add_wake.setEnabled(loaded and bool(self._project.sim.geometry.parts)
                                      and self._project.sim.domain.enabled)
+        self.act_generate_domain.setEnabled(loaded and not self._project.sim.internal)  # no domain (D-129)
 
     def _on_item_activated(self, item: QTreeWidgetItem, _column: int = 0) -> None:
         kind, _index = item.data(0, ROLE_NODE)
@@ -2752,6 +2940,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
                     parts = part_ops.parts_per_solid(project_dir, dest, units, solids, taken)
                 else:
                     parts = [part_ops.part_with_solid_regions(project_dir, name, dest, units, solids)]
+                    if self._project.sim.internal:  # each solid its own patch: an inlet, outlet or wall (D-129)
+                        parts = [part_ops.with_region_patches(parts[0])]
             except (OSError, SurfaceLoadError, ValueError) as exc:
                 dest.unlink(missing_ok=True)
                 self.show_message(f"Could not import {source.name}: {exc}", "error")

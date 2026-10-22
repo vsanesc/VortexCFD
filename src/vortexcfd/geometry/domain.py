@@ -57,6 +57,8 @@ class DomainBox:
     parts_bounds: Bounds | None = None  # union of the boxes of the parts the domain is sized around
     ground: bool = False  # the bottom face is the ground plane (D-116)
     two_d: bool = False  # a 2D section in x-z (D-121): the mesh is a one-cell slab across y
+    # Internal flow (D-129): no domain; ``bounds`` are the parts' bounds and ``volume`` the fluid volume inside them.
+    internal: bool = False
 
     @property
     def rounded(self) -> bool:
@@ -239,3 +241,14 @@ def compute_domain(
             warnings.append(f"The domain does not enclose {', '.join(outside)}: increase the radius or the "
                             "downstream length.")
     return box
+
+
+def internal_box(parts_bounds: Sequence[Bounds], fluid_volume: float) -> DomainBox:
+    """The "domain" of an internal-flow analysis (D-129): the union of the parts' boxes, the fluid volume inside the
+    closed geometry, L the largest extent; no far-field boundaries."""
+    if not parts_bounds:
+        return DomainBox(0.0, None, (0.0, 0.0, 0.0), {}, ["No parts: import the closed geometry of the fluid."],
+                         internal=True)
+    u = union_bounds(list(parts_bounds))
+    size = (u[1] - u[0], u[3] - u[2], u[5] - u[4])
+    return DomainBox(max(size), u, size, {}, shape="box", volume=fluid_volume, parts_bounds=u, internal=True)

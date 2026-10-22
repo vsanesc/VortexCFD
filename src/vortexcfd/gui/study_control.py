@@ -13,7 +13,7 @@ from PySide6.QtCore import QObject, Signal
 from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError
 from vortexcfd.foam.mesh_study import StudyRun, export_csv as export_study_csv, read_record as read_study
 from vortexcfd.foam.polar_sweep import SweepRun, export_csv as export_sweep_csv, read_record as read_sweep
-from vortexcfd.workflow import mesh_study, meshing, polar_sweep
+from vortexcfd.workflow import internal, mesh_study, meshing, polar_sweep
 from vortexcfd.workflow.meshing import MeshingNotReady
 from vortexcfd.gui.study_rows import format_seconds
 from vortexcfd.gui.study_windows import MeshStudyWindow, PolarSweepWindow
@@ -201,7 +201,8 @@ class StudyControlMixin:
         self.study_worker.start(lambda on_line, on_progress, on_done: StudyRun(
             study_dir, record, writer, stopping=stopping, parts=inputs.patches, on_line=on_line,
             on_level=on_progress, on_done=on_done, solver_timeout_s=self.study_timeout_s,
-            mesh_run_factory=self.study_mesh_run_factory, solver_run_factory=self.study_solver_run_factory))
+            mesh_run_factory=self.study_mesh_run_factory, solver_run_factory=self.study_solver_run_factory,
+            walls=internal.wall_patches(self._project) if inputs.internal else None))  # layers on walls (D-129)
 
     def _start_sweep(self) -> None:
         reason = polar_sweep.sweep_readiness(self._project, busy=self._busy_for_study("polar"))

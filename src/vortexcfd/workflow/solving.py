@@ -21,8 +21,25 @@ from vortexcfd.foam.mesh_case import MARKER_NAME, part_force_groups, remove_resu
 from vortexcfd.foam.mesh_report import lost_part_message
 from vortexcfd.geometry.domain import ground_wall_start
 from vortexcfd.foam.parallel import physical_cores
-from vortexcfd.foam.physics_case import SolverCaseInput, far_field_patches, build_solver_files, reference_values
-from vortexcfd.workflow.meshing import MeshingNotReady, case_dir_for, inputs_hash, parts_layout, project_estimate
+from vortexcfd.foam.physics_case import (
+    InternalInlet,
+    InternalOutlet,
+    InternalSetup,
+    SolverCaseInput,
+    build_solver_files,
+    far_field_patches,
+    internal_turbulence,
+    reference_values,
+)
+from vortexcfd.workflow import internal
+from vortexcfd.workflow.meshing import (
+    MeshingNotReady,
+    _body_parts,
+    case_dir_for,
+    inputs_hash,
+    parts_layout,
+    project_estimate,
+)
 
 
 class SolvingNotReady(Exception):
@@ -52,16 +69,55 @@ def physics_problem(project: Project) -> str | None:
         return "Import at least one part."
     sim = project.sim
     probes = [p.name for p in sim.reports.probes]
+    locations, drops = report_locations(project)
     for i, c in enumerate(sim.solvers.stopping.criteria, start=1):
         if isinstance(c, AsymptoticCriterion):
-            why = missing_reference(c.quantity, _names, probes)
+            why = missing_reference(c.quantity, _names, probes, locations, drops, sim.internal)
             if why is not None:
                 return f"Stopping criterion {i} watches {report_label(c.quantity)}: {why}."
+    if sim.internal:  # no force coefficients: no reference values to check (D-129)
+        return internal_problem(project)
     ref = reference_values(bounds, project.sim.reports, section_span(project) if project.sim.dimension == "2d" else None)
     if ref.l_ref <= 0:
         return "The reference length is zero (the parts have no extent along x): set l_ref."
     if ref.a_ref <= 0:
         return "The reference area is zero (the parts have no extent along x or y): set A_ref."
+    return None
+
+
+def report_locations(project: Project) -> tuple[list[str], list[str]]:
+    """(the internal-flow report locations: "patch:<inlet or outlet>" by mesh patch name and "plane:<name>"; the
+    pressure-drop names); both empty for external flow (D-129)."""
+    sim = project.sim
+    if not sim.internal:
+        return [], []
+    locations = [f"patch:{patch}" for patch, _role in internal.open_patches(project)]
+    locations += [f"plane:{plane.name}" for plane in sim.reports.planes]
+    return locations, [d.name for d in sim.reports.pressure_drops]
+
+
+def report_scope(project: Project) -> dict:
+    """The keyword arguments of core/reports.available_reports, criterion_quantities and missing_reference for
+    ``project``: the force-report patches, the probes and, in internal flow, the locations and pressure drops (D-129)."""
+    from vortexcfd.foam.mesh_case import force_report_keys
+
+    sim = project.sim
+    locations, drops = report_locations(project)
+    return {"patches": list(force_report_keys(sim.geometry.parts)), "probes": [p.name for p in sim.reports.probes],
+            "locations": locations, "drops": drops, "internal": sim.internal}
+
+
+def internal_problem(project: Project) -> str | None:
+    """Why an internal-flow project cannot be solved (D-129): the roles, a pressure drop between unknown
+    locations."""
+    problem = internal.role_problem(project)
+    if problem is not None:
+        return problem
+    locations, _drops = report_locations(project)
+    for drop in project.sim.reports.pressure_drops:
+        for where in (drop.upstream, drop.downstream):
+            if where not in locations:
+                return f"Pressure drop {drop.name}: no inlet, outlet or plane {where.partition(':')[2]!r}."
     return None
 
 
@@ -132,9 +188,62 @@ def two_stage_turbulence(project: Project) -> bool:
     return mesh.effective_layer_controls == "wall_resolved" and mesh.layer_sizing == "absolute_yplus"
 
 
+def internal_setup(project: Project) -> InternalSetup:
+    """The internal-flow boundaries and planes of ``project`` for the solver files (D-129) [NUMERICS-REVIEW]: the mass
+    flow over the reference density (m3/s), pressures over the reference density (kinematic), each inlet's length
+    scale (set, else 0.07 D_h of its patch); the initial k and omega from the reference inlet's bulk speed (the
+    inflow speed when it has none).
+
+    Raises:
+        MeshingNotReady: a part cannot be loaded.
+    """
+    sim = project.sim
+    rho = sim.physics.rho_ref
+    _names, meshes = _body_parts(project)
+    measures = internal.inlet_measures(project, meshes)
+    inlets, outlets = [], []
+    for p in internal.patches(project):
+        entry = sim.boundary(p.name)
+        if p.role == "inlet":
+            spec = entry.inlet
+            inlets.append(InternalInlet(p.safe, spec.kind, spec.turbulence_intensity,
+                                        internal.length_scale(spec, measures[p.safe].hydraulic_diameter),
+                                        speed=spec.speed, flow_rate=spec.mass_flow / rho,
+                                        total_pressure=spec.total_pressure / rho))
+        elif p.role == "outlet":
+            outlets.append(InternalOutlet(p.safe, entry.outlet.pressure / rho))
+    ref = internal.reference_inlet(project, meshes)
+    speed = ref.speed if ref is not None and ref.speed else sim.inflow.speed
+    first = inlets[0] if inlets else None
+    k0, omega0 = internal_turbulence(speed, first.intensity if first else 0.05,
+                                     first.length_scale if first else 0.07 * max(ref.hydraulic_diameter if ref else 1.0, 1e-9))
+    bounds = [m.bounds for m in meshes]
+    extent = max((b[2 * a + 1] - b[2 * a] for b in bounds for a in range(3)), default=1.0)
+    planes = []
+    for plane in sim.reports.planes:
+        n = plane.normal
+        length = sum(c * c for c in n) ** 0.5
+        unit = tuple(c / length for c in n)
+        point = tuple(p + PLANE_NUDGE * extent * c for p, c in zip(plane.point, unit))
+        planes.append((plane.name, point, unit))
+    return InternalSetup(tuple(inlets), tuple(outlets), k0, omega0, tuple(planes))
+
+
+# A cutting plane is written this fraction of the parts' largest extent along its normal from the user's point
+# (D-129): a plane that lies on a layer of mesh faces (a round coordinate on a regular background) is sampled with
+# the faces of both neighbouring cells (the pipe validation: 368 faces and 105 % of the pipe's area at x = 40 D
+# against 336 elsewhere), so the plane never lies on one. [NUMERICS-REVIEW]
+PLANE_NUDGE = 1e-6
+
+
 def solver_input(project: Project) -> SolverCaseInput:
     box, names, bounds = parts_layout(project)
     sim = project.sim
+    if sim.internal:  # walls only; no far field, symmetry or force groups (D-129)
+        two_d = sim.dimension == "2d"
+        return SolverCaseInput(sim.physics, sim.inflow, sim.solvers, internal.wall_patches(project), bounds,
+                               False, sim.reports, (), (), span=section_span(project, box) if two_d else None,
+                               two_stage=two_stage_turbulence(project), internal=internal_setup(project))
     ground = sim.domain.ground.enabled and sim.domain.shape == "box"
     strip = ground_wall_start(sim.domain, box.bounds) is not None  # the slip strip (D-118)
     two_d = sim.dimension == "2d"
@@ -197,4 +306,6 @@ def results_hash(project: Project) -> str:
         payload["ground_motion"] = sim.domain.ground.motion
     if two_stage_turbulence(project):  # D-126; single-stage projects keep their hash
         payload["turbulence_stages"] = 2
+    if sim.internal:  # the boundaries (D-129); external projects keep their hash
+        payload["boundaries"] = [b.model_dump() for b in sim.boundaries]
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()

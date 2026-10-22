@@ -1,0 +1,453 @@
+{
+  "cases": [
+    {
+      "case": "sphere",
+      "ratio": 1.4142135623730951,
+      "current_as": "fine",
+      "points": {
+        "ahead": [
+          -1.499922126531601,
+          0.0,
+          0.0
+        ],
+        "above": [
+          0.0,
+          0.0,
+          1.5
+        ],
+        "wake": [
+          2.499922126531601,
+          0.0,
+          0.0
+        ]
+      },
+      "reference_length": 1.0,
+      "levels": [
+        {
+          "level": "coarse",
+          "factor": 2.0000000000000004,
+          "base_m": 0.5370255984733127,
+          "surface_m": 0.01678204995229102,
+          "buffer_scale": 0.5000000000000001,
+          "study": {
+            "mesh_s": 15.0,
+            "cells": 93976,
+            "valid": true,
+            "hard": [],
+            "soft": [],
+            "max_non_ortho": 39.407356,
+            "faces_gt70": 0,
+            "max_skewness": 0.52641155,
+            "coverage_percent": 100.0,
+            "mean_layers": 6.025681989636253,
+            "first_cell_m": 0.001800666515752559,
+            "planned_first_m": 0.0018012965253671146,
+            "zones": {},
+            "point_cell_m": {
+              "ahead": {
+                "median": null,
+                "cells": 0
+              },
+              "above": {
+                "median": null,
+                "cells": 0
+              },
+              "wake": {
+                "median": null,
+                "cells": 0
+              }
+            }
+          },
+          "single": {
+            "mesh_s": 20.9,
+            "cells": 45945,
+            "valid": true,
+            "hard": [],
+            "soft": [],
+            "max_non_ortho": 50.977749,
+            "faces_gt70": 0,
+            "max_skewness": 0.73758129,
+            "coverage_percent": 100.0,
+            "mean_layers": 6.000000000000001,
+            "first_cell_m": 0.001798895696960941,
+            "planned_first_m": 0.0018012965253671146,
+            "zones": {},
+            "point_cell_m": {
+              "ahead": {
+                "median": null,
+                "cells": 0
+              },
+              "above": {
+                "median": null,
+                "cells": 0
+              },
+              "wake": {
+                "median": null,
+                "cells": 0
+              }
+            }
+          }
+        },
+        {
+          "level": "medium",
+          "factor": 1.4142135623730951,
+          "base_m": 0.37973565624925903,
+          "surface_m": 0.011866739257789345,
+          "buffer_scale": 0.7071045207838059,
+          "study": {
+            "mesh_s": 31.9,
+            "cells": 219071,
+            "valid": true,
+            "hard": [],
+            "soft": [],
+            "max_non_ortho": 38.996352,
+            "faces_gt70": 0,
+            "max_skewness": 0.52068393,
+            "coverage_percent": 100.0,
+            "mean_layers": 6.029582969944846,
+            "first_cell_m": 0.0018009844558561532,
+            "planned_first_m": 0.0018012965253671146,
+            "zones": {},
+            "point_cell_m": {
+              "ahead": {
+                "median": 0.382011708781302,
+                "cells": 1
+              },
+              "above": {
+                "median": 0.3820548605993759,
+                "cells": 1
+              },
+              "wake": {
+                "median": null,
+                "cells": 0
+              }
+            }
+          },
+          "single": {
+            "mesh_s": 30.3,
+            "cells": 110271,
+            "valid": true,
+            "hard": [],
+            "soft": [],
+            "max_non_ortho": 49.808151,
+            "faces_gt70": 0,
+            "max_skewness": 0.966437,
+            "coverage_percent": 100.0,
+            "mean_layers": 6.016277776020138,
+            "first_cell_m": 0.0018001993240455627,
+            "planned_first_m": 0.0018012965253671146,
+            "zones": {},
+            "point_cell_m": {
+              "ahead": {
+                "median": 0.38203612238376117,
+                "cells": 1
+              },
+              "above": {
+                "median": 0.38184458077684846,
+                "cells": 1
+              },
+              "wake": {
+                "median": null,
+                "cells": 0
+              }
+            }
+          }
+        },
+        {
+          "level": "fine",
+          "factor": 1.0,
+          "base_m": 0.2685127992366564,
+          "surface_m": 0.008391024976145512,
+          "buffer_scale": 1.0,
+          "study": {
+            "mesh_s": 56.7,
+            "cells": 233534,
+            "valid": true,
+            "hard": [],
+            "soft": [],
+            "max_non_ortho": 46.462376,
+            "faces_gt70": 0,
+            "max_skewness": 0.84915829,
+            "coverage_percent": 99.58699272779134,
+            "mean_layers": 6.023024797686389,
+            "first_cell_m": 0.0018007142569228345,
+            "planned_first_m": 0.0018012965253671146,
+            "zones": {},
+            "point_cell_m": {
+              "ahead": {
+                "median": null,
+                "cells": 0
+              },
+              "above": {
+                "median": null,
+                "cells": 0
+              },
+              "wake": {
+                "median": null,
+                "cells": 0
+              }
+            }
+          },
+          "single": "the study level (current settings)"
+        }
+      ]
+    },
+    {
+      "case": "wing",
+      "ratio": 1.4142135623730951,
+      "current_as": "fine",
+      "points": {
+        "ahead": [
+          -0.9999994549284565,
+          0.7500000596046448,
+          -3.2279640436172485e-06
+        ],
+        "above": [
+          0.5000002725357717,
+          0.7500000596046448,
+          1.0600072294473648
+        ],
+        "wake": [
+          3.0,
+          0.7500000596046448,
+          -3.2279640436172485e-06
+        ]
+      },
+      "reference_length": 1.0,
+      "levels": [
+        {
+          "level": "coarse",
+          "factor": 2.0000000000000004,
+          "base_m": 0.634820506784068,
+          "surface_m": 0.019838140837002124,
+          "buffer_scale": 0.5,
+          "study": {
+            "mesh_s": 21.4,
+            "cells": 86384,
+            "valid": true,
+            "hard": [],
+            "soft": [],
+            "max_non_ortho": 63.22429,
+            "faces_gt70": 0,
+            "max_skewness": 1.4765282,
+            "coverage_percent": 86.61384732252459,
+            "mean_layers": 6.49964057201237,
+            "first_cell_m": 0.0019341436988865514,
+            "planned_first_m": 0.0018012965253671146,
+            "zones": {
+              "trailing_edge": {
+                "coverage_percent": 0.0,
+                "first_cell_m": 0.0017336322518419864
+              },
+              "tips": {
+                "coverage_percent": 0.0,
+                "first_cell_m": 0.004278934857750877
+              },
+              "root": {
+                "coverage_percent": 87.19769810728395,
+                "first_cell_m": 0.0017733236836701219
+              }
+            },
+            "point_cell_m": {
+              "ahead": {
+                "median": null,
+                "cells": 0
+              },
+              "above": {
+                "median": null,
+                "cells": 0
+              },
+              "wake": {
+                "median": null,
+                "cells": 0
+              }
+            }
+          },
+          "single": {
+            "mesh_s": 34.3,
+            "cells": 107283,
+            "valid": true,
+            "hard": [],
+            "soft": [],
+            "max_non_ortho": 63.225503,
+            "faces_gt70": 0,
+            "max_skewness": 1.4764848,
+            "coverage_percent": 86.62644233930057,
+            "mean_layers": 6.499956100499997,
+            "first_cell_m": 0.0019332729964905175,
+            "planned_first_m": 0.0018012965253671146,
+            "zones": {
+              "trailing_edge": {
+                "coverage_percent": 0.0,
+                "first_cell_m": 0.001733551641026511
+              },
+              "tips": {
+                "coverage_percent": 0.0,
+                "first_cell_m": 0.004264904352691234
+              },
+              "root": {
+                "coverage_percent": 87.21205644863862,
+                "first_cell_m": 0.0017733842526608393
+              }
+            },
+            "point_cell_m": {
+              "ahead": {
+                "median": null,
+                "cells": 0
+              },
+              "above": {
+                "median": null,
+                "cells": 0
+              },
+              "wake": {
+                "median": null,
+                "cells": 0
+              }
+            }
+          }
+        },
+        {
+          "level": "medium",
+          "factor": 1.4142135623730951,
+          "base_m": 0.44888732013789623,
+          "surface_m": 0.014027728754309257,
+          "buffer_scale": 0.7071045207838059,
+          "study": {
+            "mesh_s": 37.8,
+            "cells": 193367,
+            "valid": true,
+            "hard": [],
+            "soft": [],
+            "max_non_ortho": 61.694263,
+            "faces_gt70": 0,
+            "max_skewness": 2.3471943,
+            "coverage_percent": 93.23211636363689,
+            "mean_layers": 6.777412972168422,
+            "first_cell_m": 0.0017956734589317394,
+            "planned_first_m": 0.0018012965253671146,
+            "zones": {
+              "trailing_edge": {
+                "coverage_percent": 21.51618874314581,
+                "first_cell_m": 0.0015933863766189106
+              },
+              "tips": {
+                "coverage_percent": 54.78746278670482,
+                "first_cell_m": 0.001957935274162807
+              },
+              "root": {
+                "coverage_percent": 95.6527464392561,
+                "first_cell_m": 0.0017850320885136647
+              }
+            },
+            "point_cell_m": {
+              "ahead": {
+                "median": null,
+                "cells": 0
+              },
+              "above": {
+                "median": null,
+                "cells": 0
+              },
+              "wake": {
+                "median": null,
+                "cells": 0
+              }
+            }
+          },
+          "single": {
+            "mesh_s": 31.4,
+            "cells": 166720,
+            "valid": true,
+            "hard": [],
+            "soft": [],
+            "max_non_ortho": 62.012451,
+            "faces_gt70": 0,
+            "max_skewness": 2.3489687,
+            "coverage_percent": 93.18360304090703,
+            "mean_layers": 6.776888641957238,
+            "first_cell_m": 0.0017977638937246103,
+            "planned_first_m": 0.0018012965253671146,
+            "zones": {
+              "trailing_edge": {
+                "coverage_percent": 21.516476790924692,
+                "first_cell_m": 0.0015932882861508166
+              },
+              "tips": {
+                "coverage_percent": 54.09605064112602,
+                "first_cell_m": 0.001992948690589477
+              },
+              "root": {
+                "coverage_percent": 95.15607635961206,
+                "first_cell_m": 0.001783178343067729
+              }
+            },
+            "point_cell_m": {
+              "ahead": {
+                "median": null,
+                "cells": 0
+              },
+              "above": {
+                "median": 0.22367913287442776,
+                "cells": 1
+              },
+              "wake": {
+                "median": null,
+                "cells": 0
+              }
+            }
+          }
+        },
+        {
+          "level": "fine",
+          "factor": 1.0,
+          "base_m": 0.317410253392034,
+          "surface_m": 0.009919070418501062,
+          "buffer_scale": 1.0,
+          "study": {
+            "mesh_s": 61.9,
+            "cells": 300025,
+            "valid": true,
+            "hard": [],
+            "soft": [],
+            "max_non_ortho": 64.907837,
+            "faces_gt70": 0,
+            "max_skewness": 2.8152669,
+            "coverage_percent": 94.37076679680014,
+            "mean_layers": 6.808721268232485,
+            "first_cell_m": 0.001788085573092996,
+            "planned_first_m": 0.0018012965253671146,
+            "zones": {
+              "trailing_edge": {
+                "coverage_percent": 38.36107349092619,
+                "first_cell_m": 0.0015508930910322122
+              },
+              "tips": {
+                "coverage_percent": 50.03810243586075,
+                "first_cell_m": 0.0018095771597911264
+              },
+              "root": {
+                "coverage_percent": 97.05612223489797,
+                "first_cell_m": 0.0017866683198557503
+              }
+            },
+            "point_cell_m": {
+              "ahead": {
+                "median": null,
+                "cells": 0
+              },
+              "above": {
+                "median": null,
+                "cells": 0
+              },
+              "wake": {
+                "median": null,
+                "cells": 0
+              }
+            }
+          },
+          "single": "the study level (current settings)"
+        }
+      ]
+    }
+  ]
+}

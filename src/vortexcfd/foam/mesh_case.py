@@ -155,6 +155,18 @@ class MeshCaseInput:
     # current level and every single mesh). Other than 1, the regions between the parts and the background keep
     # the current level's extent in metres (study_buffer_shells), so a finer level is finer everywhere.
     buffer_scale: float = 1.0
+    # A mesh study level (D-127): in 3D every level, the current one included, gets the distance shells and
+    # nCellsBetweenLevels 1 (one transition mechanism for the whole family); False for every single mesh.
+    study_level: bool = False
+    # Internal flow (D-129) [NUMERICS-REVIEW]: no domain; the background box encloses the parts (domain_bounds are
+    # their bounds, domain_volume the fluid volume) with BACKGROUND_MARGIN_CELLS base cells on every side, its faces
+    # the patch "background", which the fluid inside the parts never touches (createPatch removes it; the domain
+    # guard checks it is empty). ``open_patches``: the inlet and outlet patches (safe names) with their role; every
+    # other part patch is a wall, the only patches with prism layers. ``location``: the locationInMesh found inside
+    # the closed geometry (workflow/internal.py).
+    internal: bool = False
+    open_patches: tuple[tuple[str, str], ...] = ()
+    location: tuple[float, float, float] | None = None
 
     @property
     def rounded(self) -> bool:
@@ -164,11 +176,13 @@ class MeshCaseInput:
         """The mesh estimate of this domain (mesh_estimate.estimate_mesh)."""
         length = self.surface_length if self.surface_length is not None else self.reference_length
         return estimate_mesh(self.domain_bounds, length, mesh or self.mesh, volume=self.domain_volume,
-                             rounded=self.rounded, symmetric=self.symmetric, two_d=self.two_d)
+                             rounded=self.rounded, symmetric=self.symmetric, two_d=self.two_d, internal=self.internal)
 
     def expected_domain_patches(self) -> tuple[str, ...]:
         """The domain patches the final mesh must have (each with faces). In 2D the spanwise ones are the empty
         "frontAndBack" (the box's sides and the C-type's spanwise sides lie outside the slab)."""
+        if self.internal:  # the inlets and outlets (D-129)
+            return tuple(p for p, _role in self.open_patches) + ((FRONT_AND_BACK,) if self.two_d else ())
         if not self.rounded:
             names = ["inlet", "outlet", "sides", "top", GROUND_PATCH if self.ground else "bottom"]
             if self.ground and self.ground_wall_start is not None:
@@ -191,6 +205,10 @@ class MeshCaseInput:
     def patches(self) -> tuple[str, ...]:
         """Every part wall patch of the mesh (the lost-part guard checks each one)."""
         return tuple(p for i in range(len(self.parts)) for p in self.patches_of(i))
+
+    def patch_type(self, patch: str) -> str:
+        """The OpenFOAM type of a part patch: "patch" for an internal-flow inlet or outlet (D-129), else "wall"."""
+        return "patch" if patch in dict(self.open_patches) else "wall"
 
 
 @dataclass(frozen=True)
@@ -245,12 +263,18 @@ def searchable_geometry(shape) -> dict:
 INSIDE_DISTANCE = 1e15
 
 
-def safe_part_names(names: Sequence[str]) -> list[str]:
-    """Patch/file-safe unique names: [A-Za-z0-9_], never a reserved boundary name.
+# Internal flow has no domain (D-129, QUESTIONS 206): only the background box's and the 2D slab's own patch names are
+# reserved, so a region named "inlet" or "outlet" keeps its name.
+INTERNAL_RESERVED_PATCH_NAMES = frozenset({BACKGROUND_PATCH, FRONT_PATCH, BACK_PATCH, FRONT_AND_BACK})
+
+
+def safe_part_names(names: Sequence[str], internal: bool = False) -> list[str]:
+    """Patch/file-safe unique names: [A-Za-z0-9_], never a reserved boundary name (``internal``: only the
+    background and 2D slab names, INTERNAL_RESERVED_PATCH_NAMES).
 
     A name that is already taken (by an earlier part or a domain boundary) gets the first free
     numeric suffix ``_1``, ``_2``, ... so the result is deterministic."""
-    used: set[str] = set(RESERVED_PATCH_NAMES)
+    used: set[str] = set(INTERNAL_RESERVED_PATCH_NAMES if internal else RESERVED_PATCH_NAMES)
     result = []
     for name in names:
         base = re.sub(r"[^A-Za-z0-9_]", "_", name).strip("_") or "part"
@@ -265,14 +289,14 @@ def safe_part_names(names: Sequence[str]) -> list[str]:
     return result
 
 
-def part_patch_names(parts: Sequence) -> list[tuple[str, ...]]:
+def part_patch_names(parts: Sequence, internal: bool = False) -> list[tuple[str, ...]]:
     """Per part (core.model.Part), its safe wall patch names in Part.patch_names() order.
 
     Every name of every part goes through ``safe_part_names`` together, so a patch name used by
     two parts becomes two patches (the second gets a suffix); a part without regions has the one
     patch it always had."""
     raw = [part.patch_names() for part in parts]
-    safe = safe_part_names([name for names in raw for name in names])
+    safe = safe_part_names([name for names in raw for name in names], internal)
     out, k = [], 0
     for names in raw:
         out.append(tuple(safe[k:k + len(names)]))
@@ -280,9 +304,9 @@ def part_patch_names(parts: Sequence) -> list[tuple[str, ...]]:
     return out
 
 
-def wall_patch_names(parts: Sequence) -> tuple[str, ...]:
-    """Every part wall patch of the mesh, in part and region order."""
-    return tuple(name for names in part_patch_names(parts) for name in names)
+def wall_patch_names(parts: Sequence, internal: bool = False) -> tuple[str, ...]:
+    """Every part patch of the mesh, in part and region order."""
+    return tuple(name for names in part_patch_names(parts, internal) for name in names)
 
 
 def part_force_groups(parts: Sequence) -> tuple[tuple[str, tuple[str, ...]], ...]:
@@ -481,7 +505,7 @@ def block_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
     split = ground_split_x(inp)
     if split is not None:  # two blocks sharing the face x = split (D-118): the same cells as one block
         return _split_block_mesh_dict(inp, est.background_bounds, cells, split)
-    if inp.rounded:  # the background box of a rounded domain (D-078)
+    if inp.rounded or inp.internal:  # the background box of a rounded domain (D-078) or of internal flow (D-129)
         others = ["x_min", "x_max", "z_min", "z_max"] + ([] if inp.two_d else ["y_max"])
         patches = [(BACKGROUND_PATCH, others + ([] if inp.symmetric or inp.two_d else ["y_min"]))]
     else:
@@ -745,18 +769,19 @@ def section_staircases(inp: MeshCaseInput, est, part_max_levels: list[int]) -> t
     return geometry, regions
 
 
-# A 3D mesh study level other than the current one (D-127) [NUMERICS-REVIEW]: snappyHexMesh's buffers are
-# nCellsBetweenLevels cells of each level, so between a part and the background the cell at a distance d is about
-# d / (2 x 3) on every level and only the near-wall cells and the background scale with the level. Those levels get
-# distance shells around every part at the current settings' buffer distances (D_k = the sum over the levels from
-# the part's maximum down to k of 3 cells of the current settings' size of that level) and nCellsBetweenLevels 1,
-# so at a fixed distance every level has the same refinement level and its cells scale with the base size.
+# A 3D mesh study level (D-127) [NUMERICS-REVIEW]: snappyHexMesh's buffers are nCellsBetweenLevels cells of each
+# level, so between a part and the background the cell at a distance d is about d / (2 x 3) on every level and only
+# the near-wall cells and the background scale with the level. Every level of a 3D study, the current one included
+# (QUESTIONS 204: one mechanism for the whole family), gets distance shells around every part at the current
+# settings' buffer distances (D_k = the sum over the levels from the part's maximum down to k of 3 cells of the
+# current settings' size of that level) and nCellsBetweenLevels 1, so at a fixed distance every level has the same
+# refinement level and its cells scale with the base size. The study's current level is then not the single mesh.
 STUDY_CELLS_BETWEEN_LEVELS = 1
 
 
 def study_buffer_shells(inp: MeshCaseInput, est, part_max_levels: list[int]) -> dict:
-    """The refinementRegions entries of a 3D study level's distance shells (none for the current level or 2D)."""
-    if inp.two_d or inp.buffer_scale == 1.0:
+    """The refinementRegions entries of a 3D study level's distance shells (none for a single mesh or 2D)."""
+    if inp.two_d or not inp.study_level:
         return {}
     regions = {}
     current_base = est.base_size * inp.buffer_scale
@@ -790,7 +815,7 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
     refinement_surfaces = {
         n: {
             "level": list(levels[i]),
-            "patchInfo": {"type": "wall", "inGroups": [f"{n}Group"]},
+            "patchInfo": {"type": inp.patch_type(n), "inGroups": [f"{n}Group"]},
         }
         for i, n in enumerate(inp.parts)
     }
@@ -800,7 +825,7 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
             refinement_surfaces[n]["curvatureLevel"] = curvature
         if inp.has_regions(i):
             refinement_surfaces[n]["regions"] = {
-                p: {"level": list(levels[i]), "patchInfo": {"type": "wall", "inGroups": [f"{n}Group"]}}
+                p: {"level": list(levels[i]), "patchInfo": {"type": inp.patch_type(p), "inGroups": [f"{n}Group"]}}
                 for p in inp.patches_of(i)
             }
     features = [{"file": f'"{n}.eMesh"', "level": levels[i][1]} for i, n in enumerate(inp.parts)]
@@ -838,7 +863,11 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
     layers = {}
     if n_layers > 0:
         for i, n in enumerate(inp.parts):
-            for key in (inp.patches_of(i) if inp.has_regions(i) else (f'"{n}.*"',)):
+            if inp.internal:  # walls only (D-129)
+                keys = tuple(p for p in inp.patches_of(i) if inp.patch_type(p) == "wall")
+            else:
+                keys = inp.patches_of(i) if inp.has_regions(i) else (f'"{n}.*"',)
+            for key in keys:
                 layers[key] = {"nSurfaceLayers": n_layers}
         if inp.ground and inp.ground_layers:  # optional on the ground plane (D-116)
             layers[GROUND_PATCH] = {"nSurfaceLayers": n_layers}
@@ -852,13 +881,14 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
             "maxGlobalCells": MAX_GLOBAL_CELLS,
             "minRefinementCells": 10,
             "maxLoadUnbalance": 0.10,
-            "nCellsBetweenLevels": (STUDY_CELLS_BETWEEN_LEVELS if not inp.two_d and inp.buffer_scale != 1.0
+            "nCellsBetweenLevels": (STUDY_CELLS_BETWEEN_LEVELS if not inp.two_d and inp.study_level
                                     else CELLS_BETWEEN_LEVELS),
             "features": features,
             "refinementSurfaces": refinement_surfaces,
             "resolveFeatureAngle": m.feature_angle,
             "refinementRegions": regions,
-            "locationInMesh": list(location_in_mesh(est.background_bounds, inp.parts_bounds, cells, inp.inlet_x)),
+            "locationInMesh": list(inp.location if inp.location is not None
+                                   else location_in_mesh(est.background_bounds, inp.parts_bounds, cells, inp.inlet_x)),
             "allowFreeStandingZoneFaces": True,
         },
         "snapControls": {
@@ -948,7 +978,7 @@ def build_mesh_files(inp: MeshCaseInput) -> dict[str, FoamFileSpec]:
         files[CASTELLATE_DICT] = castellate
     if inp.parts or inp.rounded:
         files["system/surfaceFeatureExtractDict"] = surface_feature_extract_dict(inp)
-    if inp.rounded or inp.two_d:
+    if inp.rounded or inp.two_d or inp.internal:
         files[CREATE_PATCH_DICT] = create_patch_dict(inp.two_d)
     if inp.two_d:
         files[EXTRUDE_DICT] = extrude_mesh_dict(inp.estimate().span)
@@ -993,8 +1023,8 @@ def extrude_mesh_dict(span: float) -> FoamFileSpec:
 def write_domain_guard(case_dir: Path, inp: MeshCaseInput) -> None:
     """case/vortexcfd_domain.json: the domain patches the mesh must have and the background patches it
     must not keep faces on (read by foam/mesh_run.domain_problems after checkMesh, D-078)."""
-    data = {"shape": inp.domain_shape, "expected": list(inp.expected_domain_patches()),
-            "background": [BACKGROUND_PATCH] if inp.rounded else []}
+    data = {"shape": "internal" if inp.internal else inp.domain_shape, "expected": list(inp.expected_domain_patches()),
+            "background": [BACKGROUND_PATCH] if inp.rounded or inp.internal else []}
     (Path(case_dir) / DOMAIN_GUARD_FILE).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
@@ -1005,7 +1035,7 @@ MESH_COMMANDS: tuple[tuple[str, list[str]], ...] = (
     ("snappyHexMesh.castellate", ["snappyHexMesh", "-overwrite", "-dict", CASTELLATE_DICT]),  # seeded parts only
     ("snappyHexMesh", ["snappyHexMesh", "-overwrite"]),
     ("extrudeMesh", ["extrudeMesh"]),  # 2D only (system/extrudeMeshDict, D-121)
-    ("createPatch", ["createPatch", "-overwrite"]),  # rounded domains and 2D (system/createPatchDict)
+    ("createPatch", ["createPatch", "-overwrite"]),  # rounded domains, 2D and internal flow (system/createPatchDict)
     ("checkMesh", ["checkMesh"]),
 )
 
@@ -1017,6 +1047,10 @@ MESH_COMMANDS: tuple[tuple[str, list[str]], ...] = (
 # passes write the mesh to processor*/constant, as in the v2606 motorBike tutorial) merges it once into
 # constant/polyMesh; createPatch and checkMesh then run on that serial mesh.
 DECOMPOSE_STEP = "decomposePar"
+# The meshing decomposition splits the mesh only (D-130): a case that was solved before has 0/ fields, and their
+# patches are those of the previous mesh (no "background" patch of a rounded domain or of internal flow, D-078,
+# D-129), which decomposePar -force would read and fail on.
+MESH_DECOMPOSE_COMMAND = [*DECOMPOSE_COMMAND, "-no-fields"]
 RECONSTRUCT_STEP = "reconstructParMesh"
 SNAPPY_STEPS = ("snappyHexMesh.castellate", "snappyHexMesh")
 
@@ -1029,7 +1063,7 @@ def mesh_commands(cores: int = 1) -> tuple[tuple[str, list[str]], ...]:
     for name, command in MESH_COMMANDS:
         if name in SNAPPY_STEPS:
             if not any(step == DECOMPOSE_STEP for step, _ in steps):
-                steps.append((DECOMPOSE_STEP, list(DECOMPOSE_COMMAND)))
+                steps.append((DECOMPOSE_STEP, list(MESH_DECOMPOSE_COMMAND)))
             steps.append((name, parallel_command(command, cores)))
             if name == "snappyHexMesh":
                 steps.append((RECONSTRUCT_STEP, ["reconstructParMesh", "-constant"]))

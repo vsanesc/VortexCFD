@@ -51,7 +51,9 @@ from vortexcfd.workflow.meshing import (
     meshing_settings,
     case_dir_for,
     domain_fields,
+    internal_fields,
     estimate_for,
+    flow_speed,
     mesh_cores,
     readiness,
     surface_length,
@@ -59,6 +61,7 @@ from vortexcfd.workflow.meshing import (
     write_junction_features,
     write_part_surfaces,
 )
+from vortexcfd.workflow import internal
 from vortexcfd.workflow.solving import clear_results, for_case, physics_problem, solver_input
 from vortexcfd.foam.physics_case import build_solver_files
 
@@ -155,8 +158,9 @@ def plan_study(project: Project) -> StudyPlan:
     current = estimate_for(box, mesh, length)
     yplus_first = None
     if mesh.layer_sizing == "absolute_yplus":
-        yplus_first = first_layer_thickness(mesh.target_yplus, project.sim.inflow.speed, project.sim.physics.nu,
-                                            length, mesh.yplus_at)  # Re on the surface size length (D-088)
+        yplus_first = first_layer_thickness(mesh.target_yplus, flow_speed(project), project.sim.physics.nu,
+                                            length, mesh.yplus_at)  # Re on the surface size length (D-088); the
+        # internal-flow speed is the reference inlet's (D-129)
     layers = reference_layers(mesh, current.surface_size, yplus_first)
     if mesh.layer_controls == "wall_resolved" and yplus_first is not None:  # D-122: the stack of the current level
         plan = plan_wall_resolved(yplus_first, current.surface_size)
@@ -212,6 +216,15 @@ def study_readiness(project: Project, *, busy: str | None = None) -> str | None:
         return busy
     if not project.sim.studies.mesh.quantities:
         return "Choose at least one quantity to study."
+    if project.sim.internal:  # D-129: no force coefficients; an inlet, outlet, plane or pressure drop may be gone
+        from vortexcfd.core.reports import missing_reference, report_label
+        from vortexcfd.workflow.solving import report_scope
+
+        scope = report_scope(project)
+        for quantity in project.sim.studies.mesh.quantities:
+            why = missing_reference(quantity, **scope)
+            if why is not None:
+                return f"Study quantity {report_label(quantity)}: {why}."
     try:
         plan = plan_study(project)
     except MeshingNotReady as exc:
@@ -240,7 +253,7 @@ def prepare_study(project: Project, only: Collection[str] | None = None) -> tupl
     from vortexcfd.foam.mesh_case import part_patch_names, safe_part_names
 
     bounds = [tuple(float(x) for x in m.bounds) for m in meshes]
-    safe = safe_part_names(names)
+    safe = safe_part_names(names, project.sim.internal)
     study = study_dir_for(project)
     study.mkdir(parents=True, exist_ok=True)
     fixed = (plan.layers.first, plan.layers.count) if plan.layers is not None else None
@@ -260,15 +273,19 @@ def prepare_study(project: Project, only: Collection[str] | None = None) -> tupl
             domain_bounds=box.bounds, symmetric=project.sim.domain.symmetry == "y_min", parts=tuple(safe),
             parts_bounds=union_bounds(bounds), reference_length=box.reference_length, mesh=lp.level.mesh,
             part_bounds=tuple(bounds), part_levels=_part_overrides(project),
-            part_patches=tuple(part_patch_names(project.sim.geometry.parts)),
+            part_patches=tuple(part_patch_names(project.sim.geometry.parts, project.sim.internal)),
             fixed_layers=(stack[0], stack[1]) if stack is not None else (1.0, 0),
             layer_expansion=stack[2] if stack is not None else None,
             surface_length=length, volumes=volumes, extra_features=features,
             ground=box.ground, ground_layers=box.ground and project.sim.domain.ground.layers,
             ground_wall_start=ground_wall_start(project.sim.domain, box.bounds),
             two_d=box.two_d, buffer_scale=level_buffer_scale(plan, lp),  # the current regions everywhere (D-127)
+            study_level=True,  # every 3D level with the shells, the current one included (D-127)
             **domain_fields(box),
+            **internal_fields(project, box),
         )
+        if box.internal:  # the locationInMesh inside the geometry on this level's own grid (D-129)
+            inputs = internal.with_location(inputs, meshes)
         case = level_dir(study, lp.level.index)
         if case.is_dir():
             clear_results(case) if (case / "constant" / "polyMesh").is_dir() else None

@@ -140,16 +140,28 @@ def assign_patch(project: Project, index: int, names: list[str], patch: str | No
     return {"regions": [r.model_dump() for r in current]}
 
 
+def region_patch_name(region_name: str) -> str:
+    """A region's name as a valid patch name (made OpenFOAM-safe when meshing)."""
+    patch = re.sub(r"[^A-Za-z0-9_]", "_", region_name)
+    if not patch[:1].isalpha():
+        patch = f"p_{patch}"
+    return patch[:64]
+
+
 def patch_per_region(project: Project, index: int) -> dict:
     """Every region on its own patch named after it (made OpenFOAM-safe when meshing)."""
     part = project.sim.geometry.parts[index]
     current = effective_regions(part, part_base_ids(project, part))
     for r in current:
-        r.patch = re.sub(r"[^A-Za-z0-9_]", "_", r.name)
-        if not r.patch[:1].isalpha():
-            r.patch = f"p_{r.patch}"
-        r.patch = r.patch[:64]
+        r.patch = region_patch_name(r.name)
     return {"regions": [r.model_dump() for r in current]}
+
+
+def with_region_patches(part: Part) -> Part:
+    """``part`` with every region on its own patch: an internal-flow import (D-129), where each solid of a multi-solid
+    STL is an inlet, an outlet or a wall."""
+    regions_list = [r.model_copy(update={"patch": region_patch_name(r.name)}) for r in part.regions]
+    return part.model_copy(update={"regions": regions_list})
 
 
 def split_region(project: Project, index: int, name: str | None, feature_angle: float) -> dict:

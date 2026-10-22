@@ -1,0 +1,12 @@
+# Region type : sampledSurface mid
+# Faces       : 942
+# Area        : 7.815821e-03
+# Scale factor: 1.000000e+00
+# Weight field: U
+# Time        	weightedAreaAverage(p_static)	weightedAreaAverage(p_total)
+1             	1.627248e+02	1.879533e+02
+2             	1.817381e+01	4.237560e+01
+3             	5.540411e+00	2.891198e+01
+298           	2.824497e+00	2.157556e+01
+299           	2.824497e+00	2.157556e+01
+300           	2.824497e+00	2.157556e+01

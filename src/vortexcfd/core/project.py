@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from vortexcfd.core import save_rules
-from vortexcfd.core.model import Part, RefinementVolume, Simulation, SurfacePrep
+from vortexcfd.core.model import Part, PatchBoundary, RefinementVolume, Simulation, SurfacePrep
 from vortexcfd.core.project_io import load_simulation, save_simulation
 
 MAX_OBSERVER_ERRORS = 20
@@ -408,6 +408,74 @@ class Project:
         changed = ", ".join(fields) or "no fields"
         self._edit(f"Edit refinement volume '{old.name}' ({changed})", mutate)
 
+    # -- results scene objects and saved views (D-132) ---------------------------------------
+
+    def scene_object(self, object_id: str):
+        for obj in self._sim.results.objects:
+            if obj.id == object_id:
+                return obj
+        raise KeyError(f"no scene object {object_id!r}")
+
+    def add_scene_object(self, kind: str, **fields: Any) -> str:
+        """Append a new clip, isosurface or streamlines object (``fields`` its settings) as one undoable step; a new
+        id and, without ``name``, the next free "<Kind> <n>"; returns the id."""
+        from vortexcfd.core.model import SCENE_OBJECT_LABELS
+
+        used = {o.id for o in self._sim.results.objects}
+        n = 1
+        while f"s{n}" in used:
+            n += 1
+        names = {o.name for o in self._sim.results.objects}
+        k = 1
+        while f"{SCENE_OBJECT_LABELS[kind]} {k}" in names:
+            k += 1
+        data = {"kind": kind, "id": f"s{n}", "name": f"{SCENE_OBJECT_LABELS[kind]} {k}", **fields}
+
+        def mutate(sim: dict[str, Any]) -> None:
+            sim["results"]["objects"].append(data)
+
+        self._edit(f"Add {SCENE_OBJECT_LABELS[kind].lower()} '{data['name']}'", mutate)
+        return data["id"]
+
+    def update_scene_object(self, object_id: str, **fields: Any) -> None:
+        """Edit a scene object's settings as one undoable step (validated; no-ops leave no trace)."""
+        old = self.scene_object(object_id)
+
+        def mutate(sim: dict[str, Any]) -> None:
+            for obj in sim["results"]["objects"]:
+                if obj["id"] == object_id:
+                    obj.update(fields)
+
+        self._edit(f"Edit '{old.name}' ({', '.join(fields) or 'no fields'})", mutate)
+
+    def remove_scene_object(self, object_id: str) -> None:
+        name = self.scene_object(object_id).name
+
+        def mutate(sim: dict[str, Any]) -> None:
+            sim["results"]["objects"] = [o for o in sim["results"]["objects"] if o["id"] != object_id]
+
+        self._edit(f"Delete '{name}'", mutate)
+
+    def add_view(self, name: str, **camera: Any) -> str:
+        """Save a camera as a view (one undoable step); the name made unique; returns it."""
+        names = {v.name for v in self._sim.results.views}
+        base, n, final = name.strip() or "View", 1, name.strip() or "View"
+        while final in names:
+            n += 1
+            final = f"{base} {n}"
+
+        def mutate(sim: dict[str, Any]) -> None:
+            sim["results"]["views"].append({"name": final, **camera})
+
+        self._edit(f"Save view '{final}'", mutate)
+        return final
+
+    def remove_view(self, name: str) -> None:
+        def mutate(sim: dict[str, Any]) -> None:
+            sim["results"]["views"] = [v for v in sim["results"]["views"] if v["name"] != name]
+
+        self._edit(f"Delete view '{name}'", mutate)
+
     def replace_simulation(self, sim: Simulation, label: str) -> None:
         """Make ``sim`` the current state as one undoable step (a preset applied, for example)."""
         self._commit(Simulation.model_validate(sim.model_dump()), label)
@@ -436,6 +504,27 @@ class Project:
     def update_reports(self, **fields: Any) -> None:
         """Edit reference value overrides or report slots as one undoable step."""
         self._update_section("reports", "reports", fields)
+
+    def update_boundary(self, patch: str, role: str | None = None, inlet: dict[str, Any] | None = None,
+                        outlet: dict[str, Any] | None = None) -> None:
+        """Set the role and / or edit the inlet or outlet settings of an internal-flow patch as one undoable step
+        (D-129). A patch without an entry is a wall; an entry is created on its first edit."""
+
+        def mutate(data: dict[str, Any]) -> None:
+            entries = data["boundaries"]
+            entry = next((b for b in entries if b["patch"] == patch), None)
+            if entry is None:
+                entry = PatchBoundary(patch=patch).model_dump()
+                entries.append(entry)
+            if role is not None:
+                entry["role"] = role
+            if inlet:
+                entry["inlet"].update(inlet)
+            if outlet:
+                entry["outlet"].update(outlet)
+
+        what = f"role {role}" if role is not None else ", ".join([*(inlet or {}), *(outlet or {})]) or "no fields"
+        self._edit(f"Edit boundary {patch} ({what})", mutate)
 
     def update_study(self, study: str, **fields: Any) -> None:
         """Edit the mesh study ("mesh") or polar sweep ("polar") settings as one undoable step."""
