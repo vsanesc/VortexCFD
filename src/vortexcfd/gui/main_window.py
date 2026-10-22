@@ -1160,12 +1160,35 @@ class MainWindow(StudyControlMixin, QMainWindow):
                 parallel_scale=float(cam.parallel_scale)))
             if name is not None:
                 self.show_message(f"Saved view '{name}'", "success")
+        elif action == "image":
+            self.export_image()
         elif action.startswith("go_view:") and self.viewer is not None:
             name = action.split(":", 1)[1]
             view = next((v for v in self._project.sim.results.views if v.name == name), None)
             if view is not None:
                 apply_view(self.viewer, view)
                 self.viewer.render()
+
+    def export_image(self):
+        """File > Export Image (D-133): the viewer rendered offscreen at the chosen size; returns the image or None."""
+        if self.viewer is None:
+            return None
+        from datetime import datetime
+
+        from vortexcfd.gui.image_export import export_image
+
+        folder = self._project.folder / "images" if self._project.path is not None else Path.home()
+        suggested = folder / f"{self._project.sim.name}_{datetime.now():%Y%m%d_%H%M%S}.png"
+        spec = self.dialogs.ask_export_image(suggested)
+        if spec is None:
+            return None
+        try:
+            image = export_image(self.viewer, spec.path, spec.size, spec.transparent)
+        except (OSError, ValueError, RuntimeError) as exc:
+            self.show_message(f"Could not export the image: {exc}", "error")
+            return None
+        self.show_message(f"Exported {spec.size[0]} x {spec.size[1]} image to {spec.path}", "success")
+        return image
 
     def _run_edit_value(self, edit):
         try:
@@ -2256,6 +2279,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         S = QKeySequence.StandardKey
         self.act_new = action("&New Simulation...", self.new_project, S.New)
         self.act_open = action("&Open...", lambda: self.open_project(), S.Open)
+        self.act_export_image = action("Export &Image...", lambda: self.export_image())
         self.act_save_preset = action("Save as &Preset...", self.save_as_preset)
         self.act_manage_presets = action("&Manage Presets...", self.manage_presets)
         self.act_about = action("&About VortexCFD", lambda: self.dialogs.show_about())
@@ -2303,6 +2327,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         file_menu.addAction(self.act_import_airfoil)
         file_menu.addSeparator()
         file_menu.addActions([self.act_save, self.act_save_as])
+        file_menu.addSeparator()
+        file_menu.addAction(self.act_export_image)
         file_menu.addSeparator()
         file_menu.addActions([self.act_save_preset, self.act_manage_presets])
         file_menu.addSeparator()
@@ -2354,6 +2380,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             menu.menuAction().setEnabled(loaded)
         for act in (self.act_save, self.act_save_as, self.act_save_preset):
             act.setEnabled(loaded)
+        self.act_export_image.setEnabled(loaded and self.viewer is not None)  # D-133
         # A pending field edit is committed by Undo first, so it counts as undoable.
         self.act_undo.setEnabled(p.can_undo or self.properties.has_pending)
         self.act_undo.setText(f"Undo {p.undo_label}" if p.undo_label else "Undo")

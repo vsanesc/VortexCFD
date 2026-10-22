@@ -38,6 +38,8 @@ class FakeDialogs:
         self.domain_asked: list = []
         self.duplicate_target = None  # ask_duplicate's answer: (name, parent folder) or None
         self.duplicate_asked: list = []
+        self.export_spec = None  # ask_export_image's answer (an ExportSpec or None)
+        self.export_asked: list = []
 
     def ask_open_path(self):
         return self.open_path
@@ -55,6 +57,10 @@ class FakeDialogs:
 
     def show_warning(self, title, text):
         self.warnings.append((title, text))
+
+    def ask_export_image(self, suggested):
+        self.export_asked.append(suggested)
+        return self.export_spec
 
     def ask_csv_path(self, suggested):
         return self.csv_path
