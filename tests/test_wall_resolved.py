@@ -246,3 +246,73 @@ def test_the_wall_resolved_2d_staircase_has_a_thicker_buffer(tmp_path: Path) -> 
         assert meshing.inputs_hash(project) != wr  # wall-resolved 2D: the buffer is in the hash
     finally:
         mesh_case.WR_SECTION_BUFFER_CELLS = keep
+
+
+def _planned_cell(case: Path, point: tuple[float, float]) -> float:
+    """The planned x-z cell size at ``point`` of a 2D level case: its background cell over 2^k, k the finest
+    staircase or volume box that contains the point (from blockMeshDict and snappyHexMeshDict)."""
+    from vortexcfd.foam.dictfile import read_foam_file
+
+    block = read_foam_file(case / "system" / "blockMeshDict")
+    xs = [float(v[0]) for v in block["vertices"]]
+    base = (max(xs) - min(xs)) / int(block["blocks"][2][0])
+    snappy = read_foam_file(case / "system" / "snappyHexMeshDict")
+    level = 0
+    for key, region in snappy["castellatedMeshControls"]["refinementRegions"].items():
+        box = snappy["geometry"].get(key, {})
+        if box.get("type") != "searchableBox":
+            continue
+        lo, hi = box["min"], box["max"]
+        if lo[0] <= point[0] <= hi[0] and lo[2] <= point[1] <= hi[2]:
+            level = max(level, int(region["levelIncrement"][2][0]))
+    return base / 2 ** level
+
+
+def test_a_2d_study_level_is_finer_everywhere(tmp_path: Path) -> None:
+    """D-127 (QUESTIONS 195): the staircase boxes are the same on every level (the buffer scales with the level),
+    so the cell one chord ahead, one chord above and two chords down the wake shrinks by the study ratio from coarse
+    to medium to fine, like the background and the wall."""
+    from vortexcfd.workflow import mesh_study
+
+    project = airfoil_project(tmp_path, alpha=10.0)
+    study_dir, record, _ = mesh_study.prepare_study(project)
+    ratio = record.ratio
+    for point in ((-1.0, 0.0), (0.25, 1.0), (3.0, -0.17)):  # ahead, above, the wake 2 chords behind the TE
+        sizes = [_planned_cell(study_dir / f"level_{i + 1}", point) for i in range(3)]
+        assert sizes[0] / sizes[1] == pytest.approx(ratio, rel=0.02) and sizes[1] / sizes[2] == pytest.approx(ratio, rel=0.02)
+    from vortexcfd.foam.dictfile import read_foam_file
+
+    boxes = [{k: v for k, v in read_foam_file(study_dir / f"level_{i}" / "system" / "snappyHexMeshDict")["geometry"].items()
+              if k.startswith("section_")} for i in (1, 2, 3)]
+    assert boxes[0].keys() == boxes[1].keys() == boxes[2].keys()  # the same levels ...
+    for key in boxes[2]:  # ... in the same boxes (x and z; along y each spans its own slab)
+        for b in boxes[:2]:
+            assert [b[key]["min"][0], b[key]["min"][2], b[key]["max"][0], b[key]["max"][2]] == pytest.approx(
+                [boxes[2][key]["min"][0], boxes[2][key]["min"][2], boxes[2][key]["max"][0], boxes[2][key]["max"][2]])
+
+
+def test_a_3d_study_level_gets_the_current_buffer_distances() -> None:
+    """D-127: a 3D level other than the current one has distance shells around each part at the current settings'
+    buffer distances and nCellsBetweenLevels 1; the current level is the single mesh's dictionary."""
+    from vortexcfd.foam.mesh_case import CELLS_BETWEEN_LEVELS, STUDY_CELLS_BETWEEN_LEVELS
+
+    def controls(scale: float) -> tuple[dict, float, int]:
+        mesh = Mesh(layer_sizing="relative", surface_level_min=3, surface_level_max=4)
+        inp = MeshCaseInput(domain_bounds=(-5.0, 10.0, -5.0, 5.0, -5.0, 5.0), symmetric=False, parts=("ball",),
+                            parts_bounds=(-0.5, 0.5, -0.5, 0.5, -0.5, 0.5), reference_length=1.0, mesh=mesh,
+                            part_bounds=((-0.5, 0.5, -0.5, 0.5, -0.5, 0.5),), buffer_scale=scale)
+        cm = snappy_hex_mesh_dict(inp).content["castellatedMeshControls"]
+        return cm, inp.estimate().base_size, inp.estimate().level_max
+
+    current, base, top = controls(1.0)
+    assert "ball" not in current["refinementRegions"] and current["nCellsBetweenLevels"] == CELLS_BETWEEN_LEVELS
+    # buffer_scale: the current settings' background cell over this level's; here the level's own base is
+    # ``base`` (same settings), so the current base the shells use is scale x base
+    coarse, _, _ = controls(0.5)
+    shells = coarse["refinementRegions"]["ball"]
+    assert shells["mode"] == "distance" and coarse["nCellsBetweenLevels"] == STUDY_CELLS_BETWEEN_LEVELS == 1
+    expected, reach = [], 0.0
+    for k in range(top, 0, -1):
+        reach += 3 * 0.5 * base / 2 ** k  # 3 cells of the current settings' size of each level
+        expected.append([pytest.approx(reach), k])
+    assert shells["levels"] == expected

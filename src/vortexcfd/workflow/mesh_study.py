@@ -89,6 +89,14 @@ def level_layers(project: Project, plan: "StudyPlan", lp: "LevelPlan") -> tuple[
     return plan.layers.first, plan.layers.count, plan.layers.expansion
 
 
+def level_buffer_scale(plan: "StudyPlan", lp: "LevelPlan") -> float:
+    """The current settings' background cell over the level's (about 1 / its factor; exactly 1 for the current
+    level): the level keeps the current settings' refinement regions in metres (D-127). [NUMERICS-REVIEW]"""
+    if plan.current_base is None or not lp.estimate.base_size or lp.level.factor == 1.0:
+        return 1.0
+    return plan.current_base / lp.estimate.base_size
+
+
 def study_dir_for(project: Project) -> Path | None:
     return project.path.parent / STUDY_DIR_NAME if project.path is not None else None
 
@@ -109,6 +117,7 @@ class StudyPlan:
     cells_per_background: float  # from the current mesh, or the default
     measured: bool  # cells_per_background and the time come from the current case
     warning: str | None  # a level above the background cell limit, etc.
+    current_base: float | None = None  # the current settings' background cell (D-127: the regions' metres)
 
 
 def _seconds_per_cell_iteration(project: Project) -> tuple[float | None, int]:
@@ -163,7 +172,7 @@ def plan_study(project: Project) -> StudyPlan:
         if est.too_many_cells:
             warning = (f"The {level.name} level would have {est.total_cells:,} background cells (limit "
                        f"{MAX_BACKGROUND_CELLS:,}): lower the ratio or the background cell target.")
-    return StudyPlan(plans, layers, volume, ratio, measured, warning)
+    return StudyPlan(plans, layers, volume, ratio, measured, warning, current.base_size)
 
 
 def study_readiness(project: Project, *, busy: str | None = None) -> str | None:
@@ -228,7 +237,7 @@ def prepare_study(project: Project, only: Collection[str] | None = None) -> tupl
             surface_length=length, volumes=volumes, extra_features=features,
             ground=box.ground, ground_layers=box.ground and project.sim.domain.ground.layers,
             ground_wall_start=ground_wall_start(project.sim.domain, box.bounds),
-            two_d=box.two_d,
+            two_d=box.two_d, buffer_scale=level_buffer_scale(plan, lp),  # the current regions everywhere (D-127)
             **domain_fields(box),
         )
         case = level_dir(study, lp.level.index)
