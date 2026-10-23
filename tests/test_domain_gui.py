@@ -172,4 +172,5 @@ def test_works_without_viewer(make_window) -> None:
     w = make_window(with_viewer=False)
     assert w.domain_view is None
     w.tree.setCurrentItem(w._items[("boundary_outlet", None)])
-    assert w.properties.info_label.isVisible()
+    assert not w.properties.info_label.isVisible()  # the face has its Boundary type row (D-147)
+    assert w.properties._rows["face_type"].isVisible() and w.properties.face_type.currentData() == "pressure_outlet"

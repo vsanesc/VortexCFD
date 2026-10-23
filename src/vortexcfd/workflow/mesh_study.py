@@ -52,6 +52,7 @@ from vortexcfd.workflow.meshing import (
     meshing_settings,
     case_dir_for,
     domain_fields,
+    face_kinds,
     internal_fields,
     estimate_for,
     flow_speed,
@@ -281,6 +282,7 @@ def prepare_study(project: Project, only: Collection[str] | None = None) -> tupl
             ground=box.ground, ground_layers=box.ground and project.sim.domain.ground.layers,
             ground_wall_start=ground_wall_start(project.sim.domain, box.bounds),
             two_d=box.two_d, buffer_scale=level_buffer_scale(plan, lp),  # the current 2D staircases (D-127)
+            patch_kinds=face_kinds(project),  # the domain faces' boundary types (D-147)
             cells_between_levels=study_cells_between_levels(lp.level.factor),  # 3D buffers scaled (D-127)
             **domain_fields(box),
             **internal_fields(project, box),

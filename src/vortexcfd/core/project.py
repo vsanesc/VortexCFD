@@ -530,6 +530,24 @@ class Project:
         changed = ", ".join(fields) or "no fields"
         self._edit(f"Edit mesh ({changed})", mutate)
 
+    def set_face_type(self, face: str, kind: str) -> None:
+        """A domain face's boundary type (D-147) as one undoable step. ``kind`` "ground" on the bottom face turns the
+        ground plane on (D-116); any other kind on the ground face turns it off and gives the bottom face that kind."""
+        domain = self._sim.domain
+        if face == "ground" or (face == "bottom" and kind == "ground"):
+            on = kind == "ground"
+            ground = domain.ground.model_dump()
+            ground["enabled"] = on
+            types = dict(domain.boundary_types)
+            if not on:
+                types["bottom"] = kind
+            self.update_domain(label="Ground plane on" if on else f"Bottom face: {kind}", ground=ground,
+                               boundary_types=types)
+            return
+        types = dict(domain.boundary_types)
+        types[face] = kind
+        self.update_domain(label=f"Boundary type of {face}: {kind}", boundary_types=types)
+
     def update_physics(self, **fields: Any) -> None:
         """Edit flow physics as one undoable step (validated; no-ops leave no trace)."""
         self._update_section("physics", "physics", fields)

@@ -20,7 +20,7 @@ from typing import Literal
 from pydantic import Field, ValidationError, field_serializer, field_validator
 
 from vortexcfd.core.atomic_io import write_text_atomic
-from vortexcfd.core.model import CURRENT_SCHEMA_VERSION, Ground, Mesh, Simulation, StrictModel
+from vortexcfd.core.model import CURRENT_SCHEMA_VERSION, Domain, Ground, Mesh, Simulation, StrictModel
 from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR, V13_MESH_FIELDS, V14_MESH_FIELDS
 
 # 1: no schema_version (every such file was written before schema v10); 2: schema_version (D-090).
@@ -44,7 +44,8 @@ ALLOWED_BOUNDARY_TYPES: dict[str, tuple[str, ...]] = {role: (t,) for role, t in 
 
 # The domain fields a preset carries (Domain minus "enabled", which follows the analysis type, and
 # "parts", which belongs to a project's geometry).
-DOMAIN_FIELDS = ("shape", "upstream", "downstream", "lateral", "vertical", "radius", "symmetry", "ground")
+DOMAIN_FIELDS = ("shape", "upstream", "downstream", "lateral", "vertical", "radius", "symmetry", "ground",
+                 "boundary_types")
 
 
 class PresetError(ValueError):
@@ -60,6 +61,13 @@ class PresetDomain(StrictModel):
     radius: float = Field(default=5.0, gt=0)
     symmetry: Literal["none", "y_min"] = "none"
     ground: Ground = Field(default_factory=Ground)  # schema v16 (D-116): a domain setting
+    # The faces' boundary types when not their defaults (schema v22, D-147); none in the built-in presets.
+    boundary_types: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("boundary_types")
+    @classmethod
+    def _face_kinds(cls, value: dict[str, str]) -> dict[str, str]:
+        return Domain(boundary_types=value).boundary_types  # the domain's validation and normalisation
 
 
 class Preset(StrictModel):

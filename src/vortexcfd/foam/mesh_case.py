@@ -50,6 +50,11 @@ CREATE_PATCH_DICT = "system/createPatchDict"
 # The ground plane of a box domain (D-116): the blockMesh z_min face as a wall patch, never a part's
 # (the name is reserved). Forces and the part walls' y+ leave it out.
 GROUND_PATCH = "ground"
+# The OpenFOAM patch type of each resolved domain face kind (D-147) [NUMERICS-REVIEW]: walls are "wall" (wall functions
+# need it), a flat symmetry face "symmetryPlane" (as the y_min symmetry plane), a curved one "symmetry".
+FACE_KIND_PATCH_TYPES = {"velocity_inlet": "patch", "pressure_outlet": "patch", "slip": "patch",
+                         "symmetry_plane": "symmetryPlane", "symmetry": "symmetry", "wall": "wall",
+                         "moving_wall": "wall"}
 # The slip strip of the ground plane upstream of the wall start (D-118): the part of the z_min face
 # ahead of the wall, a slip patch like the far field (the name is reserved).
 GROUND_SLIP_PATCH = "ground_slip"
@@ -168,6 +173,9 @@ class MeshCaseInput:
     internal: bool = False
     open_patches: tuple[tuple[str, str], ...] = ()
     location: tuple[float, float, float] | None = None
+    # The domain faces whose boundary type is not the default (D-147): (patch, kind), kind one of FACE_KIND_PATCH_TYPES.
+    # Empty: the patch types every domain had (BOUNDARY_PATCH_TYPES).
+    patch_kinds: tuple[tuple[str, str], ...] = ()
 
     @property
     def rounded(self) -> bool:
@@ -206,6 +214,11 @@ class MeshCaseInput:
     def patches(self) -> tuple[str, ...]:
         """Every part wall patch of the mesh (the lost-part guard checks each one)."""
         return tuple(p for i in range(len(self.parts)) for p in self.patches_of(i))
+
+    def domain_patch_type(self, patch: str) -> str:
+        """The OpenFOAM type of a domain patch: from its boundary type when changed (D-147), else the default."""
+        kind = dict(self.patch_kinds).get(patch)
+        return FACE_KIND_PATCH_TYPES[kind] if kind is not None else BOUNDARY_PATCH_TYPES.get(patch, "patch")
 
     def patch_type(self, patch: str) -> str:
         """The OpenFOAM type of a part patch: "patch" for an internal-flow inlet or outlet (D-129), else "wall"."""
@@ -552,7 +565,7 @@ def block_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
         "blocks": ["hex", [0, 1, 2, 3, 4, 5, 6, 7], list(cells), "simpleGrading", [1, 1, 1]],
         "edges": [],
         "boundary": [
-            (name, {"type": BOUNDARY_PATCH_TYPES.get(name, "patch"), "faces": [faces[f] for f in which]})
+            (name, {"type": inp.domain_patch_type(name), "faces": [faces[f] for f in which]})
             for name, which in patches
         ],
         "mergePatchPairs": [],
@@ -597,7 +610,7 @@ def _split_block_mesh_dict(inp: MeshCaseInput, bounds: Bounds, cells, xs: float)
         "blocks": ["hex", block(0), [n_up, ny, nz], "simpleGrading", [1, 1, 1],
                    "hex", block(1), [nx - n_up, ny, nz], "simpleGrading", [1, 1, 1]],
         "edges": [],
-        "boundary": [(name, {"type": BOUNDARY_PATCH_TYPES[name], "faces": fs}) for name, fs in patches],
+        "boundary": [(name, {"type": inp.domain_patch_type(name), "faces": fs}) for name, fs in patches],
         "mergePatchPairs": [],
     })
 
@@ -876,7 +889,7 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
         refinement_surfaces[DOMAIN_SURFACE] = {
             "level": [0, 0],
             "patchInfo": {"type": "patch"},
-            "regions": {p: {"level": [0, 0], "patchInfo": {"type": BOUNDARY_PATCH_TYPES.get(p, "patch")}}
+            "regions": {p: {"level": [0, 0], "patchInfo": {"type": inp.domain_patch_type(p)}}
                         for p in inp.domain_patches},
         }
         features.append({"file": f'"{DOMAIN_SURFACE}.eMesh"', "level": 0})

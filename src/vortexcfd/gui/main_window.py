@@ -103,6 +103,7 @@ from vortexcfd.workflow import solving
 from vortexcfd.gui.solver_worker import SolverWorker
 from vortexcfd.gui.study_control import StudyControlMixin
 from vortexcfd.gui.tree_actions import TreeActionsMixin
+from vortexcfd.core.model import BOUNDARY_KIND_LABELS
 from vortexcfd.gui.panel_widgets import FloatingPanel
 from vortexcfd.foam.results import latest_result_time
 from vortexcfd.gui import paraview
@@ -451,6 +452,7 @@ class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
         self._props_section = props_section
         self.properties_window: FloatingPanel | None = None
         self.properties.help_requested.connect(lambda target: self.open_manual(section=target))
+        self.properties.face_type_changed.connect(lambda face: self._select_node(f"boundary_{face}", None))
 
         self._left_split = _Splitter(Qt.Orientation.Vertical)
         self._left_split.addWidget(tree_section)
@@ -1104,7 +1106,9 @@ class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
                     "folder", "text")
         if domain.enabled:
             for bname in shape_roles(domain.shape, domain.symmetry == "y_min", domain.ground.enabled):
-                add(fluid, f"boundary_{bname}", None, bname, "dot", "accent")
+                kind = domain.boundary_types.get(bname)  # a changed type is named on the node (D-147)
+                text = f"{bname} ({BOUNDARY_KIND_LABELS[kind].lower()})" if kind else bname
+                add(fluid, f"boundary_{bname}", None, text, "dot", "accent_secondary" if kind else "accent")
         elif not generated:  # the "Empty" analysis: the domain is an operation (D-078)
             add(fluid, "generate_domain", None, "Generate domain\u2026", "dot", "accent_secondary")
         labels = [label for part, patches in zip(parts, part_patch_names(parts))

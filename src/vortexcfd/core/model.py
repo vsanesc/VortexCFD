@@ -604,6 +604,22 @@ class Ground(StrictModel):
     wall_start_x: float | None = None
 
 
+# The boundary type of each domain face (schema v22, D-147) [NUMERICS-REVIEW]. The defaults are the conditions every
+# domain had before (D-019, D-078): a velocity inlet, a pressure outlet and slip far-field faces.
+BOUNDARY_KINDS = ("velocity_inlet", "pressure_outlet", "slip", "symmetry", "wall", "moving_wall")
+BOUNDARY_KIND_LABELS = {
+    "velocity_inlet": "Inlet (velocity)",
+    "pressure_outlet": "Outlet (pressure)",
+    "slip": "Slip (far field)",
+    "symmetry": "Symmetry",
+    "wall": "Wall (no-slip, stationary)",
+    "moving_wall": "Wall (moving with the free stream)",
+}
+DEFAULT_FACE_KINDS = {"inlet": "velocity_inlet", "outlet": "pressure_outlet", "sides": "slip", "top": "slip",
+                      "bottom": "slip", "farfield": "slip"}
+EDITABLE_FACES = tuple(DEFAULT_FACE_KINDS)
+
+
 class Domain(StrictModel):
     """Far-field domain around the parts, in multiples of the reference length L.
 
@@ -627,6 +643,26 @@ class Domain(StrictModel):
     symmetry: Literal["none", "y_min"] = "none"
     parts: list[str] | None = None
     ground: Ground = Field(default_factory=Ground)
+    # A face's boundary type when it is not its default (DEFAULT_FACE_KINDS; schema v22, D-147). Defaults are dropped,
+    # so a domain left as it was has none and writes the dictionaries it always wrote.
+    boundary_types: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("boundary_types")
+    @classmethod
+    def _known_face_kinds(cls, value: dict[str, str]) -> dict[str, str]:
+        out = {}
+        for face, kind in value.items():
+            if face not in DEFAULT_FACE_KINDS:
+                raise ValueError(f"unknown domain face {face!r} (one of {', '.join(EDITABLE_FACES)})")
+            if kind not in BOUNDARY_KINDS:
+                raise ValueError(f"unknown boundary type {kind!r} (one of {', '.join(BOUNDARY_KINDS)})")
+            if kind != DEFAULT_FACE_KINDS[face]:
+                out[face] = kind
+        return out
+
+    def face_kind(self, face: str) -> str:
+        """The boundary type of a domain face (its default unless changed, D-147)."""
+        return self.boundary_types.get(face, DEFAULT_FACE_KINDS.get(face, "slip"))
 
     @model_validator(mode="after")
     def _ground_on_a_box(self) -> "Domain":

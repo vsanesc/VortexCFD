@@ -36,6 +36,7 @@ from vortexcfd.core.model import (
     Part,
     ResidualCriterion,
 )
+from vortexcfd.core.model import BOUNDARY_KIND_LABELS, BOUNDARY_KINDS
 from vortexcfd.core.model import (DIMENSION_LABELS, DIMENSIONS, MAX_CURVATURE_LEVELS, WALL_RESOLVED_AUTO_YPLUS, Probe,
                                    SurfaceRegion)
 from vortexcfd.core.reports import (PROBE_NAME_RE, criterion_quantities, default_floor, missing_reference,
@@ -120,6 +121,43 @@ GROUND_ROWS = ("dom_ground_enabled", "dom_ground_motion", "dom_ground_position",
                "dom_ground_start", "dom_ground_layers", "dom_ground_bcs")
 # The wall start spin box's minimum shows "inlet": no slip strip (D-118).
 GROUND_START_INLET = -1e6
+
+
+# What each boundary type writes (physics_case.initial_fields, D-147).
+FACE_BC_TEXTS = {
+    "velocity_inlet": "U fixedValue (U\u221e, 0, 0); p zeroGradient; k, \u03c9 fixedValue (the free stream's); "
+                      "\u03bd\u209c calculated",
+    "pressure_outlet": "p fixedValue 0; U, k, \u03c9 inletOutlet (zero gradient out, the free stream in); \u03bd\u209c "
+                       "calculated",
+    "slip": "slip for U, p, k, \u03c9 (no friction, no flow through); \u03bd\u209c calculated",
+    "symmetry": "symmetry for every field (patch type symmetryPlane on the box's flat faces, symmetry on a rounded "
+                "domain)",
+    "wall": "U noSlip; p zeroGradient; k kqRWallFunction; \u03c9 omegaWallFunction; \u03bd\u209c "
+            "nutUSpaldingWallFunction (the parts' wall functions); patch type wall, no prism layers",
+    "moving_wall": "U fixedValue (U\u221e, 0, 0): the wall moves with the free stream; p, k, \u03c9, \u03bd\u209c as a "
+                   "wall; patch type wall, no prism layers",
+}
+GROUND_OPTION = ("ground", "Ground plane (D-116: its position, motion and layers)")
+
+
+def face_type_options(sim, face: str) -> list[tuple[str, str]]:
+    """The boundary types a domain face can take (D-147): every kind; the box's bottom face also the ground plane
+    (D-116), which the ground face shows as its own type. The symmetry plane has none (Domain > Symmetry)."""
+    if face == "symmetry" or sim.internal:
+        return []
+    options = [(k, BOUNDARY_KIND_LABELS[k]) for k in BOUNDARY_KINDS]
+    if face in ("bottom", "ground") and sim.domain.shape == "box":
+        options.append(GROUND_OPTION)
+    return options
+
+
+def face_type(sim, face: str) -> str | None:
+    """The current type of a face: its kind, "ground" for the ground face, None for the symmetry plane."""
+    if face == "ground":
+        return "ground"
+    if face == "symmetry":
+        return None
+    return sim.domain.face_kind(face)
 
 
 def ground_bc_text(motion: str, strip: bool = False) -> str:
@@ -556,6 +594,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
 
     message = Signal(str)  # short text for the status bar
     help_requested = Signal(str)  # "<manual chapter>#<anchor>": a section's "?" (D-148)
+    face_type_changed = Signal(str)  # a domain face's type changed (D-147): the face now holding it
     pending_changed = Signal()  # an uncommitted name edit appeared or was resolved
     study_run_requested = Signal(str)  # "mesh" or "polar": Run / Stop on a study node (D-066, D-067)
     study_results_requested = Signal(str)
@@ -758,6 +797,16 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.domain_warning.setObjectName("checkValue")
         _wrap(self.domain_warning)
         self._layout.addWidget(self.domain_warning)
+        # A domain face's boundary type (D-147): every face but the symmetry plane.
+        self._section("boundary", "Boundary condition")
+        self.face_type = QComboBox()
+        self.face_type.setToolTip("The boundary condition of this domain face. The presets set the defaults: the "
+                                  "inlet a velocity inlet, the outlet a pressure outlet, the other faces slip far "
+                                  "field. A wall face (e.g. a road under a car) is the way to study ground effect on "
+                                  "any face.")
+        self._layout.addWidget(self._make_row("face_type", "Boundary type", self.face_type))
+        self.face_type.activated.connect(lambda _i: self._commit_face_type())
+        self.face_bcs = self._ro_row("face_bcs", "Conditions written")
         self._section("dom_ground", "Ground plane")
         self.ground_enabled = QCheckBox()
         self.ground_enabled.setToolTip("The bottom face (z-min) of the box is a no-slip wall, the patch \"ground\", "
@@ -1382,9 +1431,10 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self._refresh_regions(part)
         self._refresh_file_info(part)
         self._rows["name"].setVisible(show_name)
-        is_domain = self._kind in ("fluid_domain", "fluid_region", "boundary_ground")
+        is_domain = self._kind in ("fluid_domain", "fluid_region") or self._kind.startswith("boundary_")
         self._refresh_domain(self._kind == "fluid_domain")
         self._refresh_ground(self._kind in ("fluid_domain", "boundary_ground"))
+        self._refresh_face_type()
         self._refresh_groups()
         self._refresh_run(self._kind == "solvers")
         self._refresh_stopping(self._kind == "stopping")
@@ -2379,6 +2429,48 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             for w in widgets:
                 w.blockSignals(False)
         self.ground_bcs.setText(ground_bc_text(ground.motion, ground.wall_start_x is not None))
+
+    def _refresh_face_type(self) -> None:
+        """The Boundary type row of a domain face node (D-147)."""
+        face = self._kind.removeprefix("boundary_") if self._kind.startswith("boundary_") else None
+        sim = self._project.sim
+        options = face_type_options(sim, face) if face is not None else []
+        show = face is not None and sim.domain.enabled
+        self._sections["boundary"].setVisible(show)
+        self._rows["face_type"].setVisible(show and bool(options))
+        self._rows["face_bcs"].setVisible(show)
+        if not show:
+            return
+        current = face_type(sim, face)
+        self.face_type.blockSignals(True)
+        self.face_type.clear()
+        for value, label in options:
+            self.face_type.addItem(label, value)
+        index = self.face_type.findData(current)
+        if index >= 0:
+            self.face_type.setCurrentIndex(index)
+        self.face_type.blockSignals(False)
+        if current is None:
+            self.face_bcs.setText("symmetryPlane for every field (Fluid Domain > Symmetry)")
+        elif current == "ground":
+            self.face_bcs.setText(ground_bc_text(sim.domain.ground.motion,
+                                                 sim.domain.ground.wall_start_x is not None))
+        else:
+            self.face_bcs.setText(FACE_BC_TEXTS[current])
+
+    def _commit_face_type(self) -> None:
+        if not self._kind.startswith("boundary_"):
+            return
+        face = self._kind.removeprefix("boundary_")
+        value = self.face_type.currentData()
+        if value is None or value == face_type(self._project.sim, face):
+            return
+        try:
+            self._project.set_face_type(face, value)
+        except (ValueError, TypeError) as exc:  # includes pydantic errors
+            self.message.emit(str(exc))
+        self.face_type_changed.emit("ground" if value == "ground" else ("bottom" if face == "ground" else face))
+        self.refresh()
 
     def _commit_ground(self, key: str) -> None:
         if self._kind not in ("fluid_domain", "boundary_ground"):

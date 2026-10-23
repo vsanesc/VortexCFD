@@ -51,7 +51,15 @@ from vortexcfd.foam.physics_case import LENGTH_AUTO_LABEL, reference_values
 from vortexcfd.geometry import regions, section
 from vortexcfd.geometry.attitude import Attitude
 from vortexcfd.geometry import internal as internal_geometry
-from vortexcfd.geometry.domain import DomainBox, compute_domain, ground_wall_start, internal_box, union_bounds
+from vortexcfd.core.model import EDITABLE_FACES
+from vortexcfd.geometry.domain import (
+    DomainBox,
+    compute_domain,
+    ground_wall_start,
+    internal_box,
+    shape_roles,
+    union_bounds,
+)
 from vortexcfd.geometry.domain_surface import ROLE_ARRAY, meshing_surface
 from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
 from vortexcfd.workflow import internal, refinement, surface_prep
@@ -378,6 +386,43 @@ def meshing_settings(project: Project, box: DomainBox, length: float | None = No
     return mesh.model_copy(update={"surface_level_max": level, "surface_level_min": max(0, min(low, level))})
 
 
+def domain_faces(project: Project) -> tuple[str, ...]:
+    """The editable faces (D-147) the project's domain has: its shape's roles that are not the symmetry plane or the
+    ground (D-116), without the box's sides in 2D (they are the empty front and back)."""
+    domain = project.sim.domain
+    roles = shape_roles(domain.shape, domain.symmetry == "y_min", domain.ground.enabled and domain.shape == "box")
+    two_d = project.sim.dimension == "2d"
+    return tuple(r for r in roles if r in EDITABLE_FACES and not (two_d and r == "sides"))
+
+
+def face_kinds(project: Project) -> tuple[tuple[str, str], ...]:
+    """(patch, kind) of the domain faces whose boundary type is not the default (D-147), a symmetry face resolved to
+    "symmetry_plane" on the box (its faces are planes, like the y_min symmetry plane) and "symmetry" on a rounded
+    shape. Empty for internal flow and for a domain left as it was. [NUMERICS-REVIEW]"""
+    domain = project.sim.domain
+    if project.sim.internal or not domain.boundary_types:
+        return ()
+    faces = domain_faces(project)
+    out = []
+    for face, kind in domain.boundary_types.items():
+        if face in faces:
+            out.append((face, "symmetry_plane" if kind == "symmetry" and domain.shape == "box" else kind))
+    return tuple(out)
+
+
+def boundary_problem(project: Project) -> str | None:
+    """Why the domain's boundary types cannot make a well-posed external flow (D-147), or None: it needs at least one
+    velocity inlet and one pressure outlet."""
+    if project.sim.internal:
+        return None
+    kinds = [project.sim.domain.face_kind(f) for f in domain_faces(project)]
+    if "velocity_inlet" not in kinds:
+        return "The domain has no inlet: give a face the type Inlet (velocity) (Regions > Fluid Domain)."
+    if "pressure_outlet" not in kinds:
+        return "The domain has no outlet: give a face the type Outlet (pressure) (Regions > Fluid Domain)."
+    return None
+
+
 def domain_fields(box: DomainBox) -> dict:
     """The MeshCaseInput fields of the domain shape (D-078). A rounded shape's surface carries every
     role but the symmetry plane, which is the background box's y_min face."""
@@ -636,6 +681,7 @@ def mesh_inputs(project: Project) -> tuple[MeshCaseInput, DomainBox, list]:
         ground_layers=box.ground and project.sim.domain.ground.layers,
         ground_wall_start=ground_wall_start(project.sim.domain, box.bounds),
         two_d=box.two_d,
+        patch_kinds=face_kinds(project),
         **domain_fields(box),
         **internal_fields(project, box),
     )
@@ -768,6 +814,10 @@ def _domain_for_hash(domain) -> dict:
     """The domain as the mesh hash sees it: without the ground plane when it is off (projects saved before
     schema v16 keep their hash) and without the ground's motion, which only the solver reads (D-116)."""
     data = domain.model_dump()
+    types = data.pop("boundary_types")
+    if types:  # only the patch types change the mesh (D-147); none: the hash of the projects saved before v22
+        data["patch_types"] = {f: "wall" if k in ("wall", "moving_wall") else "symmetry" if k == "symmetry" else "patch"
+                               for f, k in sorted(types.items())}
     ground = data.pop("ground")
     if ground["enabled"]:
         ground.pop("motion")

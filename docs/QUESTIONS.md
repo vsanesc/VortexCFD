@@ -445,4 +445,8 @@ settled the open ones on 2026-10-17.
      an entry unit: the value is converted with the current L and kept in L, as the domain always was (D-078). If the
      parts change, an extent typed as "3 m" becomes 3 m x (new L / old L). Storing physical extents as such would need
      a schema change. Keep the conversion, or store the unit with the value?
+227. **[OPEN] [NUMERICS-REVIEW]** **Editable domain face types (D-147).** A face set to a wall gets the parts' wall
+     functions (nutUSpaldingWallFunction) and no prism layers; a moving wall moves at the free-stream speed along +x
+     (as the moving ground). There is no y+ layer sizing on domain walls. Run Solver requires at least one velocity
+     inlet and one pressure outlet. Accept, or should a domain wall get the parts' layers (like the ground option)?
 

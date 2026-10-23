@@ -18,6 +18,7 @@ from vortexcfd.core.model import VOLUME_SHAPES as _SHAPES
 from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError, clear_mesh
 from vortexcfd.geometry.cad import BREP_EXTENSIONS, CAD_EXTENSIONS, CadImportError, read_cad
 from vortexcfd.geometry.loader import SurfaceLoadError
+from vortexcfd.gui.properties_panel import face_type, face_type_options
 from vortexcfd.workflow import part_ops, refinement
 from vortexcfd.workflow.meshing import case_dir_for
 
@@ -132,18 +133,28 @@ class TreeActionsMixin:
         menu.addAction(self.act_add_wake)
 
     def _add_boundary_items(self, menu: QMenu, role: str) -> None:
-        """The boundary type of a domain face (editable since D-147; read-only before)."""
-        options = self.boundary_type_options(role) if hasattr(self, "boundary_type_options") else []
+        """The boundary type of a domain face (D-147): every kind, the ground plane on the box's bottom face."""
+        sim = self._project.sim
+        options = face_type_options(sim, role)
         sub = menu.addMenu("Boundary type")
-        current = self.boundary_type(role) if hasattr(self, "boundary_type") else None
+        current = face_type(sim, role)
         if not options:
-            act = sub.addAction(current or "fixed by the domain")
+            act = sub.addAction("Symmetry plane (Fluid Domain > Symmetry)")
             act.setEnabled(False)
             return
         for value, label in options:
             act = sub.addAction(label, lambda v=value: self.set_boundary_type(role, v))
             act.setCheckable(True)
             act.setChecked(value == current)
+
+    def set_boundary_type(self, face: str, value: str) -> None:
+        """A domain face's boundary type from the tree's menu (one undo step), the face's node selected after."""
+        if value == face_type(self._project.sim, face):
+            return
+        self._flush_edits()
+        self._run_edit(lambda: self._project.set_face_type(face, value))
+        target = "ground" if value == "ground" else ("bottom" if face == "ground" else face)
+        self._select_node(f"boundary_{target}", None)
 
     def _add_results_items(self, menu: QMenu, kind: str, index) -> None:
         from vortexcfd.core.model import SCENE_OBJECT_KINDS, SCENE_OBJECT_LABELS

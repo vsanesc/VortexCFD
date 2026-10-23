@@ -69,6 +69,9 @@ class SolverCaseInput:
     # Internal flow (D-129): the inlets, outlets and cutting planes; ``patches`` are then the walls only, there is no
     # far field and no force object. None: external flow.
     internal: "InternalSetup | None" = None
+    # The domain faces whose boundary type is not the default (D-147): (patch, kind), kind one of velocity_inlet,
+    # pressure_outlet, slip, symmetry_plane, symmetry, wall, moving_wall. Empty: the conditions of initial_fields.
+    patch_kinds: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -580,11 +583,19 @@ def _patch_names(inp: SolverCaseInput) -> list[str]:
 
 
 def _field(inp: SolverCaseInput, cls: str, dimensions: list[int], internal, inlet: dict, outlet: dict,
-           far: dict, wall: dict, value_for_walls=None, ground: dict | None = None) -> FoamFileSpec:
-    """A field file; the ground plane (if any) takes ``ground``, else the part walls' ``wall``."""
-    boundary: dict[str, dict] = {"inlet": inlet, "outlet": outlet}
+           far: dict, wall: dict, value_for_walls=None, ground: dict | None = None,
+           moving: dict | None = None) -> FoamFileSpec:
+    """A field file; the ground plane (if any) takes ``ground``, else the part walls' ``wall``. A domain face whose
+    boundary type was changed (``patch_kinds``, D-147) takes the conditions of that type: a velocity inlet's, a
+    pressure outlet's, the far field's slip, symmetry, the walls' or a moving wall's (``moving``, else ``wall``)."""
+    kinds = dict(inp.patch_kinds)
+    by_kind = {"velocity_inlet": inlet, "pressure_outlet": outlet, "slip": far, "wall": wall,
+               "moving_wall": moving if moving is not None else wall,
+               "symmetry_plane": {"type": "symmetryPlane"}, "symmetry": {"type": "symmetry"}}
+    boundary: dict[str, dict] = {"inlet": dict(by_kind[kinds["inlet"]]) if "inlet" in kinds else inlet,
+                                 "outlet": dict(by_kind[kinds["outlet"]]) if "outlet" in kinds else outlet}
     for name in inp.far_field:
-        boundary[name] = dict(far)
+        boundary[name] = dict(by_kind[kinds.get(name, "slip")])
     if inp.symmetric:
         boundary["symmetry"] = {"type": "symmetryPlane"}
     if inp.span is not None:  # 2D (D-121)
@@ -683,12 +694,13 @@ def initial_fields(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
     k, omega = inlet_turbulence(inp.inflow.speed, inp.inflow.turbulence_intensity, inp.physics.nu,
                                 inp.inflow.viscosity_ratio)
     slip = {"type": "slip"}
+    moving_u = {"type": "fixedValue", "value": list(ground_velocity(inp))}  # a moving wall: the free stream's velocity
     u = _field(
         inp, "volVectorField", [0, 1, -1, 0, 0, 0, 0], velocity,
         inlet={"type": "fixedValue", "value": velocity},
         outlet={"type": "inletOutlet", "inletValue": [0.0, 0.0, 0.0], "value": velocity},
         far=slip, wall={"type": "noSlip"},
-        ground=({"type": "fixedValue", "value": list(ground_velocity(inp))} if inp.ground == "moving" else None),
+        ground=(moving_u if inp.ground == "moving" else None), moving=moving_u,
     )
     p = _field(
         inp, "volScalarField", [0, 2, -2, 0, 0, 0, 0], 0.0,
