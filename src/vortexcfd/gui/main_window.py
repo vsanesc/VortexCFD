@@ -139,6 +139,7 @@ from vortexcfd.gui.theme import (
     LAYOUT,
     LEFT_INITIAL_U,
     LIMITS_U,
+    MIN_WINDOW_U,
     SECTION_PREVIEW_MS,
     SECTION_SLIDER_STEPS,
     WINDOW_ICON_SIZES,
@@ -879,6 +880,8 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.console.setMinimumHeight(LIMITS_U["console"][0] * m.u)
         self._left_split.widget(0).setMinimumHeight(LIMITS_U["tree"][0] * m.u)
         self._left_split.widget(1).setMinimumHeight(LIMITS_U["properties"][0] * m.u)
+        # The splitters do not pass their regions' minimum heights on, so the window's own minimum is set (D-155).
+        self.setMinimumSize(MIN_WINDOW_U[0] * m.u, MIN_WINDOW_U[1] * m.u)
 
     def _style_viewer(self) -> None:
         t = self._theme

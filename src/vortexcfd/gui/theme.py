@@ -137,6 +137,9 @@ LIMITS_U: dict[str, tuple[int, int | None]] = {
     "tree": (8, None),
     "properties": (6, None),
 }
+# The main window's minimum size (width, height) in u: the regions' minimum widths side by side, and the left column
+# (menu, top bar, tree, properties, status bar) at its minimum heights.
+MIN_WINDOW_U = (66, 36)
 
 
 # Derived-color alphas and drawing constants (the only place for these numbers).

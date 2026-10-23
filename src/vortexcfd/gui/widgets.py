@@ -1,7 +1,7 @@
 """Small composite widgets shared by the main window panels."""
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
-from PySide6.QtGui import QAction, QColor, QPainter
+from PySide6.QtGui import QAction, QColor, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
     QLayout,
     QHBoxLayout,
@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from vortexcfd.gui.icons import make_glyph
-from vortexcfd.gui.theme import Metrics, Theme, repolish, set_text_role
+from vortexcfd.gui.theme import Metrics, Theme, repolish, role_font, set_text_role
 
 
 def set_invalid(widget: QWidget, reason: str | None, tooltip: str = "") -> None:
@@ -30,18 +30,48 @@ def glyph_pixmap(widget: QWidget, name: str, color: str, size: int):
 
 
 class Badge(QLabel):
-    """Small mono label with a border; optionally with a status dot inside the pill."""
+    """Small mono label with a border; optionally with a status dot inside the pill.
+
+    Where room is short (the top bar, D-155) a badge can be compact: ``set_compact(1)`` shows its short text,
+    ``set_compact(2)`` (a badge with a dot) only the dot; the full text is then its tooltip. ``text()`` is always the
+    full text."""
 
     def __init__(self, text: str = "", with_dot: bool = False, parent: QWidget | None = None) -> None:
-        super().__init__(text, parent)
+        super().__init__(parent)
         self.setObjectName("badge")
-        self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)  # never squeezed: compact instead
         self._with_dot = with_dot
         self._state = ""
         self._theme: Theme | None = None
         self._dot_d = 0
         self._pad = 0
+        self._full = ""
+        self._short = ""
+        self._compact = 0
         self.setProperty("dot", "true" if with_dot else "false")
+        self.setText(text)
+
+    def setText(self, text: str, short: str = "") -> None:
+        self._full, self._short = text, short
+        self._show_text()
+
+    def text(self) -> str:
+        return self._full
+
+    def set_compact(self, level: int) -> None:
+        """0: the full text; 1: the short text (if any); 2: only the dot (a badge with a dot)."""
+        self._compact = level
+        self._show_text()
+
+    def _show_text(self) -> None:
+        if self._compact >= 2 and self._with_dot:
+            shown = ""
+        elif self._compact >= 1 and self._short:
+            shown = self._short
+        else:
+            shown = self._full
+        super().setText(shown)
+        self.setToolTip(self._full if shown != self._full else "")
 
     def set_state(self, state: str) -> None:
         """state: '' (accent), 'success', 'warning' or 'error'."""
@@ -63,6 +93,11 @@ class Badge(QLabel):
         set_text_role(self, "badge")
         if m is not None and t is not None:
             self._theme, self._dot_d, self._pad = t, m.dot, m.s2 + m.line
+        self.ensurePolished()
+        # The height from the badge role's font (descenders included) and the stylesheet's padding and border, fixed
+        # so a tight row (the top bar) cannot squeeze the text.
+        margins = self.contentsMargins()
+        self.setFixedHeight(QFontMetrics(role_font("badge")).height() + margins.top() + margins.bottom())
         self.updateGeometry()
 
     def paintEvent(self, event) -> None:
