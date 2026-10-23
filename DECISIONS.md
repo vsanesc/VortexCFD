@@ -1399,3 +1399,11 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Alternatives considered: asking Windows for ParaView through cmd.exe or the registry (runs Windows programs from the app; slow; not "safe" detection); PATH before the configured path (a user's explicit choice should win).
 - Note: the development machine has Ubuntu's ParaView (/usr/bin/paraview, package paraview); the tests replace PATH lookup so they do not depend on it.
 
+
+## D-139 Qt: PySide6-Essentials only (pinned), not the PySide6 meta-package
+- Status: Proposed (task rc1-polish, item 2; QUESTIONS 213).
+- Context: the PySide6 6.12 meta-package installs PySide6_Addons, PySide6_WebEngine (Chromium) and PySide6_Pdf beside PySide6_Essentials.
+- Finding: static scan: the sources import QtCore, QtGui and QtWidgets only; pyvistaqt, VTK's Qt support and matplotlib's Qt Agg backend use QtOpenGL, QtOpenGLWidgets and QtSvg (all in Essentials). Runtime: after the main window showed a project with results, a line plot's chart, an image export and a report (offscreen), sys.modules held QtCore, QtGui, QtOpenGL, QtOpenGLWidgets, QtSvg, QtWidgets (QtTest under pytest-qt), and QtDataVisualization (Addons) only because qtpy tries it inside suppress(ImportError) at import; in an Essentials-only install it is skipped and nothing fails. Nothing uses Qt WebEngine, Qt Pdf or any Addons module.
+- Decision: pyproject.toml depends on `PySide6-Essentials==6.12.0`; scripts/requirements-v1.txt pins PySide6_Essentials==6.12.0 and shiboken6==6.12.0 and drops PySide6, PySide6_Addons, PySide6_Pdf, PySide6_WebEngine. THIRD_PARTY_LICENSES.md follows.
+- Check: tests/test_qt_modules.py (the static scan; the window's runtime modules within Essentials; the GUI imported and a QtInteractor created with every non-Essentials PySide6 module unimportable). scripts/install.sh run in isolation (a temporary HOME and prefix, pip's cache the user's): before 1870 MB (PySide6 673 MB), after 1442 MB (-428 MB); exit 0 both; the Essentials-only install opened the window with results, a line plot, an image export and a report offscreen.
+- Note: the development .venv still has the meta-package installed (nothing removed from it); it satisfies the new requirement.

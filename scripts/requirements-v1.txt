@@ -1,6 +1,8 @@
 # Pinned runtime dependencies of VortexCFD 1.0.0rc1 (scripts/install.sh, D-137): the versions of the development
 # environment (.venv, 2026-10-22), generated with `.venv/bin/pip freeze --exclude-editable` minus the test tools
 # (pytest, pytest-qt, pytest-xdist, iniconfig, pluggy, execnet). Licences: THIRD_PARTY_LICENSES.md.
+# Qt: PySide6_Essentials only (D-139): the app uses QtCore, QtGui, QtWidgets, and through pyvistaqt, VTK and matplotlib
+# QtOpenGL, QtOpenGLWidgets and QtSvg; not the PySide6 meta-package, which adds PySide6_Addons, Qt WebEngine and Qt Pdf.
 aioshutil==1.6
 annotated-types==0.8.0
 attrs==26.1.0
@@ -30,11 +32,7 @@ pydantic_core==2.50.1
 Pygments==2.21.0
 pymeshfix==0.18.1
 pyparsing==3.3.3
-PySide6==6.12.0
-PySide6_Addons==6.12.0
 PySide6_Essentials==6.12.0
-PySide6_Pdf==6.12.0.140
-PySide6_WebEngine==6.12.0.140
 pytetwild==0.4.2
 python-dateutil==2.9.0.post0
 pyvista==0.49.1

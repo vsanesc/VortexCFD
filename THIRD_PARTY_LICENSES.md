@@ -10,7 +10,7 @@ D-074; licence review for v1: the section at the end (prepared for the owner, ta
 
 | Package | Version | Licence | Notes |
 |---|---|---|---|
-| PySide6 | 6.12.0 | LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only | Qt for Python, a meta-package: PySide6_Essentials, PySide6_Addons, PySide6_Pdf, PySide6_WebEngine (below); bundles the Qt libraries (LGPL-3.0) |
+| PySide6_Essentials | 6.12.0 | LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only | Qt for Python, the essential modules only (D-139; not the PySide6 meta-package); bundles the Qt libraries (LGPL-3.0) |
 | pyvista | 0.49.1 | MIT | |
 | pyvistaqt | 0.13.1 | MIT | |
 | numpy | 2.5.4 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 | |
@@ -25,11 +25,7 @@ D-074; licence review for v1: the section at the end (prepared for the owner, ta
 
 | Package | Version | Licence | Required by |
 |---|---|---|---|
-| PySide6_Essentials | 6.12.0 | LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only | PySide6 |
-| PySide6_Addons | 6.12.0 | LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only | PySide6 |
-| PySide6_Pdf | 6.12.0.140 | LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only | PySide6 (not used by the app; review item 3) |
-| PySide6_WebEngine | 6.12.0.140 | LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only | PySide6 (not used by the app; bundles Chromium; review item 3) |
-| shiboken6 | 6.12.0 | LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only | PySide6 |
+| shiboken6 | 6.12.0 | LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only | PySide6_Essentials |
 | cadquery-ocp-proxy | 8.0.1.1.0 | Apache-2.0 | cadquery-ocp-novtk |
 | pydantic_core | 2.50.1 | MIT | pydantic |
 | annotated-types | 0.8.0 | MIT | pydantic |
@@ -87,11 +83,10 @@ Against GPL-3.0-or-later, no dependency was found that is **incompatible**. Poin
    keep AGPL-3.0's terms for pymeshfix, whose section 13 (offering the source to users interacting over a network)
    does not apply to a desktop application used locally (D-074). If the repository is made public and the app
    distributed, this stays true; it would matter for a hosted or remote-access version.
-3. **PySide6 6.12 is a meta-package** that also installs PySide6_Pdf and PySide6_WebEngine (Qt WebEngine with
-   Chromium and its own third-party licences, mostly BSD-style and LGPL), which the app does not use. Compatible,
-   but large; depending on PySide6_Essentials and PySide6_Addons only would drop them (a dependency change: owner's
-   decision, QUESTIONS 213). Qt's LGPL-3.0 libraries are used as shared libraries from the wheel, which LGPL allows
-   with GPL-3.0 code.
+3. **Qt: PySide6_Essentials only** (D-139, QUESTIONS 213). The PySide6 meta-package (which also installed
+   PySide6_Addons, PySide6_Pdf and PySide6_WebEngine with Chromium) is no longer a dependency; the app uses only
+   modules of PySide6_Essentials. Qt's LGPL-3.0 libraries are used as shared libraries from the wheel, which LGPL
+   allows with GPL-3.0 code.
 4. **MPL-2.0 (pytetwild, fTetWild, certifi).** MPL-2.0 is compatible with GPL-3.0 through its secondary-licence
    clause unless a file is marked "Incompatible With Secondary Licenses"; no such notice was looked for in their
    sources (not checked: to confirm).
