@@ -205,12 +205,14 @@ def test_every_domain_field_shows_its_value(make_window, font: int) -> None:
     _select(w, "fluid_domain")
     p = w.properties
     domain = w.project.sim.domain
-    for key, spin in p.domain_fields.items():
-        assert spin.text() and float(spin.cleanText()) == pytest.approx(getattr(domain, key)), key
-        assert spin.fontMetrics().horizontalAdvance(spin.text()) <= spin.width()
+    for key, field in p.domain_fields.items():
+        spin = field.spin  # in L, m or mm with the other form beside it (D-148)
+        assert spin.text() and field.value() == pytest.approx(getattr(domain, key)), key
+        assert spin.fontMetrics().horizontalAdvance(spin.text()) <= spin.width(), (key, spin.text(), spin.width())
     assert _displayed(p.domain_symmetry) == domain.symmetry
-    for ro in (p.domain_length, p.domain_size):
-        assert ro.text() and ro.fontMetrics().horizontalAdvance(ro.text()) <= ro.width()
+    assert p.domain_length.text()
+    assert p.domain_size.text() and p.domain_size.fontMetrics().horizontalAdvance(p.domain_size.text()) <= \
+        p.domain_size.width()
 
 
 @pytest.mark.parametrize("font", [11, 14])

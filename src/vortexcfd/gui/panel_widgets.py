@@ -233,15 +233,16 @@ LENGTH_UNITS = {"L": None, "m": 1.0, "mm": 1e-3}
 
 class ReferenceLengthField(QWidget):
     """A domain extent stored in multiples of a reference length L (D-078), entered either in L or in m / mm with a
-    toggle (D-148); the other form is shown live next to it. ``value()`` is always in L."""
+    toggle (D-148); the other form is shown live next to it. ``value()`` / ``setValue`` are always in L;
+    ``editingFinished`` follows a finished edit (like a spin box's)."""
 
-    edited = Signal()
+    editingFinished = Signal()
     unit_changed = Signal(str)
 
     def __init__(self, tooltip: str = "") -> None:
         super().__init__()
         self.spin = QDoubleSpinBox()
-        self.spin.setRange(0.0, 1e9)
+        self.spin.setRange(0.001, 1e9)
         self.spin.setDecimals(4)
         self.spin.setKeyboardTracking(False)
         self.spin.setToolTip(tooltip)
@@ -253,12 +254,17 @@ class ReferenceLengthField(QWidget):
         self.other.setObjectName("muted")
         self.other.setMinimumWidth(1)
         self.other.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        box = QHBoxLayout(self)
-        box.setContentsMargins(0, 0, 0, 0)
-        box.setSpacing(6)
-        box.addWidget(self.spin, 3)
+        self.setMinimumWidth(1)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        outer = QVBoxLayout(self)  # the value and its unit, the other form under them
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(2)
+        box = QHBoxLayout()
+        box.setSpacing(4)
+        box.addWidget(self.spin, 1)
         box.addWidget(self.unit_button)
-        box.addWidget(self.other, 2)
+        outer.addLayout(box)
+        outer.addWidget(self.other)
         self.unit = "L"
         self.reference = 1.0  # L in metres
         self._in_l = 1.0
@@ -292,7 +298,7 @@ class ReferenceLengthField(QWidget):
 
     def _show_value(self) -> None:
         self.spin.blockSignals(True)
-        self.spin.setDecimals(4 if self.unit != "mm" else 1)
+        self.spin.setDecimals({"L": 3, "m": 4, "mm": 1}[self.unit])
         self.spin.setValue(self._from_l(self._in_l))
         self.spin.blockSignals(False)
         self._show_other()
@@ -307,12 +313,22 @@ class ReferenceLengthField(QWidget):
 
     def _finished(self) -> None:
         value = self._to_l(self.spin.value())
-        if abs(value - self._in_l) > 1e-12 * max(1.0, abs(value)):
+        if abs(value - self._in_l) > 1e-9 * max(1.0, abs(value)):
             self._in_l = value
-            self.edited.emit()
+        self.editingFinished.emit()
 
     def value(self) -> float:
         return self._in_l
+
+    def suffix(self) -> str:
+        return f" {self.unit}"
+
+    def text(self) -> str:
+        return self.spin.text()
+
+    def setToolTip(self, text: str) -> None:
+        super().setToolTip(text)
+        self.spin.setToolTip(text)
 
 
 class FloatingPanel(QWidget):

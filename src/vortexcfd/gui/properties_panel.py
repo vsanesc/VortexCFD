@@ -83,7 +83,7 @@ from vortexcfd.gui.scene_rows import SceneRowsMixin
 from vortexcfd.gui.study_rows import StudyRowsMixin
 from vortexcfd.gui.volume_rows import VolumeRowsMixin
 from vortexcfd.gui.help_texts import help_target
-from vortexcfd.gui.panel_widgets import AutoField, ChoiceField, SectionHeader
+from vortexcfd.gui.panel_widgets import AutoField, ChoiceField, ReferenceLengthField, SectionHeader
 from vortexcfd.gui.settings_store import settings
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
 
@@ -100,6 +100,19 @@ DOMAIN_SHAPE_FIELDS = {
 }
 DOMAIN_FIELD_LABELS = {"upstream": "Upstream", "downstream": "Downstream", "lateral": "Lateral",
                        "vertical": "Vertical", "radius": "Radius"}
+# What each extent measures (D-078), with its default and why (D-148).
+DOMAIN_FIELD_TIPS = {
+    "upstream": "Distance from the parts' front to the inlet. Default 5 L: the inlet is far enough not to feel the body.",
+    "downstream": "Distance from the parts' rear to the outlet. Default 10 L: room for the wake to develop.",
+    "lateral": "Distance from the parts to each side face (box), or the half-width of a C-type domain. Default 5 L.",
+    "vertical": "Distance from the parts to the top and bottom faces. Default 5 L.",
+    "radius": "Radius of the rounded front (bullet, C-type) around the parts' centre. Default 5 L (2D airfoil "
+              "preset 50 L).",
+}
+DOMAIN_L_TIP = ("L: the largest extent (x, y or z) of the box around the parts the domain is sized around; every extent "
+                "is a multiple of it, so the domain follows the parts. An extent entered in m or mm is converted to "
+                "L with the current L.")
+DOMAIN_UNIT_KEY = "properties/domain_units"  # + "/<extent>": "L", "m" or "mm" (a display choice, D-148)
 # The ground plane of a box domain (D-116): its options and the boundary conditions it gets.
 GROUND_MOTIONS = {"stationary": "Stationary wall", "moving": "Moving (free-stream speed along +x)"}
 GROUND_POSITIONS = {"parts_min": "Parts' lowest z", "value": "Value"}
@@ -719,27 +732,26 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self._layout.addWidget(self._make_row("dom_shape", "Shape", self.domain_shape))
         self.domain_shape.currentIndexChanged.connect(lambda _: self._commit_domain("shape"))
         self._section("dom_size", "Size")
+        self.domain_length = self._ro_row("dom_length", "Reference length L")
+        self.domain_length.setToolTip(DOMAIN_L_TIP)
         for key in ("upstream", "downstream", "lateral", "vertical", "radius"):
-            spin = QDoubleSpinBox()
-            spin.setRange(0.001, 10000.0)
-            spin.setDecimals(3)
-            spin.setSingleStep(0.5)
-            spin.setSuffix(" L")
-            self.domain_fields[key] = spin
+            field = ReferenceLengthField(DOMAIN_FIELD_TIPS[key])
+            field.set_unit(str(settings().value(f"{DOMAIN_UNIT_KEY}/{key}", "L")))
+            field.unit_changed.connect(lambda unit, k=key: self._remember_domain_unit(k, unit))
+            self.domain_fields[key] = field
+            self._fields.append(field.spin)
             self._domain_keys.append(key)
-            self._layout.addWidget(self._make_row(f"dom_{key}", DOMAIN_FIELD_LABELS[key], spin))
-            spin.editingFinished.connect(lambda k=key: self._commit_domain(k))
+            self._layout.addWidget(self._make_row(f"dom_{key}", DOMAIN_FIELD_LABELS[key], field))
+            field.editingFinished.connect(lambda k=key: self._commit_domain(k))
         self._section("dom_symmetry", "Symmetry")
         self.domain_symmetry = QComboBox()
         self.domain_symmetry.addItems(list(DOMAIN_SYMMETRY))
         self._layout.addWidget(self._make_row("dom_symmetry", "Symmetry", self.domain_symmetry))
         self._section("dom_computed", "Computed")
-        self.domain_length = QLineEdit()
-        self.domain_length.setReadOnly(True)
-        self._layout.addWidget(self._make_row("dom_length", "Reference length L", self.domain_length))
         self.domain_size = QLineEdit()
         self.domain_size.setReadOnly(True)
-        self._layout.addWidget(self._make_row("dom_size", "Bounding box", self.domain_size))
+        self.domain_size.setToolTip("The domain's extent along x, y and z in metres (its bounding box)")
+        self._layout.addWidget(self._make_row("dom_size", "Dimensions x \u00d7 y \u00d7 z", self.domain_size))
         self.domain_volume = self._ro_row("dom_volume", "Volume")
         self.domain_parts = self._ro_row("dom_parts", "Sized around")
         self.domain_warning = QLabel()
@@ -2265,7 +2277,11 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                 w.blockSignals(False)
         self._row_labels["dom_lateral"].set_full_text("Half-width" if domain.shape == "c_type" else "Lateral")
         box = domain_box_for(self._project)
-        self.domain_length.setText(f"{box.reference_length:.4g} m" if box.bounds else "\u2014")
+        self.domain_length.setText(f"{box.reference_length:.4g} m: the parts' largest extent" if box.bounds
+                                   else "\u2014 (import a part)")
+        for field in self.domain_fields.values():
+            field.set_reference(box.reference_length if box.bounds else None)
+            field.setValue(field.value())  # the other form, with the current L
         self.domain_size.setText(
             " \u00d7 ".join(f"{v:.3g}" for v in box.size) + " m" if box.bounds else "\u2014"
         )
@@ -2385,6 +2401,11 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         except (ValueError, TypeError) as exc:  # includes pydantic errors
             self.message.emit(str(exc))
         self.refresh()  # reverts a rejected value
+
+    def _remember_domain_unit(self, key: str, unit: str) -> None:
+        s = settings()
+        s.setValue(f"{DOMAIN_UNIT_KEY}/{key}", unit)
+        s.sync()
 
     def _commit_domain(self, key: str) -> None:
         if self._kind != "fluid_domain":

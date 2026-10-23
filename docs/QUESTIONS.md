@@ -441,4 +441,8 @@ settled the open ones on 2026-10-17.
 225. **[OPEN] [NUMERICS-REVIEW]** **Curvature refinement: the maximum extra levels is now 4 (was 2, D-085), the default
      stays 2.** The owner asked for the maximum to be editable; the model cap was the "conservative 2" of D-085. A
      project at 0 to 2 writes the same dictionaries as before. Accept 4 as the new cap?
+226. **[OPEN]** **Domain extents entered in m or mm are stored in multiples of L (D-148).** The L / m / mm toggle is
+     an entry unit: the value is converted with the current L and kept in L, as the domain always was (D-078). If the
+     parts change, an extent typed as "3 m" becomes 3 m x (new L / old L). Storing physical extents as such would need
+     a schema change. Keep the conversion, or store the unit with the value?
 
