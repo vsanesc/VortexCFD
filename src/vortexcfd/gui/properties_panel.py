@@ -684,6 +684,10 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.domain_symmetry.currentTextChanged.connect(lambda _: self._commit_domain("symmetry"))
         # Surface Preparation node (D-093): its result and report; run / remove.
         self._section("sp_title", "Surface preparation")
+        self.sp_about = QLabel(surface_prep.EXPLANATION)  # what it does and when it is needed (D-146)
+        self.sp_about.setObjectName("muted")
+        _wrap(self.sp_about)
+        self._layout.addWidget(self.sp_about)
         self.sp_strategy = self._ro_row("sp_strategy", "Strategy")
         self.sp_state = self._ro_row("sp_state", "State")
         self.sp_parts = self._ro_row("sp_parts", "Parts")
@@ -692,8 +696,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         sp_buttons = QWidget()
         sp_box = QHBoxLayout(sp_buttons)
         sp_box.setContentsMargins(0, 0, 0, 0)
-        self.sp_run = QPushButton("Prepare surfaces\u2026")
-        self.sp_run.setToolTip("Diagnose the parts and prepare them for meshing (intersection features or CAD union)")
+        self.sp_run = QPushButton("Run\u2026")
+        self.sp_run.setToolTip("Choose a strategy and prepare the parts (Edit > Surface Preparation; the same action)")
         self.sp_run.clicked.connect(self.prepare_surfaces_requested.emit)
         self.sp_remove = QPushButton("Remove")
         self.sp_remove.setToolTip("Remove the preparation: the parts mesh as imported (undoable)")
@@ -1184,7 +1188,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.info_label.setVisible(
             not show_name and not is_domain
             and self._kind not in ("mesh", "reference_values", "stopping", "reports", "probes", "surface_prep",
-                                   "prepare_surfaces", "refinement_volumes", "refinement_volume", "internal_patch",
+                                   "refinement_volumes", "refinement_volume", "internal_patch",
                                    "internal_reports", "results", "scene_object", "saved_view")
             and self._kind not in GROUPS
         )
@@ -1194,7 +1198,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         keys = [f"mset_{k}" for k, _, _ in MESH_SETTINGS]
         return keys + ["mset_base_used", "mset_levels_used", "mset_bg_cells", "mset_volume_cells", "mset_surface_length",
                        "mset_surface_cells", "mset_curvature", "mset_first_layer", "mset_layer_count",
-                       "mset_layer_stack", "mset_cores_used", "mset_layer_mode"]
+                       "mset_layer_stack", "mset_layer_plan", "mset_cores_used", "mset_layer_mode"]
 
     def _refresh_mesh_settings(self, show: bool) -> None:
         for key in self._mesh_setting_rows():
@@ -1981,7 +1985,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             self._sections[key].setVisible(show and generated)
         self.domain_warning.setVisible(show and generated)
         self._refresh_fluid_region(self._kind == "fluid_region")
-        self._refresh_surface_prep(self._kind in ("surface_prep", "prepare_surfaces"))
+        self._refresh_surface_prep(self._kind == "surface_prep")
         if not show or not generated:
             return
         widgets = [self.domain_enabled, self.domain_symmetry, self.domain_shape, *self.domain_fields.values()]
@@ -2012,6 +2016,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         for key in keys:
             self._rows[key].setVisible(show)
         self._sections["sp_title"].setVisible(show)
+        self.sp_about.setVisible(show)
         if not show:
             return
         prep = self._project.sim.surface_prep
@@ -2022,10 +2027,12 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             self._rows[key].setVisible(prep is not None)
         if prep is None:
             self.sp_strategy.setText("not run (the parts mesh as imported)")
+            self.sp_strategy.setToolTip("\n\n".join(surface_prep.STRATEGY_HELP.values()))
             self.sp_state.setText("\u2014")
             self._set_warn(self.sp_state, False)
             return
         self.sp_strategy.setText(surface_prep.STRATEGY_LABELS[prep.strategy])
+        self.sp_strategy.setToolTip(surface_prep.STRATEGY_HELP[prep.strategy])
         self.sp_state.setText({"current": "up to date: meshing uses it",
                                "stale": surface_prep.STALE_MESSAGE}.get(state, state))
         self._set_warn(self.sp_state, state == "stale")

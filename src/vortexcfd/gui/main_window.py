@@ -960,8 +960,7 @@ class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
             # Between the geometry and the domain / mesh (D-093): the surface preparation operation.
             prep_item = add(root, "surface_prep", None, prep_text, "dot",
                             "warning" if prep_state == "stale" else ("accent" if prep is not None else "accent_secondary"))
-            if prep is None:
-                add(prep_item, "prepare_surfaces", None, "Prepare surfaces\u2026", "dot", "accent_secondary")
+            prep_item.setToolTip(0, surface_prep.EXPLANATION)  # D-146: one action, explained on the node
             continua = add(root, "continua", None, "Continua", "folder", "text")
             mesh_item = add(continua, "mesh", None, "Mesh", "dot", "accent_secondary")
             volumes = self._project.sim.refinement_volumes
@@ -2467,7 +2466,9 @@ class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
             self.tree.addAction(act)
         self.act_repair_part = action("Re&pair part", self.repair_selected_part)
         self.act_generate_domain = action("&Generate Domain...", lambda: self.generate_domain())
-        self.act_prepare_surfaces = action("Prepare &Surfaces...", lambda: self.prepare_surfaces())
+        self.act_prepare_surfaces = action("&Surface Preparation...", lambda: self.prepare_surfaces())
+        self.act_prepare_surfaces.setToolTip(surface_prep.EXPLANATION)
+        self.act_prepare_surfaces.setStatusTip("Prepare crossing or unsewn parts so they mesh as one surface")
         self.act_add_wake = action("Add &Wake Volume", self.add_wake_volume)
         self.act_add_wake.setToolTip("A refinement box behind the selected part (all parts when none is selected), "
                                      "aligned with the free stream")
@@ -2571,8 +2572,6 @@ class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
         kind, _index = item.data(0, ROLE_NODE)
         if kind == "generate_domain":
             self.generate_domain()
-        elif kind == "prepare_surfaces":
-            self.prepare_surfaces()
 
     # -- refinement volumes (D-103) ------------------------------------------------------------------
 
@@ -2693,7 +2692,7 @@ class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
                  ", ".join(fields["parts"]) if fields.get("parts") else "every part")
 
     def prepare_surfaces(self) -> None:
-        """Edit > Prepare Surfaces (D-093): the strategy, then the preparation on the geometry worker;
+        """Edit > Surface Preparation (D-093): the strategy, then the preparation on the geometry worker;
         its result is applied as one undoable step if the parts did not change meanwhile."""
         if not self.has_project:
             return
@@ -2905,7 +2904,7 @@ class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
         pairs = sorted({tuple(sorted((a, b))) for a, others in crossings.items() for b in others})
         if pairs and surface_prep.state(self._project) != "current":
             log.warning("Parts cross each other: %s. snappyHexMesh needs their junctions prepared: run Surface "
-                        "Preparation (Edit > Prepare Surfaces).", "; ".join(f"{a} / {b}" for a, b in pairs))
+                        "Preparation (Edit > Surface Preparation).", "; ".join(f"{a} / {b}" for a, b in pairs))
 
     def _request_checks(self, parts) -> None:
         """Queue the self-intersection check of newly imported parts (announced when done)."""

@@ -74,7 +74,7 @@ class TreeActionsMixin:
             menu.addAction(self.act_repair_part)
             menu.addSeparator()
             add("Properties", props)
-        elif kind in ("surface_prep", "prepare_surfaces"):
+        elif kind == "surface_prep":
             menu.addAction(self.act_prepare_surfaces)
             add("Remove preparation", self.remove_surface_prep, sim.surface_prep is not None)
             menu.addSeparator()
@@ -132,7 +132,7 @@ class TreeActionsMixin:
         menu.addAction(self.act_add_wake)
 
     def _add_boundary_items(self, menu: QMenu, role: str) -> None:
-        """The boundary type of a domain face (editable since D-146; read-only before)."""
+        """The boundary type of a domain face (editable since D-147; read-only before)."""
         options = self.boundary_type_options(role) if hasattr(self, "boundary_type_options") else []
         sub = menu.addMenu("Boundary type")
         current = self.boundary_type(role) if hasattr(self, "boundary_type") else None
@@ -206,7 +206,7 @@ class TreeActionsMixin:
 
     def _on_item_double_clicked(self, item: QTreeWidgetItem, _column: int = 0) -> None:
         kind, index = item.data(0, self._role_node())
-        if kind in ("generate_domain", "prepare_surfaces"):
+        if kind == "generate_domain":
             return  # the item's own activation runs the operation
         self.open_properties((kind, index))
 

@@ -306,7 +306,8 @@ def test_gui_prepares_shows_the_report_and_removes(qtbot, tmp_path: Path, shapes
     window.show()
     try:
         assert window._items[("surface_prep", None)].text(0) == "Surface Preparation (not run)"
-        assert ("prepare_surfaces", None) in window._items
+        assert ("prepare_surfaces", None) not in window._items  # one action (D-146), not a tree entry
+        assert window._items[("surface_prep", None)].toolTip(0) == surface_prep.EXPLANATION
         dialogs.surface_prep_strategy = None  # cancelled: nothing runs
         window.act_prepare_surfaces.trigger()
         assert dialogs.surface_prep_asked[-1][1] == surface_prep.DEFAULT_STRATEGY == "cad_union" and not window.geometry_busy
@@ -372,7 +373,7 @@ def test_the_import_checks_report_overlapping_parts(qtbot, tmp_path: Path) -> No
         values = window.properties.check_values
         assert values["intersections"].text() == "0 within the part; it crosses other parts (below)"
         assert values["crossings"].text().startswith("Body: the parts overlap")
-        assert "Edit > Prepare Surfaces" in values["crossings"].text()
+        assert "Edit > Surface Preparation" in values["crossings"].text()
         assert values["crossings"].property("warn") == "true"
         window._announce_overlaps = True  # as after an import: the console warning
         window._on_overlaps_checked(surface_prep.geometry_hash(project))
@@ -430,3 +431,21 @@ def test_filtering_precomputed_curves_equals_computing_them_again(shapes) -> Non
         filtered = geo.intersection_curves(meshes, curves=every)
         assert np.array_equal(fresh.segments, filtered.segments) and np.array_equal(fresh.pairs, filtered.pairs)
         assert len(every.segments) >= len(fresh.segments) > 0
+
+
+def test_one_action_explained(qtbot) -> None:
+    """D-146: the strategy dialog says what the operation does and what each strategy means."""
+    from PySide6.QtWidgets import QLabel
+
+    from vortexcfd.gui.dialogs import SurfacePrepDialog
+
+    dialog = SurfacePrepDialog(list(surface_prep.STRATEGY_LABELS.items()), "cad_union")
+    qtbot.addWidget(dialog)
+    texts = [lab.text() for lab in dialog.findChildren(QLabel)]
+    assert surface_prep.EXPLANATION in texts
+    assert all(help_text in texts for help_text in surface_prep.STRATEGY_HELP.values())
+    assert dialog.strategy() == "cad_union"
+    dialog.buttons["intersection_features"].setChecked(True)
+    assert dialog.strategy() == "intersection_features"
+    assert set(surface_prep.STRATEGY_HELP) == set(surface_prep.STRATEGY_LABELS)
+    assert "cross" in surface_prep.EXPLANATION and "sewn" in surface_prep.EXPLANATION

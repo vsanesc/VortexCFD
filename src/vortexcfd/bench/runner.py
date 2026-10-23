@@ -556,7 +556,7 @@ def run_case(case: BenchCase, work_root: Path, geometry_dir: Path, solve: bool =
     out["import_time_s"] = time.monotonic() - t_import
     if case.local:
         out["import"] = import_summary(project)
-        if case.surface_prep:  # Edit > Prepare Surfaces, as the GUI runs it (D-093)
+        if case.surface_prep:  # Edit > Surface Preparation, as the GUI runs it (D-093)
             _log(f"{case.name}: surface preparation ({case.surface_prep})")
             try:
                 prep = surface_prep.prepare(project, case.surface_prep)

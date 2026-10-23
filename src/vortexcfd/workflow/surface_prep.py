@@ -37,8 +37,22 @@ STRATEGY_LABELS = {
 # The strategy the dialog proposes (D-093, a proposal from the 5.2 comparison, benchmarks/RESULT_5.2.md:
 # the CAD union, which falls back per part to intersection features). [NUMERICS-REVIEW]
 DEFAULT_STRATEGY = "cad_union"
+# What the operation is for and what each strategy does (the node, its tooltip and the dialog; D-146).
+EXPLANATION = ("Surface preparation makes several parts mesh as one clean outer surface. It is needed when parts "
+               "cross or touch each other (a wing through a fuselage, a mirror on a body) or come from CAD that was "
+               "not sewn: without it snappyHexMesh leaves a ragged junction or keeps walls buried inside another "
+               "part. A single closed part does not need it. Run it after the parts change; meshing uses the "
+               "prepared surfaces while they are up to date.")
+STRATEGY_HELP = {
+    "intersection_features": ("Intersection features: the parts are kept as they are; the curves where they cross "
+                              "are computed and given to snappyHexMesh as feature edges at the finest surface "
+                              "level, so the junction is snapped sharply. Fast; the buried walls stay."),
+    "cad_union": ("CAD union: the parts are sewn and fused into one solid with OpenCASCADE, so the buried walls are "
+                  "removed and every face keeps its part and patch. Needs CAD (STEP, IGES, BREP) or clean closed "
+                  "surfaces; a part that cannot be fused falls back to intersection features. The default."),
+}
 STALE_MESSAGE = ("The surface preparation is out of date: the parts changed after it ran. "
-                 "Run Prepare Surfaces again, or remove it.")
+                 "Run Surface Preparation again, or remove it.")
 
 
 class SurfacePrepError(Exception):
@@ -137,7 +151,7 @@ def crossing_text(project: Project, part_name: str, crossings: dict[str, list[st
     if state(project) == "current":
         return f"{names} (resolved by the surface preparation, {STRATEGY_LABELS[project.sim.surface_prep.strategy]})", False
     return (f"{names}: the parts overlap; snappyHexMesh needs their junctions prepared. Run Surface Preparation "
-            "(Edit > Prepare Surfaces)."), True
+            "(Edit > Surface Preparation)."), True
 
 
 def _original_surface(project: Project, part: Part) -> pv.PolyData:

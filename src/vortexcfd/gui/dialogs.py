@@ -4,7 +4,17 @@ from pathlib import Path
 from typing import Literal
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox, QWidget
+from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QInputDialog,
+    QLabel,
+    QMessageBox,
+    QRadioButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from vortexcfd.gui.properties_panel import ALLOWED_UNITS
 
@@ -216,14 +226,10 @@ class Dialogs:
         return dialog.result_fields
 
     def ask_surface_prep(self, strategies, default):
-        """The surface preparation strategy (D-093): a key of ``strategies`` [(key, label)], or None."""
-        from PySide6.QtWidgets import QInputDialog
-
-        labels = [label for _key, label in strategies]
-        keys = [key for key, _label in strategies]
-        current = keys.index(default) if default in keys else 0
-        text, ok = QInputDialog.getItem(self.parent, "Prepare surfaces", "Strategy:", labels, current, False)
-        return keys[labels.index(text)] if ok and text in labels else None
+        """The surface preparation strategy (D-093): a key of ``strategies`` [(key, label)], or None. The dialog says
+        what the operation does and what each strategy means (D-146)."""
+        dialog = SurfacePrepDialog(strategies, default, self.parent)
+        return dialog.strategy() if dialog.exec() else None
 
     def show_about(self) -> None:
         from vortexcfd import __version__
@@ -258,3 +264,44 @@ class Dialogs:
         if clicked is discard:
             return "discard"
         return "cancel"
+
+
+class SurfacePrepDialog(QDialog):
+    """Surface Preparation: the explanation, one choice per strategy with what it does, Run / Cancel (D-146)."""
+
+    def __init__(self, strategies, default, parent: QWidget | None = None) -> None:
+        from vortexcfd.workflow.surface_prep import EXPLANATION, STRATEGY_HELP
+
+        super().__init__(parent)
+        self.setWindowTitle("Surface Preparation")
+        layout = QVBoxLayout(self)
+        intro = QLabel(EXPLANATION)
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        self.buttons: dict[str, QRadioButton] = {}
+        for key, label in strategies:
+            radio = QRadioButton(label)
+            radio.setChecked(key == default)
+            help_text = QLabel(STRATEGY_HELP.get(key, ""))
+            help_text.setObjectName("muted")
+            help_text.setWordWrap(True)
+            help_text.setContentsMargins(24, 0, 0, 8)
+            layout.addWidget(radio)
+            layout.addWidget(help_text)
+            self.buttons[key] = radio
+        if not any(b.isChecked() for b in self.buttons.values()) and self.buttons:
+            next(iter(self.buttons.values())).setChecked(True)
+        box = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
+        run = box.addButton("Run", QDialogButtonBox.ButtonRole.AcceptRole)
+        run.setObjectName("primaryBtn")
+        box.accepted.connect(self.accept)
+        box.rejected.connect(self.reject)
+        layout.addWidget(box)
+        width = 34 * self.fontMetrics().height()
+        self.setFixedWidth(width)
+        inner = width - layout.contentsMargins().left() - layout.contentsMargins().right()
+        for label in self.findChildren(QLabel):  # a dialog's layout does not ask wrapped labels for their height
+            label.setMinimumHeight(label.heightForWidth(inner - label.contentsMargins().left()))
+
+    def strategy(self) -> str | None:
+        return next((key for key, b in self.buttons.items() if b.isChecked()), None)
