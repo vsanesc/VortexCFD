@@ -3288,10 +3288,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
 
     def _fill_recent_menu(self) -> None:
         self.recent_menu.clear()
-        entries = self.recent.entries()
-        for path, exists in entries:
-            act = self.recent_menu.addAction(str(path) if exists else f"{path} (not found)")
-            act.setEnabled(exists)
+        entries = self.recent.existing()  # a missing project is not offered (D-141)
+        for path in entries:
+            act = self.recent_menu.addAction(str(path))
             act.triggered.connect(lambda _=False, p=path: self.open_project(p))
         if not entries:
             self.recent_menu.addAction("No recent projects").setEnabled(False)
@@ -3363,6 +3362,7 @@ def start_window(args: list[str], dialogs: Dialogs | None = None, openfoam=None)
             log.exception("Could not open project %s", args[0])
             error = f"Could not open {args[0]}: {exc}"
     window = MainWindow(project, dialogs, openfoam=openfoam)  # None: the empty start state
+    window.recent.prune()  # D-141: missing projects and temporary folders leave the list
     if error:
         window.show_message(error, "error")
     for note in project.migration_notes if project is not None else ():  # D-120

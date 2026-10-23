@@ -19,13 +19,24 @@ def isolated_config(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def isolated_settings(tmp_path_factory):
-    path = str(tmp_path_factory.mktemp("qsettings"))
+def isolated_settings(isolated_config, monkeypatch):
+    path = str(isolated_config)  # one folder: QSettings files, presets, the OpenFOAM path
+    # The app's own switch (core/user_dirs.py, D-141): QSettings and the config folder live here, and a
+    # subprocess started by a test inherits it.
+    monkeypatch.setenv("VORTEXCFD_SETTINGS_DIR", path)
     # QSettings(org, app) uses the native format; redirect both formats and both scopes.
     for fmt in (QSettings.Format.NativeFormat, QSettings.Format.IniFormat):
         for scope in (QSettings.Scope.UserScope, QSettings.Scope.SystemScope):
             QSettings.setPath(fmt, scope, path)
     return path
+
+
+@pytest.fixture
+def allow_temporary_recent(monkeypatch):
+    """Tests run in temporary folders, which the Recent list refuses (D-141): this lets a test record them."""
+    from vortexcfd.core import user_dirs
+
+    monkeypatch.setattr(user_dirs, "is_temporary", lambda path: False)
 
 
 def focus_widget(qtbot, window, widget) -> None:

@@ -101,7 +101,7 @@ def test_start_choices(make_window, tmp_path: Path) -> None:
     assert w3.project.path == existing.path
 
 
-def test_file_menu_reopens_the_flows(make_window, tmp_path: Path) -> None:
+def test_file_menu_reopens_the_flows(make_window, tmp_path: Path, allow_temporary_recent) -> None:
     w = make_window()
     w.act_new.trigger()  # the fake New simulation dialog is cancelled
     assert w.dialogs.new_asked == 1 and not w.has_project
@@ -116,7 +116,7 @@ def test_file_menu_reopens_the_flows(make_window, tmp_path: Path) -> None:
 # -- recent projects ----------------------------------------------------------------------------
 
 
-def test_recent_list_order_limit_and_removal(tmp_path: Path) -> None:
+def test_recent_list_order_limit_and_removal(tmp_path: Path, allow_temporary_recent) -> None:
     recent = RecentProjects()
     assert recent.paths() == []
     paths = [tmp_path / f"p{i}.vcfd" for i in range(MAX_RECENT + 3)]
@@ -130,7 +130,8 @@ def test_recent_list_order_limit_and_removal(tmp_path: Path) -> None:
     assert RecentProjects().paths() == recent.paths()  # stored in QSettings
 
 
-def test_start_dialog_greys_missing_projects_and_removes_them(qtbot: QtBot, tmp_path: Path) -> None:
+def test_start_dialog_greys_missing_projects_and_removes_them(qtbot: QtBot, tmp_path: Path,
+                                                             allow_temporary_recent) -> None:
     good = Project.create(tmp_path, "Good").path
     gone = tmp_path / "Gone" / "Gone.vcfd"
     recent = RecentProjects()
@@ -155,7 +156,7 @@ def test_start_dialog_greys_missing_projects_and_removes_them(qtbot: QtBot, tmp_
 # -- creating a project -------------------------------------------------------------------------
 
 
-def test_create_makes_the_folder_layout_and_saves(make_window, tmp_path: Path) -> None:
+def test_create_makes_the_folder_layout_and_saves(make_window, tmp_path: Path, allow_temporary_recent) -> None:
     w = make_window()
     w.dialogs.new_simulation = _spec(tmp_path / "projects", "Wing study", BUILTIN_PRESETS[1], 3)
     w.new_project()

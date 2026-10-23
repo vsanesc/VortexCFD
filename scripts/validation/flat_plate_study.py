@@ -62,6 +62,9 @@ def run_job(work: Path, tag: str, setup, k_wall):
 
 
 def main(argv=None) -> int:
+    from vortexcfd.core.user_dirs import isolate_settings
+
+    isolate_settings()  # never the user's settings or Recent list (D-141)
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--work", type=Path, default=ROOT / "run" / "validation" / "flat_plate_study",
                         help="case directories (default: run/validation/flat_plate_study)")

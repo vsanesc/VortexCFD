@@ -15,7 +15,6 @@ import json
 import logging
 import shutil
 import sys
-import tempfile
 import time
 from pathlib import Path
 
@@ -23,9 +22,10 @@ from vortexcfd.core.display_guard import apply_display_guard
 
 apply_display_guard()  # before Qt is imported
 
+from vortexcfd.core.user_dirs import isolate_settings  # noqa: E402
+
 import numpy as np  # noqa: E402
 import pyvista as pv  # noqa: E402
-from PySide6.QtCore import QSettings  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
@@ -33,13 +33,6 @@ RUN = REPO / "run" / "manual"
 OUT = REPO / "docs" / "manual" / "images"
 SIZE = (1600, 900)
 log = logging.getLogger("manual_images")
-
-
-def _isolate_settings() -> None:
-    tmp = tempfile.mkdtemp(prefix="vortexcfd_manual_settings_")
-    for fmt in (QSettings.Format.NativeFormat, QSettings.Format.IniFormat):
-        for scope in (QSettings.Scope.UserScope, QSettings.Scope.SystemScope):
-            QSettings.setPath(fmt, scope, tmp)
 
 
 def _dialogs(import_path: Path | None = None):
@@ -258,7 +251,7 @@ def images(app) -> None:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    _isolate_settings()
+    isolate_settings("vortexcfd_manual_settings_")  # never the user's settings (D-141)
     app = QApplication.instance() or QApplication(sys.argv)
     what = sys.argv[1] if len(sys.argv) > 1 else "images"
     {"sphere": sphere, "images": images}[what](app)

@@ -15,8 +15,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 from vortexcfd.core.display_guard import apply_display_guard  # noqa: E402
+from vortexcfd.core.user_dirs import isolate_settings  # noqa: E402
 
 apply_display_guard()
+isolate_settings()  # never the user's settings or Recent list (D-141)
 
 from vortexcfd.bench.cases import CASES  # noqa: E402
 from vortexcfd.bench.geometries import ensure_geometry  # noqa: E402

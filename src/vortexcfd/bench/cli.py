@@ -20,6 +20,7 @@ from vortexcfd.bench import report
 from vortexcfd.bench.cases import CASES, deviations
 from vortexcfd.bench.local import LocalConfigError, load_local_cases
 from vortexcfd.bench.local import work_root as local_work_root
+from vortexcfd.core.user_dirs import isolate_settings
 
 
 def repo_root() -> Path:
@@ -89,6 +90,7 @@ def print_compare(old: dict, new: dict, old_name: str) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    isolate_settings()  # never the user's settings; the per-case processes inherit it (D-141)
     parser = argparse.ArgumentParser(prog="python -m vortexcfd.bench", description="Meshing benchmark (D-082).")
     parser.add_argument("--cases", nargs="+", help=f"cases to run (default: all public ones: {', '.join(CASES)})")
     parser.add_argument("--local", action="store_true",

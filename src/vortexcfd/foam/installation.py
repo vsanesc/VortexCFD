@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from vortexcfd.core.atomic_io import write_text_atomic
+from vortexcfd.core.user_dirs import settings_dir
 
 VERSION = "v2606"
 BASHRC_ENV = "VORTEXCFD_OPENFOAM_BASHRC"
@@ -79,6 +80,9 @@ class OpenFOAMCheck:
 
 def config_path(env=None) -> Path:
     env = os.environ if env is None else env
+    isolated = settings_dir(env)  # tests and scripts (core/user_dirs.py)
+    if isolated is not None:
+        return isolated / "VortexCFD" / CONFIG_NAME
     base = env.get("XDG_CONFIG_HOME") or str(Path(env.get("HOME", str(Path.home()))) / ".config")
     return Path(base) / "VortexCFD" / CONFIG_NAME
 
