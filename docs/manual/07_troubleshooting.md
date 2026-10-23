@@ -14,7 +14,7 @@ After every mesh the app runs checkMesh and classifies each failed check (D-100)
 
 What to do with a hard failure: look at the Mesh report's checkMesh lines. Inverted pyramids or negative volumes
 usually come from the layer phase at sharp or thin features: try the default "robust" layer controls, a finer
-surface near the feature, or fewer layers; run Edit > Prepare Surfaces for intersecting parts. A lost part (a part
+surface near the feature, or fewer layers; run Edit > Surface Preparation for intersecting parts. A lost part (a part
 with no faces in the mesh, usually too small or thin for the background cells) also blocks the solver: refine the
 surface or the part's levels.
 
@@ -52,4 +52,4 @@ quantity; use it for runs that settle.
    mass-flow inlet is the robust choice when the flow rate is known.
 5. Let it run longer (Solvers > Iterations) when the residuals still fall; stop on the mean-stable criterion when
    the forces oscillate (7.3).
-6. Open the case in ParaView (Results Scene > Open in ParaView) to look at the fields where the residuals peak.
+6. Open the case in ParaView (Open in ParaView, top bar) to look at the fields where the residuals peak.

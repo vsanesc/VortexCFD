@@ -202,6 +202,7 @@ def shoot(out: Path, screens: list[str]) -> None:
                     window.project.update_mesh(curvature_levels=1)
                 snap = snapshots.capture(window.project, name)
                 snapshots.save(window.project, snap, overwrite=True)
+            window.project.undo()  # the project as it was: only the snapshot remembers the change
             tab.click()
             view = window.compare_view
             view.check(view.keys()[1:3])

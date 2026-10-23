@@ -33,7 +33,8 @@ user manual is docs/manual/.
 - Repair with pymeshfix and an fTetWild envelope, with a before / after report (D-072); surface preparation
   diagnostics, intersection features and CAD union (D-093).
 - Regions and patches by angle split (D-071); airfoil import from Selig and Lednicer coordinate files (D-121).
-- Angle of attack by rotating the parts about the centre of rotation, forces in wind axes (D-120).
+- Angle of attack by rotating the parts about the centre of rotation, forces in wind axes (D-120); in the
+  interface the Body attitude of the Geometry node (D-148).
 
 **Domain**
 - Box, bullet and C-type domains as an explicit operation, symmetry plane, ground plane on the box (D-078, D-116).
@@ -75,6 +76,26 @@ user manual is docs/manual/.
   GCI table, the polar sweep's table and plot, line plots and saved views; sections chosen per project (D-134,
   D-136).
 - Open in ParaView (D-055, D-138).
+
+**Interface (the overhaul before the tag, task gui-polish)**
+- A welcome screen with two large buttons and an open panel listing the recent projects (name, folder, last
+  opened; right-click to remove one); a New simulation dialog with the presets as a described list, inline
+  validation and the cores as "N / physical" (D-142, D-143). Recent projects never record temporary folders and
+  missing ones are pruned; tests and scripts never touch the user's settings (D-141).
+- The Zinc & Teal theme: teal selection and primary actions, amber for highlights and warnings, every text pair
+  at least WCAG AA (D-144).
+- A right-click menu on every tree node, Delete (after asking), F2 and double-click (D-145); refinement regions
+  from imported closed surfaces or from a part (D-145); one explained Surface Preparation action (D-146).
+- Every domain face's boundary type editable: velocity inlet, pressure outlet, slip, symmetry, wall, moving wall,
+  or the ground plane (D-147).
+- The properties panel: View > Interface size (Small by default), compact rows, collapsible sections with a "?"
+  to the manual's new chapter 9, detachable into its own window, units on every value, Auto boxes showing the
+  values in use, the free stream (renamed from Inflow) and the angle of attack as the body attitude, domain
+  extents in L, m or mm, probes and the centre of rotation as one "(x, y, z)" field, the mesh independence study
+  explained, the polar sweep opt-in (D-148).
+- Results snapshots and a Compare tab: overlays, value and set-up difference tables, PNG / CSV export and a
+  Comparison section in the report (D-149); Show in OpenFOAM file on every written property (D-150); Open in
+  ParaView in the top bar (D-151).
 
 ### Validation
 

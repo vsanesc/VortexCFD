@@ -1,11 +1,51 @@
 # Status
 
-Updated 2026-10-23 (task/release-1.0.0: **v1.0.0 ready to tag**).
+Updated 2026-10-23 (task/gui-polish: **the GUI overhaul before tagging v1.0.0**).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
 
-**task/release-1.0.0** (not yet published; no push, no merge, no tag). **v1.0.0 is ready to tag**
+**task/gui-polish** (not yet published; no push, no merge, no tag). The owner found the GUI hard to use; this branch
+overhauls it and adds three features a user (Carla) asked for. Done on it, one or more commits per part:
+- Part A (D-141): tests and scripts never touch the user's settings (`VORTEXCFD_SETTINGS_DIR`, set by
+  tests/conftest.py and by every script through `isolate_settings()`); Recent never records a temporary folder and is
+  pruned of missing projects at start-up (10 kept).
+- Part B (D-142): the welcome screen (two large buttons; the open panel with the recent projects, Browse, the
+  right-click menu).
+- Part C (D-143): the New simulation dialog (sections, the presets as a described list, the dimension row, "N / 12",
+  inline validation).
+- Part D (D-144): the Zinc & Teal theme (owner palette; every text pair WCAG AA, ratios in D-144).
+- Part E (D-145, [NUMERICS-REVIEW]): a context menu on every tree node, Delete / F2 / double-click; refinement
+  regions from imported closed surfaces or a part (schema v22): triSurfaceMesh refinementRegions, inside or
+  distance, in the estimate and the viewer. One real mesh (sphere + imported box region, 38 s): the cells inside at
+  the region's level.
+- Part F (D-146): one explained Surface Preparation action.
+- Part G (D-147 [NUMERICS-REVIEW], D-148): interface size (Small default), compact collapsible properties with "?"
+  help (manual chapter 9), a detachable panel; Mesh units / Auto boxes / surface size with its length / curvature
+  explained and editable to 4 levels [NUMERICS-REVIEW] / prism layers named and explained; Free stream (renamed) and
+  Body attitude; domain extents in L, m or mm; editable boundary types of every domain face (defaults unchanged,
+  benchmark dictionaries byte-identical); probes and CofR as vector fields; the mesh independence study explained;
+  the polar sweep opt-in; units and tooltips everywhere.
+- Part I (D-149): results snapshots and the Compare tab (overlays, difference tables, PNG / CSV, the report's
+  Comparison section).
+- Part J (D-150): Show in OpenFOAM file (the map found with the writers, the read-only viewer, a preview when the case
+  has none).
+- Part K (D-151): Open in ParaView in the top bar and the Results menu.
+- Part H: the manual (names, the new features, chapter 9, the window pictures and the re-exported result images),
+  CHANGELOG, QUESTIONS 223 to 235.
+- Screenshots for the owner's review: run/gui_review/<part>/{before,after}/ and run/gui_review/final/ (offscreen,
+  `scripts/gui_review.py`).
+- Machine time: one real mesh (38 s, nice 15), the manual's image export (20 s, no OpenFOAM), the fast test run.
+  No OpenFOAM process left running.
+
+Next: the owner's review of D-141 to D-151 and QUESTIONS 223 to 235 (the [NUMERICS-REVIEW] items: D-145, D-147, the
+curvature cap in D-148); then scripts/ship.sh and the v1.0.0 tag (docs/RELEASE_v1.md). Open: docs/QUESTIONS.md items
+30, 67, 69, 70, 72, 73, 75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 214,
+223 to 235.
+
+### Previous branch (task/release-1.0.0, published in PR #34)
+
+**task/release-1.0.0**. **v1.0.0 is ready to tag**
 (docs/RELEASE_v1.md). Done on it:
 - Owner review recorded: D-138, D-139, D-140 accepted; QUESTIONS 218, 219, 221, 222 accepted as implemented.
 - Item 1, QUESTIONS 220 (D-138 amended): a configured ParaView path that does not exist falls back to automatic

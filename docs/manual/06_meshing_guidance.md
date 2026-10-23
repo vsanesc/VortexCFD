@@ -44,7 +44,11 @@ normal for snappyHexMesh; low coverage over a whole patch is not. See chapter 7 
 ## 6.3 Refinement volumes
 
 Continua > Mesh > Refinement volumes: boxes, cylinders, spheres and cones with a target cell size; the node shows
-the level, the achieved size, the share inside the domain and the extra cells (D-103). Edit > Add Wake Volume adds a
+the level, the achieved size, the share inside the domain and the extra cells (D-103). Any closed surface can be a
+refinement region too (D-145): right-click Refinement volumes > Add from imported geometry (STL, OBJ, PLY, STEP,
+IGES, BREP), or right-click a part > Use as refinement region (it then stops being a wall). Such a region refines
+every cell inside it, or every cell within a distance of its surface ("Refine" on its node); it is never meshed as
+a wall. Edit > Add Wake Volume adds a
 box behind the selected part (all parts when none is selected), aligned with the free stream. Use a volume where the
 flow needs resolution away from the walls: wakes, a ground gap, a jet. Each volume adds to the cell estimate; the
 estimate's budget is 2,000,000 background cells.
@@ -59,9 +63,12 @@ mesh (D-111). The mesh is the same quality as a serial one, not cell-for-cell id
 On the development machine (12 cores) the solver's parallel speed-up saturates at about 3 on 8 cores (memory
 bandwidth), so the recommended cores are capped at 4 (docs/validation/parallel/README.md).
 
-## 6.5 A mesh study
+Curvature refinement adds up to "Curvature levels" levels (default 2, at most 4) where surfaces bend: each extra
+level can multiply the cells near curved surfaces several times, so watch the cell estimate.
 
-Reports & Monitors > Mesh Study runs three levels at a constant refinement ratio (default the square root of 2) and
+## 6.5 A mesh independence study
+
+Reports & Monitors > Mesh independence study runs three levels at a constant refinement ratio (default the square root of 2) and
 reports the Celik grid convergence index of the chosen quantities (D-066). In 2D the levels are refined everywhere.
 In 3D the levels do not refine the near field by the level ratio (D-127, a known limitation): a 3D study's GCI
 covers the wall cells and the background and is indicative only (chapter 8).

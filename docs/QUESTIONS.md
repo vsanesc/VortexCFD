@@ -449,4 +449,25 @@ settled the open ones on 2026-10-17.
      functions (nutUSpaldingWallFunction) and no prism layers; a moving wall moves at the free-stream speed along +x
      (as the moving ground). There is no y+ layer sizing on domain walls. Run Solver requires at least one velocity
      inlet and one pressure outlet. Accept, or should a domain wall get the parts' layers (like the ground option)?
+228. **[OPEN]** **The properties panel detaches into a window, not a QDockWidget (D-148).** The left column is part of
+     the central widget under the top bar (D-041); a Qt dock area would sit beside the top bar and change the
+     window's layout. The panel's header button (or closing its window) docks it back. Accept, or move the panel to
+     a real dock (and the top bar to a tool bar)?
+229. **[OPEN]** **Delete in the tree now asks first and also removes refinement volumes, results objects and saved
+     views (D-145).** Before, Delete removed a selected part at once and did nothing on other nodes. Accept?
+230. **[OPEN]** **Imported refinement regions must be closed surfaces (D-145)**, in both modes (inside and distance);
+     a distance-mode region could be an open sheet in snappyHexMesh. Allow open surfaces for the distance mode?
+231. **[OPEN]** **Snapshots keep the line plots only once the Results Scene has computed them (D-149).** A snapshot
+     saved before the results were shown has no line plots (computing them would read the results on the GUI
+     thread). Accept, or compute them when the snapshot is saved?
+232. **[OPEN]** **Show in OpenFOAM file writes a preview to <project>/case_preview/ when the case has no such file
+     (D-150)**, never the case itself (writing the case would delete a mesh or results). The folder stays in the
+     project. Accept, or delete it when the viewer closes?
+233. **[OPEN]** **Open in ParaView is enabled once the case has a mesh (D-151)**, not only with results as before,
+     and lives in the top bar (the Results Scene's strip lost its own button). Accept?
+234. **[OPEN]** **The polar sweep is off in new projects and on in every project saved before v22 that has its
+     studies (D-148).** Accept, or turn it off for older projects too (their records stay readable)?
+235. **[OPEN]** **The default properties column stays 18 u** (the D-041 rule keeps the viewer at least half the window);
+     at the Small size the Auto fields' values fit with little room ("0.2685 m"). Widen the default column and
+     relax the viewer rule?
 

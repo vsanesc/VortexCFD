@@ -120,7 +120,7 @@ def test_cores_field_is_limited_to_the_physical_cores(window: MainWindow) -> Non
     assert box.value() == 1 and box.maximum() == n and box.minimum() == 1
     from PySide6.QtWidgets import QLabel
 
-    assert f"Cores ({n} physical)" in [label.text() for label in window.properties.findChildren(QLabel)]
+    assert box.suffix() == f" / {n}" and f"{n} physical cores" in box.toolTip()  # "N / physical" (D-148)
     box.setValue(min(4, n))
     box.editingFinished.emit()
     assert window.project.sim.solvers.cores == min(4, n)

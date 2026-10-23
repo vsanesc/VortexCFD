@@ -292,3 +292,13 @@ def test_every_editable_property_has_a_tooltip(make_window) -> None:
             if not field.toolTip() and not p._row_labels[row_key].toolTip():
                 missing.append((key, row_key))
     assert not missing, missing
+
+
+def test_every_help_anchor_is_a_heading_of_the_manual() -> None:
+    import re
+
+    from vortexcfd.gui.help_texts import PROPERTIES_CHAPTER, SECTION_HELP
+
+    text = (Path(__file__).resolve().parent.parent / "docs" / "manual" / PROPERTIES_CHAPTER).read_text()
+    anchors = {re.sub(r"[^a-z0-9 -]", "", h.lower()).replace(" ", "-") for h in re.findall(r"^## (.+)$", text, re.M)}
+    assert set(SECTION_HELP.values()) <= anchors, set(SECTION_HELP.values()) - anchors

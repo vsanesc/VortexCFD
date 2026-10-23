@@ -119,7 +119,7 @@ src/vortexcfd/
   - Implements UI components, main window, and 3D visualization using PySide6 and PyVista/pyvistaqt.
   - `gui/theme.py`: design tokens (`Theme`, the Zinc & Teal palette, D-144), Fusion palette/stylesheet and font zoom; `gui/icons.py` draws tree icons in code.
   - `gui/widgets.py`: shared pieces (section header, badge, search field, glyph pixmaps, `FlowLayout` for rows that wrap).
-  - `gui/topbar.py`: top bar (brand, project file and state, mesh and results staleness badges, camera buttons, wireframe, Generate Mesh / Run Solver).
+  - `gui/topbar.py`: top bar (brand, project file and state, mesh and results staleness badges, camera buttons, wireframe, Open in ParaView (D-151), Generate Mesh / Run Solver).
   - `gui/monitors.py`: right column: the convergence banner, per-criterion table and oscillation warnings (`ConvergencePanel`), live log-scale residual chart drawn with QPainter (legend, autoscroll, decimated series, palette in `theme.RESIDUAL_STYLES`) and the report slots (assignment menu, last value, sparkline), polled from the postProcessing files on a GUI-thread timer.
   - `gui/viewport.py`: VTK-drawn viewport pieces (ground grid, empty-scene message, telemetry card) and telemetry settings.
   - `gui/settings_store.py`: the shared `QSettings` accessor.
@@ -132,7 +132,7 @@ src/vortexcfd/
   - `gui/sections.py`: Qt-free cuts of the wall patches by y or z planes, ordered along the cut's connectivity and split at min/max x into two branches labelled by the in-plane normal, x/c and Cp, CSV export; `gui/section_tool.py`: the Results Scene's Sections window (D-062).
   - `gui/charts.py`: QPainter charts (y+ histogram, line chart); `gui/report_views.py`: the Forces table of the Reports & Monitors node.
   - `gui/colormaps.py`: the Results Scene colormaps (matplotlib lookup tables, D-054), the one place to add one.
-  - `gui/paraview.py`: Open in ParaView (executable from Preferences or detected under /mnt/c/Program Files, `wslpath -w`, detached launch).
+  - `gui/paraview.py`: Open in ParaView (executable from Preferences, `paraview` on PATH or detected under /mnt/c/Program Files, `wslpath -w`, detached launch; the top bar's button and the Results menu, D-138, D-151).
   - `gui/internal_rows.py` (properties rows of an internal-flow patch, its role and inlet / outlet conditions with units, and of the Planes & Pressure Drops node, mixed into PropertiesPanel; D-129); `gui/report_views.InternalFlowTable`.
   - `gui/volume_rows.py` (properties rows of the Refinement volumes node and of each volume, mixed into PropertiesPanel; D-103), `gui/scene.VolumeView` (the volumes' outlines in the viewer).
   - `workflow/snapshots.py` (Qt-free): results snapshots (<project>/snapshots/*.json: residuals, report histories with final values and windowed means, line plots, mesh and set-up summaries), loading another project's read-only, the value and set-up difference tables, the overlays (matplotlib) and the CSV / PNG exports; `gui/compare_view.py` (the Compare tab) and `gui/compare_control.py` (`CompareControlMixin`, its actions, mixed into MainWindow); the report's Comparison section (D-149).
