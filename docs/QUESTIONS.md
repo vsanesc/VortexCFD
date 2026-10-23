@@ -436,38 +436,38 @@ settled the open ones on 2026-10-17.
 223. **[OPEN]** **Recent list: temporary folders are refused and missing projects pruned (D-141).** The Recent list
      never records a project under the system temporary folder (/tmp, /var/tmp), and at start-up drops entries whose
      file no longer exists. A user who keeps real projects under /tmp would not see them in Recent. Accept?
-224. **[OPEN]** **Interface size values (D-148): Small 9 pt (default), Medium 10 pt, Large 12 pt.** The previous default
+224. **[ACCEPTED (owner, 2026-10-23)]** **Interface size values (D-148): Small 9 pt (default), Medium 10 pt, Large 12 pt.** The previous default
      was 11 pt. Inputs and tree rows are now 1.6 u high (were 2 u and 1.8 u). Accept the sizes?
-225. **[OPEN] [NUMERICS-REVIEW]** **Curvature refinement: the maximum extra levels is now 4 (was 2, D-085), the default
+225. **[ACCEPTED (owner, 2026-10-23)] [NUMERICS-REVIEW]** **Curvature refinement: the maximum extra levels is now 4 (was 2, D-085), the default
      stays 2.** The owner asked for the maximum to be editable; the model cap was the "conservative 2" of D-085. A
      project at 0 to 2 writes the same dictionaries as before. Accept 4 as the new cap?
-226. **[OPEN]** **Domain extents entered in m or mm are stored in multiples of L (D-148).** The L / m / mm toggle is
+226. **[CLOSED (task gui-polish follow-up, 2026-10-23): the unit is stored with the value (schema v23, D-157); an extent in m or mm stays that length when L changes, one in L follows the parts]** **Domain extents entered in m or mm are stored in multiples of L (D-148).** The L / m / mm toggle is
      an entry unit: the value is converted with the current L and kept in L, as the domain always was (D-078). If the
      parts change, an extent typed as "3 m" becomes 3 m x (new L / old L). Storing physical extents as such would need
      a schema change. Keep the conversion, or store the unit with the value?
-227. **[OPEN] [NUMERICS-REVIEW]** **Editable domain face types (D-147).** A face set to a wall gets the parts' wall
+227. **[CLOSED (task gui-polish follow-up, 2026-10-23): a wall or moving-wall face has an optional Prism layers check box, off by default (D-161, [NUMERICS-REVIEW]); the public benchmarks' dictionaries are byte-identical to main's]** [NUMERICS-REVIEW] **Editable domain face types (D-147).** A face set to a wall gets the parts' wall
      functions (nutUSpaldingWallFunction) and no prism layers; a moving wall moves at the free-stream speed along +x
      (as the moving ground). There is no y+ layer sizing on domain walls. Run Solver requires at least one velocity
      inlet and one pressure outlet. Accept, or should a domain wall get the parts' layers (like the ground option)?
-228. **[OPEN]** **The properties panel detaches into a window, not a QDockWidget (D-148).** The left column is part of
+228. **[ACCEPTED (owner, 2026-10-23)]** **The properties panel detaches into a window, not a QDockWidget (D-148).** The left column is part of
      the central widget under the top bar (D-041); a Qt dock area would sit beside the top bar and change the
      window's layout. The panel's header button (or closing its window) docks it back. Accept, or move the panel to
      a real dock (and the top bar to a tool bar)?
-229. **[OPEN]** **Delete in the tree now asks first and also removes refinement volumes, results objects and saved
+229. **[ACCEPTED (owner, 2026-10-23)]** **Delete in the tree now asks first and also removes refinement volumes, results objects and saved
      views (D-145).** Before, Delete removed a selected part at once and did nothing on other nodes. Accept?
-230. **[OPEN]** **Imported refinement regions must be closed surfaces (D-145)**, in both modes (inside and distance);
+230. **[CLOSED (task gui-polish follow-up, 2026-10-23): open surfaces are accepted in the distance mode; the inside mode still needs a closed one (D-159)]** **Imported refinement regions must be closed surfaces (D-145)**, in both modes (inside and distance);
      a distance-mode region could be an open sheet in snappyHexMesh. Allow open surfaces for the distance mode?
-231. **[OPEN]** **Snapshots keep the line plots only once the Results Scene has computed them (D-149).** A snapshot
+231. **[CLOSED (task gui-polish follow-up, 2026-10-23): a snapshot samples every line plot itself when it is saved (D-160)]** **Snapshots keep the line plots only once the Results Scene has computed them (D-149).** A snapshot
      saved before the results were shown has no line plots (computing them would read the results on the GUI
      thread). Accept, or compute them when the snapshot is saved?
-232. **[OPEN]** **Show in OpenFOAM file writes a preview to <project>/case_preview/ when the case has no such file
+232. **[ACCEPTED (owner, 2026-10-23)]** **Show in OpenFOAM file writes a preview to <project>/case_preview/ when the case has no such file
      (D-150)**, never the case itself (writing the case would delete a mesh or results). The folder stays in the
      project. Accept, or delete it when the viewer closes?
-233. **[OPEN]** **Open in ParaView is enabled once the case has a mesh (D-151)**, not only with results as before,
+233. **[ACCEPTED (owner, 2026-10-23)]** **Open in ParaView is enabled once the case has a mesh (D-151)**, not only with results as before,
      and lives in the top bar (the Results Scene's strip lost its own button). Accept?
-234. **[OPEN]** **The polar sweep is off in new projects and on in every project saved before v22 that has its
+234. **[ACCEPTED (owner, 2026-10-23)]** **The polar sweep is off in new projects and on in every project saved before v22 that has its
      studies (D-148).** Accept, or turn it off for older projects too (their records stay readable)?
-235. **[OPEN]** **The default properties column stays 18 u** (the D-041 rule keeps the viewer at least half the window);
+235. **[ACCEPTED (owner, 2026-10-23)]** **The default properties column stays 18 u** (the D-041 rule keeps the viewer at least half the window);
      at the Small size the Auto fields' values fit with little room ("0.2685 m"). Widen the default column and
      relax the viewer rule?
 236. **[OPEN]** **The colormap selector that stopped responding (D-152) could not be reproduced offscreen.** The fix

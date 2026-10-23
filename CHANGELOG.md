@@ -96,6 +96,12 @@ user manual is docs/manual/.
 - Results snapshots and a Compare tab: overlays, value and set-up difference tables, PNG / CSV export and a
   Comparison section in the report (D-149); Show in OpenFOAM file on every written property (D-150); Open in
   ParaView in the top bar (D-151).
+- One set of text roles for every text (D-153); every screen checked, and tested, at three window and three
+  interface sizes, with a sensible minimum size, the monitors column scrolling and nothing clipped (D-154, D-155,
+  D-158); the residual chart and the convergence criteria in windows of their own, remembered (D-156).
+- Domain extents in m or mm kept as fixed lengths (schema v23, D-157); open surfaces as distance-mode refinement
+  regions (D-159); snapshots sample every line plot (D-160); optional prism layers on wall domain faces, off by
+  default (D-161).
 
 ### Validation
 

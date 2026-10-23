@@ -38,10 +38,33 @@ overhauls it and adds three features a user (Carla) asked for. Done on it, one o
 - Machine time: one real mesh (38 s, nice 15), the manual's image export (20 s, no OpenFOAM), the fast test run.
   No OpenFOAM process left running.
 
-Next: the owner's review of D-141 to D-151 and QUESTIONS 223 to 235 (the [NUMERICS-REVIEW] items: D-145, D-147, the
-curvature cap in D-148); then scripts/ship.sh and the v1.0.0 tag (docs/RELEASE_v1.md). Open: docs/QUESTIONS.md items
-30, 67, 69, 70, 72, 73, 75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 214,
-223 to 235.
+Follow-up (the owner's 13 items), one commit each:
+- Item 10 (D-152): the Results selectors apply after their popup has closed (QUESTIONS 236 asks for a check on the
+  real display).
+- Item 2 (D-153): text roles in the theme, the only text sizes (a test fails on any other); a role re-applied after
+  an interface size change and after a state change (text kept its old size until a restart).
+- Item 1 (D-154): New simulation fits its content, only the preset list gives way, a unique default name.
+- Item 11 (D-155): the status badge sized from its font (descenders were cut), a compact top bar, a minimum window
+  size (66 x 36 font heights).
+- Item 9 (D-156): the residual chart and the convergence criteria detach into their own windows (live, remembered,
+  docked when their screen is gone).
+- Item 5 (D-157): domain extents in m or mm stored in that unit (schema v23).
+- Items 3, 4 (D-158): every screen at three window and three interface sizes (scripts/gui_review_sizes.py,
+  run/gui_review/fix/<screen>/<window size>_<interface size>.png); fixes (the monitors column scrolls, elided names,
+  the legend wraps, minimum sizes, rebuilt rows no longer drawn over); tests/test_screen_layouts.py checks overlaps,
+  clipped text and cut widgets at each screen's minimum and each interface size.
+- Item 6 (D-159): open surfaces as refinement regions in the distance mode.
+- Item 7 (D-160): a snapshot samples every line plot itself.
+- Item 8 (D-161, [NUMERICS-REVIEW]): optional prism layers on wall domain faces, off by default; the public
+  benchmarks' dictionaries byte-identical to main's (`diff -r`, 51 files).
+- Item 12 (D-162): the licence statement, CONTRIBUTING.md, issue and pull request templates, the .gitignore audit.
+- Item 13: final screenshots (run/gui_review/final/, run/gui_review/fix/), the manual's window pictures, QUESTIONS
+  226, 227, 230, 231 closed and 224, 225, 228, 229, 232 to 235 accepted by the owner.
+- Machine time: no OpenFOAM run in the follow-up; offscreen screenshots and the fast test run at nice 15.
+
+Next: the owner's review of D-152 to D-162 (the [NUMERICS-REVIEW] item: D-161) and QUESTIONS 223 and 236; then
+scripts/ship.sh and the v1.0.0 tag (docs/RELEASE_v1.md). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 72, 73, 75,
+82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 214, 223, 236.
 
 ### Previous branch (task/release-1.0.0, published in PR #34)
 
