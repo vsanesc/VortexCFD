@@ -67,6 +67,20 @@ class Dialogs:
         )
         return Path(name) if name else None
 
+    def ask_line_export(self, suggested: Path, kind: str) -> Path | None:
+        """Where to export a line plot (D-136): ``kind`` "png" (the chart) or "csv" (the samples)."""
+        name, _ = QFileDialog.getSaveFileName(
+            self.parent, "Export line plot", str(suggested),
+            "PNG images (*.png)" if kind == "png" else "CSV files (*.csv)")
+        return Path(name) if name else None
+
+    def ask_report_sections(self, omit: list[str]) -> list[str] | None:
+        """The report sections to leave out (D-136), starting from ``omit``; None: cancelled."""
+        from vortexcfd.gui.report_dialog import ReportSectionsDialog
+
+        dialog = ReportSectionsDialog(omit, self.parent)
+        return dialog.omitted() if dialog.exec() else None
+
     def ask_import_path(self) -> Path | None:
         name, _ = QFileDialog.getOpenFileName(
             self.parent, "Import geometry", "", SURFACE_FILTER
@@ -195,8 +209,21 @@ class Dialogs:
         return keys[labels.index(text)] if ok and text in labels else None
 
     def show_about(self) -> None:
+        from vortexcfd import __version__
+
         QMessageBox.about(self.parent, "About VortexCFD",
-                          "VortexCFD: an integrated CFD workflow on top of OpenFOAM ESI v2606.")
+                          f"VortexCFD {__version__}\n\nAn integrated CFD workflow on top of OpenFOAM ESI v2606.\n"
+                          "Licence: GPL-3.0-or-later.")
+
+    def show_openfoam(self, check):
+        """The OpenFOAM dialog (D-137): (the new check, the bashrc to remember or None) when the user chose a usable
+        installation, None when closed."""
+        from vortexcfd.gui.openfoam_dialog import OpenFOAMDialog
+
+        dialog = OpenFOAMDialog(check, self.parent)
+        if not dialog.exec():
+            return None
+        return dialog.result_check(), dialog.configured_path()
 
     def confirm_discard(self) -> DiscardChoice:
         box = QMessageBox(self.parent)

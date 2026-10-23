@@ -10,11 +10,12 @@ from pathlib import Path
 
 import numpy as np
 
-from PySide6.QtCore import QEvent, QPointF, QRect, QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QPointF, QRect, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
     QColor,
+    QDesktopServices,
     QIcon,
     QKeySequence,
     QPainter,
@@ -58,7 +59,7 @@ from vortexcfd.core.model import (
 )
 from vortexcfd.core.presets import PresetError, PresetStore, apply_preset, preset_from_simulation
 from vortexcfd.core.reports import available_reports
-from vortexcfd.foam import convergence
+from vortexcfd.foam import convergence, installation
 from vortexcfd.foam.physics_case import flow_direction
 from vortexcfd.core.project import Project, ProjectFolderError
 from vortexcfd.core.save_rules import (
@@ -316,10 +317,15 @@ class MainWindow(StudyControlMixin, QMainWindow):
         dialogs: Dialogs | None = None,
         with_viewer: bool = True,
         parent: QWidget | None = None,
+        openfoam: "installation.OpenFOAMCheck | None" = None,
     ) -> None:
         """``project`` None: the empty start state (no tree content, "No project open", only the File
-        and Help menus active, D-077); a placeholder document stands in until one is created or opened."""
+        and Help menus active, D-077); a placeholder document stands in until one is created or opened.
+        ``openfoam``: the start-up check (D-137; None: checked here); without OpenFOAM v2606 meshing and solving are
+        disabled with the reason in their tooltips."""
         super().__init__(parent)
+        self.openfoam = openfoam if openfoam is not None else installation.check_openfoam()
+        installation.activate(self.openfoam)
         self.has_project = project is not None
         project = project if project is not None else Project.new(NO_PROJECT)
         self._project = project
@@ -1112,7 +1118,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
                     view.set_visible(self._scene_mode == "results")
                     self.viewer.render()
         self.properties.set_scene_status(view.object_errors if view is not None else {},
-                                         view is not None and view.has_results, self.viewer is not None)
+                                         view is not None and view.has_results, self.viewer is not None,
+                                         view.line_samples if view is not None else {})
 
     def _scene_bounds(self):
         """The results' volume bounds, else the parts' box (metres), else None."""
@@ -1126,7 +1133,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
 
     def _new_scene_fields(self, kind: str) -> dict:
         """The settings a new object starts with, from the results' (or the parts') box: a clip through its centre
-        normal to x, an isosurface of |U| at its median, streamlines from a line across it near the inflow side."""
+        normal to x, an isosurface of |U| at its median, streamlines from a line across it near the inflow side, a line
+        plot of |U| and p along x through its centre (D-136)."""
         b = self._scene_bounds()
         if b is None:
             return {}
@@ -1139,6 +1147,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
             if view is not None and view.has_results and view.data.internal is not None and "U" in view.data.internal.cell_data:
                 value = float(np.median(np.linalg.norm(np.asarray(view.data.internal.cell_data["U"]), axis=1)))
             return {"field": "U_mag", "value": value}
+        if kind == "line_plot":
+            return {"point1": (b[0], centre[1], centre[2]), "point2": (b[1], centre[1], centre[2]),
+                    "fields": ["U_mag", "p"]}
         x = b[0] + 0.05 * (b[1] - b[0])
         diag = math.sqrt(sum((b[2 * i + 1] - b[2 * i]) ** 2 for i in range(3)))
         return {"point1": (x, centre[1], b[4] + 0.1 * (b[5] - b[4])), "point2": (x, centre[1], b[5] - 0.1 * (b[5] - b[4])),
@@ -1164,12 +1175,44 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self.export_image()
         elif action == "report":
             self.create_report()
+        elif action.startswith(("line_png:", "line_csv:")):
+            self.export_line_plot(action.split(":", 1)[1], action[5:8])
         elif action.startswith("go_view:") and self.viewer is not None:
             name = action.split(":", 1)[1]
             view = next((v for v in self._project.sim.results.views if v.name == name), None)
             if view is not None:
                 apply_view(self.viewer, view)
                 self.viewer.render()
+
+    def open_manual(self, opener=None) -> Path | None:
+        """Help > User Manual: the local docs/manual/README.md in the system's viewer; returns its path."""
+        path = manual_path()
+        if path is None:
+            self.show_message("The user manual was not found.", "error")
+            return None
+        opener = opener or (lambda url: QDesktopServices.openUrl(url))
+        if not opener(QUrl.fromLocalFile(str(path))):
+            self.show_message(f"No viewer opened the manual: it is at {path}", "warning")
+        return path
+
+    def show_openfoam_dialog(self) -> None:
+        """Help > OpenFOAM Installation, and at start-up without OpenFOAM v2606 (D-137): what was looked for, the
+        install commands as text and a bashrc path; a usable path is remembered and enables meshing and solving."""
+        answer = self.dialogs.show_openfoam(self.openfoam)
+        if answer is None:
+            return
+        check, path = answer
+        if path is not None:
+            installation.set_configured_bashrc(path)
+        self.set_openfoam(check)
+
+    def set_openfoam(self, check: "installation.OpenFOAMCheck") -> None:
+        self.openfoam = check
+        installation.activate(check)
+        if check.ok:
+            self.show_message(f"OpenFOAM {installation.VERSION}: {check.bashrc}", "success")
+        self._update_mesh_button()
+        self._update_run_button()
 
     def export_image(self):
         """File > Export Image (D-133): the viewer rendered offscreen at the chosen size; returns the image or None."""
@@ -1192,15 +1235,45 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.show_message(f"Exported {spec.size[0]} x {spec.size[1]} image to {spec.path}", "success")
         return image
 
+    def export_line_plot(self, object_id: str, what: str):
+        """A line plot's chart as PNG or its samples as CSV (D-136); returns the path or None."""
+        from vortexcfd.workflow import line_plot
+
+        view = self.results_view
+        samples = view.line_samples.get(object_id) if view is not None else None
+        obj = next((o for o in self._project.sim.results.objects if o.id == object_id), None)
+        if samples is None or obj is None:
+            return None
+        folder = self._project.folder / ("images" if what == "png" else "exports") if self._project.path else Path.home()
+        path = self.dialogs.ask_line_export(folder / f"{obj.name.replace(' ', '_')}.{what}", what)
+        if path is None:
+            return None
+        try:
+            if what == "png":
+                line_plot.write_png(samples, path, obj.name)
+            else:
+                line_plot.write_csv(samples, path)
+        except OSError as exc:
+            self.show_message(f"Could not export the line plot: {exc}", "error")
+            return None
+        self.show_message(f"Exported '{obj.name}' to {path}", "success")
+        return path
+
     REPORT_IMAGE_SIZE = (1600, 900)
 
     def create_report(self):
         """File > Create Report (D-134): the HTML report in <project>/reports/, the saved views rendered offscreen
-        in the Results Scene when the case has results; returns its path or None."""
+        in the Results Scene when the case has results; returns its path or None. The sections are chosen first
+        (D-136: the choice is saved in the project)."""
         from vortexcfd.workflow.report import ReportImage, write_report
 
+        omit = self.dialogs.ask_report_sections(self._project.sim.results.report_omit)
+        if omit is None:
+            return None
+        if omit != self._project.sim.results.report_omit:
+            self._project.set_report_omit(omit)
         images = []
-        views = self._project.sim.results.views
+        views = self._project.sim.results.views if "views" not in omit else []
         if self.viewer is not None and views:
             from vortexcfd.gui.image_export import png_bytes
 
@@ -1390,7 +1463,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
 
     def _update_mesh_button(self) -> None:
         running = self.mesh_worker.is_running()
-        reason = None if running else readiness(self._project)
+        reason = None if running else (self.openfoam.problem() or readiness(self._project))
         if not self.has_project:
             reason = NO_PROJECT
         if not running and self.solver_worker.is_running():
@@ -1409,6 +1482,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
         """Generate Mesh / Stop: write the meshing case and run it in the background."""
         if self.geometry_busy and not self.mesh_worker.is_running():
             self.show_message(f"{self.geometry_worker.label} is running.", "error")
+            return
+        if self.openfoam.problem() and not self.mesh_worker.is_running():  # D-137
+            self.show_message(self.openfoam.problem(), "error")
             return
         if self.solver_worker.is_running():
             self.show_message("The solver is running: stop it first.", "error")
@@ -1578,6 +1654,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         """Why Run Solver is disabled (None: it can run)."""
         if not self.has_project:
             return NO_PROJECT
+        if self.openfoam.problem():  # D-137
+            return self.openfoam.problem()
         busy = self.study_running()
         if busy is not None:
             return busy
@@ -2320,6 +2398,10 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.act_save_preset = action("Save as &Preset...", self.save_as_preset)
         self.act_manage_presets = action("&Manage Presets...", self.manage_presets)
         self.act_about = action("&About VortexCFD", lambda: self.dialogs.show_about())
+        self.act_openfoam = action("&OpenFOAM Installation...", lambda: self.show_openfoam_dialog())
+        self.act_manual = action("User &Manual", lambda: self.open_manual())
+        self.act_manual.setEnabled(manual_path() is not None)
+        self.act_manual.setToolTip("" if manual_path() is not None else "The manual was not found (docs/manual)")
         self.act_import = action("&Import Geometry...", self.import_surface, "Ctrl+I")
         self.act_import_airfoil = action("Import &Airfoil...", self.import_airfoil)
         self.act_save = action("&Save", self.save, S.Save)
@@ -2408,6 +2490,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self.act_tel_fields[key] = act
             tel_menu.addAction(act)
         help_menu = self.menuBar().addMenu("&Help")
+        help_menu.addAction(self.act_manual)
+        help_menu.addAction(self.act_openfoam)
+        help_menu.addSeparator()
         help_menu.addAction(self.act_about)
 
     def _update_actions(self) -> None:
@@ -3226,7 +3311,17 @@ class MainWindow(StudyControlMixin, QMainWindow):
         super().closeEvent(event)
 
 
-def start_window(args: list[str], dialogs: Dialogs | None = None) -> MainWindow:
+def manual_path() -> Path | None:
+    """The user manual's index: the copy the install script puts next to the environment
+    (<prefix>/share/vortexcfd/manual), else the checkout's docs/manual (D-137)."""
+    for candidate in (Path(sys.prefix) / "share" / "vortexcfd" / "manual" / "README.md",
+                      Path(__file__).resolve().parents[3] / "docs" / "manual" / "README.md"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def start_window(args: list[str], dialogs: Dialogs | None = None, openfoam=None) -> MainWindow:
     """The main window for ``vortexcfd [path]``: the project at ``path`` opened directly, or the empty
     start state with the Start dialog opened once the event loop runs (D-077)."""
     error = None
@@ -3237,13 +3332,16 @@ def start_window(args: list[str], dialogs: Dialogs | None = None) -> MainWindow:
         except Exception as exc:
             log.exception("Could not open project %s", args[0])
             error = f"Could not open {args[0]}: {exc}"
-    window = MainWindow(project, dialogs)  # None: the empty start state
+    window = MainWindow(project, dialogs, openfoam=openfoam)  # None: the empty start state
     if error:
         window.show_message(error, "error")
     for note in project.migration_notes if project is not None else ():  # D-120
         log.warning("%s", note)
         window.show_message(note, "warning", log_it=False)
     window.show()
+    if not window.openfoam.ok:  # D-137: say so before anything else; the app still opens projects
+        log.warning("%s", window.openfoam.text())
+        QTimer.singleShot(0, window.show_openfoam_dialog)
     if project is None:
         QTimer.singleShot(0, window.show_start)
     return window

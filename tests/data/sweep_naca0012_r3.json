@@ -1,0 +1,56 @@
+{
+  "alphas": [
+    0.0,
+    10.0,
+    15.0
+  ],
+  "cores": 8,
+  "points": [
+    {
+      "index": 0,
+      "alpha": 0.0,
+      "cl": -2.243129e-06,
+      "cd": 0.007526913,
+      "cm": 6.220145e-07,
+      "iterations": 1259,
+      "state": "criteria_met",
+      "state_label": "Criteria met",
+      "duration_s": 82.0,
+      "cells": 126688,
+      "mesh_duration_s": null,
+      "error": null
+    },
+    {
+      "index": 1,
+      "alpha": 10.0,
+      "cl": 1.060196,
+      "cd": 0.01215461,
+      "cm": 0.009138018,
+      "iterations": 2363,
+      "state": "criteria_met",
+      "state_label": "Criteria met",
+      "duration_s": 89.0,
+      "cells": 176110,
+      "mesh_duration_s": null,
+      "error": null
+    },
+    {
+      "index": 2,
+      "alpha": 15.0,
+      "cl": 1.475203,
+      "cd": 0.02313702,
+      "cm": 0.02028046,
+      "iterations": 4402,
+      "state": "criteria_met",
+      "state_label": "Criteria met",
+      "duration_s": 625.0,
+      "cells": 218711,
+      "mesh_duration_s": null,
+      "error": null
+    }
+  ],
+  "status": "finished",
+  "mesh_cores": 1,
+  "inputs_hash": "",
+  "planned_first_layer": []
+}

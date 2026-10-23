@@ -476,6 +476,14 @@ class Project:
 
         self._edit(f"Delete view '{name}'", mutate)
 
+    def set_report_omit(self, omit: list[str]) -> None:
+        """The report sections left out (ids of core.model.REPORT_SECTIONS, D-136), one undoable step."""
+
+        def mutate(sim: dict[str, Any]) -> None:
+            sim["results"]["report_omit"] = list(omit)
+
+        self._edit("Choose report sections", mutate)
+
     def replace_simulation(self, sim: Simulation, label: str) -> None:
         """Make ``sim`` the current state as one undoable step (a preset applied, for example)."""
         self._commit(Simulation.model_validate(sim.model_dump()), label)

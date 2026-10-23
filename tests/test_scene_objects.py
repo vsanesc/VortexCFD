@@ -97,7 +97,7 @@ def test_a_v19_project_migrates_to_v20_without_objects() -> None:
     stored = json.loads((DATA / "project_v19.json").read_text())
     assert stored["schema_version"] == 19
     sim = load_simulation(DATA / "project_v19.json")
-    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 20
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 21
     assert sim.results.objects == [] and sim.results.views == [] and sim.name == "v19 project"
 
 
@@ -181,3 +181,16 @@ def test_the_results_node_adds_draws_and_edits_objects(results_window, qtbot: Qt
     w._select_node("saved_view", 0)
     panel.sv_go.click()
     assert tuple(w.viewer.camera.position) == pytest.approx(saved.position)
+
+
+def test_the_section_values_survive_a_scene_object(results_window, qtbot: QtBot) -> None:
+    """With display "Section" a scene object used to empty the section actor's mapper input (PyVista's pipeline) and
+    the telemetry's field range raised KeyError '_shown'; the view keeps the section's values itself."""
+    w = results_window()
+    w.results_tab.click()
+    qtbot.waitUntil(lambda: w.results_view.has_results, timeout=15000)
+    w.display_combo.setCurrentText("Section")
+    before = w.results_view.shown_values().size
+    w.project.add_scene_object("clip", origin=(1.0, 0.0, 0.5))
+    assert before > 0 and w.results_view.shown_values().size == before
+    assert w.results_view.field_range() is not None

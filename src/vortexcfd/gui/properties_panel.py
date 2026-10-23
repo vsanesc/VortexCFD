@@ -1095,6 +1095,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.forces_table.configure(m.s3)
         self.internal_table.configure(m.s3)
         self.yplus_chart.configure(theme, 8 * m.u)
+        self.sc_chart.configure(theme)  # the line plot's note (D-136)
         for label in (self.reports_empty, self.probes_empty):
             label.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
         if getattr(self, "_probe_count", None) is not None:

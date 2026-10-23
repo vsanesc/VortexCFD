@@ -1,22 +1,37 @@
 """Rows of the Results node, of each results scene object and of each saved view (D-132), mixed into
 PropertiesPanel. ``_kind`` "results" shows the add buttons; "scene_object" one object (``_index`` into
 Simulation.results.objects); "saved_view" one view. The panel owns the signal ``scene_action(str)`` ("add:<kind>",
-"save_view", "go_view:<name>", "image", "report"), handled by the main window, which knows the viewer and the
-results. Every committed edit is one Project step.
+"save_view", "go_view:<name>", "image", "report", "line_png:<id>", "line_csv:<id>"), handled by the main window, which
+knows the viewer and the results. Every committed edit is one Project step. A line plot's rows show its chart
+(matplotlib, embedded) from the samples the Results Scene computed (D-136).
 """
 
-from PySide6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QHBoxLayout, QLineEdit, QPushButton, QSpinBox, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
+    QHBoxLayout,
+    QLineEdit,
+    QPushButton,
+    QSpinBox,
+    QWidget,
+)
 
-from vortexcfd.core.model import SCENE_OBJECT_KINDS, SCENE_OBJECT_LABELS
+from vortexcfd.core.model import COLOR_RANGE_MODES, SCENE_OBJECT_KINDS, SCENE_OBJECT_LABELS
 from vortexcfd.foam.results import FIELD_SPECS
+from vortexcfd.gui.colormaps import COLORMAPS
 from vortexcfd.gui.volume_rows import COORD_RANGE, VectorEdit
+from vortexcfd.gui.widgets import FlowLayout
 
 # The volume fields an isosurface or streamlines can use (the wall-only fields are not in the volume).
 VOLUME_FIELDS = tuple(f for f in FIELD_SPECS if f.source in ("p", "U", "k", "omega", "nut"))
 KEEP_LABELS = {"behind": "Behind the normal", "front": "In front of the normal"}
 DIRECTION_LABELS = {"both": "Both ways", "forward": "Forward", "backward": "Backward"}
 SEED_LABELS = {"line": "Line", "plane": "Plane"}
-# (field, label, widget kind) per object kind; "vector", "float", "int", "combo:<choices>", "field".
+# The streamlines' own colormap (D-136): None follows the scene's.
+COLORMAP_CHOICES = {None: "Scene's colormap", **{name: name for name in COLORMAPS}}
+RANGE_LABELS = {m: m for m in COLOR_RANGE_MODES}
+# (field, label, widget kind) per object kind; "vector", "float", "length", "int", "check", "fields" or a combo.
 OBJECT_FIELDS = {
     "clip": (("origin", "Plane point", "vector"), ("normal", "Plane normal", "vector"), ("keep", "Side kept", "keep")),
     "isosurface": (("field", "Field", "field"), ("value", "Value", "float")),
@@ -24,8 +39,33 @@ OBJECT_FIELDS = {
                     ("point2", "Line end", "vector"), ("normal", "Plane normal", "vector"),
                     ("size", "Plane side", "length"), ("n_seeds", "Seeds", "int"),
                     ("max_length", "Maximum length", "length"), ("direction", "Direction", "direction"),
-                    ("color_field", "Coloured by", "field")),
+                    ("color_field", "Coloured by", "field"), ("colormap", "Colormap", "colormap"),
+                    ("range_mode", "Colour range", "range"), ("range_min", "Range minimum", "float"),
+                    ("range_max", "Range maximum", "float"), ("scalar_bar", "Scalar bar", "check")),
+    "line_plot": (("point1", "Start point", "vector"), ("point2", "End point", "vector"),
+                  ("n_samples", "Samples", "int"), ("fields", "Fields", "fields")),
 }
+
+
+class FieldChecks(QWidget):
+    """One check box per volume field; ``value()`` the checked keys in FIELD_SPECS order (a line plot's fields)."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        layout = FlowLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.boxes: dict[str, QCheckBox] = {}
+        for spec in VOLUME_FIELDS:
+            box = QCheckBox(spec.label)
+            layout.addWidget(box)
+            self.boxes[spec.key] = box
+
+    def value(self) -> list[str]:
+        return [k for k, b in self.boxes.items() if b.isChecked()]
+
+    def setValue(self, keys) -> None:  # noqa: N802 (the Qt spelling, as the spin boxes)
+        for k, b in self.boxes.items():
+            b.setChecked(k in keys)
 
 
 def _combo(choices: dict) -> QComboBox:
@@ -42,14 +82,15 @@ class SceneRowsMixin:
         self._section("sc_list", "Results scene")
         self.sc_summary = self._ro_row("sc_summary", "Objects")
         adds = QWidget()
-        box = QHBoxLayout(adds)
-        box.setContentsMargins(0, 0, 0, 0)
+        layout = FlowLayout(adds)  # four buttons: wrap in a narrow panel
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.set_spacing(4, 4)
         self.sc_add_buttons = {}
         for kind in SCENE_OBJECT_KINDS:
             button = QPushButton(SCENE_OBJECT_LABELS[kind])
             button.setToolTip(f"Add a {SCENE_OBJECT_LABELS[kind].lower()} to the Results Scene")
             button.clicked.connect(lambda _=False, k=kind: self.scene_action.emit(f"add:{k}"))
-            box.addWidget(button)
+            layout.addWidget(button)
             self.sc_add_buttons[kind] = button
         self._layout.addWidget(self._make_row("sc_add", "Add", adds))
         actions = QWidget()
@@ -82,6 +123,20 @@ class SceneRowsMixin:
                 self.sc_fields[(kind, name)] = widget
                 self._connect_scene_widget(widget, name)
                 self._layout.addWidget(self._make_row(f"sc_{kind}_{name}", label, widget))
+        # the line plot's chart and exports (D-136)
+        from vortexcfd.gui.line_chart import LinePlotCanvas
+
+        self.sc_chart = LinePlotCanvas()
+        self._layout.addWidget(self._make_row("sc_chart", "Chart", self.sc_chart))
+        line_actions = QWidget()
+        box = QHBoxLayout(line_actions)
+        box.setContentsMargins(0, 0, 0, 0)
+        self.sc_line_png = QPushButton("Export PNG…")
+        self.sc_line_csv = QPushButton("Export CSV…")
+        for button, what in ((self.sc_line_png, "png"), (self.sc_line_csv, "csv")):
+            button.clicked.connect(lambda _=False, w=what: self._line_action(w))
+            box.addWidget(button)
+        self._layout.addWidget(self._make_row("sc_line_actions", "", line_actions))
         self.sc_delete = QPushButton("Delete")
         self.sc_delete.clicked.connect(self._delete_scene_object)
         self._layout.addWidget(self._make_row("sc_delete", "", self.sc_delete))
@@ -117,7 +172,12 @@ class SceneRowsMixin:
             return box
         if kind == "field":
             return _combo({f.key: f"{f.label}" + (f" ({f.units})" if f.units else "") for f in VOLUME_FIELDS})
-        return _combo({"keep": KEEP_LABELS, "seed": SEED_LABELS, "direction": DIRECTION_LABELS}[kind])
+        if kind == "check":
+            return QCheckBox()
+        if kind == "fields":
+            return FieldChecks()
+        return _combo({"keep": KEEP_LABELS, "seed": SEED_LABELS, "direction": DIRECTION_LABELS,
+                       "colormap": COLORMAP_CHOICES, "range": RANGE_LABELS}[kind])
 
     def _connect_scene_widget(self, widget: QWidget, name: str) -> None:
         if isinstance(widget, VectorEdit):
@@ -125,11 +185,17 @@ class SceneRowsMixin:
                 spin.editingFinished.connect(lambda w=widget, n=name: self._commit_scene(**{n: w.value()}))
         elif isinstance(widget, (QDoubleSpinBox, QSpinBox)):
             widget.editingFinished.connect(lambda w=widget, n=name: self._commit_scene(**{n: w.value()}))
+        elif isinstance(widget, QCheckBox):
+            widget.toggled.connect(lambda on, n=name: self._commit_scene(**{n: on}))
+        elif isinstance(widget, FieldChecks):
+            for box in widget.boxes.values():
+                box.toggled.connect(lambda _on, w=widget, n=name: self._commit_scene(**{n: w.value()}))
         else:
             widget.currentIndexChanged.connect(lambda _i, w=widget, n=name: self._commit_scene(**{n: w.currentData()}))
 
     def _scene_keys(self) -> list[str]:
-        return ["sc_name", "sc_visible", "sc_status", "sc_delete"] + [f"sc_{k}_{n}" for k, n in self.sc_fields]
+        return (["sc_name", "sc_visible", "sc_status", "sc_delete", "sc_chart", "sc_line_actions"]
+                + [f"sc_{k}_{n}" for k, n in self.sc_fields])
 
     def _selected_scene_object(self):
         objects = self._project.sim.results.objects
@@ -143,9 +209,12 @@ class SceneRowsMixin:
             return views[self._index]
         return None
 
-    def set_scene_status(self, errors: dict[str, str], has_results: bool, has_viewer: bool) -> None:
-        """The viewer's state for these rows: why an object draws nothing, whether results and a viewer exist."""
+    def set_scene_status(self, errors: dict[str, str], has_results: bool, has_viewer: bool,
+                         samples: dict | None = None) -> None:
+        """The viewer's state for these rows: why an object draws nothing, whether results and a viewer exist, and
+        the line plots' samples (D-136)."""
         self._scene_errors, self._scene_results, self._scene_viewer = errors, has_results, has_viewer
+        self._line_samples = samples or {}
         if self._kind in ("results", "scene_object", "saved_view"):
             self._refresh_scene()
 
@@ -181,10 +250,13 @@ class SceneRowsMixin:
             self._rows[key].setVisible(True)
         for name, *_ in OBJECT_FIELDS[obj.kind]:
             visible = not (obj.kind == "streamlines" and ((obj.seed == "line" and name in ("normal", "size"))
-                                                         or (obj.seed == "plane" and name == "point2")))
+                                                         or (obj.seed == "plane" and name == "point2")
+                                                         or (obj.range_mode != "fixed"
+                                                             and name in ("range_min", "range_max"))))
             self._rows[f"sc_{obj.kind}_{name}"].setVisible(visible)
         widgets = [self.sc_name, self.sc_visible, *self.sc_fields.values()]
         spins = [s for w in self.sc_fields.values() for s in getattr(w, "spins", [])]
+        spins += [b for w in self.sc_fields.values() for b in getattr(w, "boxes", {}).values()]
         for w in widgets + spins:
             w.blockSignals(True)
         try:
@@ -194,11 +266,21 @@ class SceneRowsMixin:
                 widget, value = self.sc_fields[(obj.kind, name)], getattr(obj, name)
                 if isinstance(widget, QComboBox):
                     widget.setCurrentIndex(max(0, widget.findData(value)))
+                elif isinstance(widget, QCheckBox):
+                    widget.setChecked(bool(value))
                 else:
                     widget.setValue(value)
         finally:
             for w in widgets + spins:
                 w.blockSignals(False)
+        if obj.kind == "line_plot":
+            samples = getattr(self, "_line_samples", {}).get(obj.id)
+            self._rows["sc_chart"].setVisible(True)
+            self._rows["sc_line_actions"].setVisible(True)
+            self.sc_chart.set_samples(samples, obj.name)
+            for button in (self.sc_line_png, self.sc_line_csv):
+                button.setEnabled(samples is not None)
+                button.setToolTip("" if samples is not None else "No samples: the line needs results inside the fluid")
         error = getattr(self, "_scene_errors", {}).get(obj.id)
         self.sc_status.setText(error or ("shown" if obj.visible and has_results else
                                          "hidden" if not obj.visible else "no results yet: run the solver"))
@@ -213,6 +295,11 @@ class SceneRowsMixin:
         except (ValueError, TypeError, KeyError) as exc:  # includes pydantic errors
             self.message.emit(str(exc))
         self.refresh()
+
+    def _line_action(self, what: str) -> None:
+        obj = self._selected_scene_object()
+        if obj is not None and obj.kind == "line_plot":
+            self.scene_action.emit(f"line_{what}:{obj.id}")
 
     def _delete_scene_object(self) -> None:
         obj = self._selected_scene_object()

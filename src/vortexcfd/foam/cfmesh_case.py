@@ -26,7 +26,7 @@ from vortexcfd.foam.mesh_case import (
     part_level_range,
     surface_feature_extract_dict,
 )
-from vortexcfd.foam.runner import OPENFOAM_BASHRC
+from vortexcfd.foam import runner
 
 # The executables of the cfMesh module this evaluation needs or reports on.
 CFMESH_EXECUTABLES = (
@@ -38,7 +38,7 @@ CFMESH_EXECUTABLES = (
 
 def cfmesh_executables(names: tuple[str, ...] = CFMESH_EXECUTABLES) -> dict[str, str | None]:
     """{name: full path, or None when missing} with the OpenFOAM environment sourced as the app does."""
-    script = f"source {shlex.quote(str(OPENFOAM_BASHRC))} >/dev/null 2>&1; " + "; ".join(
+    script = f"source {shlex.quote(str(runner.bashrc()))} >/dev/null 2>&1; " + "; ".join(
         f"echo {shlex.quote(n)} $(command -v {shlex.quote(n)} || echo -)" for n in names)
     out = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False).stdout
     found: dict[str, str | None] = {n: None for n in names}
