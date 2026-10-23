@@ -653,6 +653,17 @@ class Domain(StrictModel):
     # The unit of an extent entered in metres or millimetres (schema v23, D-157): its value is then in that unit and
     # stays that length when L changes. An extent without an entry is in multiples of L ("L" entries are dropped).
     units: dict[str, Literal["L", "m", "mm"]] = Field(default_factory=dict)
+    # The wall faces given the parts' prism layers (schema v23, D-161; off by default): only a face whose boundary
+    # type is a wall or a moving wall gets them. [NUMERICS-REVIEW]
+    wall_layers: list[str] = Field(default_factory=list)
+
+    @field_validator("wall_layers")
+    @classmethod
+    def _known_layer_faces(cls, value: list[str]) -> list[str]:
+        for face in value:
+            if face not in DEFAULT_FACE_KINDS:
+                raise ValueError(f"unknown domain face {face!r} (one of {', '.join(EDITABLE_FACES)})")
+        return sorted(set(value))
 
     @field_validator("units")
     @classmethod

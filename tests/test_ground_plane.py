@@ -58,7 +58,7 @@ def test_the_ground_needs_the_box_shape() -> None:
 def test_the_mesh_hash_ignores_a_ground_that_is_off_and_the_ground_motion() -> None:
     off = meshing._domain_for_hash(Domain())
     assert "ground" not in off and off == {k: v for k, v in Domain().model_dump().items()
-                                           if k not in ("ground", "boundary_types", "units")}  # D-116, D-147, D-157
+                                           if k not in ("ground", "boundary_types", "units", "wall_layers")}
     still = meshing._domain_for_hash(_ground(motion="stationary"))
     moving = meshing._domain_for_hash(_ground(motion="moving"))
     assert still == moving and still["ground"]["enabled"]

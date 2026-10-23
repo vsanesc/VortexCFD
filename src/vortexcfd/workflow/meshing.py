@@ -410,6 +410,15 @@ def face_kinds(project: Project) -> tuple[tuple[str, str], ...]:
     return tuple(out)
 
 
+WALL_KINDS = ("wall", "moving_wall")
+
+
+def wall_layer_faces(domain, faces: tuple[str, ...] | None = None) -> tuple[str, ...]:
+    """The domain faces that get the parts' prism layers (D-161): those ticked whose boundary type is a wall or a
+    moving wall (among ``faces``, the faces the domain has, when given). [NUMERICS-REVIEW]"""
+    return tuple(f for f in domain.wall_layers if domain.face_kind(f) in WALL_KINDS and (faces is None or f in faces))
+
+
 def boundary_problem(project: Project) -> str | None:
     """Why the domain's boundary types cannot make a well-posed external flow (D-147), or None: it needs at least one
     velocity inlet and one pressure outlet."""
@@ -682,6 +691,8 @@ def mesh_inputs(project: Project) -> tuple[MeshCaseInput, DomainBox, list]:
         ground_wall_start=ground_wall_start(project.sim.domain, box.bounds),
         two_d=box.two_d,
         patch_kinds=face_kinds(project),
+        wall_layer_patches=() if project.sim.internal else wall_layer_faces(project.sim.domain,
+                                                                             domain_faces(project)),
         **domain_fields(box),
         **internal_fields(project, box),
     )
@@ -820,6 +831,10 @@ def _domain_for_hash(domain) -> dict:
                                for f, k in sorted(types.items())}
     if not data.get("units"):  # every extent in L: the hash of the projects saved before v23 (D-157)
         data.pop("units", None)
+    data.pop("wall_layers", None)  # the faces that get layers are hashed as written (D-161)
+    layered = wall_layer_faces(domain)
+    if layered:
+        data["wall_layer_faces"] = list(layered)
     ground = data.pop("ground")
     if ground["enabled"]:
         ground.pop("motion")

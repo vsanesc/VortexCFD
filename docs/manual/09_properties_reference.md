@@ -83,7 +83,7 @@ Select a face of the domain (Regions > Fluid Domain) or right-click it. **Bounda
 outlet, Slip (far field), Symmetry, Wall (no-slip, stationary) or Moving wall (with the free stream); the box's
 bottom face can also be the **Ground plane**. The presets set the defaults: the inlet a velocity inlet, the outlet a
 pressure outlet, the other faces slip. **Conditions written** lists what each field gets on that face. A wall face
-gets the parts' wall functions but no prism layers. Run Solver needs at least one velocity inlet and one pressure
+gets the parts' wall functions; tick its **Prism layers** box (off by default) to give it the parts' layers too. Run Solver needs at least one velocity inlet and one pressure
 outlet. A wall (or moving wall) face is how to study ground effect on any face.
 
 ## Ground plane

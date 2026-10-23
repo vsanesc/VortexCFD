@@ -115,13 +115,17 @@ def setup_summary(sim: Simulation) -> dict[str, str]:
     if not sim.internal:
         for key, value in sim.inflow.model_dump().items():
             out[f"free stream: {key}"] = _text(value)
-        domain = sim.domain.model_dump(exclude={"parts", "ground", "boundary_types", "units"})
+        domain = sim.domain.model_dump(exclude={"parts", "ground", "boundary_types", "units", "wall_layers"})
         for key, value in domain.items():
             unit = f" {sim.domain.extent_unit(key)}" if key in DOMAIN_EXTENTS else ""  # "5 L", "2 m" (D-157)
             out[f"domain: {key}"] = _text(value) + unit
         out["domain: ground"] = (f"on, {sim.domain.ground.motion}" if sim.domain.ground.enabled else "off")
         for face, kind in sorted(sim.domain.boundary_types.items()):
             out[f"domain: {face} type"] = kind
+        from vortexcfd.workflow.meshing import wall_layer_faces
+
+        for face in wall_layer_faces(sim.domain):  # only where written (D-161): older snapshots compare as before
+            out[f"domain: {face} prism layers"] = "on"
     for key, value in sim.mesh.model_dump().items():
         out[f"mesh: {key}"] = _text(value)
     for v in sim.refinement_volumes:

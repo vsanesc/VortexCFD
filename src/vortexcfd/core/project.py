@@ -548,6 +548,12 @@ class Project:
         types[face] = kind
         self.update_domain(label=f"Boundary type of {face}: {kind}", boundary_types=types)
 
+    def set_face_layers(self, face: str, on: bool) -> None:
+        """The parts' prism layers on a wall domain face, or not (D-161), as one undoable step."""
+        faces = set(self._sim.domain.wall_layers)
+        faces = faces | {face} if on else faces - {face}
+        self.update_domain(label=f"Prism layers on {face}: {'on' if on else 'off'}", wall_layers=sorted(faces))
+
     def update_physics(self, **fields: Any) -> None:
         """Edit flow physics as one undoable step (validated; no-ops leave no trace)."""
         self._update_section("physics", "physics", fields)

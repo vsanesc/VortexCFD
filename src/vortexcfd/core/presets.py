@@ -45,7 +45,7 @@ ALLOWED_BOUNDARY_TYPES: dict[str, tuple[str, ...]] = {role: (t,) for role, t in 
 # The domain fields a preset carries (Domain minus "enabled", which follows the analysis type, and
 # "parts", which belongs to a project's geometry).
 DOMAIN_FIELDS = ("shape", "upstream", "downstream", "lateral", "vertical", "radius", "symmetry", "ground",
-                 "boundary_types", "units")
+                 "boundary_types", "units", "wall_layers")
 
 
 class PresetError(ValueError):
@@ -64,8 +64,10 @@ class PresetDomain(StrictModel):
     # The faces' boundary types when not their defaults (schema v22, D-147); none in the built-in presets.
     boundary_types: dict[str, str] = Field(default_factory=dict)
 
-    # The extents given in m or mm (schema v23, D-157); none in the built-in presets.
+    # The extents given in m or mm (schema v23, D-157) and the wall faces with prism layers (D-161); none in the
+    # built-in presets.
     units: dict[str, str] = Field(default_factory=dict)
+    wall_layers: list[str] = Field(default_factory=list)
 
     @field_validator("boundary_types")
     @classmethod
@@ -76,6 +78,11 @@ class PresetDomain(StrictModel):
     @classmethod
     def _units(cls, value: dict[str, str]) -> dict[str, str]:
         return Domain(units=value).units  # the domain's validation and normalisation
+
+    @field_validator("wall_layers")
+    @classmethod
+    def _wall_layers(cls, value: list[str]) -> list[str]:
+        return Domain(wall_layers=value).wall_layers
 
     def extent_unit(self, name: str) -> str:
         return self.units.get(name, "L")

@@ -105,6 +105,12 @@ RELATIVE_ONLY = {("mesh", "layers"), ("mesh", "final_layer_thickness")}
 def _pair(sim: Simulation, key: str) -> tuple[Simulation, Simulation]:
     """(the simulation the entries are read from, the same with ``key`` changed to another valid value)."""
     data = copy.deepcopy(sim.model_dump())
+    if key.startswith("face_layers:"):  # a wall face's prism layers (D-161)
+        face = key.split(":", 1)[1]
+        changed = copy.deepcopy(data)
+        layered = set(sim.domain.wall_layers)
+        changed["domain"]["wall_layers"] = sorted(layered ^ {face})
+        return sim, Simulation.model_validate(changed)
     if key.startswith("face_type:"):
         face = key.split(":", 1)[1]
         current = sim.domain.face_kind(face)
@@ -200,7 +206,7 @@ def entries_for(project: Project, key: str) -> list[Entry]:
 
 
 def is_mapped(key: str) -> bool:
-    return key in PROPERTY_FIELDS or key in VOLUME_FIELDS or key.startswith(("face_type:", "volume:"))
+    return key in PROPERTY_FIELDS or key in VOLUME_FIELDS or key.startswith(("face_type:", "face_layers:", "volume:"))
 
 
 # -- the written file ---------------------------------------------------------------------------------------------

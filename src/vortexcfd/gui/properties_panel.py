@@ -125,6 +125,9 @@ GROUND_START_INLET = -1e6
 
 
 # What each boundary type writes (physics_case.initial_fields, D-147).
+FACE_LAYERS_TIP = ("The parts' prism layers on this wall face too (the same count and sizing as the parts' walls). "
+                   "Off by default: a wall face meshed without them uses wall functions on its first cells. Turn it "
+                   "on to resolve the boundary layer of a road or a channel wall. [NUMERICS-REVIEW]")
 FACE_BC_TEXTS = {
     "velocity_inlet": "U fixedValue (U\u221e, 0, 0); p zeroGradient; k, \u03c9 fixedValue (the free stream's); "
                       "\u03bd\u209c calculated",
@@ -826,6 +829,10 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self._layout.addWidget(self._make_row("face_type", "Boundary type", self.face_type))
         self.face_type.activated.connect(lambda _i: self._commit_face_type())
         self.face_bcs = self._ro_row("face_bcs", "Conditions written")
+        self.face_layers = QCheckBox()  # a wall face only (D-161) [NUMERICS-REVIEW]
+        self.face_layers.setToolTip(FACE_LAYERS_TIP)
+        self._layout.addWidget(self._make_row("face_layers", "Prism layers", self.face_layers))
+        self.face_layers.toggled.connect(lambda on: self._commit_face_layers(on))
         self._section("dom_ground", "Ground plane")
         self.ground_enabled = QCheckBox()
         self.ground_enabled.setToolTip("The bottom face (z-min) of the box is a no-slip wall, the patch \"ground\", "
@@ -1164,8 +1171,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         """The right-click menu of a row written to a case file (D-150)."""
         menu = QMenu(self)
         target = key
-        if key == "face_type":
-            target = f"face_type:{self._kind.removeprefix('boundary_')}"
+        if key in ("face_type", "face_layers"):
+            target = f"{key}:{self._kind.removeprefix('boundary_')}"
         elif key in VOLUME_FIELDS:  # the selected refinement volume (D-103)
             target = f"volume:{self._index}:{VOLUME_FIELDS[key]}"
         act = menu.addAction("Show in OpenFOAM file", lambda: self.show_in_file_requested.emit(target))
@@ -1221,7 +1228,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self._row_layouts.append(box)
         self._row_labels[key] = label
         self._row_fields[key] = field
-        if is_mapped(key) or key == "face_type":  # written to a case file: its right-click menu (D-150)
+        if is_mapped(key) or key in ("face_type", "face_layers"):  # written to a case file: its menu (D-150)
             for widget in (row, label, *((field,) if isinstance(field, QComboBox) else ())):
                 widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
                 widget.customContextMenuRequested.connect(
@@ -2477,9 +2484,15 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self._sections["boundary"].setVisible(show)
         self._rows["face_type"].setVisible(show and bool(options))
         self._rows["face_bcs"].setVisible(show)
+        current = face_type(sim, face) if show else None
+        wall = show and current in ("wall", "moving_wall")  # the ground has its own layers check box (D-116)
+        self._rows["face_layers"].setVisible(wall)
+        if wall:
+            self.face_layers.blockSignals(True)
+            self.face_layers.setChecked(face in sim.domain.wall_layers)
+            self.face_layers.blockSignals(False)
         if not show:
             return
-        current = face_type(sim, face)
         self.face_type.blockSignals(True)
         self.face_type.clear()
         for value, label in options:
@@ -2508,6 +2521,15 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         except (ValueError, TypeError) as exc:  # includes pydantic errors
             self.message.emit(str(exc))
         self.face_type_changed.emit("ground" if value == "ground" else ("bottom" if face == "ground" else face))
+        self.refresh()
+
+    def _commit_face_layers(self, on: bool) -> None:
+        if not self._kind.startswith("boundary_"):
+            return
+        try:
+            self._project.set_face_layers(self._kind.removeprefix("boundary_"), on)
+        except (ValueError, TypeError) as exc:  # includes pydantic errors
+            self.message.emit(str(exc))
         self.refresh()
 
     def _commit_ground(self, key: str) -> None:

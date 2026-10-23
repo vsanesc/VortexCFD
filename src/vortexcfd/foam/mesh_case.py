@@ -176,6 +176,8 @@ class MeshCaseInput:
     # The domain faces whose boundary type is not the default (D-147): (patch, kind), kind one of FACE_KIND_PATCH_TYPES.
     # Empty: the patch types every domain had (BOUNDARY_PATCH_TYPES).
     patch_kinds: tuple[tuple[str, str], ...] = ()
+    # The wall domain faces given the parts' prism layers (D-161; none by default). [NUMERICS-REVIEW]
+    wall_layer_patches: tuple[str, ...] = ()
 
     @property
     def rounded(self) -> bool:
@@ -921,6 +923,8 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
                 layers[key] = {"nSurfaceLayers": n_layers}
         if inp.ground and inp.ground_layers:  # optional on the ground plane (D-116)
             layers[GROUND_PATCH] = {"nSurfaceLayers": n_layers}
+        for patch in inp.wall_layer_patches:  # optional on a wall domain face (D-161) [NUMERICS-REVIEW]
+            layers[patch] = {"nSurfaceLayers": n_layers}
     content = {
         "castellatedMesh": True,
         "snap": True,
