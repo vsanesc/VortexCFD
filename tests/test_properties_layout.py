@@ -16,7 +16,7 @@ from vortexcfd.foam.mesh_report import LayerCoverage, MeshReport
 from vortexcfd.geometry.loader import clear_cache
 from vortexcfd.gui.main_window import MainWindow
 from vortexcfd.gui.panel_widgets import AutoField, ChoiceField
-from vortexcfd.gui.theme import metrics
+from vortexcfd.gui.theme import LEFT_INITIAL_U, metrics
 
 
 @pytest.fixture(autouse=True)
@@ -132,13 +132,13 @@ def test_long_labels_are_elided_with_a_tooltip_in_the_side_by_side_layout(make_w
 
 
 @pytest.mark.parametrize("font", [11, 14])
-def test_default_18u_column_is_side_by_side(make_window, font: int) -> None:
-    """The real space needed is 8u + 7u + margins and gap (about 17u): the default 18u fits it."""
+def test_default_column_is_side_by_side(make_window, font: int) -> None:
+    """The real space needed is 8u + 7u + margins and gap (about 17u): the default 18u column fits it."""
     w = make_window(font)
     _select(w, "mesh")
     p = w.properties
     u = metrics().u
-    assert abs(w._left.width() - 18 * u) <= 0.5 * u and not p.stacked
+    assert abs(w._left.width() - LEFT_INITIAL_U * u) <= 0.5 * u and not p.stacked
     for key, row in _visible_rows(p):
         lr, fr = _rect(p._row_labels[key], p), _rect(p._row_fields[key], p)
         assert not lr.intersects(fr) and lr.right() < fr.left(), key

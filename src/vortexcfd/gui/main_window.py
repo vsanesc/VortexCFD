@@ -444,7 +444,7 @@ class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
         self.props_header.row.insertWidget(1, self.props_name)
         self.detach_button = QToolButton()  # the panel in its own window and back (D-148)
         self.detach_button.setObjectName("helpBtn")
-        self.detach_button.setText("\u29c9")
+        self.detach_button.setText("\u2197")
         self.detach_button.setToolTip("Detach the properties into their own window (click again to dock them)")
         self.detach_button.clicked.connect(lambda: self.toggle_properties_window())
         self.props_header.row.addWidget(self.detach_button)

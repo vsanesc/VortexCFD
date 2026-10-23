@@ -314,6 +314,7 @@ QToolButton#chevronBtn:hover {{ color: {t.accent}; }}
 QToolButton#helpBtn {{ color: {t.muted_text}; background: transparent; border: {ln}px solid {t.border};
     border-radius: {m.radius_m}px; padding: 0 {m.s1}px; font-weight: 600; }}
 QToolButton#helpBtn:hover {{ color: {t.accent}; border-color: {t.accent}; }}
+QCheckBox {{ spacing: {m.s1}px; }}
 QPushButton#unitBtn {{ background: {t.elevated}; color: {t.accent}; border: {ln}px solid {t.border};
     border-radius: {btr}px; padding: 0 {m.s2}px; font-weight: 600; }}
 QPushButton#unitBtn:hover {{ border-color: {t.accent}; }}

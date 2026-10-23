@@ -291,7 +291,7 @@ MESH_SETTINGS = (
     ("surface_level_max", "Surface level max", lambda: _auto(_spin(0, 30, " level")),
      "Auto (default): from the surface cell size. Surfaces at sharp angles (feature angle) are refined up to this "
      "level."),
-    ("curvature_levels", "Curvature: extra levels", lambda: _spin(0, MAX_CURVATURE_LEVELS, " levels", "off"),
+    ("curvature_levels", "Curvature levels", lambda: _spin(0, MAX_CURVATURE_LEVELS, " levels", "off"),
      "Curved surfaces get up to this many levels beyond the maximum surface level where they bend, so small radii "
      "keep enough cells around them. Default 2. Each extra level can multiply the cells near curved surfaces by "
      "up to 4 (surface) to 8 (volume): watch the cell estimate below."),
