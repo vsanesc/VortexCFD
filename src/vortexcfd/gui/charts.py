@@ -5,10 +5,10 @@ import math
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
-from PySide6.QtWidgets import QApplication, QSizePolicy, QWidget
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from vortexcfd.foam.wall_fields import YPLUS_LABELS, YPlusHistogram
-from vortexcfd.gui.theme import DARK, Theme, mono_font
+from vortexcfd.gui.theme import DARK, Theme, role_font
 
 
 def _nice_step(span: float, count: int) -> float:
@@ -58,7 +58,7 @@ class YPlusHistogramChart(QWidget):
         t = self._theme
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setFont(mono_font(QApplication.font(), 0.75))
+        painter.setFont(role_font("data_small"))
         fm = painter.fontMetrics()
         pad = fm.height() // 2
         if self.histogram is None:
@@ -130,7 +130,7 @@ class LineChart(QWidget):
         t = self._theme
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        font = mono_font(QApplication.font(), 0.8)
+        font = role_font("data")
         painter.setFont(font)
         fm = painter.fontMetrics()
         pad = fm.height()

@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from vortexcfd.gui.theme import role_point_size
 from vortexcfd.workflow import snapshots as snapshot_module
 from vortexcfd.workflow.snapshots import Snapshot
 
@@ -241,7 +242,8 @@ class CompareView(QWidget):
         key = self.plot_key()
         if len(snaps) < 2 or key is None:
             self.figure.clear()
-            self.figure.text(0.5, 0.5, "Tick two or more runs to overlay them", ha="center", va="center", fontsize=9)
+            self.figure.text(0.5, 0.5, "Tick two or more runs to overlay them", ha="center", va="center",
+                             fontsize=role_point_size("body"))
         else:
             snapshot_module.draw(self.figure, snaps, key)
         self.canvas.draw_idle()

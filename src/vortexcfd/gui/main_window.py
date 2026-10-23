@@ -148,7 +148,9 @@ from vortexcfd.gui.theme import (
     clamp_point_size,
     load_appearance,
     metrics,
-    mono_font,
+    refresh_text_roles,
+    repolish,
+    set_text_role,
     save_appearance,
     settings,
 )
@@ -736,8 +738,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         """
         bar = self.statusBar()
         bar.setProperty("level", level)
-        bar.style().unpolish(bar)
-        bar.style().polish(bar)
+        repolish(bar)
         bar.showMessage(text, MESSAGE_TIMEOUT_MS)
         if log_it and level in _LOGGED_LEVELS:
             log.log(_LOGGED_LEVELS[level], text)
@@ -815,7 +816,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.setWindowIcon(logo_icon(t, WINDOW_ICON_SIZES, self.devicePixelRatioF()))
         self.tree_header.configure(m)
         self.props_header.configure(m)
-        self.props_name.setFont(mono_font(QApplication.font(), 0.9))
+        set_text_role(self.props_name, "value")
         self.search.configure(m, t)
         self._search_layout.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
         self.properties.apply_metrics(m, t)
@@ -829,35 +830,36 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         )
         self.tree.setIndentation(m.u)
         self.tree.setIconSize(QSize(m.u, m.u))
-        self.tree.setFont(QApplication.font())
+        set_text_role(self.tree, "body")
         self._tab_bar.setFixedHeight(m.tab_bar)
         for tab in (self.scene_tab, self.mesh_tab, self.results_tab):
             tab.setFixedHeight(m.tab_bar - m.line)
         self._results_row.setContentsMargins(m.s3, m.s1, m.s3, m.s1)
         self._results_row.set_spacing(m.s2, m.s1)
         for w in self._results_widgets():
-            w.setFont(mono_font(QApplication.font(), 0.85))
+            set_text_role(w, "control")
             w.setFixedHeight(m.tab_bar - 2 * m.s1)
         if self.results_view is not None:
             self.results_view.font_size = self._point_size
         self._section_row.setContentsMargins(m.s3, 0, m.s3, 0)
         self.section_controls.setFixedHeight(m.tab_bar)
         self._section_row.setSpacing(m.s2)
-        small = mono_font(QApplication.font(), 0.85)
         control_h = m.tab_bar - 2 * m.s1
         for button in (self.section_toggle, self.boundary_toggle, *self.axis_buttons.values()):
-            button.setFont(small)
+            set_text_role(button, "control")
             button.setFixedHeight(control_h)
         self.section_toggle.configure(m, t)
         self.boundary_toggle.configure(m, t)
         self.section_slider.setFixedWidth(10 * m.u)
         self.menuBar().setFixedHeight(m.menubar)
         self._status_bar.setFixedHeight(m.status)
-        self._selection_label.setFont(mono_font(QApplication.font(), 0.85))
+        set_text_role(self._selection_label, "control")
         self._selection_label.setContentsMargins(m.s3, 0, m.s3, 0)
         for splitter in (self._outer, self._inner, self._right_split, self._left_split):
             splitter.setHandleWidth(m.hit)
         self._apply_limits(m)
+        for root in (self, self.properties, self.monitors):  # the last two may be in their own windows
+            refresh_text_roles(root)
         if self.viewer is not None:
             self._style_viewer()
         if self._unsubscribe is not None:

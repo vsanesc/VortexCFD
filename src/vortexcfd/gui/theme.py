@@ -8,7 +8,7 @@ values are fixed by the owner (D-144) and change only on his request.
 from dataclasses import dataclass
 
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPalette
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QAbstractSpinBox, QApplication, QLineEdit, QWidget
 
 from vortexcfd.gui.settings_store import settings
 
@@ -231,22 +231,103 @@ def clamp_point_size(size: int) -> int:
     return max(MIN_POINT_SIZE, min(MAX_POINT_SIZE, int(size)))
 
 
-def mono_font(base: QFont, scale: float = 1.0) -> QFont:
-    """Monospace variant of ``base`` (``scale`` multiplies its point size)."""
-    font = QFont(base)
+@dataclass(frozen=True)
+class TextRole:
+    """A text style: ``scale`` x the interface point size, the weight, monospace or not, letter spacing (px)."""
+
+    scale: float
+    weight: int = 400
+    mono: bool = False
+    spacing: float = 0.0
+
+
+# The only text sizes of the GUI (D-153): every widget and painter takes its font from a role, sized relative to the
+# interface size (View > Interface size). tests/test_typography.py fails on any other font size outside this module.
+TEXT_ROLES: dict[str, TextRole] = {
+    "display": TextRole(2.4, 600),  # the start screen's title
+    "page_title": TextRole(1.3, 600),  # a dialog page's title
+    "tile_title": TextRole(1.3, 700),  # a start tile's title
+    "section_title": TextRole(0.85, 700, spacing=0.5),  # an upper-case panel section header
+    "subsection_title": TextRole(0.77, 700, spacing=0.5),  # a collapsible group inside a panel
+    "label": TextRole(1.0),  # a field's label
+    "body": TextRole(1.0),  # running text, the tree, messages
+    "strong": TextRole(1.0, 700),  # the brand, the primary top-bar actions
+    "caption": TextRole(0.85),  # a note under a field, a chart's note
+    "list_title": TextRole(1.0, 700),  # a list item's first line
+    "list_subtitle": TextRole(1.0),  # a list item's second line (folder, date)
+    "value": TextRole(0.9, mono=True),  # numbers and names in fields and value labels
+    "control": TextRole(0.85, mono=True),  # compact controls: segmented buttons, the console, the search box
+    "badge": TextRole(0.8, mono=True),  # status badges
+    "data": TextRole(0.8, mono=True),  # report rows, chart axes
+    "data_small": TextRole(0.75, mono=True),  # monitor tables, KPI captions, histogram labels
+    "metric": TextRole(1.5, 700, mono=True),  # a KPI's big value
+    "code": TextRole(1.0, mono=True),  # OpenFOAM file text
+}
+
+
+def role_point_size(role: str, base_point_size: float | None = None) -> float:
+    """The role's point size at the interface size ``base_point_size`` (default: the application font's)."""
+    if base_point_size is None:
+        base_point_size = QApplication.font().pointSizeF()
+    return base_point_size * TEXT_ROLES[role].scale
+
+
+def role_font(role: str, base: QFont | None = None) -> QFont:
+    """The font of the text role ``role`` (TEXT_ROLES), built on ``base`` (default: the application font)."""
+    spec = TEXT_ROLES[role]
+    font = QFont(QApplication.font() if base is None else base)
+    if spec.mono:
+        font.setFamilies(list(MONO_FAMILIES))
+        font.setStyleHint(QFont.StyleHint.Monospace)
+    font.setPointSizeF(font.pointSizeF() * spec.scale)
+    font.setWeight(QFont.Weight(spec.weight))
+    if spec.spacing:
+        font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, spec.spacing)
+    return font
+
+
+def set_text_role(widget: QWidget, role: str) -> None:
+    """Give ``widget`` the role's font and remember the role, so refresh_text_roles re-applies it."""
+    widget.setProperty("textRole", role)
+    widget.setFont(role_font(role))
+
+
+def repolish(widget: QWidget) -> None:
+    """Re-apply the stylesheet after a dynamic property change. Qt's re-polish puts back the font the widget had when
+    it was first polished, so the widget's text role is applied again afterwards."""
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
+    role = widget.property("textRole")
+    if isinstance(role, str) and role in TEXT_ROLES:
+        widget.setFont(role_font(role))
+
+
+def refresh_text_roles(root: QWidget) -> None:
+    """After an interface size change: every widget under ``root`` given a role takes the role's new font, and every
+    spin box's line edit its spin box's font (Qt does not pass a spin box's font change on to it)."""
+    for widget in [root, *root.findChildren(QWidget)]:
+        role = widget.property("textRole")
+        if isinstance(role, str) and role in TEXT_ROLES:
+            widget.setFont(role_font(role))
+    for spin in root.findChildren(QAbstractSpinBox):
+        edit = spin.findChild(QLineEdit)
+        if edit is not None:
+            edit.setFont(spin.font())
+
+
+def glyph_font(pixel_size: int) -> QFont:
+    """The logo letter's font: bold monospace sized to a pixmap (not text, so not a role)."""
+    font = QFont()
     font.setFamilies(list(MONO_FAMILIES))
     font.setStyleHint(QFont.StyleHint.Monospace)
-    font.setPointSizeF(base.pointSizeF() * scale)
-    return font
-
-
-def section_title_font(base: QFont) -> QFont:
-    """Bold, 0.85 of the base size, letter-spaced (use with an upper-case title)."""
-    font = QFont(base)
-    font.setPointSizeF(base.pointSizeF() * 0.85)
     font.setBold(True)
-    font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0.5)
+    font.setPixelSize(max(1, pixel_size))
     return font
+
+
+def _qss_font(role: str, base_point_size: float) -> str:
+    spec = TEXT_ROLES[role]
+    return f"font-size: {base_point_size * spec.scale:.1f}pt; font-weight: {spec.weight};"
 
 
 def build_palette(t: Theme) -> QPalette:
@@ -282,7 +363,7 @@ def build_stylesheet(t: Theme, m: Metrics, base_point_size: float) -> str:
     """Stylesheet for what the palette cannot express."""
     ln = m.line
     inner = m.field - 2 * ln
-    status_pt = f"{base_point_size * 0.9:.1f}pt"
+    status_font = _qss_font("caption", base_point_size)
     btr = m.radius_s
     dis_text = t.disabled_text
     dis_border = blend(t.border_active, t.base, DISABLED_ALPHA)
@@ -408,18 +489,16 @@ QComboBox QAbstractItemView {{
     selection-background-color: {t.elevated}; selection-color: {t.text}; outline: 0;
 }}
 QStatusBar {{ background: {t.base}; color: {t.muted_text}; border-top: {ln}px solid {t.border};
-    font-size: {status_pt}; }}
+    {status_font} }}
 QStatusBar::item {{ border: none; }}
 QStatusBar[level="success"] {{ color: {t.success}; }}
 QStatusBar[level="warning"] {{ color: {t.warning}; }}
 QStatusBar[level="error"] {{ color: {t.error}; }}
-QLabel#welcomeTitle {{ color: {t.text}; background: transparent; font-size: {base_point_size * 2.4:.1f}pt;
-    font-weight: 600; }}
-QLabel#pageTitle {{ color: {t.text}; background: transparent; font-size: {base_point_size * 1.3:.1f}pt;
-    font-weight: 600; }}
+QLabel#welcomeTitle {{ color: {t.text}; background: transparent; {_qss_font("display", base_point_size)} }}
+QLabel#pageTitle {{ color: {t.text}; background: transparent; {_qss_font("page_title", base_point_size)} }}
 QPushButton#startTile {{ background: {t.accent}; border: {ln}px solid {t.accent}; border-radius: {m.radius_m}px; }}
-QLabel#tileTitle {{ color: {t.accent_text}; background: transparent; font-size: {base_point_size * 1.3:.1f}pt;
-    font-weight: 700; }}
+QLabel#tileTitle {{ color: {t.accent_text}; background: transparent;
+    {_qss_font("tile_title", base_point_size)} }}
 QLabel#tileText {{ color: {t.accent_text}; background: transparent; }}
 QPushButton#startTile:hover {{ background: {t.accent_hover}; border-color: {t.accent_hover}; }}
 QPushButton#startTile:focus {{ border: {2 * ln}px solid {t.text}; }}

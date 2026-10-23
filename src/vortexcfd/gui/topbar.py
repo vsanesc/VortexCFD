@@ -2,7 +2,6 @@
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -11,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from vortexcfd.gui.icons import logo_pixmap
-from vortexcfd.gui.theme import Metrics, Theme, mono_font
+from vortexcfd.gui.theme import Metrics, Theme, set_text_role
 from vortexcfd.gui.widgets import Badge, DotButton
 
 # (label, plotter method, tooltip). Fit is momentary: it does not change the active view.
@@ -238,30 +237,25 @@ class TopBar(QWidget):
         self._row.setSpacing(m.s2)
         self._logo.setPixmap(logo_pixmap(t, m.logo, dpr))
         self._logo.setFixedSize(m.logo, m.logo)
-        brand = QApplication.font()
-        brand.setBold(True)
-        self.brand.setFont(brand)
-        self.name_button.setFont(mono_font(QApplication.font(), 0.9))
+        set_text_role(self.brand, "strong")
+        set_text_role(self.name_button, "value")
         self.state_badge.configure(m, t)
         self.mesh_badge.configure(m, t)
         self.results_badge.configure(m, t)
         self.wireframe_button.configure(m, t)
-        small = mono_font(QApplication.font(), 0.85)
         self._seg_row.setContentsMargins(m.line, m.line, m.line, m.line)
         self._seg_row.setSpacing(0)
         inner = m.button - 2 * m.line
         for button in self.view_buttons.values():
-            button.setFont(small)
+            set_text_role(button, "control")
             button.setFixedHeight(inner - 2 * m.line)
         self.segmented.setFixedHeight(m.button)
-        self.wireframe_button.setFont(small)
+        set_text_role(self.wireframe_button, "control")
         self.wireframe_button.setFixedHeight(m.button)
-        self.paraview_button.setFont(small)
+        set_text_role(self.paraview_button, "control")
         self.paraview_button.setFixedHeight(m.button)
-        bold = QApplication.font()
-        bold.setBold(True)
         for button in (self.mesh_button, self.run_button):
-            button.setFont(bold)
+            set_text_role(button, "strong")
             button.setFixedHeight(m.button)
         self.name_button.setFixedHeight(m.button)
         for sep in self.findChildren(QFrame, "vsep"):

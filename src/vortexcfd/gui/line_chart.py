@@ -5,7 +5,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PySide6.QtWidgets import QSizePolicy
 
-from vortexcfd.gui.theme import DARK, Theme
+from vortexcfd.gui.theme import DARK, Theme, role_point_size
 from vortexcfd.workflow.line_plot import LineSamples, draw
 
 CHART_HEIGHT = 260  # px per field, before the first
@@ -30,7 +30,7 @@ class LinePlotCanvas(FigureCanvasQTAgg):
         if samples is None:
             self.figure_.clear()
             self.figure_.text(0.5, 0.5, "No samples: the line needs results inside the fluid", ha="center",
-                              va="center", fontsize=8, color=self.note_color)
+                              va="center", fontsize=role_point_size("caption"), color=self.note_color)
         else:
             draw(self.figure_, samples, title)
         n = len(samples.values) if samples is not None else 1

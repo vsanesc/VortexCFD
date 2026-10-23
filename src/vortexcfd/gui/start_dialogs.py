@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
+from PySide6.QtGui import QColor, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -50,7 +50,7 @@ from vortexcfd.core.model import DIMENSION_LABELS, DIMENSIONS
 from vortexcfd.foam.parallel import physical_cores, recommended_cores
 from vortexcfd.gui.recent import RecentProjects
 from vortexcfd.gui.settings_store import settings
-from vortexcfd.gui.theme import load_appearance, metrics
+from vortexcfd.gui.theme import load_appearance, metrics, role_font
 from vortexcfd.gui.widgets import set_invalid
 
 LAST_PARENT_KEY = "new/parent"
@@ -76,8 +76,9 @@ class _RecentDelegate(QStyledItemDelegate):
         self.theme = load_appearance()[0]
 
     def sizeHint(self, option, index) -> QSize:
-        h = QFontMetrics(option.font).height()
-        return QSize(option.rect.width(), int(h * 2.6))
+        lines = QFontMetrics(role_font("list_title", option.font)).height() + QFontMetrics(
+            role_font("list_subtitle", option.font)).height()
+        return QSize(option.rect.width(), int(lines * 1.3))
 
     def paint(self, painter: QPainter, option, index) -> None:
         t = self.theme
@@ -92,8 +93,8 @@ class _RecentDelegate(QStyledItemDelegate):
         fm = QFontMetrics(option.font)
         pad = fm.height() // 2 + 4
         inner = r.adjusted(pad, fm.height() // 4, -pad, -fm.height() // 4)
-        bold = QFont(option.font)
-        bold.setBold(True)
+        bold = role_font("list_title", option.font)
+        subtitle = role_font("list_subtitle", option.font)
         date = index.data(ROLE_DATE) or ""
         date_w = fm.horizontalAdvance(date) + pad
         top = inner.adjusted(0, 0, 0, -inner.height() // 2)
@@ -103,7 +104,7 @@ class _RecentDelegate(QStyledItemDelegate):
         name = QFontMetrics(bold).elidedText(index.data(ROLE_NAME) or "", Qt.TextElideMode.ElideRight,
                                              max(0, top.width() - date_w))
         painter.drawText(top, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, name)
-        painter.setFont(option.font)
+        painter.setFont(subtitle)
         painter.setPen(QColor(t.muted_text))
         painter.drawText(top, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, date)
         folder = fm.elidedText(index.data(ROLE_FOLDER) or "", Qt.TextElideMode.ElideMiddle, bottom.width())
@@ -313,8 +314,9 @@ class _PresetDelegate(QStyledItemDelegate):
         self.theme = load_appearance()[0]
 
     def sizeHint(self, option, index) -> QSize:
-        h = QFontMetrics(option.font).height()
-        return QSize(option.rect.width(), int(h * 2.5))
+        lines = QFontMetrics(role_font("list_title", option.font)).height() + QFontMetrics(
+            role_font("list_subtitle", option.font)).height()
+        return QSize(option.rect.width(), int(lines * 1.25))
 
     def paint(self, painter: QPainter, option, index) -> None:
         t = self.theme
@@ -330,12 +332,12 @@ class _PresetDelegate(QStyledItemDelegate):
         inner = r.adjusted(pad, fm.height() // 4, -pad, -fm.height() // 4)
         top = inner.adjusted(0, 0, 0, -inner.height() // 2)
         bottom = inner.adjusted(0, inner.height() // 2, 0, 0)
-        bold = QFont(option.font)
-        bold.setBold(True)
+        bold = role_font("list_title", option.font)
+        subtitle = role_font("list_subtitle", option.font)
         painter.setFont(bold)
         painter.setPen(QColor(t.accent if selected else t.text))
         painter.drawText(top, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, index.data(ROLE_NAME) or "")
-        painter.setFont(option.font)
+        painter.setFont(subtitle)
         painter.setPen(QColor(t.muted_text))
         text = fm.elidedText(index.data(ROLE_FOLDER) or "", Qt.TextElideMode.ElideRight, bottom.width())
         painter.drawText(bottom, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text)

@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QScrollArea,
     QSizePolicy,
-    QApplication,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -88,7 +87,7 @@ from vortexcfd.gui.volume_rows import VolumeRowsMixin
 from vortexcfd.gui.help_texts import help_target
 from vortexcfd.gui.panel_widgets import AutoField, ChoiceField, ReferenceLengthField, SectionHeader, VectorField
 from vortexcfd.gui.settings_store import settings
-from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
+from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, repolish, set_text_role
 
 # Allowed units are read from the model so the two never drift apart.
 ALLOWED_UNITS: tuple[str, ...] = get_args(Part.model_fields["units"].annotation)
@@ -1359,35 +1358,31 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         for box in self._row_layouts:
             box.setContentsMargins(*self._row_margins)
             box.setSpacing(m.s3)
-        mono_fields = mono_font(QApplication.font(), 0.9)
         for field in self._fields:  # inputs and rows never shrink below their designed height
             field.setMinimumHeight(m.field)
             field.setMinimumWidth(1)  # the content (e.g. a spin box's widest value) must not force a width
             field.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
             if not isinstance(field, QCheckBox):
-                field.setFont(mono_fields)
+                set_text_role(field, "value")
         self._row_min_height = m.field + 2 * m.s1
         for row in self._rows.values():
             row.setMinimumHeight(m.field + 2 * m.s1)
-        sub = section_title_font(QApplication.font())
-        sub.setPointSizeF(sub.pointSizeF() * 0.9)
         for title in self._sections.values():
-            title.setFont(sub)
+            set_text_role(title, "subsection_title")
             title.setContentsMargins(m.s2, m.s1, m.s3, m.s1)
             title.help.setFixedSize(m.u, m.u)
 
-        mono = mono_font(QApplication.font(), 0.9)
         for label in (*self.check_values.values(), *self.mesh_values.values(), self.status_value):
-            label.setFont(mono)
+            set_text_role(label, "value")
         for widget in (self.name_edit, self.source_label, self.units_combo, self.patch_label,
                        self.cad_file_label, self.cad_linear, self.cad_angular,
                        *(getattr(w, "spin", w) for w in self.mesh_fields.values())):
-            widget.setFont(mono)
+            set_text_role(widget, "value")
 
         for label in (self.mesh_bg_cells, self.mesh_volume_cells, self.mesh_surface_cells, self.mesh_first_layer,
                       self.mesh_layer_count, self.mesh_layer_expansion, self.mesh_layer_stack, self.inflow_k,
                       self.inflow_omega):
-            label.setFont(mono)
+            set_text_role(label, "value")
         for note in self._notes:
             note.setContentsMargins(m.s3, 0, m.s3, m.s1)
         self.info_label.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
@@ -1803,7 +1798,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         for cov in report.layers:
             label = QLabel(f"{cov.description()} ({cov.thickness_m:.4g} m)")
             label.setObjectName("checkValue")
-            label.setFont(mono_font(QApplication.font(), 0.9))
+            set_text_role(label, "value")
             _wrap(label)
             self._set_warn(label, cov.below_threshold)
             row = QWidget()
@@ -1965,7 +1960,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             field.setMinimumHeight(metrics().field)
             field.setMinimumWidth(1)
             field.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-            field.setFont(mono_font(QApplication.font(), 0.9))
+            set_text_role(field, "value")
         row.setMinimumHeight(self._row_min_height)
         self._criteria_titles.append((row, title))
         self._criteria_box.addWidget(row)
@@ -2239,7 +2234,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             edit.setMinimumHeight(metrics().field)
             edit.setMinimumWidth(1)
             edit.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-            edit.setFont(mono_font(QApplication.font(), 0.9))
+            set_text_role(edit, "value")
         row.setMinimumHeight(self._row_min_height)
         self._probe_titles.append((row, title))
         self._probe_box.addWidget(row)
@@ -2615,14 +2610,12 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
     @staticmethod
     def _set_error(label: QLabel, error: bool) -> None:
         label.setProperty("error", "true" if error else "false")
-        label.style().unpolish(label)
-        label.style().polish(label)
+        repolish(label)
 
     @staticmethod
     def _set_warn(label: QLabel, warn: bool) -> None:
         label.setProperty("warn", "true" if warn else "false")
-        label.style().unpolish(label)
-        label.style().polish(label)
+        repolish(label)
 
     def commit_pending(self) -> None:
         """Commit an uncommitted name edit through the Project API (idempotent).

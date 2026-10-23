@@ -6,7 +6,6 @@ from pathlib import Path
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
-    QApplication,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -25,7 +24,7 @@ from vortexcfd.foam.logparse import TimeStep
 from vortexcfd.foam.postprocessing import ReportMonitor
 from vortexcfd.foam.residuals import ResidualHistory
 from vortexcfd.gui.icons import make_glyph
-from vortexcfd.gui.theme import DARK, Metrics, Theme, mono_font, residual_style
+from vortexcfd.gui.theme import DARK, Metrics, Theme, repolish, residual_style, role_font, set_text_role
 from vortexcfd.gui.widgets import SectionHeader
 
 EMPTY = "—"
@@ -104,7 +103,7 @@ class ResidualChart(QWidget):
         t = self._theme
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        font = mono_font(QApplication.font(), 0.8)
+        font = role_font("data")
         painter.setFont(font)
         fm = painter.fontMetrics()
         decades = self.decades()
@@ -131,7 +130,7 @@ class ResidualChart(QWidget):
         if self.series:
             self._draw_series(painter, area, decades, fm)
         else:
-            painter.setFont(QApplication.font())
+            painter.setFont(role_font("body"))
             text_w = painter.fontMetrics().horizontalAdvance(self.EMPTY_MESSAGE) + 4 * self._margin
             pill = QRectF(0, 0, text_w, painter.fontMetrics().height() + self._margin)
             pill.moveCenter(area.center())
@@ -389,13 +388,10 @@ class ReportSlots(QWidget):
         for box in self._layouts:
             box.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
             box.setSpacing(m.s2)
-        small = mono_font(QApplication.font(), 0.75)
-        big = mono_font(QApplication.font(), 1.5)
-        big.setBold(True)
         for label in (*self.titles.values(), *self.subtitles.values(), *self.means.values()):
-            label.setFont(small)
+            set_text_role(label, "data_small")
         for label in self.values.values():
-            label.setFont(big)
+            set_text_role(label, "metric")
         for spark in self.sparks.values():
             spark.configure(m, t)
         icon = make_glyph("chevron_down", QColor(t.muted_text), m.u, self.devicePixelRatioF())
@@ -408,8 +404,7 @@ def set_state(label: QLabel, state: str | None) -> None:
     """Colour a value label: "ok" (success), "warn", "error" or None (text)."""
     for prop in ("ok", "warn", "error"):
         label.setProperty(prop, "true" if state == prop else "false")
-    label.style().unpolish(label)
-    label.style().polish(label)
+    repolish(label)
 
 
 def mass_warning(percent: float) -> str:
@@ -476,7 +471,6 @@ class ConvergencePanel(QWidget):
             self.grid.addWidget(head, 0, col)
         self.grid.setColumnStretch(0, 1)
         self._has_criteria = False
-        self._font = mono_font(QApplication.font(), 0.75)
         self.set_view(False, ("", None), [], [])
 
     def set_view(self, has_criteria: bool, banner: tuple[str, str | None], statuses: list[CriterionStatus],
@@ -496,7 +490,7 @@ class ConvergencePanel(QWidget):
             labels = tuple(QLabel() for _ in self.HEADERS)
             for col, label in enumerate(labels):
                 label.setObjectName("checkValue")
-                label.setFont(self._font)
+                set_text_role(label, "data_small")
                 if col == 0:  # elided by the layout instead of widening the column
                     label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
                 self.grid.addWidget(label, r, col)
@@ -532,13 +526,11 @@ class ConvergencePanel(QWidget):
         self._layout.setSpacing(m.s1)
         self.grid.setHorizontalSpacing(m.s2)
         self.grid.setVerticalSpacing(m.s1)
-        self._font = mono_font(QApplication.font(), 0.75)
-        small = mono_font(QApplication.font(), 0.75)
         for i in range(self.grid.count()):
             widget = self.grid.itemAt(i).widget()
             if widget is not None:
-                widget.setFont(small)
-        self.banner.setFont(QApplication.font())
+                set_text_role(widget, "data_small")
+        set_text_role(self.banner, "body")
 
 
 def stage_text(stage: int, switch: int | None = None, reason: str = "") -> str:

@@ -4,7 +4,6 @@ from PySide6.QtCore import QPoint, QRect, QSize, Qt
 from PySide6.QtGui import QAction, QColor, QPainter
 from PySide6.QtWidgets import (
     QLayout,
-    QApplication,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -14,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from vortexcfd.gui.icons import make_glyph
-from vortexcfd.gui.theme import Metrics, Theme, mono_font, section_title_font
+from vortexcfd.gui.theme import Metrics, Theme, repolish, set_text_role
 
 
 def set_invalid(widget: QWidget, reason: str | None, tooltip: str = "") -> None:
@@ -22,8 +21,7 @@ def set_invalid(widget: QWidget, reason: str | None, tooltip: str = "") -> None:
     widget's tooltip; ``reason`` None clears it and restores ``tooltip``."""
     widget.setProperty("invalid", reason is not None)
     widget.setToolTip(reason if reason is not None else tooltip)
-    widget.style().unpolish(widget)
-    widget.style().polish(widget)
+    repolish(widget)
 
 
 def glyph_pixmap(widget: QWidget, name: str, color: str, size: int):
@@ -49,8 +47,7 @@ class Badge(QLabel):
         """state: '' (accent), 'success', 'warning' or 'error'."""
         self._state = state
         self.setProperty("state", state)
-        self.style().unpolish(self)
-        self.style().polish(self)
+        repolish(self)
         self.update()
 
     def dot_color(self) -> str | None:
@@ -63,7 +60,7 @@ class Badge(QLabel):
         )
 
     def configure(self, m: Metrics | None = None, t: Theme | None = None) -> None:
-        self.setFont(mono_font(QApplication.font(), 0.8))
+        set_text_role(self, "badge")
         if m is not None and t is not None:
             self._theme, self._dot_d, self._pad = t, m.dot, m.s2 + m.line
         self.updateGeometry()
@@ -138,7 +135,7 @@ class SectionHeader(QWidget):
         self.title.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
         self.row.setContentsMargins(m.s3, 0, m.s3, 0)
         self.row.setSpacing(m.s2)
-        self.title.setFont(section_title_font(QApplication.font()))
+        set_text_role(self.title, "section_title")
         if self.badge is not None:
             self.badge.configure()
 
@@ -156,7 +153,7 @@ class SearchField(QLineEdit):
         self._action.setIcon(
             make_glyph("search", QColor(t.muted_text), m.u, self.devicePixelRatioF())
         )
-        self.setFont(mono_font(QApplication.font(), 0.85))
+        set_text_role(self, "control")
 
 
 class FlowLayout(QLayout):

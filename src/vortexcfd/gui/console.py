@@ -6,7 +6,6 @@ import time
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QApplication,
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
@@ -15,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from vortexcfd.gui.theme import DARK, Metrics, Theme, mono_font
+from vortexcfd.gui.theme import DARK, Metrics, Theme, set_text_role
 
 APP_LOGGER = "vortexcfd"
 
@@ -59,8 +58,8 @@ class ConsolePanel(QWidget):
         self._bar.setFixedHeight(m.tab_bar)
         self._bar_row.setContentsMargins(m.s3, 0, m.s3, 0)
         self.tab.setFixedHeight(m.tab_bar - m.line)
-        self.view.setFont(mono_font(QApplication.font(), 0.85))
-        self.clear_button.setFont(mono_font(QApplication.font(), 0.85))
+        set_text_role(self.view, "control")
+        set_text_role(self.clear_button, "control")
 
     def append_output(self, text: str) -> None:
         """Append one line of tool output verbatim (mono, normal text colour)."""

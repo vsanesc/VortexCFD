@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from vortexcfd.gui.theme import load_appearance, mono_font
+from vortexcfd.gui.theme import load_appearance, set_text_role
 from vortexcfd.workflow.foam_entries import Entry, locate
 
 OVERWRITE_WARNING = ("The app writes these files again on Generate Mesh and Run Solver: an edit made here or in an "
@@ -55,7 +55,7 @@ class FoamFileViewer(QDialog):
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
         self.text.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        self.text.setFont(mono_font(self.font(), 1.0))
+        set_text_role(self.text, "code")
         layout.addWidget(self.text, 1)
         warning = QLabel(OVERWRITE_WARNING)
         warning.setObjectName("checkValue")
