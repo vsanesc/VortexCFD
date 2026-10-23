@@ -71,8 +71,8 @@ def test_mesh_study_runs_through_the_window(make_window, qtbot) -> None:
     w.study_mesh_run_factory, w.study_solver_run_factory = FakeMeshRun, FakeSolverRun
     _select(w, "mesh_study")
     w.properties.ms_run.click()
-    qtbot.waitUntil(lambda: w.study_record is not None and w.study_record.status == "finished", timeout=10000)
-    qtbot.waitUntil(lambda: not w.study_worker.is_running(), timeout=5000)
+    qtbot.waitUntil(lambda: w.properties.ms_status.text().startswith("Last study finished"), timeout=10000)
+    assert not w.study_worker.is_running() and w.properties.ms_run.text() != "Stop"
     study = w.project.path.parent / "case_study"
     for n in (1, 2, 3):
         assert (study / f"level_{n}" / "system" / "snappyHexMeshDict").is_file()
@@ -120,8 +120,10 @@ def test_polar_sweep_runs_through_the_window(make_window, qtbot, tmp_path: Path)
     w.study_mesh_run_factory, w.study_solver_run_factory = FakeMesher, FakeSolver
     _select(w, "polar_sweep")
     w.properties.ps_run.click()
-    qtbot.waitUntil(lambda: w.sweep_record is not None and w.sweep_record.status == "finished", timeout=10000)
-    qtbot.waitUntil(lambda: not w.sweep_worker.is_running(), timeout=5000)
+    # the state the assertions read: the window has handled the end (the record's status is set by the run's thread
+    # before the end reaches the window, D-163)
+    qtbot.waitUntil(lambda: w.properties.ps_status.text().startswith("Last sweep finished"), timeout=10000)
+    assert not w.sweep_worker.is_running() and w.properties.ps_run.text() == "Run polar sweep"
     sweep = w.project.path.parent / "case_sweep"
     assert (sweep / "sweep.json").is_file()
     for n, alpha in ((1, 0.0), (2, 5.0), (3, 10.0)):  # one meshing case per angle (D-120)
@@ -158,3 +160,40 @@ def test_a_running_sweep_blocks_the_solver_and_the_mesh_study(make_window, qtbot
     qtbot.waitUntil(lambda: not w.sweep_worker.is_running(), timeout=10000)
     assert w.sweep_record.status == "stopped"
     assert w.solve_readiness() is None
+
+
+def test_the_end_reaches_the_window_after_the_run_thread_ended(qtbot) -> None:
+    """D-163: a run calls on_done from its thread, which is still alive then; the window must not see it running
+    (the status label and the Run button stayed at "Running" / "Stop")."""
+    import threading
+    import time
+
+    from vortexcfd.gui.study_control import StudyWorker
+
+    class LingeringRun:  # on_done, then the thread lives on a little (the real runs return right after it)
+        def __init__(self, on_done):
+            self.on_done = on_done
+            self.thread = threading.Thread(target=self._run, daemon=True)
+
+        def _run(self):
+            self.on_done("record")
+            time.sleep(0.3)
+
+        def start(self):
+            self.thread.start()
+
+        def is_running(self):
+            return self.thread.is_alive()
+
+        def wait(self, timeout=None):
+            self.thread.join(timeout)
+
+        def request_stop(self):
+            pass
+
+    worker = StudyWorker()
+    seen = []
+    worker.finished.connect(lambda record: seen.append((record, worker.is_running())))
+    worker.start(lambda on_line, on_progress, on_done: LingeringRun(on_done))
+    qtbot.waitUntil(lambda: bool(seen), timeout=5000)
+    assert seen == [("record", False)]

@@ -8,7 +8,7 @@ results windows.
 
 import logging
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Qt, Signal
 
 from vortexcfd.foam.mesh_case import CaseDirectoryNotOursError
 from vortexcfd.foam.mesh_study import StudyRun, export_csv as export_study_csv, read_record as read_study
@@ -23,23 +23,37 @@ log = logging.getLogger("vortexcfd.gui")
 LABELS = {"mesh": "mesh study", "polar": "polar sweep"}
 
 
+DONE_JOIN_S = 10.0  # the longest wait for a finished run's thread to end (it only returns from on_done)
+
+
 class StudyWorker(QObject):
-    """Runs a StudyRun or SweepRun built by ``start(factory)``; the callbacks only emit signals."""
+    """Runs a StudyRun or SweepRun built by ``start(factory)``; the callbacks only emit signals.
+
+    The run calls its ``on_done`` from its own thread, which is still alive at that moment. ``finished`` is therefore
+    emitted from the GUI thread once that thread has ended (D-163): its receivers see ``is_running()`` False and show
+    the final state, never a stale "Running" with a Stop button."""
 
     line = Signal(str)
     progress = Signal(object)  # a LevelResult or SweepPoint that just finished
-    finished = Signal(object)  # the record
+    finished = Signal(object)  # the record, the run's thread ended
+    _done = Signal(object)  # from the run's thread: queued to _on_done in the GUI thread
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._run = None
+        self._done.connect(self._on_done, Qt.ConnectionType.QueuedConnection)
 
     def start(self, factory) -> None:
         """``factory(on_line, on_progress, on_done)`` returns an unstarted run."""
         if self.is_running():
             raise RuntimeError("a study is already running")
-        self._run = factory(self.line.emit, self.progress.emit, self.finished.emit)
+        self._run = factory(self.line.emit, self.progress.emit, self._done.emit)
         self._run.start()
+
+    def _on_done(self, record) -> None:
+        if self._run is not None:
+            self._run.wait(DONE_JOIN_S)  # the thread returns right after on_done
+        self.finished.emit(record)
 
     def request_stop(self) -> None:
         if self._run is not None:
