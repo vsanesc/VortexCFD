@@ -63,6 +63,12 @@ class Dialogs:
         text, ok = QInputDialog.getText(self.parent, "Save results snapshot", "Snapshot name:", text=suggested)
         return text if ok and text.strip() else None
 
+    def show_foam_file(self, title: str, entries, files) -> None:
+        """Show in OpenFOAM file (D-150): the read-only viewer."""
+        from vortexcfd.gui.foam_file_viewer import FoamFileViewer
+
+        FoamFileViewer(title, entries, files, self.parent).exec()
+
     def confirm(self, title: str, text: str) -> bool:
         """A yes / no question (No is the default)."""
         answer = QMessageBox.question(self.parent, title, text,

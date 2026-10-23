@@ -455,6 +455,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.properties_window: FloatingPanel | None = None
         self.properties.help_requested.connect(lambda target: self.open_manual(section=target))
         self.properties.face_type_changed.connect(lambda face: self._select_node(f"boundary_{face}", None))
+        self.properties.show_in_file_requested.connect(lambda key: self.show_in_openfoam_file(key))
 
         self._left_split = _Splitter(Qt.Orientation.Vertical)
         self._left_split.addWidget(tree_section)

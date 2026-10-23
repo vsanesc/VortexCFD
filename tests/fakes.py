@@ -49,6 +49,7 @@ class FakeDialogs:
         self.confirm_answer = True  # confirm's answer
         self.snapshot_name = None  # ask_snapshot_name's answer
         self.snapshot_names_asked: list = []
+        self.foam_files: list = []  # show_foam_file calls: (title, entries, files)
         self.confirmed: list = []
         self.texts: list = []  # show_text calls: (title, text)
 
@@ -69,6 +70,9 @@ class FakeDialogs:
     def ask_snapshot_name(self, suggested):
         self.snapshot_names_asked.append(suggested)
         return self.snapshot_name
+
+    def show_foam_file(self, title, entries, files):
+        self.foam_files.append((title, list(entries), dict(files)))
 
     def confirm(self, title, text):
         self.confirmed.append((title, text))

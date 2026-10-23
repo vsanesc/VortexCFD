@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -64,6 +65,7 @@ from vortexcfd.foam.physics_case import (
     inlet_turbulence,
     reference_values,
 )
+from vortexcfd.workflow.foam_entries import VOLUME_FIELDS, is_mapped
 from vortexcfd.workflow.refinement import OVERLAP_NOTE
 from vortexcfd.workflow.meshing import (
     flow_speed,
@@ -604,6 +606,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
     message = Signal(str)  # short text for the status bar
     help_requested = Signal(str)  # "<manual chapter>#<anchor>": a section's "?" (D-148)
     face_type_changed = Signal(str)  # a domain face's type changed (D-147): the face now holding it
+    show_in_file_requested = Signal(str)  # "Show in OpenFOAM file" of a row (D-150): foam_entries' key
     pending_changed = Signal()  # an uncommitted name edit appeared or was resolved
     study_run_requested = Signal(str)  # "mesh" or "polar": Run / Stop on a study node (D-066, D-067)
     study_results_requested = Signal(str)
@@ -1160,6 +1163,21 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.dimension_combo.currentIndexChanged.connect(self._commit_dimension)
         self.refresh()
 
+    def row_menu(self, key: str) -> QMenu:
+        """The right-click menu of a row written to a case file (D-150)."""
+        menu = QMenu(self)
+        target = key
+        if key == "face_type":
+            target = f"face_type:{self._kind.removeprefix('boundary_')}"
+        elif key in VOLUME_FIELDS:  # the selected refinement volume (D-103)
+            target = f"volume:{self._index}:{VOLUME_FIELDS[key]}"
+        act = menu.addAction("Show in OpenFOAM file", lambda: self.show_in_file_requested.emit(target))
+        act.setToolTip("The case file this value is written to, at its entry")
+        return menu
+
+    def _row_menu(self, key: str, widget: QWidget, pos) -> None:
+        self.row_menu(key).popup(widget.mapToGlobal(pos))
+
     def _note(self, text: str) -> QLabel:
         """A short explanation under a row or section header (muted, wrapped; shown with its node's rows)."""
         label = QLabel(text)
@@ -1206,6 +1224,11 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self._row_layouts.append(box)
         self._row_labels[key] = label
         self._row_fields[key] = field
+        if is_mapped(key) or key == "face_type":  # written to a case file: its right-click menu (D-150)
+            for widget in (row, label, *((field,) if isinstance(field, QComboBox) else ())):
+                widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                widget.customContextMenuRequested.connect(
+                    lambda pos, w=widget, k=key: self._row_menu(k, w, pos))
         if isinstance(field, (QLineEdit, QComboBox, QAbstractSpinBox, QCheckBox)):
             self._fields.append(field)
         elif isinstance(field, QLabel):

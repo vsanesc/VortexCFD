@@ -385,6 +385,33 @@ class TreeActionsMixin:
         log.info("Imported %s as the refinement region '%s' (inside, target %.4g m)", source.name, volume.name,
                  volume.target_size)
 
+    # -- Show in OpenFOAM file (D-150) ----------------------------------------------------------
+
+    def show_in_openfoam_file(self, key: str):
+        """The case file a property is written to, at its entry (a preview when the case has none yet); returns
+        the entries shown (empty with a message when the value is not written or the case cannot be built)."""
+        from vortexcfd.workflow import foam_entries
+        from vortexcfd.workflow.meshing import MeshingNotReady
+
+        self._flush_edits()
+        if not self.has_project or self._project.path is None:
+            self.show_message("Save the project first: the case is written next to it.", "warning")
+            return []
+        try:
+            entries = foam_entries.entries_for(self._project, key)
+        except (MeshingNotReady, ValueError, OSError) as exc:
+            self.show_message(f"The case files cannot be written yet: {exc}", "warning")
+            return []
+        if not entries:
+            self.show_message("This value is not written to a case file with the current settings (it is used by "
+                              "the app's own sizing or by another shape or mode).", "warning")
+            return []
+        files = {}
+        for entry in entries:
+            files[entry] = foam_entries.case_file(self._project, entry)
+        self.dialogs.show_foam_file(key, entries, files)
+        return entries
+
     # -- mesh ------------------------------------------------------------------------------------
 
     def clear_mesh(self) -> None:
