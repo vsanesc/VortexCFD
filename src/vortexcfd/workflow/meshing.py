@@ -217,7 +217,8 @@ def write_part_surfaces(case_dir: Path, project: Project, inputs: MeshCaseInput,
     """The part STLs of a meshing case (metres): a part with several patches (or one renamed patch)
     gets one solid per patch, named after it (D-071); other parts are written as loaded. In 2D (D-121) a part
     is its section (cut at its mid y) extruded across the slab and one slab span beyond it on each side, so
-    snappyHexMesh cuts it at the slab's faces."""
+    snappyHexMesh cuts it at the slab's faces. The imported refinement regions' surfaces are written too (D-145)."""
+    refinement.write_region_surfaces(case_dir, TRI_SURFACE, project, inputs.volumes, project_attitude(project))
     if inputs.two_d:
         est = inputs.estimate()
         y0, y1 = est.background_bounds[2], est.background_bounds[3]
@@ -456,6 +457,9 @@ def readiness(project: Project) -> str | None:
         return f"The file of part '{missing[0]}' is missing."
     if surface_prep.state(project) == "stale":
         return surface_prep.STALE_MESSAGE
+    regions_problem = refinement.region_problems(project)  # imported refinement regions (D-145)
+    if regions_problem:
+        return regions_problem[0]
     if project.sim.internal:
         return internal_readiness(project)
     if not project.sim.domain.enabled:
@@ -829,6 +833,11 @@ def inputs_hash(project: Project) -> str:
     if enabled:  # only enabled volumes reach the mesh (D-103); none: the hash of a project without volumes
         skip = {"enabled"} if alpha != 0.0 else {"enabled", "frame"}  # the frame matters only when rotated
         payload["refinement_volumes"] = [v.model_dump(mode="json", exclude=skip) for v in enabled]
+        folder = project.path.parent if project.path else None
+        for entry, v in zip(payload["refinement_volumes"], enabled):  # an imported region's surface (D-145)
+            if v.shape.kind == "surface":
+                path = folder / v.shape.file if folder is not None else None
+                entry["surface_hash"] = _hash_file(path) if path is not None and path.is_file() else None
     if project.sim.mesh.surface_size_reference == "l_ref":  # l_ref sizes the surface (D-085)
         payload["surface_l_ref"] = project.sim.reports.reference_length
     prep = project.sim.surface_prep

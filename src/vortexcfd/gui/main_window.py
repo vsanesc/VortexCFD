@@ -31,7 +31,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QButtonGroup,
     QMainWindow,
-    QMenu,
     QPushButton,
     QSlider,
     QSizePolicy,
@@ -52,7 +51,6 @@ from vortexcfd.core.model import (
     OUTLET_KIND_LABELS,
     PATCH_ROLE_LABELS,
     SCENE_OBJECT_LABELS,
-    VOLUME_SHAPES,
     Part,
     Simulation,
     StoppingCriteria,
@@ -102,6 +100,7 @@ from vortexcfd.foam.solver_run import CRITERIA_MET, read_stages, stage2_criteria
 from vortexcfd.workflow import solving
 from vortexcfd.gui.solver_worker import SolverWorker
 from vortexcfd.gui.study_control import StudyControlMixin
+from vortexcfd.gui.tree_actions import TreeActionsMixin
 from vortexcfd.foam.results import latest_result_time
 from vortexcfd.gui import paraview
 from vortexcfd.gui.colormaps import COLORMAPS, DEFAULT_COLORMAP
@@ -308,7 +307,7 @@ class _Splitter(QSplitter):
         return _Handle(self.orientation(), self)
 
 
-class MainWindow(StudyControlMixin, QMainWindow):
+class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
     """Top bar, left column (tree + properties), scene, monitors and console.
 
     All changes go through the Project edit API. Only the GUI thread may call Project methods
@@ -409,6 +408,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.tree.setItemDelegate(self._delegate)
         self.tree.eye_clicked.connect(self._on_eye_clicked)
         self.tree.itemActivated.connect(self._on_item_activated)
+        self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
         self.properties = PropertiesPanel(project)
         self.properties.message.connect(lambda text: self.show_message(text, "warning"))
         self.properties.regions_selected.connect(self._on_regions_selected)
@@ -973,10 +973,16 @@ class MainWindow(StudyControlMixin, QMainWindow):
                 if not volume.enabled:
                     item.setForeground(0, QColor(t.muted_text))
                     item.setToolTip(0, "Disabled: not written to the mesh")
-                elif self._domain_box is not None and self._domain_box.bounds is not None and \
-                        domain_fraction(volume.shape, self._domain_box) <= 0.0:
-                    item.setIcon(0, self._node_icon("dot", "warning"))
-                    item.setToolTip(0, OUTSIDE_IGNORED)
+                elif self._domain_box is not None and self._domain_box.bounds is not None:
+                    try:
+                        outside = domain_fraction(refinement.geometry_shape(self._project, volume.shape),
+                                                  self._domain_box) <= 0.0
+                        problem = OUTSIDE_IGNORED if outside else None
+                    except refinement.RegionFileError as exc:
+                        problem = str(exc)
+                    if problem is not None:
+                        item.setIcon(0, self._node_icon("dot", "warning"))
+                        item.setToolTip(0, problem)
             physics_item = add(continua, "physics", None, "Physics", "dot", "accent")
             internal_flow = self._project.sim.internal
             if not internal_flow:  # internal flow: the inlets carry the flow conditions (D-129)
@@ -1395,11 +1401,16 @@ class MainWindow(StudyControlMixin, QMainWindow):
         preview = self._volume_preview if self._volume_preview is not None and \
             self._volume_preview.id == self._selected_volume_id() else None
         volumes = self._project.sim.refinement_volumes
-        if self._project.sim.inflow.alpha_deg:  # drawn where meshing puts them: body volumes turn (D-120)
-            attitude = meshing.project_attitude(self._project)
-            volumes = [refinement.meshing_volume(v, attitude) for v in volumes]
+        attitude = meshing.project_attitude(self._project) if self._project.sim.inflow.alpha_deg else None
+        if attitude is not None:  # drawn where meshing puts them: body volumes turn (D-120)
             preview = refinement.meshing_volume(preview, attitude) if preview is not None else None
-        self.volume_view.update(volumes, self._selected_volume_id(), self._scene_mode == "geometry", preview)
+        shapes = {}
+        for v in volumes:  # imported regions drawn as their surfaces (D-145)
+            try:
+                shapes[v.id] = refinement.meshing_shape(self._project, v, attitude)
+            except refinement.RegionFileError:
+                pass
+        self.volume_view.update(volumes, self._selected_volume_id(), self._scene_mode == "geometry", preview, shapes)
 
     def _log_renderer(self) -> None:
         """Write the OpenGL renderer string (and the GPU variables set at start-up) to the console log."""
@@ -2447,10 +2458,13 @@ class MainWindow(StudyControlMixin, QMainWindow):
         # An empty part without a surface is not built (D-039: disabled with a tooltip, docs/REVIEW.md R-18).
         self.act_add_part.setEnabled(False)
         self.act_add_part.setToolTip(ADD_PART_NOT_BUILT)
-        self.act_remove_part = action("&Remove part", self.remove_selected_part, S.Delete)
-        # Delete applies only while the tree has focus, so text fields keep their Delete key.
-        self.act_remove_part.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        self.tree.addAction(self.act_remove_part)
+        self.act_remove_part = action("&Remove part", self.remove_selected_part)
+        # Delete and F2 apply only while the tree has focus, so text fields keep their keys (D-145).
+        self.act_delete = action("&Delete", lambda: self.delete_selected(), S.Delete)
+        self.act_rename = action("Re&name", lambda: self.rename_selected(), "F2")
+        for act in (self.act_delete, self.act_rename):
+            act.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            self.tree.addAction(act)
         self.act_repair_part = action("Re&pair part", self.repair_selected_part)
         self.act_generate_domain = action("&Generate Domain...", lambda: self.generate_domain())
         self.act_prepare_surfaces = action("Prepare &Surfaces...", lambda: self.prepare_surfaces())
@@ -2567,6 +2581,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self.add_refinement_volume(action.removeprefix("add:"))
         elif action == "wake":
             self.add_wake_volume()
+        elif action == "region_file":
+            self.add_region_from_file()
         elif action == "duplicate":
             self.duplicate_selected_volume()
         elif action == "delete":
@@ -2654,29 +2670,6 @@ class MainWindow(StudyControlMixin, QMainWindow):
         if self._selected_volume_id() is not None:
             self.properties.vol_name.setFocus()
             self.properties.vol_name.selectAll()
-
-    def _tree_context_menu(self, position) -> None:
-        item = self.tree.itemAt(position)
-        if item is None or not self.has_project:
-            return
-        kind, _index = item.data(0, ROLE_NODE)
-        if kind not in ("mesh", "refinement_volumes", "refinement_volume", "part"):
-            return
-        self.tree.setCurrentItem(item)
-        menu = QMenu(self.tree)
-        add_menu = menu.addMenu("Add refinement volume")
-        for shape in VOLUME_SHAPES:
-            add_menu.addAction(shape.capitalize(), lambda s=shape: self.add_refinement_volume(s))
-        menu.addAction(self.act_add_wake)
-        if kind == "refinement_volume":
-            menu.addSeparator()
-            vid = self._selected_volume_id()
-            enabled = vid is not None and self._project.volume(vid).enabled
-            menu.addAction("Disable" if enabled else "Enable", self.toggle_selected_volume)
-            menu.addAction("Rename", self.rename_selected_volume)
-            menu.addAction("Duplicate", self.duplicate_selected_volume)
-            menu.addAction("Delete", self.delete_selected_volume)
-        menu.popup(self.tree.viewport().mapToGlobal(position))
 
     def generate_domain(self) -> None:
         """Edit > Generate Domain (D-078): the parts it is sized around (the selected part, else all),

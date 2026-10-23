@@ -48,6 +48,21 @@ class Dialogs:
         )
         return answer == QMessageBox.StandardButton.Yes
 
+    def confirm(self, title: str, text: str) -> bool:
+        """A yes / no question (No is the default)."""
+        answer = QMessageBox.question(self.parent, title, text,
+                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                      QMessageBox.StandardButton.No)
+        return answer == QMessageBox.StandardButton.Yes
+
+    def show_text(self, title: str, text: str) -> None:
+        """A read-only text, selectable (e.g. the mesh report)."""
+        box = QMessageBox(self.parent)
+        box.setWindowTitle(title)
+        box.setText(text)
+        box.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        box.exec()
+
     def show_error(self, title: str, text: str) -> None:
         QMessageBox.critical(self.parent, title, text)
 

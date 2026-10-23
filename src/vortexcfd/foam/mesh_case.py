@@ -213,12 +213,32 @@ class MeshCaseInput:
 
 
 @dataclass(frozen=True)
+class SurfaceRegionEntry:
+    """An imported surface as a refinement region (D-145): the surface is written to constant/triSurface as
+    ``file`` (metres, by the workflow) and refines "inside" it or within ``distance`` m of it."""
+
+    file: str
+    mode: str = "inside"
+    distance: float = 0.0
+
+
+@dataclass(frozen=True)
 class VolumeEntry:
     """A refinement volume as the meshing dictionaries need it: its name, shape (metres) and level."""
 
     name: str
-    shape: BoxShape | CylinderShape | SphereShape | ConeShape
+    shape: "BoxShape | CylinderShape | SphereShape | ConeShape | SurfaceRegionEntry"
     level: int
+
+    @property
+    def surface_file(self) -> str | None:
+        """The triSurface file of an imported region (None for an analytic shape)."""
+        return self.shape.file if isinstance(self.shape, SurfaceRegionEntry) else None
+
+
+def volume_surface_file(name: str) -> str:
+    """The constant/triSurface file of the imported region volume ``name`` (D-145)."""
+    return f"{VOLUME_PREFIX}{name}.stl"
 
 
 # The snappyHexMesh geometry entry of a refinement volume is named VOLUME_PREFIX + its name, so it can
@@ -235,7 +255,8 @@ def searchable_geometry(shape) -> dict:
     searchableBox (min, max); searchableRotatedBox (span; origin = the box's corner at its local
     (0 0 0); e1, e3 = its local x and z axes after pitch and yaw, BoxShape.axes) when the box is pitched or
     yawed; searchableCylinder (point1, point2, radius); searchableSphere (centre, radius); searchableCone
-    (point1, radius1, innerRadius1, point2, radius2, innerRadius2; solid: inner radii 0). [NUMERICS-REVIEW]"""
+    (point1, radius1, innerRadius1, point2, radius2, innerRadius2; solid: inner radii 0); an imported region
+    (D-145): see ``volume_geometry``. [NUMERICS-REVIEW]"""
     if isinstance(shape, BoxShape):
         half = [s / 2 for s in shape.size]
         c = shape.centre
@@ -752,6 +773,31 @@ def _directional(levels: int) -> dict:
     return {"mode": "inside", "levels": [[INSIDE_DISTANCE, 0]], "levelIncrement": [0, 0, [levels, 0, levels]]}
 
 
+def volume_geometry(v: "VolumeEntry") -> dict:
+    """The snappyHexMesh geometry entry of a refinement volume, named VOLUME_PREFIX + its name: a searchable shape
+    (D-103), or for an imported region (D-145) its surface in constant/triSurface as a triSurfaceMesh, keyed by
+    the file name like the parts' surfaces. [NUMERICS-REVIEW]"""
+    if isinstance(v.shape, SurfaceRegionEntry):
+        return {v.shape.file: {"type": "triSurfaceMesh", "name": f"{VOLUME_PREFIX}{v.name}"}}
+    return {f"{VOLUME_PREFIX}{v.name}": searchable_geometry(v.shape)}
+
+
+def volume_region(v: "VolumeEntry", two_d: bool) -> dict:
+    """The refinementRegions entry of a refinement volume: "inside" at its level (D-103), or for an imported
+    region in distance mode (D-145) "distance" with ((distance level)): every cell within that many metres of the
+    surface, on either side (v2606 shellSurfaces.C). In 2D the level is directional (x and z, D-121).
+    [NUMERICS-REVIEW]"""
+    distance = v.shape.distance if isinstance(v.shape, SurfaceRegionEntry) and v.shape.mode == "distance" else None
+    if two_d:
+        entry = _directional(v.level)
+        if distance is not None:
+            entry = {**entry, "mode": "distance", "levels": [[distance, 0]]}
+        return entry
+    if distance is not None:
+        return {"mode": "distance", "levels": [[distance, v.level]]}
+    return {"mode": "inside", "levels": [[INSIDE_DISTANCE, v.level]]}
+
+
 def section_staircases(inp: MeshCaseInput, est, part_max_levels: list[int]) -> tuple[dict, dict]:
     """(geometry entries, refinementRegions entries) of the 2D directional staircases (see above): per part, a
     searchableBox for every level k from its maximum surface level down to 1, the part's box grown by the
@@ -837,9 +883,8 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
     features += [{"file": f'"{name}"', "level": 0 if inp.two_d else level} for name, level in inp.extra_features]
     regions = {}
     for v in inp.volumes:  # user refinement volumes (D-103); directional in 2D (D-121)
-        geometry[f"{VOLUME_PREFIX}{v.name}"] = searchable_geometry(v.shape)
-        regions[f"{VOLUME_PREFIX}{v.name}"] = (_directional(v.level) if inp.two_d
-                                                else {"mode": "inside", "levels": [[INSIDE_DISTANCE, v.level]]})
+        geometry.update(volume_geometry(v))
+        regions[f"{VOLUME_PREFIX}{v.name}"] = volume_region(v, inp.two_d)
     if inp.two_d:
         boxes, staircases = section_staircases(inp, est, part_max)
         geometry.update(boxes)
@@ -1116,6 +1161,29 @@ def _is_result_time(name: str) -> bool:
 
 
 _PROCESSOR_RE = re.compile(r"^processor\d+$")
+
+
+def clear_mesh(case_dir: Path) -> list[str]:
+    """Delete the generated mesh of a marker-protected case: the solver results (``remove_results``), then
+    constant/polyMesh and the mesh record. The dictionaries, 0/, the surfaces and the logs stay. Returns the removed
+    names.
+
+    Raises:
+        CaseDirectoryNotOursError: the directory has no VortexCFD marker.
+    """
+    case_dir = Path(case_dir)
+    if not case_dir.is_dir():
+        return []
+    removed = remove_results(case_dir)
+    poly_mesh = case_dir / "constant" / "polyMesh"
+    if poly_mesh.is_dir():
+        shutil.rmtree(poly_mesh)
+        removed.append("constant/polyMesh")
+    record = case_dir / MESH_RECORD_FILE
+    if record.is_file():
+        record.unlink()
+        removed.append(MESH_RECORD_FILE)
+    return removed
 
 
 def remove_results(case_dir: Path) -> list[str]:

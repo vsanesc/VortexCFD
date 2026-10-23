@@ -12,6 +12,7 @@ junction curves and the body-frame refinement volumes (Mesh frame "body"); "wind
 they are.
 """
 
+import dataclasses
 import math
 
 import numpy as np
@@ -85,6 +86,10 @@ def rotate_shape(shape, alpha_deg: float, centre: Vector):
     axes turned, so any pitch and yaw stay exact), the other shapes have their points turned."""
     if alpha_deg == 0.0:
         return shape
+    from vortexcfd.geometry.refinement_volumes import SurfaceRegion
+
+    if isinstance(shape, SurfaceRegion):  # an imported region turns with the parts (D-145)
+        return dataclasses.replace(shape, mesh=rotate_surface(shape.mesh, alpha_deg, centre))
     if isinstance(shape, BoxShape):
         e1, _e2, e3 = shape.axes()
         return OrientedBoxShape(centre=_point(shape.centre, alpha_deg, centre), size=shape.size,

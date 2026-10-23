@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 21
+CURRENT_SCHEMA_VERSION: int = 22
 
 
 class StrictModel(BaseModel):
@@ -803,7 +803,26 @@ class OrientedBoxShape(BoxShape):
         return e1, e2, e3
 
 
-VolumeShape = Annotated[Union[BoxShape, CylinderShape, SphereShape, ConeShape], Field(discriminator="kind")]
+class SurfaceShape(StrictModel):
+    """An imported closed surface as a refinement region (schema v22, D-145): ``file`` (relative to the project
+    folder, in geometry/) in ``units``; "inside" refines every cell inside the surface, "distance" every cell
+    within ``distance`` metres of it (either side). The surface is never meshed as a wall."""
+
+    kind: Literal["surface"] = "surface"
+    file: str = Field(min_length=1)
+    units: Literal["m", "cm", "mm", "in", "ft"] = "m"
+    mode: Literal["inside", "distance"] = "inside"
+    distance: float = Field(default=0.0, ge=0)
+
+    @model_validator(mode="after")
+    def _distance_set(self) -> "SurfaceShape":
+        if self.mode == "distance" and self.distance <= 0:
+            raise ValueError("a distance-mode refinement region needs a distance larger than zero")
+        return self
+
+
+VolumeShape = Annotated[Union[BoxShape, CylinderShape, SphereShape, ConeShape, SurfaceShape],
+                        Field(discriminator="kind")]
 
 
 class RefinementVolume(StrictModel):

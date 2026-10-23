@@ -65,7 +65,8 @@ def migrate(data: dict[str, Any], notes: list[str] | None = None) -> dict[str, A
     in ``notes`` (its mesh hash now carries the angle, so the mesh is out of date); v18 -> v19 adds the
     internal-flow boundaries, cutting planes and pressure drops (none: nothing to fill, D-129); v19 -> v20 adds the
     results scene objects and saved views (none, D-132); v20 -> v21 adds the line plots, the streamlines' own
-    colour range and the report sections left out (none: every section, D-136).
+    colour range and the report sections left out (none: every section, D-136); v21 -> v22 adds the imported
+    surface as a refinement volume shape (none, D-145).
     Data already at the current version (or not a dict /
     without a version) is returned unchanged."""
     if not isinstance(data, dict):
@@ -151,6 +152,8 @@ def migrate(data: dict[str, Any], notes: list[str] | None = None) -> dict[str, A
         data["schema_version"] = 20  # no results scene objects or saved views (D-132)
     if data.get("schema_version") == 20:
         data["schema_version"] = 21  # the new fields default: the scene's colormap, auto range, every section (D-136)
+    if data.get("schema_version") == 21:
+        data["schema_version"] = 22  # no imported refinement regions (D-145)
     return data
 
 

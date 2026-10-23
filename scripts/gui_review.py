@@ -152,12 +152,20 @@ def shoot(out: Path, screens: list[str]) -> None:
             if what == "node":
                 _grab(app, window, out / f"node_{name}.png")
             else:
-                menu = window.tree_menu_for(key) if hasattr(window, "tree_menu_for") else None
+                rect = window.tree.visualItemRect(item)
+                if hasattr(window, "tree_menu_for"):
+                    menu = window.tree_menu_for(key)
+                    if menu is not None:
+                        menu.popup(window.tree.viewport().mapToGlobal(rect.center()))
+                else:  # before Part E: the menu the right click pops up, if any
+                    from PySide6.QtWidgets import QMenu
+
+                    before = set(window.tree.findChildren(QMenu))
+                    window._tree_context_menu(rect.center())
+                    menu = next((m for m in window.tree.findChildren(QMenu) if m not in before), None)
                 if menu is None:
                     log.warning("no context menu for %s", key)
                     continue
-                rect = window.tree.visualItemRect(item)
-                menu.popup(window.tree.viewport().mapToGlobal(rect.center()))
                 _settle(app)
                 image = window.grab().toImage()
                 painter = QPainter(image)

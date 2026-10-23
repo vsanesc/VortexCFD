@@ -1,12 +1,15 @@
 """User refinement volumes: sizing, domain check, cell estimate and the wake helper (D-103; Qt-free)."""
 
 from dataclasses import dataclass, replace
+from pathlib import Path
 
-from vortexcfd.core.model import ConeShape, RefinementVolume
-from vortexcfd.core.project import Project
-from vortexcfd.foam.mesh_case import VolumeEntry, part_level_range
+from vortexcfd.core.model import ConeShape, RefinementVolume, SurfaceShape
+from vortexcfd.core.project import Project, volume_base_name
+from vortexcfd.foam.mesh_case import SurfaceRegionEntry, VolumeEntry, part_level_range, volume_surface_file
 from vortexcfd.foam.mesh_estimate import MeshEstimate, volume_level, volume_staircase
 from vortexcfd.geometry import refinement_volumes as rv
+from vortexcfd.geometry.checks import check_surface
+from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
 from vortexcfd.geometry.attitude import Attitude
 from vortexcfd.geometry.domain import DomainBox, union_bounds
 
@@ -20,6 +23,64 @@ OUTSIDE_IGNORED = "Ignored: outside the domain"
 PARTIAL_WARNING = "Part of the volume ({outside:.0f} %) lies outside the domain: only the part inside refines."
 FINER_WARNING = ("The target is finer than the finest part surface level (level {level}, {size:.4g} m): "
                  "this volume may dominate the cell count.")
+
+
+class RegionFileError(ValueError):
+    """An imported refinement region's surface cannot be used (missing, unreadable or not closed)."""
+
+
+NOT_CLOSED = ("{name} is not a closed surface ({detail}): a refinement region needs a closed surface (fix it, "
+              "or import it as a part and repair it first)")
+
+
+def load_region(path: Path, units: str) -> "rv.pv.PolyData":
+    """An imported region's surface in metres with outward normals (an inward-oriented closed surface is flipped,
+    on a copy), or RegionFileError when it is missing, unreadable or not closed (D-145)."""
+    try:
+        mesh = load_surface(path, units)
+    except (FileNotFoundError, SurfaceLoadError) as exc:
+        raise RegionFileError(f"{Path(path).name}: {exc}") from exc
+    report = check_surface(mesh, intersections=False)
+    if not report.watertight:
+        detail = f"{report.open_edges} open edges, {report.non_manifold_edges} non-manifold edges"
+        raise RegionFileError(NOT_CLOSED.format(name=Path(path).name, detail=detail))
+    if report.normals_inward:
+        mesh = mesh.copy()
+        mesh.flip_faces(inplace=True)
+    return mesh
+
+
+def geometry_shape(project: Project, shape):
+    """The geometry the estimate, the viewer and the writer use for a volume shape: an imported surface
+    (SurfaceShape) loaded as a ``SurfaceRegion`` (metres, outward normals); any other shape as it is.
+    Raises RegionFileError for an unusable surface."""
+    if not isinstance(shape, SurfaceShape):
+        return shape
+    folder = project.folder
+    if folder is None:
+        raise RegionFileError("the project has no folder")
+    mesh = load_region(folder / shape.file, shape.units)
+    return rv.SurfaceRegion(mesh, shape.mode, shape.distance)
+
+
+def meshing_shape(project: Project, volume: RefinementVolume, attitude: Attitude | None):
+    """``geometry_shape`` turned with the parts for a "body" volume at an angle of attack (D-120)."""
+    shape = geometry_shape(project, volume.shape)
+    if attitude is None or not attitude.rotated or volume.frame != "body":
+        return shape
+    return attitude.shape(shape)
+
+
+def region_problems(project: Project) -> list[str]:
+    """Why an enabled imported region cannot be meshed (one line each; D-145)."""
+    out = []
+    for v in project.sim.refinement_volumes:
+        if v.enabled and isinstance(v.shape, SurfaceShape):
+            try:
+                geometry_shape(project, v.shape)
+            except RegionFileError as exc:
+                out.append(f"Refinement region '{v.name}': {exc}")
+    return out
 
 
 @dataclass(frozen=True)
@@ -57,12 +118,15 @@ def finest_part_level(project: Project, est: MeshEstimate) -> int:
                for p in parts)
 
 
-def volume_info(volume: RefinementVolume, box: DomainBox, est: MeshEstimate, finest: int) -> VolumeInfo:
+def volume_info(volume: RefinementVolume, box: DomainBox, est: MeshEstimate, finest: int,
+                shape=None) -> VolumeInfo:
+    """``shape``: the volume's geometry as meshed (``meshing_shape``); None: ``volume.shape`` (analytic)."""
+    shape = volume.shape if shape is None else shape
     level = volume_level(est.base_size, volume.target_size)
     achieved = est.base_size / 2 ** level
     if not volume.enabled:
         return VolumeInfo(volume, level, achieved, 0.0, 0, "disabled", ())
-    fraction = rv.domain_fraction(volume.shape, box)
+    fraction = rv.domain_fraction(shape, box)
     messages = []
     if fraction <= 0.0:
         status = "outside"
@@ -76,7 +140,7 @@ def volume_info(volume: RefinementVolume, box: DomainBox, est: MeshEstimate, fin
         messages.append(FINER_WARNING.format(level=finest, size=est.base_size / 2 ** finest))
     steps = volume_staircase(level, est.base_size)
     buffer = sum(d for _k, d in steps)
-    extra = staircase_cells(volume.shape, box, est.base_size, steps) if fraction > 0 else 0
+    extra = staircase_cells(shape, box, est.base_size, steps) if fraction > 0 else 0
     return VolumeInfo(volume, level, achieved, fraction, extra, status, tuple(messages), buffer)
 
 
@@ -108,7 +172,14 @@ def volume_infos(project: Project, box: DomainBox, est: MeshEstimate,
     """The VolumeInfo of every refinement volume, in the project's order, each in the meshing frame
     (``attitude``: the parts' rotation, workflow/meshing.project_attitude; None: not rotated)."""
     finest = finest_part_level(project, est)
-    return [volume_info(meshing_volume(v, attitude), box, est, finest) for v in project.sim.refinement_volumes]
+    out = []
+    for v in project.sim.refinement_volumes:
+        if isinstance(v.shape, SurfaceShape):  # an imported region: its surface loaded (D-145)
+            shape = meshing_shape(project, v, attitude) if v.enabled else None
+            out.append(volume_info(v, box, est, finest, shape))
+        else:
+            out.append(volume_info(meshing_volume(v, attitude), box, est, finest))
+    return out
 
 
 def with_volumes(est: MeshEstimate, infos: list[VolumeInfo]) -> MeshEstimate:
@@ -117,8 +188,44 @@ def with_volumes(est: MeshEstimate, infos: list[VolumeInfo]) -> MeshEstimate:
 
 
 def volume_entries(infos: list[VolumeInfo]) -> tuple[VolumeEntry, ...]:
-    """The volumes meshing writes: enabled and at least partly inside the domain."""
-    return tuple(VolumeEntry(i.volume.name, i.volume.shape, i.level) for i in infos if i.written)
+    """The volumes meshing writes: enabled and at least partly inside the domain. An imported region is written as
+    its surface file in constant/triSurface (``write_region_surfaces``, D-145)."""
+    return tuple(VolumeEntry(i.volume.name, _entry_shape(i.volume), i.level) for i in infos if i.written)
+
+
+def _entry_shape(volume: RefinementVolume):
+    shape = volume.shape
+    if isinstance(shape, SurfaceShape):
+        return SurfaceRegionEntry(volume_surface_file(volume.name), shape.mode, shape.distance)
+    return shape
+
+
+def write_region_surfaces(case_dir: Path, tri_surface: str, project: Project, entries, attitude) -> None:
+    """The surfaces of the imported regions among ``entries`` (VolumeEntry) written to <case>/<tri_surface>/ in
+    metres as meshed (turned with the parts at an angle of attack); stale region files are removed (D-145)."""
+    folder = case_dir / tri_surface
+    wanted = {}
+    by_name = {v.name: v for v in project.sim.refinement_volumes}
+    for entry in entries:
+        if entry.surface_file is not None and entry.name in by_name:
+            wanted[entry.surface_file] = by_name[entry.name]
+    for stale in folder.glob(f"{volume_surface_file('*')}"):
+        if stale.name not in wanted:
+            stale.unlink(missing_ok=True)
+    for file, volume in wanted.items():
+        meshing_shape(project, volume, attitude).mesh.save(str(folder / file), binary=False)
+
+
+def surface_volume(project: Project, relative: str, units: str, est: MeshEstimate, mode: str = "inside",
+                   distance: float = 0.0, name: str | None = None) -> RefinementVolume:
+    """A refinement volume of the imported surface ``relative`` (in the project folder; checked: closed, D-145),
+    its target the part surface cell size; ``distance`` in metres for the distance mode (0: one surface cell)."""
+    load_region(project.folder / relative, units)  # RegionFileError when not usable
+    if mode == "distance" and distance <= 0:
+        distance = est.surface_size
+    shape = SurfaceShape(file=relative, units=units, mode=mode, distance=distance if mode == "distance" else 0.0)
+    base = volume_base_name(name or Path(relative).stem)
+    return RefinementVolume(id="new", name=project.free_volume_name(base), shape=shape, target_size=est.surface_size)
 
 
 def new_volume(project: Project, kind: str, box: DomainBox, est: MeshEstimate) -> RefinementVolume:
