@@ -390,6 +390,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._volume_preview = None  # a RefinementVolume being edited, drawn uncommitted (D-103)
         self._domain_box = None
         self._framed_visibility = False
+        self._camera_2d = False  # the 2D default view was applied to this project (D-140)
         self.dialogs = dialogs if dialogs is not None else Dialogs(self)
         self._theme, self._point_size = load_appearance()
         apply_theme(self._theme, self._point_size)
@@ -658,6 +659,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         if self._unsubscribe is not None:
             self._unsubscribe()
         self._project = project
+        self._camera_2d = False
         if not placeholder:
             self.has_project = True
         if self.has_project and project.path is not None:
@@ -1318,6 +1320,12 @@ class MainWindow(StudyControlMixin, QMainWindow):
         if changed or self._framed_visibility != self.scene.has_visible():
             self._frame_parts()
         self._framed_visibility = self.scene.has_visible()
+        if not self._is_2d():
+            self._camera_2d = False
+        elif not self._camera_2d and self._scene_mode == "geometry":  # a 2D project opened, or the analysis set to 2D
+            bounds = self.scene.visible_bounds()
+            if bounds is not None:
+                self._view_2d(bounds)
         self._update_empty_state()
         self.viewer.render()
 
@@ -1884,6 +1892,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
                 bounds = self.scene.visible_bounds()
             if mode == "mesh":
                 self._aim_at_section()
+            elif bounds is not None and self._is_2d():
+                self._view_2d(bounds)
             elif mode == "results" and bounds is not None:
                 self._view_from_upstream(bounds)
             elif bounds is not None:
@@ -2085,6 +2095,20 @@ class MainWindow(StudyControlMixin, QMainWindow):
     UPSTREAM_ISO = (-1.0, -1.0, 1.0)
     UPSTREAM_VIEW = "Upstream ISO"
 
+    # 2D sections (D-121) lie in the x-z plane: they are shown looking along +y, +z up, so the free stream (+x) runs
+    # left to right (D-140). A view along -y would mirror x. PyVista's XZ view (the top bar's XZ) is this view.
+    VIEW_2D = "XZ"
+
+    def _is_2d(self) -> bool:
+        return self._project.sim.dimension == "2d"
+
+    def _view_2d(self, bounds) -> None:
+        """Camera on the -y side looking along +y, +z up, framing ``bounds`` (no render): +x to the right."""
+        self.viewer.view_xz(render=False, bounds=bounds)
+        self._camera_2d = True
+        self.current_view = self.VIEW_2D
+        self.top_bar.set_active_view(self.VIEW_2D)
+
     def _view_from_upstream(self, bounds) -> None:
         """Camera on the -x, +z side (and -y, for an ISO look), aimed at the centre of ``bounds``,
         +z up, framing them (no render)."""
@@ -2165,13 +2189,16 @@ class MainWindow(StudyControlMixin, QMainWindow):
         return self._project.sim.domain.symmetry == "y_min"
 
     def _aim_at_section(self) -> None:
-        """Look at the section plane from its negative side and frame it (no render)."""
+        """Look at the section plane from its negative side and frame it (no render); without a section, a 2D mesh gets
+        the 2D view (D-140)."""
         view = self.mesh_view
         camera = view.camera_for_section() if view.section_enabled and view.section_actor else None
         if camera is not None:
             self.viewer.camera_position = camera
         bounds = view.focus_bounds()
-        if bounds is not None:
+        if camera is None and bounds is not None and self._is_2d():
+            self._view_2d(bounds)
+        elif bounds is not None:
             self.viewer.reset_camera(render=False, bounds=bounds)
 
     def _section_view(self):
