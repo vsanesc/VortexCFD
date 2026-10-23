@@ -12,10 +12,12 @@ the list) and Browse... for any other `.vcfd` file.
 
 ![The welcome screen](images/welcome.png)
 
-New simulation asks, in three sections: the project's name and parent folder; the analysis preset, chosen from a
+New simulation asks, in three sections: the project's name (a free one such as `simulation_1` is filled in; type
+your own) and parent folder; the analysis preset, chosen from a
 list where each preset says in one line what it is for (the selected one's full description shows below the list)
 and the dimension (3D or 2D section, set by the preset); and the solver cores ("N / the physical cores"). A problem
-with the name or the folder is shown on the field itself (a red border and its tooltip). Choose **External flow**.
+with the name or the folder is shown on the field itself (a red border and its tooltip), and Create, disabled, says
+the same in its tooltip. Choose **External flow**.
 The project is a folder `<parent>/<name>/` holding `<name>.vcfd`, `geometry/` and `case/`, and it is saved at once.
 
 ![The New simulation dialog](images/new_simulation.png)

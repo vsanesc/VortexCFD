@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QComboBox, QLabel, QPushButton
 from pytestqt.qtbot import QtBot
 
@@ -26,6 +27,7 @@ from vortexcfd.gui.start_dialogs import (
     NewSimulationSpec,
     StartDialog,
     default_cores,
+    default_project_name,
 )
 
 
@@ -312,6 +314,73 @@ def test_new_simulation_layout(qtbot: QtBot, tmp_path: Path) -> None:
     dialog.parent_edit.setText(str(tmp_path))
     dialog.name_edit.setText("Wing")
     assert dialog.spec().dimension == "3d" and dialog.spec().preset.name == "2D airfoil"
+
+
+def test_new_simulation_default_name_is_unique(qtbot: QtBot, tmp_path: Path) -> None:
+    (tmp_path / "simulation_1").mkdir()
+    other = tmp_path / "other"
+    other.mkdir()
+    dialog = NewSimulationDialog(PresetStore(tmp_path / "presets"), physical=4)
+    qtbot.addWidget(dialog)
+    dialog.parent_edit.setText(str(tmp_path))
+    assert dialog.name_edit.text() == "simulation_2" == default_project_name(tmp_path)
+    assert dialog.create_button.isEnabled()
+    dialog.parent_edit.setText(str(other))  # the default follows the parent folder
+    assert dialog.name_edit.text() == "simulation_1"
+    dialog.name_edit.setText("Wing")
+    dialog.parent_edit.setText(str(tmp_path))  # a name of the user's own is kept
+    assert dialog.name_edit.text() == "Wing"
+
+
+def test_new_simulation_disabled_create_says_why(qtbot: QtBot, tmp_path: Path) -> None:
+    dialog = NewSimulationDialog(PresetStore(tmp_path / "presets"), physical=4)
+    qtbot.addWidget(dialog)
+    dialog.parent_edit.setText(str(tmp_path))
+    dialog.name_edit.setText("")
+    assert not dialog.create_button.isEnabled() and dialog.create_button.toolTip() == "Enter a project name."
+    dialog.name_edit.setText("bad/name")
+    assert dialog.create_button.toolTip() == dialog.name_edit.toolTip() != ""
+    dialog.name_edit.setText("Wing")
+    assert dialog.create_button.isEnabled() and dialog.create_button.toolTip() == ""
+
+
+def _geometry(widget, root):
+    return widget.geometry().translated(widget.parentWidget().mapTo(root, widget.pos()) - widget.pos())
+
+
+def test_new_simulation_sizes(qtbot: QtBot, tmp_path: Path) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    store = PresetStore(tmp_path / "presets")
+    dialog = NewSimulationDialog(store, physical=12)
+    qtbot.addWidget(dialog)
+    dialog.show()
+    QApplication.processEvents()
+    pl, desc = dialog.preset_list, dialog.description_label
+    # the default size fits the content: every preset visible, the description as tall as its text
+    assert pl.height() >= pl.count() * pl.sizeHintForRow(0)
+    assert pl.verticalScrollBar().maximum() == 0
+    fitted = desc.height()
+    dialog._fit_description()
+    assert desc.height() == fitted
+    # the description directly below the list, wrapped and top-left aligned
+    assert desc.wordWrap() and desc.alignment() == Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+    assert 0 <= _geometry(desc, dialog).top() - _geometry(pl, dialog).bottom() <= dialog.fontMetrics().height()
+    # short: only the list gives way (it scrolls); the rest keeps its size and stays visible
+    others = [dialog.dimension_buttons["3d"], dialog.cores_spin, dialog.create_button, dialog.name_edit]
+    heights = {w: w.height() for w in others}
+    dialog.resize(dialog.width(), dialog.minimumSizeHint().height())
+    QApplication.processEvents()
+    assert pl.height() < pl.count() * pl.sizeHintForRow(0) and pl.verticalScrollBar().maximum() > 0
+    assert pl.height() >= 2 * pl.sizeHintForRow(0)
+    assert {w: w.height() for w in others} == heights
+    for w in [*others, desc]:
+        assert dialog.rect().contains(_geometry(w, dialog)), w
+    # tall: the list stops at its rows; the spare height goes above the buttons
+    dialog.resize(dialog.width(), 3 * dialog.height())
+    QApplication.processEvents()
+    assert pl.height() <= pl.count() * pl.sizeHintForRow(0) + 2 * pl.frameWidth()
+    assert desc.height() == fitted
 
 
 # -- presets in the window ----------------------------------------------------------------------

@@ -4,12 +4,13 @@ Each dialog is a plain QDialog whose state can be driven without ``exec`` (tests
 gui/dialogs.py runs them modally.
 """
 
+import math
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QColor, QFontMetrics, QPainter
+from PySide6.QtGui import QColor, QFontMetrics, QPainter, QTextDocument
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -18,15 +19,18 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLayout,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMenu,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QStackedWidget,
     QStyle,
@@ -394,6 +398,40 @@ DIMENSION_TOOLTIP = ("3D: the parts as they are. 2D section: the parts' section 
                      "sets the default.")
 
 
+class _PresetList(QListWidget):
+    """The preset list: as tall as up to six presets by default, never shorter than two (it scrolls then)."""
+
+    VISIBLE = 6
+    MINIMUM = 2
+
+    def _rows_height(self, rows: int) -> int:
+        row = self.sizeHintForRow(0) if self.count() else QFontMetrics(self.font()).height() * 3
+        return rows * row + 2 * self.frameWidth()
+
+    def sizeHint(self) -> QSize:
+        return QSize(super().sizeHint().width(), self._rows_height(min(max(self.count(), 1), self.VISIBLE)))
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(super().minimumSizeHint().width(), self._rows_height(min(max(self.count(), 1), self.MINIMUM)))
+
+    def fit(self) -> None:
+        """Never taller than every row (a tall dialog's spare height is not an empty list)."""
+        self.setMaximumHeight(self._rows_height(max(self.count(), 1)))
+
+
+def default_project_name(parent: Path) -> str:
+    """The first of "simulation_1", "simulation_2" ... that does not exist in ``parent``."""
+    n = 1
+    while (parent / f"{DEFAULT_NAME_STEM}_{n}").exists():
+        n += 1
+    return f"{DEFAULT_NAME_STEM}_{n}"
+
+
+DEFAULT_NAME_STEM = "simulation"
+MIN_WIDTH_U = 32  # the dialog's narrowest: the labels and the fields' shortest useful widths
+DEFAULT_WIDTH_U = 44
+
+
 class NewSimulationDialog(QDialog):
     """Project name, parent folder, the analysis preset (a list with descriptions), the dimension and the parallel
     run settings, in three sections (D-143). Invalid input is shown on the field itself (a highlighted border and
@@ -407,25 +445,40 @@ class NewSimulationDialog(QDialog):
         self.presets: list[Preset] = list(BUILTIN_PRESETS) + store.presets()
         self.result_spec: NewSimulationSpec | None = None
         u = QFontMetrics(self.font()).height()
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(2 * u, 2 * u, 2 * u, 2 * u)
-        layout.setSpacing(u // 2)
+        # One grid (D-154): the labels share a column; the preset list is the only row that gives way when the
+        # dialog is short (it scrolls), every other row keeps its height.
+        grid = QGridLayout(self)
+        grid.setContentsMargins(2 * u, 2 * u, 2 * u, 2 * u)
+        grid.setHorizontalSpacing(u)
+        grid.setVerticalSpacing(u // 2)
+        grid.setColumnStretch(1, 1)
+        row = 0
 
-        def form() -> QFormLayout:
-            f = QFormLayout()
-            f.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            f.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-            f.setHorizontalSpacing(u)
-            f.setVerticalSpacing(u // 2)
-            return f
+        def add(label: QWidget | str | None, field) -> None:
+            nonlocal row
+            if isinstance(label, str):
+                label = _label(label)
+            if label is not None:
+                grid.addWidget(label, row, 0)
+            if isinstance(field, QLayout):
+                grid.addLayout(field, row, 1)
+            else:
+                grid.addWidget(field, row, 1)
+            row += 1
+
+        def section(title: str) -> None:
+            nonlocal row
+            if row:
+                grid.setRowMinimumHeight(row, u // 2)  # a gap before every section but the first
+                row += 1
+            grid.addWidget(_section(title), row, 0, 1, 2)
+            row += 1
 
         # -- Project --
-        layout.addWidget(_section("Project"))
-        project = form()
+        section("Project")
         self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("wing_study")
         self.name_edit.setToolTip(NAME_TOOLTIP)
-        project.addRow(_label("Project name"), self.name_edit)
+        add("Project name", self.name_edit)
         folder_row = QHBoxLayout()
         self.parent_edit = QLineEdit(str(settings().value(LAST_PARENT_KEY, str(Path.home()))))
         self.parent_edit.setToolTip(PARENT_TOOLTIP)
@@ -433,20 +486,20 @@ class NewSimulationDialog(QDialog):
         self.browse_button.clicked.connect(self._browse)
         folder_row.addWidget(self.parent_edit, 1)
         folder_row.addWidget(self.browse_button)
-        project.addRow(_label("Parent folder"), folder_row)
-        self.folder_label = _ElidedLabel()  # one line: a wrapped label overlaps the rows below in a form
+        add("Parent folder", folder_row)
+        self.folder_label = _ElidedLabel()  # one line, elided: the full path is its tooltip
         self.folder_label.setObjectName("muted")
-        project.addRow("", self.folder_label)
-        layout.addLayout(project)
-        layout.addSpacing(u // 2)
+        add(None, self.folder_label)
+        self._auto_name = ""
+        self._fill_default_name()
 
         # -- Analysis --
-        layout.addWidget(_section("Analysis"))
-        analysis = form()
-        self.preset_list = QListWidget()
+        section("Analysis")
+        self.preset_list = _PresetList()
         self.preset_list.setObjectName("presetList")
         self.preset_list.setItemDelegate(_PresetDelegate(self.preset_list))
         self.preset_list.setMouseTracking(True)
+        self.preset_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # the rows elide
         for i, preset in enumerate(self.presets):
             builtin = i < len(BUILTIN_PRESETS)
             item = QListWidgetItem(preset.name if builtin else f"{preset.name} (user)")
@@ -454,15 +507,16 @@ class NewSimulationDialog(QDialog):
             item.setData(ROLE_FOLDER, preset_summary(preset))
             item.setToolTip(preset_description(preset))
             self.preset_list.addItem(item)
-        self._fit_preset_list()
-        self.description_label = QLabel()  # the selected preset's full description
+        # The only row that can shrink below its size hint (the list's minimum is two rows); spare height goes to
+        # the row above the buttons, so the list never stretches into empty space.
+        add(_label("Preset", top=True), self.preset_list)
+        self.description_label = QLabel()  # the selected preset's full description, directly below the list
         self.description_label.setObjectName("descriptionBox")
         self.description_label.setWordWrap(True)
-        preset_box = QVBoxLayout()
-        preset_box.setSpacing(u // 2)
-        preset_box.addWidget(self.preset_list)
-        preset_box.addWidget(self.description_label)
-        analysis.addRow(_label("Preset", top=True), preset_box)
+        self.description_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.description_label.setIndent(0)  # a framed label otherwise indents its aligned sides (top: clipped)
+        self.description_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        add(None, self.description_label)
         dim_row = QHBoxLayout()
         dim_row.setSpacing(0)
         self.dimension_group = QButtonGroup(self)
@@ -482,13 +536,10 @@ class NewSimulationDialog(QDialog):
             seg_layout.addWidget(button)
         dim_row.addWidget(segmented)
         dim_row.addStretch(1)
-        analysis.addRow(_label("Dimension"), dim_row)
-        layout.addLayout(analysis)
-        layout.addSpacing(u // 2)
+        add("Dimension", dim_row)
 
         # -- Solver --
-        layout.addWidget(_section("Solver"))
-        solver = form()
+        section("Solver")
         self.parallel_check = QCheckBox("Run in parallel")
         self.parallel_check.setToolTip(CORES_TOOLTIP.format(n=self.physical))
         self.cores_spin = QSpinBox()
@@ -501,40 +552,61 @@ class NewSimulationDialog(QDialog):
         par_row.addSpacing(u)
         par_row.addWidget(self.cores_spin)
         par_row.addStretch(1)
-        solver.addRow(_label("Cores"), par_row)
-        layout.addLayout(solver)
-        layout.addStretch(1)
+        add("Cores", par_row)
 
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         self.create_button = self.buttons.addButton("Create", QDialogButtonBox.ButtonRole.AcceptRole)
         self.create_button.setObjectName("primaryBtn")
         self.buttons.accepted.connect(self._create)
         self.buttons.rejected.connect(self.reject)
-        layout.addSpacing(u // 2)
-        layout.addWidget(self.buttons)
+        grid.setRowMinimumHeight(row, u // 2)
+        grid.setRowStretch(row, 1)  # a tall dialog's spare height goes here, above the buttons
+        row += 1
+        grid.addWidget(self.buttons, row, 0, 1, 2)
         self.name_edit.textChanged.connect(lambda _: self.validate())
-        self.parent_edit.textChanged.connect(lambda _: self.validate())
+        self.parent_edit.textChanged.connect(self._parent_changed)
         self.preset_list.currentRowChanged.connect(self._preset_changed)
         self.parallel_check.toggled.connect(self.cores_spin.setEnabled)
         self.preset_list.setCurrentRow(0)
-        self.resize(44 * u, 0)
+        self.setMinimumWidth(MIN_WIDTH_U * u)
+        self._sized = False
 
-    def _fit_preset_list(self) -> None:
-        """Every preset visible (up to 6; longer lists scroll), measured with the styled font."""
-        rows = min(len(self.presets), 6)
-        self.preset_list.setFixedHeight(rows * self.preset_list.sizeHintForRow(0) + 2 * self.preset_list.frameWidth())
+    def _fill_default_name(self) -> None:
+        """A unique default name in the parent folder ("simulation_1", "_2" ... the first free one), replaced as
+        the parent changes for as long as the user has not typed a name of their own (D-154)."""
+        if self.name_edit.text() not in ("", self._auto_name):
+            return
+        self._auto_name = default_project_name(Path(self.parent_edit.text().strip() or "."))
+        self.name_edit.setText(self._auto_name)
+
+    def _parent_changed(self, _text: str) -> None:
+        self._fill_default_name()
+        self.validate()
 
     def _fit_description(self) -> None:
-        """The wrapped description's height for its current width (the dialog's layout does not ask the label for
-        its height-for-width, so the rows below would overlap it)."""
+        """The description as tall as its wrapped text at its laid-out width, no taller."""
         label = self.description_label
-        width = label.width() if label.isVisible() else self.width() * 3 // 4
-        label.setMinimumHeight(label.heightForWidth(max(width, 1)))
+        margins = label.contentsMargins()  # the stylesheet's padding and border
+        document = QTextDocument()  # laid out as the label lays it out (QLabel.heightForWidth overestimates it)
+        document.setDocumentMargin(0)
+        document.setDefaultFont(label.font())
+        document.setPlainText(label.text())
+        document.setTextWidth(max(label.width() - margins.left() - margins.right(), 1))
+        height = math.ceil(document.size().height()) + margins.top() + margins.bottom()
+        if height != label.height():
+            label.setFixedHeight(height)
 
     def showEvent(self, event) -> None:
-        self.ensurePolished()
-        self._fit_preset_list()
-        self._fit_description()
+        if not self._sized:  # the default size fits the content: every preset and the description
+            self._sized = True
+            self.ensurePolished()
+            self.preset_list.fit()
+            self.resize(max(self.sizeHint().width(), DEFAULT_WIDTH_U * metrics().u), self.height())
+            for _ in range(2):  # the description's height depends on its width, the dialog's on that height
+                self.layout().activate()
+                self._fit_description()
+                self.layout().activate()
+                self.resize(self.width(), self.sizeHint().height())
         super().showEvent(event)
 
     def resizeEvent(self, event) -> None:
