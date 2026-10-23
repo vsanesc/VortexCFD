@@ -29,3 +29,32 @@ benchmarks/geometries/*.step
 benchmarks/results/
 # Local-only benchmark cases (D-094): the owner's geometry is never committed
 benchmarks/local_cases.json
+
+# Benchmark results: only the baselines and the written-up results are committed (benchmarks/*.json, *.md);
+# a run's output goes to benchmarks/results/ (above)
+benchmarks/**/*.log
+
+# Projects and case folders opened or written inside the checkout (the test fixtures in tests/data are kept)
+*.vcfd
+case/
+case_preview/
+processor[0-9]*/
+!tests/data/**
+
+# The owner's private geometry and reference folder (~/vortexcfd-geometry), if linked or copied in
+vortexcfd-geometry/
+
+# Scratch, editor and tool files
+*.tmp
+*.bak
+*.orig
+*.swp
+*~
+.DS_Store
+scratch/
+.idea/
+.vscode/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
