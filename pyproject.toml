@@ -10,7 +10,7 @@ readme = "README.md"
 license = "GPL-3.0-or-later"
 requires-python = ">=3.11"
 dependencies = [
-    "PySide6",
+    "PySide6-Essentials==6.12.0",  # not the PySide6 meta-package (Addons, WebEngine, Pdf are unused; D-139)
     "pyvista",
     "pyvistaqt",
     "numpy>=2.5.4",  # imported directly by geometry/, foam/, workflow/, bench/ and gui/ (installed with PyVista)

@@ -73,9 +73,30 @@ From a terminal, without starting the window:
 vortexcfd --check-openfoam
 ```
 
-## 1.4 Notes
+## 1.4 ParaView (optional)
 
-- The install script has been run in isolation on the development machine only; a test on a second machine is
-  still owed (docs/RELEASE_v1.md).
+VortexCFD does not need ParaView: it shows meshes and results itself. ParaView is only used by the Results Scene's
+"Open in ParaView" button, which looks for it in this order:
+
+1. the executable set in Edit > Preferences (if that file does not exist, the button stays off);
+2. `paraview` on your PATH (the Ubuntu package);
+3. ParaView for Windows under `C:\Program Files\ParaView*` (seen from WSL as `/mnt/c/Program Files`; the newest
+   version is used).
+
+When none is found the button is disabled and its tooltip says how to get ParaView. Either install it in Ubuntu:
+
+```bash
+sudo apt install paraview
+```
+
+or install ParaView for Windows and open a case from Windows through `\\wsl$\<your distribution>\...`: open the
+file `case.foam` in the project's `case` folder (ParaView's OpenFOAM reader needs it; if it is not there, create an
+empty file with that name). The install script reports which ParaView it found, or that there is none; a missing ParaView
+never stops the installation.
+
+## 1.5 Notes
+
+- The install script has been tested by the owner in a clean WSL2 Ubuntu 24.04 distribution. That the WSLg
+  desktop entry shows in the Windows Start menu is still to be seen (docs/RELEASE_v1.md).
 - 3D drawing uses the GPU through WSLg (Mesa d3d12): VortexCFD selects the NVIDIA adapter at start-up unless you
   set `GALLIUM_DRIVER` / `MESA_D3D12_DEFAULT_ADAPTER_NAME` yourself.

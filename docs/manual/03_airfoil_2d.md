@@ -3,6 +3,10 @@
 The 2D mode meshes a section in the x-z plane as one cell across the span (y), with empty front and back patches
 (D-121). For airfoils it is the quickest way to a polar.
 
+A 2D case is shown in the x-z plane looking along +y, with z up, so the free stream (+x) runs from left to right in
+the geometry, mesh and results scenes and in exported images; the C-type domain's round inlet is on the left
+(D-140). The top bar's XZ button returns to this view.
+
 ## 3.1 The "2D airfoil" preset
 
 File > New Simulation, preset **2D airfoil**. It sets the 2D dimension and wall-resolved layers: y+ 1 at the first

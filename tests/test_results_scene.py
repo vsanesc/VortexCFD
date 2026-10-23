@@ -152,7 +152,13 @@ def _fake_install(root: Path, folder: str) -> Path:
     return exe
 
 
-def test_paraview_detection_picks_the_newest(tmp_path: Path) -> None:
+def _no_paraview_on_path(monkeypatch) -> None:
+    """A fake environment: no ``paraview`` on PATH (the development machine may have Ubuntu's package)."""
+    monkeypatch.setattr(paraview, "which", lambda name: None)
+
+
+def test_paraview_detection_picks_the_newest(tmp_path: Path, monkeypatch) -> None:
+    _no_paraview_on_path(monkeypatch)
     assert paraview.detect(tmp_path) is None
     _fake_install(tmp_path, "ParaView 5.9.1")
     newest = _fake_install(tmp_path, "ParaView 5.13.2")
@@ -164,8 +170,29 @@ def test_paraview_detection_picks_the_newest(tmp_path: Path) -> None:
     assert paraview.executable(tmp_path) == other
     paraview.set_configured(str(tmp_path / "nope.exe"))
     assert paraview.executable(tmp_path) is None
+    assert f"does not exist: {tmp_path / 'nope.exe'}" in paraview.not_found_tip()
     paraview.set_configured("")
     assert paraview.executable(tmp_path) == newest
+
+
+def test_paraview_on_path_comes_before_the_windows_one(tmp_path: Path, monkeypatch) -> None:
+    linux = tmp_path / "usr" / "bin" / "paraview"
+    monkeypatch.setattr(paraview, "which", lambda name: str(linux) if name == "paraview" else None)
+    _fake_install(tmp_path / "ProgramFiles", "ParaView 5.13.2")
+    paraview.set_configured("")
+    assert paraview.detect(tmp_path / "ProgramFiles") == linux
+    assert paraview.executable(tmp_path / "ProgramFiles") == linux
+    assert not paraview.is_windows(linux)
+
+
+def test_no_paraview_anywhere_gives_the_install_tip(tmp_path: Path, monkeypatch) -> None:
+    _no_paraview_on_path(monkeypatch)
+    monkeypatch.setenv("WSL_DISTRO_NAME", "Ubuntu-24.04")
+    paraview.set_configured("")
+    assert paraview.executable(tmp_path / "no-windows-drive") is None  # /mnt/c missing: nothing found, no error
+    tip = paraview.not_found_tip()
+    assert "ParaView is optional and was not found" in tip
+    assert "sudo apt install paraview" in tip and "\\\\wsl$\\Ubuntu-24.04\\" in tip
 
 
 def test_wslpath_conversion_and_detached_launch(tmp_path: Path) -> None:
@@ -184,6 +211,10 @@ def test_wslpath_conversion_and_detached_launch(tmp_path: Path) -> None:
     args, kw = started[0]
     assert args == ["/mnt/c/P/paraview.exe", "C:\\\\wsl\\\\case\\\\case.foam"]
     assert kw["start_new_session"] and kw["stdout"] == subprocess.DEVNULL
+    # a Linux ParaView gets the path itself, wslpath is not called
+    calls.clear()
+    paraview.launch(Path("/usr/bin/paraview"), tmp_path, run=run, popen=lambda args, **kw: started.append((args, kw)))
+    assert started[1][0] == ["/usr/bin/paraview", str(tmp_path / "case.foam")] and calls == []
 
 
 # -- main window ----------------------------------------------------------------------------------------------------
@@ -192,6 +223,7 @@ def test_wslpath_conversion_and_detached_launch(tmp_path: Path) -> None:
 @pytest.fixture
 def make_window(qtbot: QtBot, tmp_path: Path, monkeypatch):
     monkeypatch.setattr(paraview, "PROGRAM_FILES", tmp_path / "ProgramFiles")
+    _no_paraview_on_path(monkeypatch)
     made = []
 
     def make(results=True, with_viewer=False, stale=False, dialogs=None):
@@ -262,7 +294,8 @@ def test_paraview_button_and_preferences(make_window, tmp_path: Path, monkeypatc
     w = make_window(dialogs=dialogs)
     w.results_tab.click()
     b = w.paraview_button
-    assert not b.isEnabled() and "Edit > Preferences" in b.toolTip()  # nothing under Program Files
+    assert not b.isEnabled() and "Edit > Preferences" in b.toolTip()  # nothing on PATH or under Program Files
+    assert "sudo apt install paraview" in b.toolTip() and "\\\\wsl$" in b.toolTip()
     w.act_preferences.trigger()
     assert paraview.configured() == str(exe)
     assert b.isEnabled() and str(exe) in b.toolTip()
