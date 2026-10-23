@@ -8,7 +8,7 @@ signals (``blockSignals``).
 
 import math
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from vortexcfd.gui.theme import metrics
 from vortexcfd.gui.widgets import set_invalid
 
 CHEVRON_OPEN = "▾"
@@ -397,9 +398,11 @@ class FloatingPanel(QWidget):
     """A panel detached from the main window into its own window (D-148): ``take`` moves a widget in, ``release``
     gives it back; closing the window calls ``on_close`` (the owner docks the panel back)."""
 
-    def __init__(self, title: str, on_close) -> None:
+    def __init__(self, title: str, on_close, minimum_u: tuple[int, int] = (16, 8)) -> None:
         super().__init__(None, Qt.WindowType.Window)
         self.setWindowTitle(title)
+        self._minimum_u = minimum_u  # the window's minimum size in font heights (D-155)
+        self._apply_minimum()
         self.setObjectName("panel")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._on_close = on_close
@@ -417,6 +420,15 @@ class FloatingPanel(QWidget):
         if self.content is not None:
             self._box.removeWidget(self.content)
         self.content = None
+
+    def _apply_minimum(self) -> None:
+        u = metrics().u
+        self.setMinimumSize(self._minimum_u[0] * u, self._minimum_u[1] * u)
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() in (QEvent.Type.FontChange, QEvent.Type.ApplicationFontChange):
+            self._apply_minimum()  # follows the interface size
 
     def closeEvent(self, event) -> None:
         if self.content is not None:  # closed by the user: dock the panel back

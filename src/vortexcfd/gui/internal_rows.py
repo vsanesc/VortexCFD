@@ -27,6 +27,7 @@ from vortexcfd.core.model import (
     PATCH_ROLES,
 )
 from vortexcfd.gui.theme import metrics, set_text_role
+from vortexcfd.gui.widgets import discard
 from vortexcfd.workflow import internal, meshing, solving
 
 # When to use which inlet (the user-manual notes, docs/USER_MANUAL notes in docs/STATUS.md, repeated as tooltips).
@@ -254,7 +255,7 @@ class InternalRowsMixin:
         for row in self._ir_rows:
             self._ir_box.removeWidget(row)
             row.hide()
-            row.deleteLater()
+            discard(row)
         self._ir_rows, self._ir_titles = [], []
         self.ir_widgets = {"planes": [], "drops": []}
         self._ir_shape = (n_planes, n_drops, tuple(locations))

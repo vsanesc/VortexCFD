@@ -88,6 +88,7 @@ from vortexcfd.gui.help_texts import help_target
 from vortexcfd.gui.panel_widgets import AutoField, ChoiceField, ReferenceLengthField, SectionHeader, VectorField
 from vortexcfd.gui.settings_store import settings
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, repolish, set_text_role
+from vortexcfd.gui.widgets import discard
 
 # Allowed units are read from the model so the two never drift apart.
 ALLOWED_UNITS: tuple[str, ...] = get_args(Part.model_fields["units"].annotation)
@@ -1788,7 +1789,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         """One row per part patch: layers, thickness and coverage (warning below 80 %)."""
         for row in self._layer_rows:
             self._layer_box.removeWidget(row)
-            row.deleteLater()
+            discard(row)
         self._layer_rows, self.layer_labels, self._layer_titles = [], [], []
         if report is None:
             return
@@ -1977,7 +1978,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         for row in self._criteria_rows:
             self._criteria_box.removeWidget(row)
             row.hide()
-            row.deleteLater()
+            discard(row)
         self._criteria_rows, self._criteria_titles, self.criterion_widgets = [], [], []
         options = list(options or [])
         self._criteria_kinds = (list(kinds), options)
@@ -2242,7 +2243,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         for row in self._probe_rows:
             self._probe_box.removeWidget(row)
             row.hide()
-            row.deleteLater()
+            discard(row)
         self._probe_rows, self._probe_titles, self.probe_widgets = [], [], []
         self._probe_count = count
         for i in range(count):

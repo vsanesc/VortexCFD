@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QGridLayout, QLabel, QSizePolicy, QWidget
 from vortexcfd.foam.convergence import WindowStats
 from vortexcfd.foam.forces import ForceRow
 from vortexcfd.gui.theme import set_text_role
+from vortexcfd.gui.widgets import discard
 
 # (attribute of ForceRow, row label, tooltip, format); one column per wall set.
 FORCE_TABLE_ROWS = (
@@ -68,7 +69,7 @@ class ForcesTable(QWidget):
         while self.grid.count():
             item = self.grid.takeAt(0)
             if item.widget() is not None:
-                item.widget().deleteLater()
+                discard(item.widget())
         self.rows, self.cells = list(rows), {}
         if not rows:
             return
@@ -145,7 +146,7 @@ class InternalFlowTable(ForcesTable):
         while self.grid.count():
             item = self.grid.takeAt(0)
             if item.widget() is not None:
-                item.widget().deleteLater()
+                discard(item.widget())
         self.rows, self.cells = list(rows), {}
         if not rows and not drops:
             return

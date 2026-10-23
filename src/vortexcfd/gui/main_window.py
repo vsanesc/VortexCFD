@@ -306,6 +306,9 @@ class _Handle(QSplitterHandle):
             painter.fillRect(QRect(0, y, self.width(), line), color)
 
 
+PROPERTIES_WINDOW_MIN_U = (18, 16)  # the detached properties window's minimum, in font heights (D-155)
+
+
 class _Splitter(QSplitter):
     line_edge = "center"  # where the 1px line sits in the handle: start, center or end
 
@@ -792,7 +795,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         if self.properties_window is not None:
             return
         sizes = self._left_split.sizes()
-        window = FloatingPanel("Properties", self.dock_properties)
+        window = FloatingPanel("Properties", self.dock_properties, PROPERTIES_WINDOW_MIN_U)
         window.setWindowIcon(self.windowIcon())
         window.take(self._props_section)
         self.properties_window = window

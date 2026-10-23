@@ -17,9 +17,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from vortexcfd.gui.theme import load_appearance, set_text_role
+from vortexcfd.gui.theme import load_appearance, metrics, set_text_role
+from vortexcfd.gui.widgets import wrapped_height
 from vortexcfd.workflow.foam_entries import Entry, locate
 
+MIN_TEXT_LINES = 8
 OVERWRITE_WARNING = ("The app writes these files again on Generate Mesh and Run Solver: an edit made here or in an "
                      "external editor is overwritten. Change the value in the properties instead.")
 PREVIEW_NOTE = ("The case has not been written yet: this is the file as the app will write it (in case_preview/). "
@@ -56,8 +58,11 @@ class FoamFileViewer(QDialog):
         self.text.setReadOnly(True)
         self.text.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         set_text_role(self.text, "code")
+        # at least eight lines of the file around the entry, at any interface size (D-155)
+        self.text.setMinimumHeight(MIN_TEXT_LINES * self.text.fontMetrics().lineSpacing()
+                                   + 2 * self.text.frameWidth())
         layout.addWidget(self.text, 1)
-        warning = QLabel(OVERWRITE_WARNING)
+        self.warning_label = warning = QLabel(OVERWRITE_WARNING)
         warning.setObjectName("checkValue")
         warning.setProperty("warn", "true")
         warning.setWordWrap(True)
@@ -73,8 +78,15 @@ class FoamFileViewer(QDialog):
         row.addWidget(close)
         layout.addLayout(row)
         self.line: int | None = None
-        self.resize(900, 640)
+        u = metrics().u
+        self.resize(60 * u, 42 * u)
         self.show_entry(0)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # the wrapped notes as tall as their text at this width, so a narrow window grows them instead of overlapping
+        for label in (self.preview_label, self.warning_label):
+            label.setMinimumHeight(wrapped_height(label))
 
     def show_entry(self, index: int) -> None:
         if not 0 <= index < len(self.entries):

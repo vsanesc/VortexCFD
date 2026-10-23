@@ -6,10 +6,12 @@ from pathlib import Path
 from PySide6.QtCore import QByteArray, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QGuiApplication, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QMenu,
+    QScrollArea,
     QSizePolicy,
     QToolButton,
     QVBoxLayout,
@@ -27,9 +29,10 @@ from vortexcfd.gui.icons import make_glyph
 from vortexcfd.gui.panel_widgets import FloatingPanel
 from vortexcfd.gui.settings_store import settings
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, repolish, residual_style, role_font, set_text_role
-from vortexcfd.gui.widgets import SectionHeader
+from vortexcfd.gui.widgets import ElidedLabel, SectionHeader, discard
 
 EMPTY = "—"
+CHART_MIN_U = 10  # the residual chart's minimum height, in font heights
 
 
 def on_a_screen(frame: QRect) -> bool:
@@ -78,10 +81,12 @@ class ResidualChart(QWidget):
         self._margin = 0
         self._line = 1
         self.series: dict[str, list[tuple[float, float]]] = {}
+        self._legend: list[tuple[str, str, str, float, int]] = []
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
 
     def configure(self, m: Metrics, t: Theme) -> None:
         self._theme, self._margin, self._line = t, m.s3, m.line
+        self.setMinimumHeight(CHART_MIN_U * m.u)  # never squeezed away: the column scrolls instead (D-155)
         self.update()
 
     def set_series(self, series: dict[str, list[tuple[float, float]]]) -> None:
@@ -118,12 +123,14 @@ class ResidualChart(QWidget):
         fm = painter.fontMetrics()
         decades = self.decades()
         label_w = max(fm.horizontalAdvance(f"1e{d}") for d in decades)
-        legend_h = fm.height() + self._margin if self.series else 0
+        left = self._margin + fm.height() + self._margin + label_w + self._margin  # y caption
+        right = self.width() - self._margin
+        self._legend = self._legend_layout(fm, left, right)
+        rows = 1 + max((y for *_, y in self._legend), default=-1)
+        legend_h = rows * fm.height() + self._margin if self.series else 0
         top = self._margin + legend_h + fm.height() / 2
         x_labels_h = fm.height() if self.series else 0
         bottom = self.height() - self._margin - fm.height() * 1.5 - x_labels_h  # room for the x caption
-        left = self._margin + fm.height() + self._margin + label_w + self._margin  # y caption
-        right = self.width() - self._margin
         n = max(len(decades) - 1, 1)
         grid = QPen(QColor(t.border), 1)
         for i, d in enumerate(decades):
@@ -195,11 +202,11 @@ class ResidualChart(QWidget):
             painter.setPen(pen)
             painter.drawPolyline(QPolygonF([to_px(x, v) for x, v in self.series[name] if v > 0]))
         painter.restore()
-        # legend: one row above the plot, a line sample in the series style + the name in text ink
-        x = area.left()
-        y = self._margin
+        # legend above the plot, a line sample in the series style + the name in text ink; it wraps onto more rows
+        # where the chart is narrow (D-155)
         sample = 2 * fm.height()
-        for name, color, style in self.legend_entries():
+        for name, color, style, x, row in self._legend:
+            y = self._margin + row * fm.height()
             pen = QPen(QColor(color), 2 * self._line)
             pen.setStyle(_pen_style(style))
             painter.setPen(pen)
@@ -209,7 +216,24 @@ class ResidualChart(QWidget):
             w = fm.horizontalAdvance(name)
             painter.drawText(QRectF(x + sample + self._margin / 2, y, w, fm.height()),
                              int(Qt.AlignmentFlag.AlignVCenter), name)
-            x += sample + self._margin / 2 + w + self._margin
+
+    def _legend_layout(self, fm, left: float, right: float) -> list[tuple[str, str, str, float, int]]:
+        """(name, colour, style, x, row) of each legend entry: as many per row as fit between ``left`` and
+        ``right``."""
+        out = []
+        sample = 2 * fm.height()
+        x, row = left, 0
+        for name, color, style in self.legend_entries():
+            width = sample + self._margin / 2 + fm.horizontalAdvance(name)
+            if x > left and x + width > right:
+                x, row = left, row + 1
+            out.append((name, color, style, x, row))
+            x += width + self._margin
+        return out
+
+    def legend_rows(self) -> int:
+        """The legend's rows at the last paint (for tests)."""
+        return 1 + max((row for *_, row in self._legend), default=-1)
 
 
 class Sparkline(QWidget):
@@ -281,7 +305,7 @@ class ReportSlots(QWidget):
             cell.setProperty("last", "true" if slot == REPORT_SLOTS else "false")
             box = QVBoxLayout(cell)
             head = QHBoxLayout()
-            title = QLabel(f"REPORT {slot}")
+            title = ElidedLabel(f"REPORT {slot}", Qt.TextElideMode.ElideRight)  # a narrow column elides
             title.setObjectName("kpiTitle")
             button = QToolButton()
             button.setObjectName("chevronBtn")
@@ -291,17 +315,16 @@ class ReportSlots(QWidget):
             menu = QMenu(self)
             self._fill_menu(menu, slot - 1)
             button.setMenu(menu)
-            head.addWidget(title)
-            head.addStretch(1)
+            head.addWidget(title, 1)
             head.addWidget(button)
             value = QLabel(EMPTY)
             value.setObjectName("kpiValue")
-            mean = QLabel("")
+            mean = ElidedLabel("", Qt.TextElideMode.ElideRight)
             mean.setObjectName("kpiSub")
             mean.setToolTip("Mean over the last iterations and the half range of the oscillation (max - min) / 2 "
                             "as a share of |mean| (the oscillation check's scale, D-059)")
             spark = Sparkline()
-            sub = QLabel(self.NOT_ASSIGNED)
+            sub = ElidedLabel(self.NOT_ASSIGNED, Qt.TextElideMode.ElideRight)
             sub.setObjectName("kpiSub")
             box.addLayout(head)
             box.addWidget(value)
@@ -501,15 +524,13 @@ class ConvergencePanel(QWidget):
         while len(self.rows) > len(statuses):
             for label in self.rows.pop():
                 self.grid.removeWidget(label)
-                label.deleteLater()
+                discard(label)
         while len(self.rows) < len(statuses):
             r = len(self.rows) + 1
-            labels = tuple(QLabel() for _ in self.HEADERS)
-            for col, label in enumerate(labels):
+            labels = (ElidedLabel("", Qt.TextElideMode.ElideRight), *(QLabel() for _ in self.HEADERS[1:]))
+            for col, label in enumerate(labels):  # the name column elides instead of widening the column
                 label.setObjectName("checkValue")
                 set_text_role(label, "data_small")
-                if col == 0:  # elided by the layout instead of widening the column
-                    label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
                 self.grid.addWidget(label, r, col)
             self.rows.append(labels)  # type: ignore[arg-type]
         for labels, status in zip(self.rows, statuses):
@@ -523,7 +544,7 @@ class ConvergencePanel(QWidget):
             set_state(met, "ok" if status.satisfied else None)
         for label in self.warnings:
             self._warning_box.removeWidget(label)
-            label.deleteLater()
+            discard(label)
         self.warnings = []
         for text in warnings:
             label = QLabel(text)
@@ -595,7 +616,7 @@ class MonitorsPanel(QWidget):
         self.case_dir: Path | None = None  # case of the shown run
         self.setObjectName("panel")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.header = SectionHeader("Residuals & Force Monitors")
+        self.header = SectionHeader("Residuals")
         self.header.add_badge("Log10 Scale")
         self.chart = ResidualChart()
         self.convergence = ConvergencePanel()
@@ -633,13 +654,27 @@ class MonitorsPanel(QWidget):
             header.row.addWidget(button)
             self.detach_buttons[key] = button
         self.windows: dict[str, FloatingPanel] = {}
-        self._layout = layout = QVBoxLayout(self)
+        # Under the header the column scrolls when it is short (D-155): the chart keeps its minimum height and the
+        # criteria and report slots their text, instead of being squeezed.
+        body = QWidget()
+        body.setObjectName("panel")
+        self._layout = QVBoxLayout(body)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(0)
+        self._layout.addWidget(residuals, 1)
+        self._layout.addWidget(criteria)
+        self._layout.addWidget(self.kpis)
+        self.scroll = QScrollArea()
+        self.scroll.setObjectName("propScroll")  # the properties' frameless, transparent scroll area
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.setWidget(body)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self.header)
-        layout.addWidget(residuals, 1)
-        layout.addWidget(criteria)
-        layout.addWidget(self.kpis)
+        layout.addWidget(self.scroll, 1)
         self.convergence.setVisible(False)
         self._sync_criteria_section()
         self.history = ResidualHistory()
@@ -802,7 +837,7 @@ class MonitorsPanel(QWidget):
         if key in self.windows:
             return self.windows[key]
         section = self.sections[key]
-        window = FloatingPanel(DETACHABLE[key][0], lambda k=key: self.dock(k))
+        window = FloatingPanel(DETACHABLE[key][0], lambda k=key: self.dock(k), (16, 12 if key == "residuals" else 8))
         window.setWindowIcon(self.window().windowIcon())
         u = metrics().u
         width, height = max(section.width(), 24 * u), max(section.height(), (20 if key == "residuals" else 12) * u)
@@ -829,7 +864,7 @@ class MonitorsPanel(QWidget):
         if remember:
             self._save_window(key, window)
         section = self.sections[key]
-        index = 1 if key == "residuals" else 2
+        index = 0 if key == "residuals" else 1
         window.release()
         self._layout.insertWidget(index, section, 1 if key == "residuals" else 0)
         section.show()

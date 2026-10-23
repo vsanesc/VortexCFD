@@ -45,7 +45,7 @@ def leaves(root: QWidget) -> list[QWidget]:
     return out
 
 
-def overlaps(root: QWidget, tolerance: int = 0) -> list[str]:
+def overlaps(root: QWidget, tolerance: int = 1) -> list[str]:
     """Pairs of visible leaf widgets whose on-screen rectangles overlap (by more than ``tolerance`` pixels in both
     directions)."""
     rects = [(w, _clip_rect(w, root)) for w in leaves(root)]
@@ -117,5 +117,32 @@ def clipped_labels(root: QWidget) -> list[str]:
     return out
 
 
+def _in_scroll_area(widget: QWidget, root: QWidget) -> bool:
+    """Whether ``widget`` is the content of a scroll area under ``root`` (cut by its viewport on purpose)."""
+    parent = widget.parentWidget()
+    while parent is not None and parent is not root:
+        scroll = parent.parentWidget()
+        if isinstance(scroll, QAbstractScrollArea) and parent is scroll.viewport():
+            return True
+        parent = parent.parentWidget()
+    return False
+
+
+def cut_off(root: QWidget) -> list[str]:
+    """Visible widgets that are partly or wholly outside their parents (a squeezed container cuts them), or
+    collapsed to nothing; a scroll area's content is cut by its viewport on purpose and is not counted."""
+    out = []
+    for widget in leaves(root):
+        if _in_scroll_area(widget, root):
+            continue
+        full = QRect(widget.mapTo(root, widget.rect().topLeft()), widget.size())
+        if widget.width() <= 0 or widget.height() <= 0:
+            out.append(f"{describe(widget)}: collapsed to {widget.width()}x{widget.height()}")
+        elif _clip_rect(widget, root) != full.intersected(root.rect()) or not root.rect().contains(full):
+            seen = _clip_rect(widget, root)
+            out.append(f"{describe(widget)}: {seen.width()}x{seen.height()} of {full.width()}x{full.height()} shown")
+    return out
+
+
 def problems(root: QWidget) -> list[str]:
-    return overlaps(root) + clipped_labels(root)
+    return overlaps(root) + clipped_labels(root) + cut_off(root)

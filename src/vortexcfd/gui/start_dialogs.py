@@ -4,13 +4,12 @@ Each dialog is a plain QDialog whose state can be driven without ``exec`` (tests
 gui/dialogs.py runs them modally.
 """
 
-import math
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QColor, QFontMetrics, QPainter, QTextDocument
+from PySide6.QtGui import QColor, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -55,7 +54,7 @@ from vortexcfd.foam.parallel import physical_cores, recommended_cores
 from vortexcfd.gui.recent import RecentProjects
 from vortexcfd.gui.settings_store import settings
 from vortexcfd.gui.theme import load_appearance, metrics, role_font
-from vortexcfd.gui.widgets import set_invalid
+from vortexcfd.gui.widgets import ElidedLabel, set_invalid, wrapped_height
 
 LAST_PARENT_KEY = "new/parent"
 ROLE_PATH = Qt.ItemDataRole.UserRole
@@ -348,32 +347,6 @@ class _PresetDelegate(QStyledItemDelegate):
         painter.restore()
 
 
-class _ElidedLabel(QLabel):
-    """A one-line label that elides its text in the middle to fit (the full text in ``full_text`` and the tooltip)."""
-
-    def __init__(self, text: str = "") -> None:
-        super().__init__()
-        self.full_text = ""
-        self.setMinimumWidth(1)
-        self.setText(text)
-
-    def setText(self, text: str) -> None:
-        self.full_text = text
-        self.setToolTip(text)
-        self._elide()
-
-    def text(self) -> str:
-        return self.full_text
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._elide()
-
-    def _elide(self) -> None:
-        width = self.width() if self.width() > 1 else 10_000
-        QLabel.setText(self, self.fontMetrics().elidedText(self.full_text, Qt.TextElideMode.ElideMiddle, width))
-
-
 def _label(text: str, top: bool = False) -> QLabel:
     """A form label as tall as an input and centred on it (or at the top of a tall field), right-aligned."""
     label = QLabel(text)
@@ -487,7 +460,7 @@ class NewSimulationDialog(QDialog):
         folder_row.addWidget(self.parent_edit, 1)
         folder_row.addWidget(self.browse_button)
         add("Parent folder", folder_row)
-        self.folder_label = _ElidedLabel()  # one line, elided: the full path is its tooltip
+        self.folder_label = ElidedLabel()  # one line, elided: the full path is its tooltip
         self.folder_label.setObjectName("muted")
         add(None, self.folder_label)
         self._auto_name = ""
@@ -586,13 +559,7 @@ class NewSimulationDialog(QDialog):
     def _fit_description(self) -> None:
         """The description as tall as its wrapped text at its laid-out width, no taller."""
         label = self.description_label
-        margins = label.contentsMargins()  # the stylesheet's padding and border
-        document = QTextDocument()  # laid out as the label lays it out (QLabel.heightForWidth overestimates it)
-        document.setDocumentMargin(0)
-        document.setDefaultFont(label.font())
-        document.setPlainText(label.text())
-        document.setTextWidth(max(label.width() - margins.left() - margins.right(), 1))
-        height = math.ceil(document.size().height()) + margins.top() + margins.bottom()
+        height = wrapped_height(label)
         if height != label.height():
             label.setFixedHeight(height)
 
@@ -601,6 +568,10 @@ class NewSimulationDialog(QDialog):
             self._sized = True
             self.ensurePolished()
             self.preset_list.fit()
+            # Only the list gives way: the fields keep their full height (the stylesheet's minimum is lower).
+            for field in (self.name_edit, self.parent_edit, self.browse_button, self.cores_spin, self.parallel_check,
+                          *self.dimension_buttons.values()):
+                field.setMinimumHeight(field.sizeHint().height())
             self.resize(max(self.sizeHint().width(), DEFAULT_WIDTH_U * metrics().u), self.height())
             for _ in range(2):  # the description's height depends on its width, the dialog's on that height
                 self.layout().activate()
@@ -724,7 +695,7 @@ class DuplicateProjectDialog(QDialog):
         note = QLabel("The geometry is copied; the mesh and results are not (the duplicate starts without them). "
                       "The original project is not changed.")
         note.setWordWrap(True)
-        self.folder_label = _ElidedLabel()
+        self.folder_label = ElidedLabel()
         self.folder_label.setObjectName("muted")
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         self.create_button = self.buttons.addButton("Duplicate", QDialogButtonBox.ButtonRole.AcceptRole)

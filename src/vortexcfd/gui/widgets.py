@@ -1,7 +1,9 @@
 """Small composite widgets shared by the main window panels."""
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt
-from PySide6.QtGui import QAction, QColor, QFontMetrics, QPainter
+import math
+
+from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt
+from PySide6.QtGui import QAction, QColor, QFontMetrics, QPainter, QTextDocument
 from PySide6.QtWidgets import (
     QLayout,
     QHBoxLayout,
@@ -27,6 +29,67 @@ def set_invalid(widget: QWidget, reason: str | None, tooltip: str = "") -> None:
 def glyph_pixmap(widget: QWidget, name: str, color: str, size: int):
     icon = make_glyph(name, QColor(color), size, widget.devicePixelRatioF())
     return icon.pixmap(QSize(size, size))
+
+
+def wrapped_height(label: QLabel, width: int | None = None) -> int:
+    """A word-wrapped label's height for its text at ``width`` (default: its own), padding and border included:
+    measured as the label lays the text out (QLabel.heightForWidth overestimates a padded label)."""
+    margins = label.contentsMargins()
+    document = QTextDocument()
+    document.setDocumentMargin(0)
+    document.setDefaultFont(label.font())
+    document.setPlainText(label.text())
+    width = label.width() if width is None else width
+    document.setTextWidth(max(width - margins.left() - margins.right(), 1))
+    return math.ceil(document.size().height()) + margins.top() + margins.bottom()
+
+
+def discard(widget: QWidget) -> None:
+    """Remove a widget taken out of its layout: hidden at once (a deleteLater'd widget is drawn where it was until the
+    event loop deletes it, over the rows that replace it), then deleted."""
+    widget.hide()
+    widget.deleteLater()
+
+
+class ElidedLabel(QLabel):
+    """A one-line label that elides its text to its width (D-155); ``text()`` is the full text, and when elided the
+    full text leads the tooltip (before any tooltip of its own)."""
+
+    def __init__(self, text: str = "", mode: Qt.TextElideMode = Qt.TextElideMode.ElideMiddle) -> None:
+        super().__init__()
+        self.full_text = ""
+        self._mode = mode
+        self._tip = ""
+        self.setMinimumWidth(1)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setText(text)
+
+    def setText(self, text: str) -> None:
+        self.full_text = text
+        self._elide()
+
+    def text(self) -> str:
+        return self.full_text
+
+    def setToolTip(self, tip: str) -> None:
+        self._tip = tip
+        self._elide()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._elide()
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.FontChange:
+            self._elide()
+
+    def _elide(self) -> None:
+        width = self.contentsRect().width() if self.width() > 1 else 10_000
+        shown = self.fontMetrics().elidedText(self.full_text, self._mode, max(width, 0))
+        QLabel.setText(self, shown)
+        tip = self._tip if shown == self.full_text else "\n".join(t for t in (self.full_text, self._tip) if t)
+        QLabel.setToolTip(self, tip)
 
 
 class Badge(QLabel):

@@ -131,7 +131,7 @@ LEFT_INITIAL_U = 18  # default width of the left column, in u
 
 LIMITS_U: dict[str, tuple[int, int | None]] = {
     "left": (14, 28),
-    "monitors": (14, 40),
+    "monitors": (16, 40),
     "center": (20, None),
     "console": (4, None),
     "tree": (8, None),
