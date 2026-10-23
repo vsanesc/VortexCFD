@@ -31,5 +31,6 @@ Each case was run through the app's own pipeline and is recorded in docs/validat
 - **One layer specification for all walls** (per-part layers are a post-v1 item); one boundary type per domain
   role in external flow.
 - **Every run starts from the initial fields**: there is no restart from the latest time.
-- **Not yet tested on a second machine**: the installation has been checked in isolation on the development
-  machine only.
+- **One platform**: WSL2 Ubuntu 24.04 with Python 3.12 (the install script refuses others unless `--ignore-os`).
+  The installation was tested in isolation and by the owner in a clean WSL2 Ubuntu 24.04; that WSLg lists the
+  desktop entry in the Windows Start menu has not been seen yet.

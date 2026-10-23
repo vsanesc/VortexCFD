@@ -2124,8 +2124,11 @@ class MainWindow(StudyControlMixin, QMainWindow):
         exe = paraview.executable()
         has = self.results_time() is not None
         self.paraview_button.setEnabled(exe is not None and has)
-        self.paraview_button.setToolTip(
-            paraview.not_found_tip() if exe is None else f"Open the case in ParaView ({exe})")
+        missing = paraview.configured_missing()
+        tip = paraview.not_found_tip() if exe is None else f"Open the case in ParaView ({exe})"
+        if exe is not None and missing:  # the configured path is gone: the detected ParaView is used (QUESTIONS 220)
+            tip = f"{tip}\n{paraview.missing_note(missing)} Using the detected one."
+        self.paraview_button.setToolTip(tip)
 
     def open_in_paraview(self) -> None:
         """Write case.foam and launch ParaView (Linux or Windows) on it, detached."""

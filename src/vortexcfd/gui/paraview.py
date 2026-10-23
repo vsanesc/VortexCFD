@@ -18,10 +18,11 @@ which: Callable[[str], str | None] = shutil.which  # replaced in tests
 
 def not_found_tip() -> str:
     """The tooltip of the disabled button: ParaView is optional, and how to get it."""
-    path = configured()
+    missing = configured_missing()
     distro = os.environ.get("WSL_DISTRO_NAME", "<distribution>")
-    head = (f"The ParaView set in Edit > Preferences does not exist: {path}." if path else
-            "ParaView is optional and was not found (not on PATH, not under C:\\Program Files\\ParaView*).")
+    head = "ParaView is optional and was not found (not on PATH, not under C:\\Program Files\\ParaView*)."
+    if missing:
+        head = f"{missing_note(missing)}\n{head}"
     return (f"{head}\nTo open results in ParaView, either install it in Ubuntu:\n    sudo apt install paraview\n"
             f"or install ParaView for Windows and open the case through \\\\wsl$\\{distro}\\... (the case folder's "
             "case.foam, an empty file; create it if missing). This button finds C:\\Program Files\\ParaView* itself.\n"
@@ -70,12 +71,22 @@ def set_configured(path: str) -> None:
     s.sync()
 
 
-def executable(root: Path | None = None) -> Path | None:
-    """The configured executable if it exists (a configured path that does not exist gives None), otherwise the
-    detected one, otherwise None."""
+def configured_missing() -> str:
+    """The path set in Preferences when that file does not exist ("" when unset or present)."""
     path = configured()
-    if path:
-        return Path(path) if Path(path).is_file() else None
+    return path if path and not Path(path).is_file() else ""
+
+
+def missing_note(path: str) -> str:
+    return f"The ParaView set in Edit > Preferences was not found: {path}."
+
+
+def executable(root: Path | None = None) -> Path | None:
+    """The configured executable if it exists, otherwise the detected one (also when the configured path does not
+    exist: QUESTIONS 220), otherwise None."""
+    path = configured()
+    if path and Path(path).is_file():
+        return Path(path)
     return detect(root)
 
 

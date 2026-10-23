@@ -1,6 +1,6 @@
 # VortexCFD user manual
 
-VortexCFD 1.0 (release candidate 1.0.0rc1) is a desktop workflow for steady, incompressible RANS flow on top of
+VortexCFD 1.0 (1.0.0) is a desktop workflow for steady, incompressible RANS flow on top of
 OpenFOAM ESI v2606: geometry, domain, mesh, physics, run and results in one simulation tree, without editing
 OpenFOAM dictionaries by hand. Every case it writes is a standard OpenFOAM case that ParaView can open.
 

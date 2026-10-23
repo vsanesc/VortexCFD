@@ -1,7 +1,7 @@
 # Third-party licences
 
 VortexCFD is GPL-3.0-or-later. This file lists every runtime dependency installed by `scripts/install.sh`
-(`scripts/requirements-v1.txt`, the pinned versions of 1.0.0rc1) with its licence as declared in the installed
+(`scripts/requirements-v1.txt`, the pinned versions of 1.0.0) with its licence as declared in the installed
 package metadata (`License-Expression`, else `License`, else the licence classifier), read on 2026-10-23.
 Development-only tools (pytest, pytest-qt, pytest-xdist, iniconfig, pluggy, execnet) are not listed. Decision:
 D-074; licence review for v1: the section at the end (prepared for the owner, task w4-w5).

@@ -164,13 +164,14 @@ def test_paraview_detection_picks_the_newest(tmp_path: Path, monkeypatch) -> Non
     newest = _fake_install(tmp_path, "ParaView 5.13.2")
     _fake_install(tmp_path, "ParaView 5.11.0-RC1")
     assert paraview.detect(tmp_path) == newest
-    # a configured path wins, if it exists; a configured path that does not exist gives None
+    # a configured path wins, if it exists; one that does not exist falls back to detection (QUESTIONS 220)
     other = _fake_install(tmp_path / "x", "Custom")
     paraview.set_configured(str(other))
-    assert paraview.executable(tmp_path) == other
+    assert paraview.executable(tmp_path) == other and paraview.configured_missing() == ""
     paraview.set_configured(str(tmp_path / "nope.exe"))
-    assert paraview.executable(tmp_path) is None
-    assert f"does not exist: {tmp_path / 'nope.exe'}" in paraview.not_found_tip()
+    assert paraview.executable(tmp_path) == newest and paraview.configured_missing() == str(tmp_path / "nope.exe")
+    assert paraview.executable(tmp_path / "empty") is None  # nothing detected either
+    assert f"was not found: {tmp_path / 'nope.exe'}" in paraview.not_found_tip()
     paraview.set_configured("")
     assert paraview.executable(tmp_path) == newest
 
@@ -307,6 +308,15 @@ def test_paraview_button_and_preferences(make_window, tmp_path: Path, monkeypatc
     newest = _fake_install(tmp_path / "ProgramFiles", "ParaView 5.12.0")
     w.act_preferences.trigger()
     assert paraview.configured() == "" and b.isEnabled() and str(newest) in b.toolTip()
+    # a configured path that no longer exists: the detected ParaView is used and the tooltip says so (QUESTIONS 220)
+    gone = tmp_path / "PV" / "gone" / "paraview.exe"
+    dialogs.paraview_path = str(gone)
+    w.act_preferences.trigger()
+    assert paraview.configured() == str(gone) and b.isEnabled()
+    assert str(newest) in b.toolTip() and f"was not found: {gone}" in b.toolTip()
+    launched.clear()
+    b.click()
+    assert launched == [(newest, w.project.path.parent / "case")]
 
 
 def test_results_scene_with_viewer(make_window, qtbot: QtBot) -> None:

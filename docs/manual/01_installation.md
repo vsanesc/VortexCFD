@@ -38,7 +38,7 @@ It:
    code 3);
 2. creates a virtual environment in `~/.local/share/vortexcfd/venv` (another place: `--prefix DIR`);
 3. installs the pinned dependencies (`scripts/requirements-v1.txt`) and VortexCFD;
-4. checks that everything imports and prints `vortexcfd 1.0.0rc1`;
+4. checks that everything imports and prints `vortexcfd 1.0.0`;
 5. writes the command `~/.local/bin/vortexcfd` and a desktop entry, so WSLg lists VortexCFD in the Windows Start
    menu (under your Ubuntu distribution);
 6. runs `vortexcfd --check-openfoam`.
@@ -78,7 +78,8 @@ vortexcfd --check-openfoam
 VortexCFD does not need ParaView: it shows meshes and results itself. ParaView is only used by the Results Scene's
 "Open in ParaView" button, which looks for it in this order:
 
-1. the executable set in Edit > Preferences (if that file does not exist, the button stays off);
+1. the executable set in Edit > Preferences (if that file does not exist, the next two are tried and the button's
+   tooltip says the configured path was not found);
 2. `paraview` on your PATH (the Ubuntu package);
 3. ParaView for Windows under `C:\Program Files\ParaView*` (seen from WSL as `/mnt/c/Program Files`; the newest
    version is used).
