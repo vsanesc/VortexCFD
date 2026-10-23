@@ -1,11 +1,31 @@
 # Status
 
-Updated 2026-10-23 (task/rc1-polish: the owner's review of w4-w5 applied; v1.0.0rc1 polish).
+Updated 2026-10-23 (task/release-1.0.0: **v1.0.0 ready to tag**).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
 
-**task/rc1-polish** (not yet published; no push, no merge). Done on it:
+**task/release-1.0.0** (not yet published; no push, no merge, no tag). **v1.0.0 is ready to tag**
+(docs/RELEASE_v1.md). Done on it:
+- Owner review recorded: D-138, D-139, D-140 accepted; QUESTIONS 218, 219, 221, 222 accepted as implemented.
+- Item 1, QUESTIONS 220 (D-138 amended): a configured ParaView path that does not exist falls back to automatic
+  detection, and the button's tooltip says the configured path was not found.
+- Item 2: version 1.0.0 in `src/vortexcfd/__init__.py` (the manual, requirements header and licence list follow).
+- Item 3: CHANGELOG.md for 1.0.0 (features by area, the validation table, the known limitations, the requirements);
+  manual chapter 8's last limitation brought up to date (the clean-install test done).
+- Item 4: docs/RELEASE_v1.md: every item done; the owner's last decisions (a public repository, the licence
+  sign-off) and the tag command.
+- Item 5: this file and docs/PLAN.md: v1.0.0 ready to tag; the post-v1 backlog is the next plan (docs/PLAN.md,
+  "Next plan").
+- No OpenFOAM run; the fast test run only.
+
+Next: the owner's decisions on a public repository and the licence sign-off; scripts/ship.sh; the tag (command in
+docs/RELEASE_v1.md); then the post-v1 backlog in the owner's order. Open: docs/QUESTIONS.md items 30, 67, 69, 70,
+72, 73, 75, 82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 214.
+
+### Previous branch (task/rc1-polish, published in PR #33)
+
+Done on it:
 - Owner review recorded: D-136 and D-137 accepted; the owner's clean-install test of scripts/install.sh in a fresh
   WSL2 Ubuntu 24.04 passed; QUESTIONS 215, 216 accepted, 217 closed, 212 a note in manual 5.4.
 - Item 1, ParaView optional (D-138): "Open in ParaView" finds the Preferences path, `paraview` on PATH, or the
@@ -193,7 +213,7 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
 | 8.1-8.5 | Moving meshes | not started |
 | 9.1 | Project management | partly done: save/load, undo/redo, start screen, recent projects, project folders, presets (D-077); cloning not started |
 | 9.2 | Scripting API | not started |
-| 9.3 | Installer and docs | done for v1 (D-137, D-139): scripts/install.sh, the start-up OpenFOAM check, docs/manual/; the owner's clean-install test passed; the Start menu entry not yet seen (QUESTIONS 214) |
+| 9.3 | Installer and docs | done for v1 (D-137 to D-139): scripts/install.sh, the start-up OpenFOAM check, docs/manual/, CHANGELOG.md, version 1.0.0; the owner's clean-install test passed; the Start menu entry not yet seen (QUESTIONS 214) |
 
 ## Known issues
 
