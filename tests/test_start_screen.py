@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
+from PySide6.QtWidgets import QPushButton
 from pytestqt.qtbot import QtBot
 
 from tests.fakes import FakeDialogs
@@ -17,7 +18,7 @@ from vortexcfd.gui.main_window import NO_PROJECT, MainWindow, start_window
 from vortexcfd.gui.recent import MAX_RECENT, RecentProjects
 from vortexcfd.gui.settings_store import presets_dir
 from vortexcfd.gui.start_dialogs import (
-    NOT_FOUND,
+    ROLE_DATE,
     ManagePresetsDialog,
     NewSimulationDialog,
     NewSimulationSpec,
@@ -130,27 +131,63 @@ def test_recent_list_order_limit_and_removal(tmp_path: Path, allow_temporary_rec
     assert RecentProjects().paths() == recent.paths()  # stored in QSettings
 
 
-def test_start_dialog_greys_missing_projects_and_removes_them(qtbot: QtBot, tmp_path: Path,
-                                                             allow_temporary_recent) -> None:
+def test_start_screen_has_two_large_buttons_and_no_duplicates(qtbot: QtBot) -> None:
+    dialog = StartDialog(RecentProjects())
+    qtbot.addWidget(dialog)
+    assert dialog.pages.currentIndex() == 0
+    assert dialog.new_button.accessibleName() == "New simulation"
+    assert dialog.open_button.accessibleName() == "Open project"
+    assert dialog.new_button.objectName() == dialog.open_button.objectName() == "startTile"
+    texts = [b.text() or b.accessibleName() for b in dialog.findChildren(QPushButton)]
+    assert texts.count("Open project") == 1 and not any("Remove" in t for t in texts)
+    dialog.new_button.click()
+    assert dialog.choice == ("new", None)
+
+
+def test_open_panel_lists_existing_recent_projects(qtbot: QtBot, tmp_path: Path, allow_temporary_recent) -> None:
     good = Project.create(tmp_path, "Good").path
+    other = Project.create(tmp_path, "Other").path
     gone = tmp_path / "Gone" / "Gone.vcfd"
     recent = RecentProjects()
-    recent.add(gone)
-    recent.add(good)
+    for path in (gone, other, good):
+        recent.add(path)
     dialog = StartDialog(recent)
     qtbot.addWidget(dialog)
-    items = dialog.items()
-    assert [enabled for _, enabled in items] == [True, False]
-    assert NOT_FOUND in items[1][0] and NOT_FOUND not in items[0][0]
-    dialog.select(1)
-    assert not dialog.open_recent_button.isEnabled() and dialog.remove_button.isEnabled()
-    dialog._open_item(dialog.list.currentItem())  # a missing file cannot be opened
-    assert dialog.choice is None
-    dialog.remove_selected()
-    assert [enabled for _, enabled in dialog.items()] == [True] and recent.paths() == [good]
-    dialog.select(0)
-    dialog.open_recent_button.click()
-    assert dialog.choice == ("recent", good)
+    dialog.open_button.click()
+    assert dialog.pages.currentIndex() == 1 and dialog.choice is None
+    assert dialog.items() == [("Good", str(good.parent)), ("Other", str(other.parent))]  # the missing one hidden
+    assert dialog.list.item(0).data(ROLE_DATE)  # the last-opened date
+    assert not dialog.empty_label.isVisibleTo(dialog)
+    item = dialog.list.item(1)
+    dialog.list.itemDoubleClicked.emit(item)
+    assert dialog.choice == ("recent", other)
+
+
+def test_browse_asks_the_window_for_a_file(qtbot: QtBot) -> None:
+    dialog = StartDialog(RecentProjects())
+    qtbot.addWidget(dialog)
+    dialog.show_open_panel()
+    assert dialog.items() == [] and dialog.empty_label.isVisibleTo(dialog)
+    dialog.browse_button.click()
+    assert dialog.choice == ("open", None)
+
+
+def test_right_click_menu_opens_and_removes(qtbot: QtBot, tmp_path: Path, allow_temporary_recent) -> None:
+    a = Project.create(tmp_path, "A").path
+    b = Project.create(tmp_path, "B").path
+    recent = RecentProjects()
+    recent.add(a)
+    recent.add(b)
+    dialog = StartDialog(recent)
+    qtbot.addWidget(dialog)
+    dialog.show_open_panel()
+    menu = dialog.context_menu(dialog.list.item(0))
+    assert [act.text() for act in menu.actions()] == ["Open", "Remove from list"]
+    menu.actions()[1].trigger()
+    assert recent.paths() == [a] and dialog.items() == [("A", str(a.parent))]
+    assert a.is_file() and b.is_file()  # only the list changes
+    dialog.context_menu(dialog.list.item(0)).actions()[0].trigger()
+    assert dialog.choice == ("recent", a)
 
 
 # -- creating a project -------------------------------------------------------------------------

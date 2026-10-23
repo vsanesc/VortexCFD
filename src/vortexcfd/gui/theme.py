@@ -393,6 +393,22 @@ QStatusBar::item {{ border: none; }}
 QStatusBar[level="success"] {{ color: {t.success}; }}
 QStatusBar[level="warning"] {{ color: {t.warning}; }}
 QStatusBar[level="error"] {{ color: {t.error}; }}
+QLabel#welcomeTitle {{ color: {t.text}; background: transparent; font-size: {base_point_size * 2.4:.1f}pt;
+    font-weight: 600; }}
+QLabel#pageTitle {{ color: {t.text}; background: transparent; font-size: {base_point_size * 1.3:.1f}pt;
+    font-weight: 600; }}
+QPushButton#startTile {{ background: {t.accent}; border: {ln}px solid {t.accent}; border-radius: {m.radius_m}px; }}
+QLabel#tileTitle {{ color: {t.accent_text}; background: transparent; font-size: {base_point_size * 1.3:.1f}pt;
+    font-weight: 700; }}
+QLabel#tileText {{ color: {t.accent_text}; background: transparent; }}
+QPushButton#startTile:hover {{ background: {t.accent_hover}; border-color: {t.accent_hover}; }}
+QPushButton#startTile:focus {{ border: {2 * ln}px solid {t.text}; }}
+QPushButton#primaryBtn {{ background: {t.accent}; color: {t.accent_text}; border: {ln}px solid {t.accent};
+    border-radius: {btr}px; padding: {m.s2}px {m.s4}px; font-weight: 600; }}
+QPushButton#primaryBtn:hover {{ background: {t.accent_hover}; border-color: {t.accent_hover}; }}
+QPushButton#primaryBtn:disabled {{ background: {t.elevated}; color: {dis_text}; border-color: {t.border}; }}
+QListWidget#recentList {{ background: {t.elevated}; color: {t.text}; border: {ln}px solid {t.border_active};
+    border-radius: {m.radius_s}px; outline: 0; }}
 QMenuBar {{ background: {t.base}; }}
 QMenuBar::item {{ background: transparent; padding: {m.s1}px {m.s3}px; }}
 QMenuBar::item:selected {{ background: {t.elevated}; }}

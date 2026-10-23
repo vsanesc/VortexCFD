@@ -5,10 +5,11 @@ gui/dialogs.py runs them modally.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -22,12 +23,18 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QStackedWidget,
+    QStyle,
+    QStyledItemDelegate,
     QVBoxLayout,
     QWidget,
 )
+
+from vortexcfd import __version__
 
 from vortexcfd.core.presets import BUILTIN_PRESETS, Preset, PresetError, PresetStore
 from vortexcfd.core.project import check_new_project_folder
@@ -35,11 +42,13 @@ from vortexcfd.core.model import DIMENSION_LABELS, DIMENSIONS
 from vortexcfd.foam.parallel import physical_cores, recommended_cores
 from vortexcfd.gui.recent import RecentProjects
 from vortexcfd.gui.settings_store import settings
+from vortexcfd.gui.theme import load_appearance
 
-NOT_FOUND = "not found"
 LAST_PARENT_KEY = "new/parent"
 ROLE_PATH = Qt.ItemDataRole.UserRole
-ROLE_EXISTS = Qt.ItemDataRole.UserRole + 1
+ROLE_NAME = Qt.ItemDataRole.UserRole + 1
+ROLE_FOLDER = Qt.ItemDataRole.UserRole + 2
+ROLE_DATE = Qt.ItemDataRole.UserRole + 3
 
 
 def _muted() -> QColor:
@@ -49,85 +58,220 @@ def _muted() -> QColor:
                                         QApplication.palette().ColorRole.Text)
 
 
+class _RecentDelegate(QStyledItemDelegate):
+    """A recent project in two lines: the project name in bold with the last-opened date on the right, the folder
+    path dimmed and elided in the middle below it."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.theme = load_appearance()[0]
+
+    def sizeHint(self, option, index) -> QSize:
+        h = QFontMetrics(option.font).height()
+        return QSize(option.rect.width(), int(h * 2.6))
+
+    def paint(self, painter: QPainter, option, index) -> None:
+        t = self.theme
+        painter.save()
+        r = option.rect
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
+        if selected or hover:
+            painter.fillRect(r, QColor(t.selection if selected else t.floating))
+        if selected:
+            painter.fillRect(r.x(), r.y(), max(2, r.height() // 16), r.height(), QColor(t.accent))
+        fm = QFontMetrics(option.font)
+        pad = fm.height() // 2 + 4
+        inner = r.adjusted(pad, fm.height() // 4, -pad, -fm.height() // 4)
+        bold = QFont(option.font)
+        bold.setBold(True)
+        date = index.data(ROLE_DATE) or ""
+        date_w = fm.horizontalAdvance(date) + pad
+        top = inner.adjusted(0, 0, 0, -inner.height() // 2)
+        bottom = inner.adjusted(0, inner.height() // 2, 0, 0)
+        painter.setFont(bold)
+        painter.setPen(QColor(t.accent if selected else t.text))
+        name = QFontMetrics(bold).elidedText(index.data(ROLE_NAME) or "", Qt.TextElideMode.ElideRight,
+                                             max(0, top.width() - date_w))
+        painter.drawText(top, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, name)
+        painter.setFont(option.font)
+        painter.setPen(QColor(t.muted_text))
+        painter.drawText(top, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, date)
+        folder = fm.elidedText(index.data(ROLE_FOLDER) or "", Qt.TextElideMode.ElideMiddle, bottom.width())
+        painter.drawText(bottom, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, folder)
+        painter.restore()
+
+
+def _date_text(stamp: float | None) -> str:
+    if stamp is None:
+        return ""
+    return datetime.fromtimestamp(stamp).strftime("%Y-%m-%d %H:%M")
+
+
 class StartDialog(QDialog):
-    """New simulation, Open project... and the recent projects. ``choice`` after it closes:
-    ("new", None), ("open", None), ("recent", path) or None (closed)."""
+    """The welcome screen (D-142): two large buttons, "New simulation" and "Open project". "Open project" shows the
+    open panel: the recent projects (existing ones only; name, folder, last opened) and "Browse..." for any other
+    file. A double-click opens a project; the right-click menu offers "Open" and "Remove from list".
+    ``choice`` after it closes: ("new", None), ("open", None) (Browse: the window asks for the file),
+    ("recent", path) or None (closed)."""
 
     def __init__(self, recent: RecentProjects, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("VortexCFD")
         self.setModal(True)
+        self.setObjectName("startDialog")
         self.recent = recent
         self.choice: tuple[str, Path | None] | None = None
+        self.pages = QStackedWidget()
         layout = QVBoxLayout(self)
-        title = QLabel("Start")
-        title.setObjectName("sectionTitle")
-        layout.addWidget(title)
-        buttons = QHBoxLayout()
-        self.new_button = QPushButton("New simulation")
-        self.open_button = QPushButton("Open project…")
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.pages)
+
+        # -- welcome page --
+        welcome = QWidget()
+        w_layout = QVBoxLayout(welcome)
+        u = QFontMetrics(self.font()).height()
+        w_layout.setContentsMargins(3 * u, 3 * u, 3 * u, 3 * u)
+        w_layout.setSpacing(u)
+        title = QLabel("VortexCFD")
+        title.setObjectName("welcomeTitle")
+        subtitle = QLabel(f"CFD workflow on OpenFOAM v2606  \u00b7  version {__version__}")
+        subtitle.setObjectName("muted")
+        w_layout.addStretch(1)
+        w_layout.addWidget(title, 0, Qt.AlignmentFlag.AlignHCenter)
+        w_layout.addWidget(subtitle, 0, Qt.AlignmentFlag.AlignHCenter)
+        w_layout.addSpacing(2 * u)
+        tiles = QHBoxLayout()
+        tiles.setSpacing(2 * u)
+        self.new_button = self._tile("New simulation", "A new project from an analysis preset")
+        self.open_button = self._tile("Open project", "A recent project or any .vcfd file")
         self.new_button.clicked.connect(lambda: self._choose("new"))
-        self.open_button.clicked.connect(lambda: self._choose("open"))
-        buttons.addWidget(self.new_button)
-        buttons.addWidget(self.open_button)
-        buttons.addStretch(1)
-        layout.addLayout(buttons)
-        layout.addWidget(QLabel("Recent projects"))
+        self.open_button.clicked.connect(self.show_open_panel)
+        tiles.addStretch(1)
+        tiles.addWidget(self.new_button)
+        tiles.addWidget(self.open_button)
+        tiles.addStretch(1)
+        w_layout.addLayout(tiles)
+        w_layout.addStretch(2)
+        self.pages.addWidget(welcome)
+
+        # -- open panel --
+        panel = QWidget()
+        p_layout = QVBoxLayout(panel)
+        p_layout.setContentsMargins(2 * u, 2 * u, 2 * u, 2 * u)
+        p_layout.setSpacing(u)
+        head = QHBoxLayout()
+        self.back_button = QPushButton("\u2190 Back")
+        self.back_button.setObjectName("flatBtn")
+        self.back_button.clicked.connect(lambda: self.pages.setCurrentIndex(0))
+        heading = QLabel("Open project")
+        heading.setObjectName("pageTitle")
+        self.browse_button = QPushButton("Browse\u2026")
+        self.browse_button.setObjectName("primaryBtn")
+        self.browse_button.setToolTip("Open any VortexCFD project file (.vcfd)")
+        self.browse_button.clicked.connect(lambda: self._choose("open"))
+        head.addWidget(self.back_button)
+        head.addWidget(heading)
+        head.addStretch(1)
+        head.addWidget(self.browse_button)
+        p_layout.addLayout(head)
+        caption = QLabel("RECENT PROJECTS")
+        caption.setObjectName("subSection")
+        p_layout.addWidget(caption)
         self.list = QListWidget()
+        self.list.setObjectName("recentList")
+        self.list.setMouseTracking(True)
+        self.list.setItemDelegate(_RecentDelegate(self.list))
+        self.list.setUniformItemSizes(True)
+        self.list.itemDoubleClicked.connect(self._open_item)
         self.list.itemActivated.connect(self._open_item)
-        self.list.currentItemChanged.connect(lambda *_: self._update_buttons())
-        layout.addWidget(self.list, 1)
-        row = QHBoxLayout()
-        self.open_recent_button = QPushButton("Open")
-        self.remove_button = QPushButton("Remove from list")
-        self.open_recent_button.clicked.connect(lambda: self._open_item(self.list.currentItem()))
-        self.remove_button.clicked.connect(self.remove_selected)
-        row.addWidget(self.open_recent_button)
-        row.addWidget(self.remove_button)
-        row.addStretch(1)
-        layout.addLayout(row)
-        self.resize(520, 380)
+        self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list.customContextMenuRequested.connect(self._show_menu)
+        p_layout.addWidget(self.list, 1)
+        self.empty_label = QLabel("No recent projects. Use Browse\u2026 to open a .vcfd file.")
+        self.empty_label.setObjectName("muted")
+        p_layout.addWidget(self.empty_label)
+        self.hint_label = QLabel("Double-click a project to open it; right-click to remove it from the list.")
+        self.hint_label.setObjectName("muted")
+        p_layout.addWidget(self.hint_label)
+        self.pages.addWidget(panel)
+        self.resize(56 * u, 34 * u)
         self.fill()
+
+    def _tile(self, title: str, text: str) -> QPushButton:
+        """A large primary button: the action in bold over a one-line description."""
+        button = QPushButton()
+        button.setObjectName("startTile")
+        button.setAccessibleName(title)
+        button.setToolTip(text)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        inner = QVBoxLayout(button)
+        u = QFontMetrics(self.font()).height()
+        inner.setContentsMargins(u, u, u, u)
+        for object_name, words in (("tileTitle", title), ("tileText", text)):
+            label = QLabel(words)
+            label.setObjectName(object_name)
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            label.setWordWrap(True)
+            label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            inner.addWidget(label)
+        button.setFixedSize(20 * u, 6 * u)
+        return button
+
+    def show_open_panel(self) -> None:
+        self.fill()
+        self.pages.setCurrentIndex(1)
+        if self.list.count():
+            self.list.setFocus()
 
     def fill(self) -> None:
         self.list.clear()
-        for path, exists in self.recent.entries():
-            text = f"{path.stem}  —  {path}" + ("" if exists else f"  ({NOT_FOUND})")
-            item = QListWidgetItem(text)
+        for path in self.recent.existing():  # a missing project is not listed (D-141)
+            item = QListWidgetItem(path.stem)
             item.setData(ROLE_PATH, str(path))
-            item.setData(ROLE_EXISTS, exists)
+            item.setData(ROLE_NAME, path.stem)
+            item.setData(ROLE_FOLDER, str(path.parent))
+            item.setData(ROLE_DATE, _date_text(self.recent.opened_at(path)))
             item.setToolTip(str(path))
-            if not exists:
-                item.setForeground(_muted())
             self.list.addItem(item)
         if self.list.count():
             self.list.setCurrentRow(0)
-        self._update_buttons()
+        self.empty_label.setVisible(self.list.count() == 0)
+        self.hint_label.setVisible(self.list.count() > 0)
 
-    def items(self) -> list[tuple[str, bool]]:
-        """(text, enabled) of every listed recent project (for tests)."""
-        return [(self.list.item(i).text(), bool(self.list.item(i).data(ROLE_EXISTS)))
+    def items(self) -> list[tuple[str, str]]:
+        """(project name, folder) of every listed recent project (for tests)."""
+        return [(self.list.item(i).data(ROLE_NAME), self.list.item(i).data(ROLE_FOLDER))
                 for i in range(self.list.count())]
-
-    def _update_buttons(self) -> None:
-        item = self.list.currentItem()
-        self.open_recent_button.setEnabled(item is not None and bool(item.data(ROLE_EXISTS)))
-        self.remove_button.setEnabled(item is not None)
 
     def select(self, row: int) -> None:
         self.list.setCurrentRow(row)
 
-    def remove_selected(self) -> None:
-        item = self.list.currentItem()
-        if item is None:
-            return
+    def context_menu(self, item: QListWidgetItem) -> QMenu:
+        """The right-click menu of a recent project: Open, Remove from list."""
+        menu = QMenu(self)
+        menu.addAction("Open").triggered.connect(lambda: self._open_item(item))
+        menu.addAction("Remove from list").triggered.connect(lambda: self.remove_item(item))
+        return menu
+
+    def _show_menu(self, position) -> None:
+        item = self.list.itemAt(position)
+        if item is not None:
+            self.list.setCurrentItem(item)
+            self.context_menu(item).exec(self.list.viewport().mapToGlobal(position))
+
+    def remove_item(self, item: QListWidgetItem) -> None:
         self.recent.remove(Path(item.data(ROLE_PATH)))
         self.fill()
 
     def _open_item(self, item: QListWidgetItem | None) -> None:
-        if item is None or not item.data(ROLE_EXISTS):
-            return  # a missing file cannot be opened; it can only be removed
-        self.choice = ("recent", Path(item.data(ROLE_PATH)))
+        if item is None:
+            return
+        path = Path(item.data(ROLE_PATH))
+        if not path.is_file():  # removed since the list was filled
+            self.fill()
+            return
+        self.choice = ("recent", path)
         self.accept()
 
     def _choose(self, what: str) -> None:
