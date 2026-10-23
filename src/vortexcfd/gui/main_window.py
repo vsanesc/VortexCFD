@@ -774,6 +774,13 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         for name, act in getattr(self, "act_interface_sizes", {}).items():
             act.setChecked(name == current)
 
+    def detach_monitor(self, key: str):
+        """The residual chart ("residuals") or the convergence criteria ("criteria") in their own window (D-156)."""
+        return self.monitors.detach(key)
+
+    def dock_monitor(self, key: str) -> None:
+        self.monitors.dock(key)
+
     def toggle_properties_window(self) -> None:
         """Detach the properties panel into its own window, or dock it back into the left column (D-148)."""
         if self.properties_window is None:
@@ -859,7 +866,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         for splitter in (self._outer, self._inner, self._right_split, self._left_split):
             splitter.setHandleWidth(m.hit)
         self._apply_limits(m)
-        for root in (self, self.properties, self.monitors):  # the last two may be in their own windows
+        for root in (self, self.properties, self.monitors, *self.monitors.floating_windows()):  # some in own windows
             refresh_text_roles(root)
         if self.viewer is not None:
             self._style_viewer()
@@ -972,6 +979,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             self._apply_initial_sizes()  # needs the real size
             if self.viewer is not None:
                 self._style_viewer()  # axes viewport depends on the real viewer size
+            self.monitors.restore_windows()  # the residual chart and criteria windows as the user left them
 
     # -- refresh -------------------------------------------------------------
 
@@ -3458,6 +3466,8 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         for worker in (self.study_worker, self.sweep_worker):
             if worker.is_running():
                 worker.request_stop()
+        self.monitors.save_windows()  # remembered for the next start, then docked (D-156)
+        self.dock_properties()  # a window of its own would keep the application open
         if self.viewer is not None:
             self.viewer.close()  # release VTK interactor resources
         console_log.detach(self._console_handler)

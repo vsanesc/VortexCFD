@@ -68,6 +68,9 @@ tolerance 0.5 %), not on the residuals (chapter 7).
 
 Press **Run Solver**. The right column shows the convergence banner, the residuals and three report slots (click a
 slot to assign a quantity: Cd, Cl, Cm, y+, a probe ...). Stop ends the run cleanly (the last time step is written).
+The ↗ button in the residuals' header, and the one in the convergence criteria's header, opens each in its own
+window (on a second screen, for instance); they keep updating during the run, closing the window puts it back, and
+VortexCFD reopens them where you left them.
 
 This run met its criterion at iteration 259: Cd 0.188 as the mean of the last 100 iterations, oscillating by
 about ±5 % about it; the walls' average y+ 48 (target 50). The residuals stalled near 1e-2, as expected for this

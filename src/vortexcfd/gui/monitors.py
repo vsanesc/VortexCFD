@@ -3,8 +3,8 @@
 import math
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QActionGroup, QColor, QPainter, QPen, QPolygonF
+from PySide6.QtCore import QByteArray, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QActionGroup, QColor, QGuiApplication, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
@@ -24,10 +24,20 @@ from vortexcfd.foam.logparse import TimeStep
 from vortexcfd.foam.postprocessing import ReportMonitor
 from vortexcfd.foam.residuals import ResidualHistory
 from vortexcfd.gui.icons import make_glyph
-from vortexcfd.gui.theme import DARK, Metrics, Theme, repolish, residual_style, role_font, set_text_role
+from vortexcfd.gui.panel_widgets import FloatingPanel
+from vortexcfd.gui.settings_store import settings
+from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, repolish, residual_style, role_font, set_text_role
 from vortexcfd.gui.widgets import SectionHeader
 
 EMPTY = "—"
+
+
+def on_a_screen(frame: QRect) -> bool:
+    """Whether a window at ``frame`` (saved with its geometry) would open on one of the screens there are now: the
+    strip along its top (the title bar) inside a screen's available area. Qt's restoreGeometry would move an
+    off-screen window back silently, so the saved rectangle is checked first."""
+    top = QRect(frame.left(), frame.top(), max(frame.width(), 1), max(min(frame.height(), 40), 1))
+    return any(screen.availableGeometry().intersects(top) for screen in QGuiApplication.screens())
 # Decades shown on the log10 axis without data: 1e0 down to 1e-6 (data can widen the range).
 DECADES = tuple(range(0, -7, -1))
 REFRESH_MS = 250  # while a run is live, the chart and the report values refresh at most this often
@@ -461,7 +471,14 @@ class ConvergencePanel(QWidget):
         self.warnings: list[QLabel] = []
         self._warning_box = QVBoxLayout()
         self._warning_box.setContentsMargins(0, 0, 0, 0)
+        self.has_content = False
+        self.always_visible = False  # in its own window (D-156): shown even with nothing to show
+        self.empty_label = QLabel(NO_CRITERIA)
+        self.empty_label.setObjectName("muted")
+        self.empty_label.setWordWrap(True)
+        self.empty_label.setVisible(False)
         self._layout = QVBoxLayout(self)
+        self._layout.addWidget(self.empty_label)
         self._layout.addWidget(self.banner)
         self._layout.addWidget(self._grid_host)
         self._layout.addLayout(self._warning_box)
@@ -515,7 +532,16 @@ class ConvergencePanel(QWidget):
             set_state(label, "warn")
             self._warning_box.addWidget(label)
             self.warnings.append(label)
-        self.setVisible(has_criteria or bool(warnings))
+        self.has_content = has_criteria or bool(warnings)
+        self._show()
+
+    def set_always_visible(self, on: bool) -> None:
+        self.always_visible = on
+        self._show()
+
+    def _show(self) -> None:
+        self.empty_label.setVisible(not self.has_content)
+        self.setVisible(self.has_content or self.always_visible)
 
     @property
     def statuses_text(self) -> list[tuple[str, str, str, str]]:
@@ -531,6 +557,19 @@ class ConvergencePanel(QWidget):
             if widget is not None:
                 set_text_role(widget, "data_small")
         set_text_role(self.banner, "body")
+        set_text_role(self.empty_label, "body")
+
+
+NO_CRITERIA = "No stopping criteria and no warnings (set the criteria under Solver > Stopping criteria)."
+# The parts of the column that open in their own window (D-156): key -> (window title, detach tip, dock tip).
+DETACHABLE = {
+    "residuals": ("Residuals", "Detach the residual chart into its own window (it keeps updating live; close the "
+                  "window or click again to dock it)", "Dock the residual chart back into the main window"),
+    "criteria": ("Convergence criteria", "Detach the convergence criteria into their own window (they keep "
+                 "updating live; close the window or click again to dock them)",
+                 "Dock the convergence criteria back into the main window"),
+}
+WINDOWS_KEY = "monitors/windows"  # per user: <key>/detached, <key>/geometry
 
 
 def stage_text(stage: int, switch: int | None = None, reason: str = "") -> str:
@@ -565,15 +604,44 @@ class MonitorsPanel(QWidget):
         # The turbulence stage of a two-stage run (D-126): "" (hidden) for a single-stage run.
         self.stage_label = QLabel()
         self.stage_label.setObjectName("muted")
+        self.stage_label.setWordWrap(True)
         self.stage_label.setVisible(False)
-        layout = QVBoxLayout(self)
+        # The detachable parts (D-156): the residual chart (with the stage line) and the convergence criteria.
+        self.sections: dict[str, QWidget] = {}
+        residuals = QWidget()
+        box = QVBoxLayout(residuals)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(0)
+        box.addWidget(self.stage_label)
+        box.addWidget(self.chart, 1)
+        self.sections["residuals"] = residuals
+        self.criteria_header = SectionHeader("Convergence criteria")
+        criteria = QWidget()
+        box = QVBoxLayout(criteria)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(0)
+        box.addWidget(self.criteria_header)
+        box.addWidget(self.convergence)
+        self.sections["criteria"] = criteria
+        self.detach_buttons: dict[str, QToolButton] = {}
+        for key, header in (("residuals", self.header), ("criteria", self.criteria_header)):
+            button = QToolButton()
+            button.setObjectName("helpBtn")
+            button.setText("\u2197")
+            button.setToolTip(DETACHABLE[key][1])
+            button.clicked.connect(lambda _=False, k=key: self.toggle_window(k))
+            header.row.addWidget(button)
+            self.detach_buttons[key] = button
+        self.windows: dict[str, FloatingPanel] = {}
+        self._layout = layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self.header)
-        layout.addWidget(self.stage_label)
-        layout.addWidget(self.chart, 1)
-        layout.addWidget(self.convergence)
+        layout.addWidget(residuals, 1)
+        layout.addWidget(criteria)
         layout.addWidget(self.kpis)
+        self.convergence.setVisible(False)
+        self._sync_criteria_section()
         self.history = ResidualHistory()
         self.reports: ReportMonitor | None = None
         # The criteria the shown run uses, and its outcome: (state, stopped_by, iterations);
@@ -711,9 +779,108 @@ class MonitorsPanel(QWidget):
             if balance is not None and balance[2] is not None and abs(balance[2]) > MASS_WARNING:
                 warnings.append(mass_warning(balance[2]))
         self.convergence.set_view(has, banner, statuses, warnings)
+        self._sync_criteria_section()
+
+    # -- the residual chart and the criteria in their own windows (D-156) -----------------------------------------
+
+    def _sync_criteria_section(self) -> None:
+        """The criteria's place in the column: shown when it has something to show and is docked."""
+        if "criteria" not in self.windows:
+            self.sections["criteria"].setVisible(self.convergence.has_content)
+
+    def is_detached(self, key: str) -> bool:
+        return key in self.windows
+
+    def toggle_window(self, key: str) -> None:
+        if key in self.windows:
+            self.dock(key)
+        else:
+            self.detach(key)
+
+    def detach(self, key: str, geometry: QByteArray | None = None) -> FloatingPanel:
+        """``key`` ("residuals" or "criteria") into its own window: the same widgets, so live updates go on."""
+        if key in self.windows:
+            return self.windows[key]
+        section = self.sections[key]
+        window = FloatingPanel(DETACHABLE[key][0], lambda k=key: self.dock(k))
+        window.setWindowIcon(self.window().windowIcon())
+        u = metrics().u
+        width, height = max(section.width(), 24 * u), max(section.height(), (20 if key == "residuals" else 12) * u)
+        if key == "criteria":
+            self.convergence.set_always_visible(True)
+            self.criteria_header.hide()  # the window's title says it
+        window.take(section)
+        section.show()
+        self.windows[key] = window
+        window.resize(width, height)
+        if geometry is not None:
+            window.restoreGeometry(geometry)
+        window.show()
+        self.detach_buttons[key].setToolTip(DETACHABLE[key][2])
+        self._save_window(key)
+        return window
+
+    def dock(self, key: str, remember: bool = True) -> None:
+        """Back into the column (also when its window is closed). ``remember`` False: the state is not saved (the
+        application is closing)."""
+        window = self.windows.pop(key, None)
+        if window is None:
+            return
+        if remember:
+            self._save_window(key, window)
+        section = self.sections[key]
+        index = 1 if key == "residuals" else 2
+        window.release()
+        self._layout.insertWidget(index, section, 1 if key == "residuals" else 0)
+        section.show()
+        if key == "criteria":
+            self.criteria_header.show()
+            self.convergence.set_always_visible(False)
+            self._sync_criteria_section()
+        window.close()
+        window.deleteLater()
+        self.detach_buttons[key].setToolTip(DETACHABLE[key][1])
+        if remember:
+            s = settings()
+            s.setValue(f"{WINDOWS_KEY}/{key}/detached", False)
+            s.sync()
+
+    def _save_window(self, key: str, window: FloatingPanel | None = None) -> None:
+        window = window or self.windows.get(key)
+        s = settings()
+        s.setValue(f"{WINDOWS_KEY}/{key}/detached", key in self.windows)
+        if window is not None:
+            s.setValue(f"{WINDOWS_KEY}/{key}/geometry", window.saveGeometry())
+            s.setValue(f"{WINDOWS_KEY}/{key}/frame", window.frameGeometry())
+        s.sync()
+
+    def save_windows(self) -> None:
+        """At exit: each window's state and geometry remembered, then the windows closed (docked, not saved so)."""
+        for key in list(self.windows):
+            self._save_window(key)
+            self.dock(key, remember=False)
+
+    def restore_windows(self) -> None:
+        """The windows as the user left them; a window whose saved place is on no screen now stays docked."""
+        s = settings()
+        for key in DETACHABLE:
+            if str(s.value(f"{WINDOWS_KEY}/{key}/detached", False)).lower() not in ("true", "1"):
+                continue
+            geometry = s.value(f"{WINDOWS_KEY}/{key}/geometry")
+            frame = s.value(f"{WINDOWS_KEY}/{key}/frame")
+            if not isinstance(geometry, QByteArray) or not isinstance(frame, QRect) or not on_a_screen(frame):
+                s.setValue(f"{WINDOWS_KEY}/{key}/detached", False)
+                continue
+            self.detach(key, geometry)
+
+    def floating_windows(self) -> list[FloatingPanel]:
+        return list(self.windows.values())
 
     def configure(self, m: Metrics, t: Theme) -> None:
         self.header.configure(m)
+        self.criteria_header.configure(m)
+        for button in self.detach_buttons.values():
+            button.setFixedSize(m.u, m.u)
         self.chart.configure(m, t)
         self.convergence.configure(m, t)
         self.kpis.configure(m, t)
