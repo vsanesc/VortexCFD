@@ -29,7 +29,8 @@ from vortexcfd.workflow import report, solving
 from vortexcfd.workflow.meshing import inputs_hash
 
 DATA = Path(__file__).parent / "data"
-SECTIONS = ["Project and set-up", "Geometry", "Mesh report", "Convergence", "Forces", "Mesh study", "Polar sweep",
+SECTIONS = ["Project and set-up", "Geometry", "Mesh report", "Convergence", "Forces", "Mesh independence study",
+            "Polar sweep",
             "Line plots", "Saved views"]
 
 
@@ -107,7 +108,7 @@ def test_a_report_with_every_section(tmp_path: Path) -> None:
     assert checker.h2 == SECTIONS
     # no section with data is left out (the study, sweep and line plots are tested in tests/test_report_tables.py)
     assert [n for n in re.findall(r'<p class="note">(No [^<]*)</p>', text)] == [
-        "No mesh study has been run.", "No polar sweep has been run.", "No line plots (Results &gt; Line plot)."]
+        "No mesh independence study has been run.", "No polar sweep has been run.", "No line plots (Results &gt; Line plot)."]
     assert checker.links == []  # self-contained
     assert len(checker.images) == 2  # the residual plot and the view
     for src in checker.images:
@@ -127,7 +128,7 @@ def test_empty_sections_are_left_out_with_a_note(tmp_path: Path) -> None:
     checker = _check(text)
     assert checker.h2 == SECTIONS
     for note in ("No part has been imported.", "No mesh has been generated.", "The solver has not been run.",
-                 "No solver results.", "No mesh study has been run.", "No polar sweep has been run.",
+                 "No solver results.", "No mesh independence study has been run.", "No polar sweep has been run.",
                  "No line plots (Results &gt; Line plot).", "No saved views (Results &gt; Save view)."):
         assert f'<p class="note">{note}</p>' in text
     assert checker.images == []

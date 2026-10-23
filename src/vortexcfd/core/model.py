@@ -991,9 +991,10 @@ REPORT_SECTIONS = {
     "mesh": "Mesh report",
     "convergence": "Convergence",
     "reports": "Forces / internal-flow reports",
-    "study": "Mesh study",
+    "study": "Mesh independence study",
     "sweep": "Polar sweep",
     "line_plots": "Line plots",
+    "comparison": "Comparison (the snapshots chosen in the Compare tab)",
     "views": "Saved views",
 }
 

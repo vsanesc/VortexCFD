@@ -58,6 +58,11 @@ class Dialogs:
         )
         return answer == QMessageBox.StandardButton.Yes
 
+    def ask_snapshot_name(self, suggested: str) -> str | None:
+        """The name of a results snapshot (D-149), or None (cancelled)."""
+        text, ok = QInputDialog.getText(self.parent, "Save results snapshot", "Snapshot name:", text=suggested)
+        return text if ok and text.strip() else None
+
     def confirm(self, title: str, text: str) -> bool:
         """A yes / no question (No is the default)."""
         answer = QMessageBox.question(self.parent, title, text,

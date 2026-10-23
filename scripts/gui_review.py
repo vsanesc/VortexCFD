@@ -194,8 +194,22 @@ def shoot(out: Path, screens: list[str]) -> None:
             if tab is None:
                 log.warning("no Compare tab")
                 continue
+            from vortexcfd.workflow import snapshots
+
+            # two snapshots of the same run, the second after a set-up change (the values are the same run's)
+            for name in ("run A", "run B (curvature 1)"):
+                if name.startswith("run B"):
+                    window.project.update_mesh(curvature_levels=1)
+                snap = snapshots.capture(window.project, name)
+                snapshots.save(window.project, snap, overwrite=True)
             tab.click()
+            view = window.compare_view
+            view.check(view.keys()[1:3])
             _grab(app, window, out / "compare.png")
+            view.tabs.setCurrentIndex(1)
+            _grab(app, window, out / "compare_values.png")
+            view.tabs.setCurrentIndex(2)
+            _grab(app, window, out / "compare_setup.png")
             window.scene_tab.click()
     if window is not None:
         window.close()

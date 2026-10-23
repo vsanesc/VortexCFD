@@ -60,7 +60,7 @@ class MeshStudyWindow(QDialog):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Mesh study")
+        self.setWindowTitle("Mesh independence study")
         self.setModal(False)
         self.record: StudyRecord | None = None
         self._theme = DARK

@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QSplitterHandle,
+    QStackedWidget,
     QStatusBar,
     QStyle,
     QToolButton,
@@ -103,6 +104,7 @@ from vortexcfd.workflow import solving
 from vortexcfd.gui.solver_worker import SolverWorker
 from vortexcfd.gui.study_control import StudyControlMixin
 from vortexcfd.gui.tree_actions import TreeActionsMixin
+from vortexcfd.gui.compare_control import CompareControlMixin
 from vortexcfd.core.model import BOUNDARY_KIND_LABELS
 from vortexcfd.gui.panel_widgets import FloatingPanel
 from vortexcfd.foam.results import latest_result_time
@@ -312,7 +314,7 @@ class _Splitter(QSplitter):
         return _Handle(self.orientation(), self)
 
 
-class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
+class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMainWindow):
     """Top bar, left column (tree + properties), scene, monitors and console.
 
     All changes go through the Project edit API. Only the GUI thread may call Project methods
@@ -499,6 +501,14 @@ class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
             self._tab_group.addButton(button)
             button.clicked.connect(lambda _=False, m=mode: self._set_scene_mode(m))
             tab_row.addWidget(button)
+        self.compare_tab = QPushButton("Compare")  # results snapshots side by side (D-149)
+        self.compare_tab.setObjectName("sceneTabBtn")
+        self.compare_tab.setCheckable(True)
+        self.compare_tab.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.compare_tab.setToolTip("Compare runs: results snapshots of this and other projects")
+        self._tab_group.addButton(self.compare_tab)
+        self.compare_tab.clicked.connect(lambda _=False: self.show_compare())
+        tab_row.addWidget(self.compare_tab)
         self.scene_tab.setChecked(True)
         tab_row.addStretch(1)
         # Section-plane controls of the mesh scene (hidden until a mesh is shown).
@@ -591,7 +601,12 @@ class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
             canvas.setObjectName("canvas")
             canvas.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._canvas = canvas
-        center_layout.addWidget(canvas, 1)
+        self._init_compare()
+        self._center_stack = QStackedWidget()  # the viewer, or the Compare tab (D-149)
+        self._center_stack.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        self._center_stack.addWidget(canvas)
+        self._center_stack.addWidget(self.compare_view)
+        center_layout.addWidget(self._center_stack, 1)
 
         # -- right: monitors, bottom: console ----------------------------------------
         self.monitors = MonitorsPanel()
@@ -1380,7 +1395,7 @@ class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
                 self.viewer.camera = camera  # after the mode: entering a scene frames the camera
                 self.viewer.render()
         try:
-            path = write_report(self._project, images)
+            path = write_report(self._project, images, comparison=self.compare_view.selected_snapshots())
         except (OSError, ValueError) as exc:
             self.show_message(f"Could not write the report: {exc}", "error")
             return None
@@ -1959,6 +1974,8 @@ class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
     def _set_scene_mode(self, mode: str) -> None:
         """Switch between the geometry, mesh and results scenes (tab bar)."""
         self._scene_mode = mode
+        self._center_stack.setCurrentWidget(self._canvas)  # back from the Compare tab
+        self.compare_tab.setChecked(False)
         self.scene_tab.setChecked(mode == "geometry")
         self.mesh_tab.setChecked(mode == "mesh")
         self.results_tab.setChecked(mode == "results")

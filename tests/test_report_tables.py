@@ -94,8 +94,8 @@ def test_omitted_sections_are_not_in_the_report(tmp_path: Path) -> None:
     assert Project.open(project.path).sim.results.report_omit == ["mesh", "line_plots"]
     with pytest.raises(ValueError):
         project.set_report_omit(["nonsense"])
-    assert list(REPORT_SECTIONS) == ["setup", "geometry", "mesh", "convergence", "reports", "study", "sweep",
-                                     "line_plots", "views"]
+    assert list(REPORT_SECTIONS) == ["setup", "geometry", "mesh", "convergence", "reports", "study", "sweep",  # D-149
+                                     "line_plots", "comparison", "views"]
 
 
 def test_a_v20_project_migrates_to_v21() -> None:

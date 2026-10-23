@@ -47,6 +47,8 @@ class FakeDialogs:
         self.openfoam_answer = None  # show_openfoam's answer: (check, bashrc to remember) or None
         self.openfoam_shown: list = []
         self.confirm_answer = True  # confirm's answer
+        self.snapshot_name = None  # ask_snapshot_name's answer
+        self.snapshot_names_asked: list = []
         self.confirmed: list = []
         self.texts: list = []  # show_text calls: (title, text)
 
@@ -63,6 +65,10 @@ class FakeDialogs:
 
     def show_error(self, title, text):
         self.errors.append((title, text))
+
+    def ask_snapshot_name(self, suggested):
+        self.snapshot_names_asked.append(suggested)
+        return self.snapshot_name
 
     def confirm(self, title, text):
         self.confirmed.append((title, text))
