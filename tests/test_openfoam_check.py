@@ -88,7 +88,7 @@ def test_activate_points_the_runner_at_the_bashrc(tmp_path: Path, monkeypatch) -
 
 def test_the_command_line_needs_no_qt(tmp_path: Path, capsys, monkeypatch) -> None:
     assert cli.main(["--version"]) == 0
-    assert capsys.readouterr().out == f"vortexcfd {__version__}\n" and __version__ == "1.0.0rc1"
+    assert capsys.readouterr().out == f"vortexcfd {__version__}\n" and __version__ == "1.0.0"
     code = ("import sys; from vortexcfd.cli import main; main(['--version']); "
             "print('qt' if any(m.startswith('PySide6') for m in sys.modules) else 'no qt')")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout

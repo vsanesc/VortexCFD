@@ -1,4 +1,4 @@
-# Pinned runtime dependencies of VortexCFD 1.0.0rc1 (scripts/install.sh, D-137): the versions of the development
+# Pinned runtime dependencies of VortexCFD 1.0.0 (scripts/install.sh, D-137): the versions of the development
 # environment (.venv, 2026-10-22), generated with `.venv/bin/pip freeze --exclude-editable` minus the test tools
 # (pytest, pytest-qt, pytest-xdist, iniconfig, pluggy, execnet). Licences: THIRD_PARTY_LICENSES.md.
 # Qt: PySide6_Essentials only (D-139): the app uses QtCore, QtGui, QtWidgets, and through pyvistaqt, VTK and matplotlib

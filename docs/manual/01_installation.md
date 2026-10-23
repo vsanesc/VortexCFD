@@ -38,7 +38,7 @@ It:
    code 3);
 2. creates a virtual environment in `~/.local/share/vortexcfd/venv` (another place: `--prefix DIR`);
 3. installs the pinned dependencies (`scripts/requirements-v1.txt`) and VortexCFD;
-4. checks that everything imports and prints `vortexcfd 1.0.0rc1`;
+4. checks that everything imports and prints `vortexcfd 1.0.0`;
 5. writes the command `~/.local/bin/vortexcfd` and a desktop entry, so WSLg lists VortexCFD in the Windows Start
    menu (under your Ubuntu distribution);
 6. runs `vortexcfd --check-openfoam`.
