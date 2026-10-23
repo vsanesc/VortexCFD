@@ -1,8 +1,10 @@
 # VortexCFD v1 readiness
 
-Checklist against the v1 definition in docs/PLAN.md ("v1", owner, 2026-10-22). Version: 1.0.0rc1
-(`vortexcfd.__version__`). Prepared on task/w4-w5, 2026-10-23; updated on task/rc1-polish (owner review of w4-w5). Each item: its evidence (decisions, validation
-records, tests, manual chapters) and what is still open.
+Checklist against the v1 definition in docs/PLAN.md ("v1", owner, 2026-10-22). Version: **1.0.0**
+(`vortexcfd.__version__`; CHANGELOG.md). Prepared on task/w4-w5, 2026-10-23; updated on task/rc1-polish and
+task/release-1.0.0. Each item: its evidence (decisions, validation records, tests, manual chapters).
+
+**State: every item is done. v1.0.0 is ready to tag; only the owner's last decisions remain (below).**
 
 ## The definition, item by item
 
@@ -21,25 +23,33 @@ compressible flow); the Ahmed body's drag over-predicted by about 14 % with stea
 indicative (D-127 stays Proposed, W3 closed by the owner's closure rule); the flat plate's Cf 3.3 % low,
 unexplained; one layer specification for all walls; no restart from the latest time.
 
-## Done by the owner
+## Done
 
-- **Install on a clean machine**: scripts/install.sh run in a clean WSL2 Ubuntu 24.04 distribution; it worked
-  (owner review of w4-w5). D-136 and D-137 accepted; QUESTIONS 215 and 216 accepted for v1, 217 closed as fixed, 212
-  kept as a note in the manual (5.4: images and reports made before the camera fix should be made again).
+- **Install on a clean machine**: scripts/install.sh run by the owner in a clean WSL2 Ubuntu 24.04 distribution; it
+  worked (owner review of w4-w5).
+- **Owner reviews**: D-136 and D-137 accepted (w4-w5); D-138, D-139 and D-140 accepted (rc1-polish); QUESTIONS 215,
+  216, 218, 219, 221, 222 accepted, 213, 217 and 220 closed (220: a configured ParaView path that does not exist
+  falls back to detection, task release-1.0.0), 212 kept as a note in the manual (5.4).
+- **Version 1.0.0** in its single source, `src/vortexcfd/__init__.py` (task release-1.0.0).
+- **CHANGELOG.md** for 1.0.0: features by area, the validation table, the known limitations, the requirements.
+- **The manual** (docs/manual/, 8 chapters) up to date with the release.
 
-## What remains before v1.0.0
+Open, not blocking the tag: **QUESTIONS 214**, the WSLg desktop entry in the Windows Start menu not yet seen on a
+real display (agents never use it).
 
-1. **The decision on a public repository**, and with it the GitHub settings (LICENSE and THIRD_PARTY_LICENSES.md are
-   in place).
-2. **The licence review sign-off** of THIRD_PARTY_LICENSES.md (prepared: no incompatible licence found; to confirm:
-   foamlib GPL-3.0-only, pymeshfix AGPL-3.0, the MPL-2.0 files' "Incompatible With Secondary Licenses" notices not
-   checked; Qt WebEngine and Qt Pdf are no longer installed, D-139).
-3. **Tagging v1.0.0** (the version set once in `vortexcfd.__version__`, then the tag), after the full suite
-   (scripts/ship.sh: the slow, long and validation tests are not run by agents).
+## The owner's last decisions
 
-Also open, not blocking:
+1. **Whether the repository becomes public**, and with it the GitHub settings (LICENSE and THIRD_PARTY_LICENSES.md
+   are in place).
+2. **The licence sign-off** of THIRD_PARTY_LICENSES.md (prepared: no incompatible licence found; to confirm: foamlib
+   GPL-3.0-only, pymeshfix AGPL-3.0, the MPL-2.0 files' "Incompatible With Secondary Licenses" notices not checked;
+   Qt WebEngine and Qt Pdf are no longer installed, D-139).
 
-- **QUESTIONS 214**: the WSLg desktop entry in the Windows Start menu has not been seen; for the owner to check on a
-  real display (agents never use it).
-- Review of this task's Proposed decisions: D-138 (ParaView optional), D-139 (PySide6-Essentials), D-140 (the 2D view
-  convention, [NUMERICS-REVIEW]); QUESTIONS 218 to 222.
+## Tagging v1.0.0 (the owner)
+
+After `scripts/ship.sh` has published task/release-1.0.0 (it runs the full suite, with the slow, long and
+validation tests agents do not run), on the updated main:
+
+```bash
+git switch main && git pull --ff-only && git tag -a v1.0.0 -m "VortexCFD 1.0.0" && git push origin v1.0.0
+```
