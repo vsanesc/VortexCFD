@@ -11,12 +11,13 @@ from pathlib import Path
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -36,13 +37,21 @@ from PySide6.QtWidgets import (
 
 from vortexcfd import __version__
 
-from vortexcfd.core.presets import BUILTIN_PRESETS, Preset, PresetError, PresetStore
-from vortexcfd.core.project import check_new_project_folder
+from vortexcfd.core.presets import (
+    BUILTIN_PRESETS,
+    Preset,
+    PresetError,
+    PresetStore,
+    preset_description,
+    preset_summary,
+)
+from vortexcfd.core.project import check_new_project_folder, validate_project_name
 from vortexcfd.core.model import DIMENSION_LABELS, DIMENSIONS
 from vortexcfd.foam.parallel import physical_cores, recommended_cores
 from vortexcfd.gui.recent import RecentProjects
 from vortexcfd.gui.settings_store import settings
-from vortexcfd.gui.theme import load_appearance
+from vortexcfd.gui.theme import load_appearance, metrics
+from vortexcfd.gui.widgets import set_invalid
 
 LAST_PARENT_KEY = "new/parent"
 ROLE_PATH = Qt.ItemDataRole.UserRole
@@ -296,17 +305,97 @@ def default_cores(preset: Preset, physical: int) -> int:
     return recommended_cores(preset.mesh.background_cells_target, physical)
 
 
-# What each analysis type creates (D-077, D-078, D-129).
-ANALYSIS_DESCRIPTIONS = {
-    "external": "External flow: a far-field domain is generated around the parts.",
-    "empty": "Empty: nothing is generated; the domain is a Generate domain operation.",
-    "internal": "Internal flow: no domain; the fluid is the inside of the closed geometry, each surface patch an "
-                "inlet, an outlet or a wall.",
-}
+class _PresetDelegate(QStyledItemDelegate):
+    """A preset in the New simulation list: its name in bold over its one-line description (dimmed)."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.theme = load_appearance()[0]
+
+    def sizeHint(self, option, index) -> QSize:
+        h = QFontMetrics(option.font).height()
+        return QSize(option.rect.width(), int(h * 2.5))
+
+    def paint(self, painter: QPainter, option, index) -> None:
+        t = self.theme
+        painter.save()
+        r = option.rect
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        if selected or option.state & QStyle.StateFlag.State_MouseOver:
+            painter.fillRect(r, QColor(t.selection if selected else t.floating))
+        if selected:
+            painter.fillRect(r.x(), r.y(), max(2, r.height() // 16), r.height(), QColor(t.accent))
+        fm = QFontMetrics(option.font)
+        pad = fm.height() // 2 + 4
+        inner = r.adjusted(pad, fm.height() // 4, -pad, -fm.height() // 4)
+        top = inner.adjusted(0, 0, 0, -inner.height() // 2)
+        bottom = inner.adjusted(0, inner.height() // 2, 0, 0)
+        bold = QFont(option.font)
+        bold.setBold(True)
+        painter.setFont(bold)
+        painter.setPen(QColor(t.accent if selected else t.text))
+        painter.drawText(top, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, index.data(ROLE_NAME) or "")
+        painter.setFont(option.font)
+        painter.setPen(QColor(t.muted_text))
+        text = fm.elidedText(index.data(ROLE_FOLDER) or "", Qt.TextElideMode.ElideRight, bottom.width())
+        painter.drawText(bottom, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text)
+        painter.restore()
+
+
+class _ElidedLabel(QLabel):
+    """A one-line label that elides its text in the middle to fit (the full text in ``full_text`` and the tooltip)."""
+
+    def __init__(self, text: str = "") -> None:
+        super().__init__()
+        self.full_text = ""
+        self.setMinimumWidth(1)
+        self.setText(text)
+
+    def setText(self, text: str) -> None:
+        self.full_text = text
+        self.setToolTip(text)
+        self._elide()
+
+    def text(self) -> str:
+        return self.full_text
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self) -> None:
+        width = self.width() if self.width() > 1 else 10_000
+        QLabel.setText(self, self.fontMetrics().elidedText(self.full_text, Qt.TextElideMode.ElideMiddle, width))
+
+
+def _label(text: str, top: bool = False) -> QLabel:
+    """A form label as tall as an input and centred on it (or at the top of a tall field), right-aligned."""
+    label = QLabel(text)
+    label.setMinimumHeight(metrics().field)
+    vertical = Qt.AlignmentFlag.AlignTop if top else Qt.AlignmentFlag.AlignVCenter
+    label.setAlignment(Qt.AlignmentFlag.AlignRight | vertical)
+    if top:
+        label.setContentsMargins(0, metrics().s2, 0, 0)
+    return label
+
+
+def _section(title: str) -> QLabel:
+    label = QLabel(title.upper())
+    label.setObjectName("dialogSection")
+    return label
+
+
+CORES_TOOLTIP = ("Solver processes run at once (MPI). The maximum is the number of physical cores of this "
+                 "machine ({n}); the default is the recommendation for the preset's cell count (D-064).")
+DIMENSION_TOOLTIP = ("3D: the parts as they are. 2D section: the parts' section in the x-z plane meshed as one "
+                     "cell across the span (y), with empty front and back; forces per unit span. The preset "
+                     "sets the default.")
 
 
 class NewSimulationDialog(QDialog):
-    """Project name, parent folder, analysis preset and parallel run settings."""
+    """Project name, parent folder, the analysis preset (a list with descriptions), the dimension and the parallel
+    run settings, in three sections (D-143). Invalid input is shown on the field itself (a highlighted border and
+    the reason as its tooltip); Create stays disabled until the input is valid."""
 
     def __init__(self, store: PresetStore, parent: QWidget | None = None, physical: int | None = None) -> None:
         super().__init__(parent)
@@ -315,75 +404,164 @@ class NewSimulationDialog(QDialog):
         self.physical = physical or physical_cores()
         self.presets: list[Preset] = list(BUILTIN_PRESETS) + store.presets()
         self.result_spec: NewSimulationSpec | None = None
-        form = QFormLayout()
+        u = QFontMetrics(self.font()).height()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(2 * u, 2 * u, 2 * u, 2 * u)
+        layout.setSpacing(u // 2)
+
+        def form() -> QFormLayout:
+            f = QFormLayout()
+            f.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            f.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+            f.setHorizontalSpacing(u)
+            f.setVerticalSpacing(u // 2)
+            return f
+
+        # -- Project --
+        layout.addWidget(_section("Project"))
+        project = form()
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("wing_study")
-        form.addRow("Project name", self.name_edit)
+        self.name_edit.setToolTip(NAME_TOOLTIP)
+        project.addRow(_label("Project name"), self.name_edit)
         folder_row = QHBoxLayout()
         self.parent_edit = QLineEdit(str(settings().value(LAST_PARENT_KEY, str(Path.home()))))
+        self.parent_edit.setToolTip(PARENT_TOOLTIP)
         self.browse_button = QPushButton("Browse…")
         self.browse_button.clicked.connect(self._browse)
         folder_row.addWidget(self.parent_edit, 1)
         folder_row.addWidget(self.browse_button)
-        form.addRow("Parent folder", folder_row)
-        self.preset_combo = QComboBox()
+        project.addRow(_label("Parent folder"), folder_row)
+        self.folder_label = _ElidedLabel()  # one line: a wrapped label overlaps the rows below in a form
+        self.folder_label.setObjectName("muted")
+        project.addRow("", self.folder_label)
+        layout.addLayout(project)
+        layout.addSpacing(u // 2)
+
+        # -- Analysis --
+        layout.addWidget(_section("Analysis"))
+        analysis = form()
+        self.preset_list = QListWidget()
+        self.preset_list.setObjectName("presetList")
+        self.preset_list.setItemDelegate(_PresetDelegate(self.preset_list))
+        self.preset_list.setMouseTracking(True)
         for i, preset in enumerate(self.presets):
             builtin = i < len(BUILTIN_PRESETS)
-            self.preset_combo.addItem(preset.name if builtin else f"{preset.name} (user)")
-        form.addRow("Analysis preset", self.preset_combo)
-        self.analysis_label = QLabel()  # the preset's analysis type (D-077, D-129)
-        self.analysis_label.setWordWrap(True)
-        form.addRow("Analysis type", self.analysis_label)
-        self.dimension_combo = QComboBox()
+            item = QListWidgetItem(preset.name if builtin else f"{preset.name} (user)")
+            item.setData(ROLE_NAME, item.text())
+            item.setData(ROLE_FOLDER, preset_summary(preset))
+            item.setToolTip(preset_description(preset))
+            self.preset_list.addItem(item)
+        self._fit_preset_list()
+        self.description_label = QLabel()  # the selected preset's full description
+        self.description_label.setObjectName("descriptionBox")
+        self.description_label.setWordWrap(True)
+        preset_box = QVBoxLayout()
+        preset_box.setSpacing(u // 2)
+        preset_box.addWidget(self.preset_list)
+        preset_box.addWidget(self.description_label)
+        analysis.addRow(_label("Preset", top=True), preset_box)
+        dim_row = QHBoxLayout()
+        dim_row.setSpacing(0)
+        self.dimension_group = QButtonGroup(self)
+        self.dimension_buttons: dict[str, QPushButton] = {}
+        segmented = QFrame()
+        segmented.setObjectName("segmented")
+        seg_layout = QHBoxLayout(segmented)
+        seg_layout.setContentsMargins(1, 1, 1, 1)
+        seg_layout.setSpacing(0)
         for key in DIMENSIONS:
-            self.dimension_combo.addItem(DIMENSION_LABELS[key], key)
-        self.dimension_combo.setToolTip("2D section: the parts' section in the x-z plane meshed as one cell across "
-                                        "the span (y), with empty front and back; forces per unit span")
-        form.addRow("Analysis", self.dimension_combo)
+            button = QPushButton(DIMENSION_LABELS[key])
+            button.setObjectName("segBtn")
+            button.setCheckable(True)
+            button.setToolTip(DIMENSION_TOOLTIP)
+            self.dimension_group.addButton(button)
+            self.dimension_buttons[key] = button
+            seg_layout.addWidget(button)
+        dim_row.addWidget(segmented)
+        dim_row.addStretch(1)
+        analysis.addRow(_label("Dimension"), dim_row)
+        layout.addLayout(analysis)
+        layout.addSpacing(u // 2)
+
+        # -- Solver --
+        layout.addWidget(_section("Solver"))
+        solver = form()
         self.parallel_check = QCheckBox("Run in parallel")
+        self.parallel_check.setToolTip(CORES_TOOLTIP.format(n=self.physical))
         self.cores_spin = QSpinBox()
         self.cores_spin.setRange(1, self.physical)
-        self.cores_spin.setSuffix(f" of {self.physical} physical cores")
+        self.cores_spin.setSuffix(f" / {self.physical}")
+        self.cores_spin.setToolTip(CORES_TOOLTIP.format(n=self.physical))
+        self.cores_spin.setMinimumWidth(6 * u)
         par_row = QHBoxLayout()
         par_row.addWidget(self.parallel_check)
-        par_row.addWidget(self.cores_spin, 1)
-        form.addRow("Solver", par_row)
-        self.folder_label = QLabel()
-        self.folder_label.setWordWrap(True)
-        self.error_label = QLabel()
-        self.error_label.setObjectName("checkValue")
-        self.error_label.setWordWrap(True)
+        par_row.addSpacing(u)
+        par_row.addWidget(self.cores_spin)
+        par_row.addStretch(1)
+        solver.addRow(_label("Cores"), par_row)
+        layout.addLayout(solver)
+        layout.addStretch(1)
+
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         self.create_button = self.buttons.addButton("Create", QDialogButtonBox.ButtonRole.AcceptRole)
+        self.create_button.setObjectName("primaryBtn")
         self.buttons.accepted.connect(self._create)
         self.buttons.rejected.connect(self.reject)
-        layout = QVBoxLayout(self)
-        layout.addLayout(form)
-        layout.addWidget(self.folder_label)
-        layout.addWidget(self.error_label)
+        layout.addSpacing(u // 2)
         layout.addWidget(self.buttons)
         self.name_edit.textChanged.connect(lambda _: self.validate())
         self.parent_edit.textChanged.connect(lambda _: self.validate())
-        self.preset_combo.currentIndexChanged.connect(self._preset_changed)
+        self.preset_list.currentRowChanged.connect(self._preset_changed)
         self.parallel_check.toggled.connect(self.cores_spin.setEnabled)
-        self._preset_changed()
-        self.resize(560, 0)
+        self.preset_list.setCurrentRow(0)
+        self.resize(44 * u, 0)
+
+    def _fit_preset_list(self) -> None:
+        """Every preset visible (up to 6; longer lists scroll), measured with the styled font."""
+        rows = min(len(self.presets), 6)
+        self.preset_list.setFixedHeight(rows * self.preset_list.sizeHintForRow(0) + 2 * self.preset_list.frameWidth())
+
+    def _fit_description(self) -> None:
+        """The wrapped description's height for its current width (the dialog's layout does not ask the label for
+        its height-for-width, so the rows below would overlap it)."""
+        label = self.description_label
+        width = label.width() if label.isVisible() else self.width() * 3 // 4
+        label.setMinimumHeight(label.heightForWidth(max(width, 1)))
+
+    def showEvent(self, event) -> None:
+        self.ensurePolished()
+        self._fit_preset_list()
+        self._fit_description()
+        super().showEvent(event)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._fit_description()
 
     @property
     def preset(self) -> Preset:
-        return self.presets[self.preset_combo.currentIndex()]
+        return self.presets[max(0, self.preset_list.currentRow())]
+
+    def preset_texts(self) -> list[str]:
+        """The listed preset names (for tests)."""
+        return [self.preset_list.item(i).text() for i in range(self.preset_list.count())]
 
     def select_preset(self, name: str) -> None:
         index = next(i for i, p in enumerate(self.presets) if p.name == name)
-        self.preset_combo.setCurrentIndex(index)
+        self.preset_list.setCurrentRow(index)
 
     @property
     def dimension(self) -> str:
-        return self.dimension_combo.currentData()
+        return next((key for key, b in self.dimension_buttons.items() if b.isChecked()), DIMENSIONS[0])
+
+    def set_dimension(self, key: str) -> None:
+        self.dimension_buttons[key].setChecked(True)
 
     def _preset_changed(self, *_args) -> None:
-        self.dimension_combo.setCurrentIndex(DIMENSIONS.index(self.preset.dimension))
-        self.analysis_label.setText(ANALYSIS_DESCRIPTIONS[self.preset.analysis_type])
+        self.set_dimension(self.preset.dimension)
+        self.description_label.setText(preset_description(self.preset))
+        self._fit_description()
         cores = default_cores(self.preset, self.physical)
         self.cores_spin.setValue(cores)
         self.parallel_check.setChecked(cores > 1)
@@ -396,17 +574,9 @@ class NewSimulationDialog(QDialog):
             self.parent_edit.setText(folder)
 
     def validate(self) -> str | None:
-        """The reason Create is disabled (shown under the form), or None."""
-        reason = None
-        try:
-            folder = check_new_project_folder(Path(self.parent_edit.text().strip()), self.name_edit.text())
-            self.folder_label.setText(f"Creates {folder}/")
-        except (ValueError, TypeError) as exc:  # ProjectFolderError is a ValueError
-            reason = str(exc)
-            self.folder_label.setText("")
-        self.error_label.setText(reason or "")
-        self.create_button.setEnabled(reason is None)
-        return reason
+        """The reason Create is disabled, or None. The reason is shown on the field it concerns (a highlighted
+        border and the field's tooltip), never as a separate message."""
+        return _validate_target(self.name_edit, self.parent_edit, self.folder_label, self.create_button)
 
     def spec(self) -> NewSimulationSpec | None:
         if self.validate() is not None:
@@ -423,6 +593,39 @@ class NewSimulationDialog(QDialog):
         s.setValue(LAST_PARENT_KEY, str(self.result_spec.parent))
         s.sync()
         self.accept()
+
+
+def _validate_target(name_edit: QLineEdit, parent_edit: QLineEdit, folder_label: QLabel,
+                     button: QPushButton) -> str | None:
+    """A new project's name and parent folder checked inline (D-143): the field the problem concerns gets the
+    highlighted border and the reason as its tooltip; the action button is disabled with the same tooltip."""
+    reason, field = None, None
+    try:
+        validate_project_name(name_edit.text())
+    except (ValueError, TypeError) as exc:
+        reason, field = str(exc), name_edit
+    if reason is None and not parent_edit.text().strip():  # Path("") would be the working directory
+        reason, field = "Choose the parent folder.", parent_edit
+    if reason is None:
+        try:
+            folder = check_new_project_folder(Path(parent_edit.text().strip()), name_edit.text())
+            folder_label.setText(f"Creates {folder}/")
+        except (ValueError, TypeError) as exc:  # ProjectFolderError is a ValueError
+            reason = str(exc)
+            parent_problem = reason.startswith("Choose the parent folder") or reason.endswith("is not a folder.")
+            field = parent_edit if parent_problem else name_edit
+    if reason is not None:
+        folder_label.setText("")
+    set_invalid(name_edit, reason if field is name_edit else None, NAME_TOOLTIP)
+    set_invalid(parent_edit, reason if field is parent_edit else None, PARENT_TOOLTIP)
+    button.setEnabled(reason is None)
+    button.setToolTip(reason or "")
+    return reason
+
+
+NAME_TOOLTIP = ("The project's name: also its folder and file name (letters, digits, spaces, '_', '-' and '.'; "
+                "starts with a letter or digit; at most 64 characters)")
+PARENT_TOOLTIP = "The folder in which the project folder <name>/ is created"
 
 
 class DuplicateProjectDialog(QDialog):
@@ -447,20 +650,17 @@ class DuplicateProjectDialog(QDialog):
         note = QLabel("The geometry is copied; the mesh and results are not (the duplicate starts without them). "
                       "The original project is not changed.")
         note.setWordWrap(True)
-        self.folder_label = QLabel()
-        self.folder_label.setWordWrap(True)
-        self.error_label = QLabel()
-        self.error_label.setObjectName("checkValue")
-        self.error_label.setWordWrap(True)
+        self.folder_label = _ElidedLabel()
+        self.folder_label.setObjectName("muted")
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         self.create_button = self.buttons.addButton("Duplicate", QDialogButtonBox.ButtonRole.AcceptRole)
+        self.create_button.setObjectName("primaryBtn")
         self.buttons.accepted.connect(self._create)
         self.buttons.rejected.connect(self.reject)
         layout = QVBoxLayout(self)
         layout.addLayout(form)
         layout.addWidget(note)
         layout.addWidget(self.folder_label)
-        layout.addWidget(self.error_label)
         layout.addWidget(self.buttons)
         self.name_edit.textChanged.connect(lambda _: self.validate())
         self.parent_edit.textChanged.connect(lambda _: self.validate())
@@ -473,16 +673,7 @@ class DuplicateProjectDialog(QDialog):
             self.parent_edit.setText(folder)
 
     def validate(self) -> str | None:
-        reason = None
-        try:
-            folder = check_new_project_folder(Path(self.parent_edit.text().strip()), self.name_edit.text())
-            self.folder_label.setText(f"Creates {folder}/")
-        except (ValueError, TypeError) as exc:
-            reason = str(exc)
-            self.folder_label.setText("")
-        self.error_label.setText(reason or "")
-        self.create_button.setEnabled(reason is None)
-        return reason
+        return _validate_target(self.name_edit, self.parent_edit, self.folder_label, self.create_button)
 
     def _create(self) -> None:
         if self.validate() is None:

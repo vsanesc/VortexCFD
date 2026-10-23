@@ -17,6 +17,15 @@ from vortexcfd.gui.icons import make_glyph
 from vortexcfd.gui.theme import Metrics, Theme, mono_font, section_title_font
 
 
+def set_invalid(widget: QWidget, reason: str | None, tooltip: str = "") -> None:
+    """Inline validation: a highlighted border (the ``invalid`` property in the stylesheet) and the reason as the
+    widget's tooltip; ``reason`` None clears it and restores ``tooltip``."""
+    widget.setProperty("invalid", reason is not None)
+    widget.setToolTip(reason if reason is not None else tooltip)
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
+
+
 def glyph_pixmap(widget: QWidget, name: str, color: str, size: int):
     icon = make_glyph(name, QColor(color), size, widget.devicePixelRatioF())
     return icon.pixmap(QSize(size, size))

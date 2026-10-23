@@ -7,18 +7,20 @@ import json
 from pathlib import Path
 
 import pytest
-from PySide6.QtWidgets import QPushButton
+from PySide6.QtWidgets import QComboBox, QLabel, QPushButton
 from pytestqt.qtbot import QtBot
 
 from tests.fakes import FakeDialogs
-from vortexcfd.core.presets import BUILTIN_PRESETS, Preset, PresetStore
+from vortexcfd.core.presets import BUILTIN_PRESETS, Preset, PresetStore, preset_description, preset_summary
 from vortexcfd.core.project import Project, ProjectFolderError, check_new_project_folder, validate_project_name
 from vortexcfd.foam.parallel import recommended_cores
 from vortexcfd.gui.main_window import NO_PROJECT, MainWindow, start_window
 from vortexcfd.gui.recent import MAX_RECENT, RecentProjects
 from vortexcfd.gui.settings_store import presets_dir
 from vortexcfd.gui.start_dialogs import (
+    NAME_TOOLTIP,
     ROLE_DATE,
+    ROLE_FOLDER,
     ManagePresetsDialog,
     NewSimulationDialog,
     NewSimulationSpec,
@@ -244,19 +246,27 @@ def test_new_simulation_dialog(qtbot: QtBot, tmp_path: Path) -> None:
     store.save(Preset(name="Big", mesh={"background_cells_target": 400_000}))
     dialog = NewSimulationDialog(store, physical=8)
     qtbot.addWidget(dialog)
-    assert [dialog.preset_combo.itemText(i) for i in range(dialog.preset_combo.count())] == [
-        "External flow", "Empty", "2D airfoil", "Internal flow", "2D internal flow", "Big (user)"]
-    assert dialog.cores_spin.maximum() == 8
+    assert dialog.preset_texts() == ["External flow", "Empty", "2D airfoil", "Internal flow", "2D internal flow",
+                                     "Big (user)"]
+    # every entry has a one-line description; the selected preset's full description shows below the list
+    first = dialog.preset_list.item(0)
+    assert first.data(ROLE_FOLDER) == preset_summary(BUILTIN_PRESETS[0])
+    assert dialog.description_label.text() == preset_description(BUILTIN_PRESETS[0])
+    assert "Big" not in [dialog.preset_list.item(i).data(ROLE_FOLDER) for i in range(6)]
+    assert dialog.preset_list.item(5).data(ROLE_FOLDER).startswith("User preset")
+    assert dialog.cores_spin.maximum() == 8 and dialog.cores_spin.suffix() == " / 8"
+    assert "physical cores" in dialog.cores_spin.toolTip() and "physical" not in dialog.cores_spin.text()
     expected = recommended_cores(BUILTIN_PRESETS[0].mesh.background_cells_target, 8)
     assert dialog.cores_spin.value() == expected == default_cores(BUILTIN_PRESETS[0], 8)
     assert dialog.parallel_check.isChecked() == (expected > 1)
     dialog.select_preset("Big")
     assert dialog.cores_spin.value() == recommended_cores(400_000, 8)
+    assert dialog.description_label.text() == preset_description(store.presets()[0])
     dialog.parent_edit.setText(str(tmp_path))
     dialog.name_edit.setText("bad/name")
-    assert not dialog.create_button.isEnabled() and dialog.error_label.text()
+    assert not dialog.create_button.isEnabled()
     dialog.name_edit.setText("Good")
-    assert dialog.create_button.isEnabled() and dialog.error_label.text() == ""
+    assert dialog.create_button.isEnabled()
     dialog.parallel_check.setChecked(False)
     spec = dialog.spec()
     assert (spec.name, spec.parent, spec.preset.name, spec.cores) == ("Good", tmp_path, "Big", 1)
@@ -267,7 +277,41 @@ def test_new_simulation_dialog(qtbot: QtBot, tmp_path: Path) -> None:
     (tmp_path / "Taken").mkdir()
     (tmp_path / "Taken" / "f").write_text("x")
     dialog.name_edit.setText("Taken")
-    assert not dialog.create_button.isEnabled() and "not empty" in dialog.error_label.text()
+    assert not dialog.create_button.isEnabled() and "not empty" in dialog.name_edit.toolTip()
+
+
+def test_new_simulation_validation_is_inline(qtbot: QtBot, tmp_path: Path) -> None:
+    dialog = NewSimulationDialog(PresetStore(tmp_path / "presets"), physical=4)
+    qtbot.addWidget(dialog)
+    dialog.parent_edit.setText(str(tmp_path))
+    dialog.name_edit.setText("")
+    assert dialog.name_edit.property("invalid") is True and dialog.name_edit.toolTip() == "Enter a project name."
+    assert not dialog.parent_edit.property("invalid") and not dialog.create_button.isEnabled()
+    # no footer message: no label anywhere repeats the reason
+    assert not [lab for lab in dialog.findChildren(QLabel) if "Enter a project name" in lab.text()]
+    dialog.name_edit.setText("Wing")
+    assert not dialog.name_edit.property("invalid") and dialog.create_button.isEnabled()
+    assert dialog.name_edit.toolTip() == NAME_TOOLTIP
+    dialog.parent_edit.setText("")
+    assert dialog.parent_edit.property("invalid") is True and not dialog.name_edit.property("invalid")
+    assert "parent folder" in dialog.parent_edit.toolTip()
+
+
+def test_new_simulation_layout(qtbot: QtBot, tmp_path: Path) -> None:
+    dialog = NewSimulationDialog(PresetStore(tmp_path / "presets"), physical=12)
+    qtbot.addWidget(dialog)
+    sections = [lab.text() for lab in dialog.findChildren(QLabel) if lab.objectName() == "dialogSection"]
+    assert sections == ["PROJECT", "ANALYSIS", "SOLVER"]
+    texts = [lab.text() for lab in dialog.findChildren(QLabel)]
+    assert "Analysis type" not in texts  # the preset says it
+    assert not dialog.findChildren(QComboBox)  # the presets are a list, the dimension a segmented row
+    assert dialog.dimension == "3d" and dialog.dimension_buttons["3d"].isChecked()
+    dialog.select_preset("2D airfoil")
+    assert dialog.dimension == "2d"  # from the preset
+    dialog.set_dimension("3d")
+    dialog.parent_edit.setText(str(tmp_path))
+    dialog.name_edit.setText("Wing")
+    assert dialog.spec().dimension == "3d" and dialog.spec().preset.name == "2D airfoil"
 
 
 # -- presets in the window ----------------------------------------------------------------------

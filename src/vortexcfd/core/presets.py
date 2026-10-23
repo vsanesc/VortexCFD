@@ -168,6 +168,72 @@ BUILTIN_PRESETS: tuple[Preset, ...] = (
 )
 
 
+# One line per built-in preset for the New simulation list (D-143); user presets get a generated one.
+BUILTIN_SUMMARIES: dict[str, str] = {
+    "External flow": "3D flow around the parts in a box far field (cars, wings, bluff bodies)",
+    "Empty": "Nothing generated yet: import the parts, then add the domain",
+    "2D airfoil": "2D section in a C-type far field, meshed wall-resolved for y+ about 1",
+    "Internal flow": "3D flow inside a closed geometry (pipes, ducts, manifolds)",
+    "2D internal flow": "2D section of a channel or duct, meshed wall-resolved for y+ about 1",
+}
+
+ANALYSIS_TEXT = {
+    "external": "External flow: a far-field domain is generated around the parts.",
+    "empty": "Empty: nothing is generated; the domain is added later with Generate domain.",
+    "internal": "Internal flow: no far-field domain; the fluid is the inside of the closed geometry and each "
+                "surface patch is an inlet, an outlet or a wall.",
+}
+SHAPE_TEXT = {"box": "box", "bullet": "bullet (rounded front)", "c_type": "C-type (round front, 2D sections)"}
+
+
+def _number(value: float) -> str:
+    return f"{value:g}"
+
+
+def preset_summary(preset: Preset) -> str:
+    """One line for the preset list: the built-in text, or the analysis, dimension and domain shape."""
+    if preset.name in BUILTIN_SUMMARIES and is_builtin_name(preset.name):
+        return BUILTIN_SUMMARIES[preset.name]
+    dim = "2D section" if preset.dimension == "2d" else "3D"
+    if preset.analysis_type == "internal":
+        return f"User preset: {dim} internal flow"
+    if preset.analysis_type == "empty":
+        return f"User preset: {dim}, domain added later"
+    return f"User preset: {dim} external flow, {SHAPE_TEXT[preset.domain.shape].split(' ')[0]} domain"
+
+
+def preset_description(preset: Preset) -> str:
+    """The full description shown under the list: what is generated, the domain and the mesh settings."""
+    lines = [ANALYSIS_TEXT[preset.analysis_type]]
+    lines.append("Dimension: " + ("2D section in the x-z plane, one cell across the span (y); forces per unit span."
+                                  if preset.dimension == "2d" else "3D."))
+    d = preset.domain
+    if preset.analysis_type != "internal":
+        if d.shape == "box":
+            sizes = (f"{_number(d.upstream)} L upstream, {_number(d.downstream)} L downstream, "
+                     f"{_number(d.lateral)} L to each side, {_number(d.vertical)} L above and below")
+        else:
+            sizes = f"radius {_number(d.radius)} L, {_number(d.downstream)} L downstream"
+        extra = []
+        if d.symmetry == "y_min":
+            extra.append("a symmetry plane at the parts' lowest y")
+        if d.ground.enabled:
+            extra.append("a ground plane")
+        when = " (when generated)" if preset.analysis_type == "empty" else ""
+        lines.append(f"Domain{when}: {SHAPE_TEXT[d.shape]}, {sizes} (L: the parts' largest extent)"
+                     + ("; " + ", ".join(extra) if extra else "") + ".")
+    m = preset.mesh
+    if m.layer_sizing == "absolute_yplus":
+        mode = "wall-resolved" if m.effective_layer_controls == "wall_resolved" else "wall functions"
+        layers = f"prism layers sized for y+ {_number(m.target_yplus)} ({mode})"
+    else:
+        layers = f"{m.layers} prism layers relative to the surface cell" if m.layers else "no prism layers"
+    length = "the first inlet's hydraulic diameter" if preset.analysis_type == "internal" else "l_ref"
+    lines.append(f"Mesh: about {m.background_cells_target:,} background cells, surface cells "
+                 f"{_number(m.target_surface_size)} x {length}, {layers}.")
+    return "\n".join(lines)
+
+
 def is_builtin_name(name: str) -> bool:
     return name.strip().casefold() in {p.name.casefold() for p in BUILTIN_PRESETS}
 

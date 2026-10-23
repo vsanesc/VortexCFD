@@ -129,6 +129,8 @@ def shoot(out: Path, screens: list[str]) -> None:
             from vortexcfd.gui.start_dialogs import NewSimulationDialog
 
             dialog = NewSimulationDialog(PresetStore(presets_dir()), physical=12)
+            dialog.name_edit.setText("wing_study")
+            dialog.parent_edit.setText(str(WORK))
             dialog.show()
             _settle(app)
             dialog.resize(max(dialog.width(), 640), dialog.height())

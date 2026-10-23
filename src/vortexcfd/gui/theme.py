@@ -376,6 +376,8 @@ QLineEdit, QComboBox, QAbstractSpinBox {{
 }}
 QLineEdit:hover, QComboBox:hover, QAbstractSpinBox:hover {{ border-color: {t.border_active}; }}
 QLineEdit:focus, QComboBox:focus, QAbstractSpinBox:focus {{ border-color: {t.accent}; }}
+QLineEdit[invalid="true"], QAbstractSpinBox[invalid="true"], QComboBox[invalid="true"] {{
+    border: {2 * ln}px solid {t.error}; }}
 QAbstractSpinBox::up-button, QAbstractSpinBox::down-button {{ width: 0; height: 0; border: none; }}
 QAbstractSpinBox QLineEdit {{ background: transparent; border: none; padding: 0; min-height: 0;
     border-radius: 0; }}
@@ -407,6 +409,12 @@ QPushButton#primaryBtn {{ background: {t.accent}; color: {t.accent_text}; border
     border-radius: {btr}px; padding: {m.s2}px {m.s4}px; font-weight: 600; }}
 QPushButton#primaryBtn:hover {{ background: {t.accent_hover}; border-color: {t.accent_hover}; }}
 QPushButton#primaryBtn:disabled {{ background: {t.elevated}; color: {dis_text}; border-color: {t.border}; }}
+QLabel#dialogSection {{ color: {t.muted_text}; background: transparent; font-weight: 700;
+    border-bottom: {ln}px solid {t.border}; padding-bottom: {m.s1}px; }}
+QLabel#descriptionBox {{ color: {t.text}; background: {t.elevated}; border: {ln}px solid {t.border};
+    border-radius: {m.radius_s}px; padding: {m.s2}px {m.s3}px; }}
+QListWidget#presetList {{ background: {t.elevated}; color: {t.text}; border: {ln}px solid {t.border_active};
+    border-radius: {m.radius_s}px; outline: 0; }}
 QListWidget#recentList {{ background: {t.elevated}; color: {t.text}; border: {ln}px solid {t.border_active};
     border-radius: {m.radius_s}px; outline: 0; }}
 QMenuBar {{ background: {t.base}; }}
