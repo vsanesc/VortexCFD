@@ -153,10 +153,37 @@ def _scalar_series(series) -> list[tuple[float, float]]:
     return [(float(t), float(v)) for t, v in series if isinstance(v, (int, float)) and math.isfinite(v)]
 
 
-def capture(project: Project, name: str, line_samples: dict | None = None, now: datetime | None = None) -> Snapshot:
-    """The snapshot of the project's current run (its case folder): residuals, reports, the mesh and set-up
-    summaries; ``line_samples``: {line plot name: workflow.line_plot.LineSamples} computed by the caller (the GUI has
-    them; None: no line plots).
+def sample_line_plots(project: Project, points=None) -> dict:
+    """Every line plot of the project (Results > Line plot) sampled on the latest results of its case, by line plot
+    name (D-160); ``points``: the internal mesh with point fields, read from the case when None. A line plot that
+    cannot be sampled (no field, or outside the fluid) is left out; no results: none."""
+    from vortexcfd.core.model import LinePlotObject
+    from vortexcfd.foam.physics_case import flow_direction
+    from vortexcfd.workflow import line_plot
+    from vortexcfd.workflow.meshing import flow_speed
+
+    plots = [o for o in project.sim.results.objects if isinstance(o, LinePlotObject)]
+    if not plots or project.folder is None:
+        return {}
+    if points is None:
+        try:
+            points = line_plot.case_points(project.folder / "case")
+        except (OSError, RuntimeError, ValueError):
+            return {}
+    if points is None:
+        return {}
+    out = {}
+    for obj in plots:
+        try:
+            out[obj.name] = line_plot.sample_line(points, obj, flow_speed(project), flow_direction())
+        except ValueError:
+            continue
+    return out
+
+
+def capture(project: Project, name: str, now: datetime | None = None, points=None) -> Snapshot:
+    """The snapshot of the project's current run (its case folder): residuals, reports, every line plot sampled on
+    the results (``sample_line_plots``; ``points`` passed on), the mesh and set-up summaries.
 
     Raises:
         SnapshotError: the project is not saved or its case has no solver run.
@@ -200,7 +227,7 @@ def capture(project: Project, name: str, line_samples: dict | None = None, now: 
                      "max non-orthogonality": r.max_non_orthogonality, "max skewness": r.max_skewness,
                      "failed checks": r.failed_checks, "mesh OK": r.mesh_ok,
                      "surface faces with layers %": r.extruded_percent}
-    for title, samples in (line_samples or {}).items():
+    for title, samples in sample_line_plots(project, points).items():
         snap.line_plots[title] = LineData(title, [float(d) for d in samples.distance],
                                           {k: [float(x) if math.isfinite(x) else None for x in v]
                                            for k, v in samples.values.items()})

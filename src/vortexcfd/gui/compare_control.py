@@ -35,17 +35,15 @@ class CompareControlMixin:
         if not self.has_project or self._project.path is None:
             return None
         try:
-            return snapshot_module.capture(self._project, snapshot_module.CURRENT_RUN, self._line_samples())
+            return snapshot_module.capture(self._project, snapshot_module.CURRENT_RUN, points=self._result_points())
         except (snapshot_module.SnapshotError, OSError, ValueError):
             return None
 
-    def _line_samples(self) -> dict:
-        """The line plots' samples the Results Scene computed, by line plot name (none before results are shown)."""
+    def _result_points(self):
+        """The results the Results Scene has already read (the snapshot samples its line plots on them), or None:
+        the snapshot reads them from the case (D-160)."""
         view = getattr(self, "results_view", None)
-        if view is None:
-            return {}
-        names = {o.id: o.name for o in self._project.sim.results.objects}
-        return {names[i]: s for i, s in view.line_samples.items() if i in names}
+        return getattr(view, "_points", None) if view is not None else None
 
     def refresh_compare(self) -> None:
         folder = self._project.folder if self.has_project and self._project.path is not None else None
@@ -66,7 +64,7 @@ class CompareControlMixin:
         if not name:
             return None
         try:
-            snap = snapshot_module.capture(self._project, name.strip(), self._line_samples())
+            snap = snapshot_module.capture(self._project, name.strip(), points=self._result_points())
             path = snapshot_module.save(self._project, snap)
         except (snapshot_module.SnapshotError, OSError) as exc:
             self.show_message(f"Snapshot not saved: {exc}", "error")

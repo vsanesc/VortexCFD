@@ -14,26 +14,25 @@ from pytestqt.qtbot import QtBot
 
 from tests.fakes import FakeDialogs
 from tests.test_report import _check, solved_project
-from vortexcfd.core.model import LinePlotObject
 from vortexcfd.workflow import line_plot, report
 from vortexcfd.workflow import snapshots as sm
 
 
-def line_samples(project) -> dict:
-    """The fixture case's line plot through the fluid, as the Results Scene computes it."""
-    obj = LinePlotObject(id="l1", name="axis", point1=(0.0, 0.0, 0.05), point2=(2.0, 0.0, 0.05), n_samples=50,
-                         fields=["p"])
-    points = line_plot.case_points(project.folder / "case")
-    return {"axis": line_plot.sample_line(points, obj, 20.0)}
+def with_line_plots(project):
+    """The fixture case with a line plot through the fluid ("axis") and one wholly outside it ("outside")."""
+    project.add_scene_object("line_plot", name="axis", point1=(0.0, 0.0, 0.05), point2=(2.0, 0.0, 0.05),
+                             n_samples=50, fields=["p"])
+    project.add_scene_object("line_plot", name="outside", point1=(50.0, 0.0, 0.05), point2=(60.0, 0.0, 0.05))
+    return project
 
 
 def two_snapshots(tmp_path: Path):
-    project = solved_project(tmp_path)
-    first = sm.capture(project, "baseline", line_samples(project))
+    project = with_line_plots(solved_project(tmp_path))
+    first = sm.capture(project, "baseline")
     sm.save(project, first)
     project.update_inflow(speed=30.0)
     project.update_mesh(background_cells_target=200_000)
-    second = sm.capture(project, "faster", line_samples(project))
+    second = sm.capture(project, "faster")
     second.reports["Cd"].mean *= 1.1  # the altered values of the second run
     second.reports["Cd"].series = [(t, 1.1 * v) for t, v in second.reports["Cd"].series]
     second.mesh["cells"] = 256  # twice the fixture mesh's 128 cells
@@ -42,8 +41,8 @@ def two_snapshots(tmp_path: Path):
 
 
 def test_capture_keeps_the_run(tmp_path: Path) -> None:
-    project = solved_project(tmp_path)
-    snap = sm.capture(project, "baseline", line_samples(project))
+    project = with_line_plots(solved_project(tmp_path))
+    snap = sm.capture(project, "baseline")  # samples every line plot itself (D-160)
     assert snap.residuals and all(len(v) > 1 for v in snap.residuals.values())
     cd = snap.reports["Cd"]
     assert cd.label == "Cd" and cd.window == 50 and cd.mean is not None and cd.final == cd.series[-1][1]
@@ -52,6 +51,11 @@ def test_capture_keeps_the_run(tmp_path: Path) -> None:
     assert snap.setup["free stream: speed"] == "20" and snap.setup["mesh: background_cells_target"] == "100000"
     line = snap.line_plots["axis"]
     assert len(line.distance) == 50 and len(line.fields["p"]) == 50
+    assert "outside" not in snap.line_plots  # outside the fluid: nothing to keep
+    obj = project.sim.results.objects[0]  # the same samples as the Results Scene computes
+    expected = line_plot.sample_line(line_plot.case_points(project.folder / "case"), obj, 20.0)
+    assert line.fields["p"] == pytest.approx([float(v) for v in expected.values["p"]], nan_ok=True)
+    assert sm.capture(solved_project(tmp_path / "plain"), "none").line_plots == {}  # no line plots: none
     with pytest.raises(sm.SnapshotError, match="no solver run"):
         shutil.rmtree(project.folder / "case")
         sm.capture(project, "none")
@@ -139,7 +143,7 @@ def test_the_compare_tab(qtbot: QtBot, tmp_path: Path) -> None:
     from vortexcfd.gui.main_window import MainWindow
 
     project, _first, _second = two_snapshots(tmp_path / "other")
-    mine = solved_project(tmp_path / "mine")
+    mine = with_line_plots(solved_project(tmp_path / "mine"))
     w = MainWindow(mine, FakeDialogs(), with_viewer=False)
     qtbot.addWidget(w)
     w.show()
@@ -151,6 +155,8 @@ def test_the_compare_tab(qtbot: QtBot, tmp_path: Path) -> None:
         w.dialogs.snapshot_name = "first try"
         view.save_button.click()
         assert (mine.folder / "snapshots" / "first_try.json").is_file()
+        # the Results Scene was never shown (no viewer): the snapshot sampled the line plot itself (D-160)
+        assert list(sm.load(mine.folder / "snapshots" / "first_try.json").line_plots) == ["axis"]
         assert view.keys()[0] == "current" and len(view.keys()) == 2
         w.dialogs.open_path = project.path
         view.load_button.click()
