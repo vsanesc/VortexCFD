@@ -91,6 +91,7 @@ class VolumeRowsMixin:
         self.vol_wake_button.setToolTip("Add a wake box behind the selected part (or all parts) aligned with the free stream")
         self.vol_wake_button.clicked.connect(lambda: self.volume_action.emit("wake"))
         add_box.addWidget(self.vol_wake_button)
+        adds.setToolTip("Add a refinement volume: a shape over the parts, an imported surface, or a wake box")
         self._make_row_added("vol_add", "Add", adds)
         # one volume
         self._section("vol_edit", "Refinement volume")

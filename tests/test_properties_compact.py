@@ -204,3 +204,91 @@ def test_domain_extents_in_l_or_metres(make_window) -> None:
     select(w2, "fluid_domain")
     assert w2.properties.domain_fields["upstream"].unit == "mm"
     assert w2.properties.domain_fields["downstream"].unit == "L"
+
+
+# -- probes, studies (G8 - G10) ---------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("text", ["1.2 0 -0.5", "(1.2, 0, -0.5)", "1.2,0,-0.5", " ( 1.2 ; 0 ; -0.5 ) ", "[1.2 0 -0.5]",
+                                  "1.2\t0\t-0.5"])
+def test_vector_text_is_parsed(text: str) -> None:
+    from vortexcfd.gui.panel_widgets import parse_vector_text
+
+    assert parse_vector_text(text) == (1.2, 0.0, -0.5)
+
+
+@pytest.mark.parametrize("text, reason", [("1 2", "three numbers"), ("1 2 x", "'x' is not a number"),
+                                          ("1 2 3 4", "three numbers"), ("1 nan 2", "finite")])
+def test_bad_vector_text_says_why(text: str, reason: str) -> None:
+    from vortexcfd.gui.panel_widgets import parse_vector_text
+
+    with pytest.raises(ValueError, match=reason):
+        parse_vector_text(text)
+
+
+def test_probe_location_is_one_vector_field(make_window) -> None:
+    from vortexcfd.gui.panel_widgets import VectorField
+
+    w = make_window()
+    select(w, "probes")
+    p = w.properties
+    p.probe_add.click()
+    location = p.probe_widgets[0]["location"]
+    assert isinstance(location, VectorField) and location.unit.text() == "m" and location.text().startswith("(")
+    location.setText("(1.5, 0, 0.1)")  # pasted
+    location.edit.editingFinished.emit()
+    assert w.project.sim.reports.probes[0].location == (1.5, 0.0, 0.1)
+    location.setText("1.5 0")
+    location.edit.textEdited.emit("1.5 0")
+    assert location.edit.property("invalid") is True and "three numbers" in location.edit.toolTip()
+    location.edit.editingFinished.emit()
+    assert w.project.sim.reports.probes[0].location == (1.5, 0.0, 0.1)  # nothing committed
+    assert "Enter" not in w.statusBar().currentMessage()  # the error is on the field, not a message
+
+
+def test_mesh_independence_study_is_named_and_explained(make_window) -> None:
+    w = make_window()
+    assert w._items[("mesh_study", None)].text(0) == "Mesh independence study"
+    select(w, "mesh_study")
+    p = w.properties
+    assert p._sections["ms_title"].text() == "MESH INDEPENDENCE STUDY" and p._sections["ms_title"].help.isVisibleTo(p)
+    note = p.ms_note.text()
+    for words in ("three times", "ratio r", "GCI", "monotonically", "indicative"):
+        assert words in note, words
+    for widget in (p.ms_ratio, p.ms_current, p.ms_quantities, p.ms_cores, p.ms_layers, p.ms_status, *p.ms_levels):
+        assert widget.toolTip(), widget
+
+
+def test_polar_sweep_is_opt_in(make_window, tmp_path) -> None:
+    from vortexcfd.core.project_io import migrate
+    from vortexcfd.workflow.polar_sweep import sweep_readiness
+
+    w = make_window()
+    assert not w.project.sim.studies.polar.enabled  # new projects: off
+    assert "enable it first" in sweep_readiness(w.project)
+    menu = w.tree_menu_for(("polar_sweep", None))
+    assert [a.text() for a in menu.actions()][:1] == ["Enable polar sweep"]
+    menu.actions()[0].trigger()
+    assert w.project.sim.studies.polar.enabled
+    assert "Run polar sweep" in [a.text() for a in w.tree_menu_for(("polar_sweep", None)).actions()]
+    old = migrate({"schema_version": 21, "studies": {"polar": {"mode": "list"}}})
+    assert old["studies"]["polar"] == {"mode": "list", "enabled": True}  # older projects keep it offered
+
+
+def test_every_editable_property_has_a_tooltip(make_window) -> None:
+    """No unexplained term (D-148): every visible input row of every node says what it does."""
+    from PySide6.QtWidgets import QLabel
+
+    w = make_window()
+    w.project.update_study("polar", enabled=True)
+    p = w.properties
+    missing = []
+    for key in list(w._items):
+        w.tree.setCurrentItem(w._items[key])
+        for row_key, row in p._rows.items():
+            field = p._row_fields[row_key]
+            if row.isHidden() or isinstance(field, QLabel):  # read-only values need none
+                continue
+            if not field.toolTip() and not p._row_labels[row_key].toolTip():
+                missing.append((key, row_key))
+    assert not missing, missing

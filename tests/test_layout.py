@@ -127,7 +127,7 @@ def test_tree_structure_and_node_count(make_window) -> None:
     assert region.text(0) == "Fluid Region (domain minus parts)" and region.parent() is w._items[("regions", None)]
     reports = w._items[("reports", None)]
     assert [reports.child(i).text(0) for i in range(reports.childCount())] == [
-        "Reference Values", "Probes", "Mesh Study", "Polar Sweep"]
+        "Reference Values", "Probes", "Mesh independence study", "Polar sweep (off)"]  # D-148
     stopping = w._items[("stopping", None)]
     assert stopping.text(0) == "Stopping Criteria" and stopping.parent() is w._items[("solvers", None)]
     w.add_placeholder_part()
@@ -235,8 +235,13 @@ def test_no_coefficient_names_in_the_ui(make_window) -> None:
     from PySide6.QtWidgets import QLabel, QPushButton
 
     w = make_window()
-    texts = [x.text() for x in w.findChildren(QLabel)] + [x.text() for x in w.findChildren(QPushButton)]
-    texts += [x.toolTip() for x in w.findChildren(QPushButton)]
+    # The monitors and the top bar of a project without a run (task 2.1c: no placeholder results). The properties
+    # panel explains its settings in words that name the coefficients (the polar sweep "for lifting bodies", the
+    # mesh study's default quantity Cd; D-148), so it is not checked here.
+    roots = (w.monitors, w.top_bar)
+    texts = [x.text() for r in roots for x in r.findChildren(QLabel)]
+    texts += [x.text() for r in roots for x in r.findChildren(QPushButton)]
+    texts += [x.toolTip() for r in roots for x in r.findChildren(QPushButton)]
     import re
 
     banned = re.compile(r"lift|drag|coeff|max wall y\+|\bcl\b|\bcd\b|converged", re.IGNORECASE)

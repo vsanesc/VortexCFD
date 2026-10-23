@@ -113,7 +113,11 @@ class TreeActionsMixin:
             add("Run mesh independence study", lambda: self.properties.study_run_requested.emit("mesh"))
             add("Properties", props)
         elif kind == "polar_sweep":
-            add("Run polar sweep", lambda: self.properties.study_run_requested.emit("polar"))
+            on = sim.studies.polar.enabled
+            if on:
+                add("Run polar sweep", lambda: self.properties.study_run_requested.emit("polar"))
+            add("Disable polar sweep" if on else "Enable polar sweep",
+                lambda: self._run_edit(lambda: self._project.update_study("polar", enabled=not on)))
             add("Properties", props)
         elif kind == "root":
             menu.addAction(self.act_save)

@@ -706,6 +706,9 @@ class PolarSweepSettings(StrictModel):
     parts rotated, meshed on the project's meshing cores) and a run from the uniform free stream, one
     angle at a time (schema v18 dropped ``init_from_previous``: the meshes differ)."""
 
+    # Opt-in (schema v22, D-148): off for new projects, the sweep's rows and Run appear once it is enabled; projects
+    # saved before v22 keep it on (it was always offered).
+    enabled: bool = False
     mode: Literal["range", "list"] = "range"
     start: float = Field(default=0.0, ge=-90.0, le=90.0)
     end: float = Field(default=10.0, ge=-90.0, le=90.0)

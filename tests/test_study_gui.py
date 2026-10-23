@@ -35,8 +35,14 @@ def test_study_nodes_exist_and_commit_settings(make_window) -> None:
     assert all("cells" in t for t in texts)
     assert "same on every level" in p.ms_layers.text()
     assert p.ms_current_used.text() == "fine" and p.ms_current_used.toolTip() == ""  # the user's choice (D-128)
-    assert p.ms_run.isEnabled() and p.ms_run.text() == "Run mesh study"
+    assert p.ms_run.isEnabled() and p.ms_run.text() == "Run mesh independence study"
+    assert "GCI" in p.ms_note.text() and "indicative" in p.ms_note.text() and p.ms_ratio.toolTip()
     _select(w, "polar_sweep")
+    # opt-in (D-148): a new project has the sweep off, its rows hidden until it is enabled
+    assert w._items[("polar_sweep", None)].text(0) == "Polar sweep (off)" and not p.ps_enabled.isChecked()
+    assert p._rows["ps_start"].isHidden() and p._rows["ps_mode"].isHidden() and "lifting bodies" in p.ps_note.text()
+    p.ps_enabled.setChecked(True)
+    assert w.project.sim.studies.polar.enabled and w._items[("polar_sweep", None)].text(0) == "Polar sweep"
     assert not p._rows["ps_start"].isHidden() and p._rows["ps_values"].isHidden()
     p.ps_mode.setCurrentText("list")
     assert p._rows["ps_values"].isVisibleTo(p) and p._rows["ps_start"].isHidden()
@@ -51,6 +57,7 @@ def test_study_nodes_exist_and_commit_settings(make_window) -> None:
 
 def test_studies_need_a_saved_project(make_window) -> None:
     w = make_window(save=False)
+    w.project.update_study("polar", enabled=True)
     _select(w, "mesh_study")
     assert not w.properties.ms_run.isEnabled() and w.properties.ms_run.toolTip() == "Save the project first."
     _select(w, "polar_sweep")
@@ -107,7 +114,7 @@ def test_a_running_study_blocks_the_solver_and_meshing(make_window, qtbot) -> No
 
 def test_polar_sweep_runs_through_the_window(make_window, qtbot, tmp_path: Path) -> None:
     w = make_window()
-    w.project.update_study("polar", mode="list", values=[0.0, 5.0, 10.0], cores=1)
+    w.project.update_study("polar", enabled=True, mode="list", values=[0.0, 5.0, 10.0], cores=1)
     FakeMesher.created, FakeMesher.bad, FakeMesher.hold = [], set(), None
     FakeSolver.states, FakeSolver.created, FakeSolver.hold = {5.0: ITERATION_LIMIT}, [], None
     w.study_mesh_run_factory, w.study_solver_run_factory = FakeMesher, FakeSolver
@@ -135,7 +142,7 @@ def test_polar_sweep_runs_through_the_window(make_window, qtbot, tmp_path: Path)
 
 def test_a_running_sweep_blocks_the_solver_and_the_mesh_study(make_window, qtbot) -> None:
     w = make_window()
-    w.project.update_study("polar", mode="list", values=[0.0, 5.0], cores=1)
+    w.project.update_study("polar", enabled=True, mode="list", values=[0.0, 5.0], cores=1)
     FakeMesher.created, FakeMesher.bad, FakeMesher.hold = [], set(), None
     FakeSolver.states, FakeSolver.created, FakeSolver.hold = {}, [], 0.0
     w.study_mesh_run_factory, w.study_solver_run_factory = FakeMesher, FakeSolver

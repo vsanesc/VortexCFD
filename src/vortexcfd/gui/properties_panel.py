@@ -51,7 +51,7 @@ from vortexcfd.foam.convergence import earliest_iteration, window_stats
 from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.foam.run_record import RunRecord
-from vortexcfd.foam.mesh_case import force_report_keys, part_patch_names, wall_patch_names
+from vortexcfd.foam.mesh_case import force_report_keys, part_level_range, part_patch_names, wall_patch_names
 from vortexcfd.geometry.cad import CadImportError
 from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.geometry.regions import RegionError
@@ -84,7 +84,7 @@ from vortexcfd.gui.scene_rows import SceneRowsMixin
 from vortexcfd.gui.study_rows import StudyRowsMixin
 from vortexcfd.gui.volume_rows import VolumeRowsMixin
 from vortexcfd.gui.help_texts import help_target
-from vortexcfd.gui.panel_widgets import AutoField, ChoiceField, ReferenceLengthField, SectionHeader
+from vortexcfd.gui.panel_widgets import AutoField, ChoiceField, ReferenceLengthField, SectionHeader, VectorField
 from vortexcfd.gui.settings_store import settings
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
 
@@ -333,8 +333,17 @@ LAYERS_NOTE = ("Prism layers are thin cells stacked on the part walls to resolve
 # Reference Values node (D-047): the note under the auto (bounding box) values.
 REFERENCE_NOTE = "set the wing area and mean chord for aircraft"
 AREA_BASES = ("planform", "frontal", "custom")
-REFERENCE_ROWS = ("ref_rho", "ref_u", "ref_basis", "ref_area", "ref_length", "ref_cofr", "ref_area_used",
-                  "ref_length_used", "ref_cofr_used")
+REFERENCE_ROWS = ("ref_rho", "ref_u", "ref_basis", "ref_area", "ref_length", "ref_cofr")
+REF_AREA_TIP = ("A_ref, the area the force coefficients are divided by. Auto (planform or frontal basis): the parts' "
+                "bounding-box area, shown greyed. Custom: set it (e.g. the wing area).")
+REF_LENGTH_TIP = ("l_ref, the length of the moment coefficient and of the surface cell size and y+ sizing (D-085). Auto: "
+                  "the parts' bounding-box x extent, shown greyed. Set it to the body's characteristic length (the "
+                  "mean chord of a wing).")
+REF_COFR_TIP = ("CofR: the point the moment coefficient is taken about and the parts turn about at an angle of attack, "
+                "x y z in metres (pasted \"1.2 0 -0.5\" or \"(1.2, 0, -0.5)\" works). Auto: the centre of the parts' "
+                "bounding box.")
+PROBE_LOCATION_TIP = ("The probe's point, x y z in metres, in the fluid: one vector \"(x, y, z)\"; pasted \"1.2 0 -0.5\" "
+                      "or \"(1.2, 0, -0.5)\" works. p and U are written there every iteration.")
 
 
 def parse_vector(text: str) -> tuple[float, float, float] | None:
@@ -622,6 +631,10 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.patch_label.setReadOnly(True)
         self.units_combo = QComboBox()
         self.units_combo.addItems(ALLOWED_UNITS)
+        self.units_combo.setToolTip("The unit of the file's coordinates (m, cm, mm, in, ft); the surface is scaled to "
+                                    "metres when it is read. STEP and IGES are millimetres.")
+        self.source_label.setToolTip("The part's surface file, relative to the project folder")
+        self.patch_label.setToolTip("The part's patch(es) in the mesh: its walls, force and report names")
         self.dimension_combo = QComboBox()  # the analysis dimension of the Simulation node (D-121)
         for key in DIMENSIONS:
             self.dimension_combo.addItem(DIMENSION_LABELS[key], key)
@@ -671,14 +684,16 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         ):
             self._layout.addWidget(self._make_row(key, text, field))
         # Per-part surface refinement levels (D-052): -1 is the "auto" special value (None).
-        self.part_level_fields: dict[str, QSpinBox] = {}
+        self.part_level_fields: dict[str, AutoField] = {}
         for key, text in (("surface_level_min", "Surface level min"), ("surface_level_max", "Surface level max")):
-            spin = _spin(-1, 30, "", "auto")
-            spin.setToolTip("This part's surface refinement level (auto: the Mesh levels). A part that is small "
-                            "compared with the background cells is seeded automatically at these levels.")
-            self.part_level_fields[key] = spin
-            self._layout.addWidget(self._make_row(f"part_{key}", text, spin))
-            spin.editingFinished.connect(lambda k=key: self._commit_part_level(k))
+            field = AutoField(_spin(0, 30, " level"))
+            field.setToolTip("This part's surface refinement level. Auto (default): the Mesh levels, shown greyed. A "
+                             "part that is small compared with the background cells is seeded automatically at "
+                             "these levels.")
+            self.part_level_fields[key] = field
+            self._fields.append(field.spin)
+            self._layout.addWidget(self._make_row(f"part_{key}", text, field))
+            field.edited.connect(lambda k=key: self._commit_part_level(k))
         # 2D section source (D-121): the airfoil file the part was built from (read-only).
         self.section_label = QLineEdit()
         self.section_label.setReadOnly(True)
@@ -762,6 +777,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.domain_enabled = QCheckBox()
         self.domain_fields: dict[str, QDoubleSpinBox] = {}
         self._domain_keys = ["enabled"]
+        self.domain_enabled.setToolTip("Whether the far-field domain is generated around the parts. Off: the "
+                                       "\"Empty\" analysis before Generate domain (D-078).")
         self._layout.addWidget(self._make_row("dom_enabled", "Enabled", self.domain_enabled))
         self.domain_shape = QComboBox()
         for shape in DOMAIN_SHAPES:
@@ -785,6 +802,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self._section("dom_symmetry", "Symmetry")
         self.domain_symmetry = QComboBox()
         self.domain_symmetry.addItems(list(DOMAIN_SYMMETRY))
+        self.domain_symmetry.setToolTip("none: the whole model. y_min: half a symmetric model; the plane y = the parts' "
+                                        "lowest y is a symmetry plane (half the cells; forces of the half).")
         self._layout.addWidget(self._make_row("dom_symmetry", "Symmetry", self.domain_symmetry))
         self._section("dom_computed", "Computed")
         self.domain_size = QLineEdit()
@@ -872,6 +891,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.sp_remove = QPushButton("Remove")
         self.sp_remove.setToolTip("Remove the preparation: the parts mesh as imported (undoable)")
         self.sp_remove.clicked.connect(self.remove_surface_prep_requested.emit)
+        sp_buttons.setToolTip("Run the surface preparation, or remove its result (the parts then mesh as imported)")
         sp_box.addWidget(self.sp_run)
         sp_box.addWidget(self.sp_remove)
         self._layout.addWidget(self._make_row("sp_buttons", "Operation", sp_buttons))
@@ -997,7 +1017,10 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.run_residuals = self._ro_row("run_residuals", "Final residuals")
         self.run_status = self._ro_row("run_status", "Status")
         # Reference Values node (under Reports & Monitors): forceCoeffs reference values.
+        self._section("ref_values", "Reference values")
         self.ref_rho = _dspin(0.001, 100000.0, 4, " kg/m\u00b3")
+        self.ref_rho.setToolTip("\u03c1 used to turn the kinematic forces into newtons and coefficients (the solver is "
+                                "incompressible). Default 1.225 kg/m\u00b3: air at sea level.")
         self._layout.addWidget(self._make_row("ref_rho", "Reference density", self.ref_rho))
         self.ref_rho.editingFinished.connect(self._commit_rho)
         self.ref_u = self._ro_row("ref_u", "Reference speed U_ref")
@@ -1006,22 +1029,20 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                                   "or a custom value")
         self._layout.addWidget(self._make_row("ref_basis", "A_ref basis", self.ref_basis))
         self.ref_basis.currentTextChanged.connect(lambda _t: self._commit_basis())
-        self.ref_area = _dspin(0.0, 1e6, 6, " m\u00b2", "auto")
+        # A_ref follows its basis: computed (greyed) unless the basis is custom (D-148)
+        self.ref_area = AutoField(_dspin(1e-9, 1e6, 6, " m\u00b2"))
+        self.ref_area.auto.hide()
+        self._fields.append(self.ref_area.spin)
         self._layout.addWidget(self._make_row("ref_area", "Reference area A_ref", self.ref_area))
-        self.ref_area.editingFinished.connect(lambda: self._commit_reference("reference_area"))
-        self.ref_length = _dspin(0.0, 1e4, 6, " m", "auto")
+        self.ref_area.edited.connect(lambda: self._commit_reference("reference_area"))
+        self.ref_length = AutoField(_dspin(1e-6, 1e4, 6, " m"))
+        self._fields.append(self.ref_length.spin)
         self._layout.addWidget(self._make_row("ref_length", "Reference length l_ref", self.ref_length))
-        self.ref_length.editingFinished.connect(lambda: self._commit_reference("reference_length"))
-        self.ref_cofr = QLineEdit()
-        self.ref_cofr.setPlaceholderText("auto")
-        self.ref_cofr.setToolTip("Centre of rotation for the moment coefficient: x y z in metres, "
-                                 "empty for auto (centre of the parts' bounding box)")
+        self.ref_length.edited.connect(lambda: self._commit_reference("reference_length"))
+        self.ref_cofr = VectorField("m", REF_COFR_TIP, auto=True)
+        self._fields.append(self.ref_cofr.edit)
         self._layout.addWidget(self._make_row("ref_cofr", "Centre of rotation", self.ref_cofr))
         self.ref_cofr.editingFinished.connect(lambda: self._commit_reference("center_of_rotation"))
-        self._section("ref_used", "Used")
-        self.ref_area_used = self._ro_row("ref_area_used", "A_ref")
-        self.ref_length_used = self._ro_row("ref_length_used", "l_ref")
-        self.ref_cofr_used = self._ro_row("ref_cofr_used", "CofR")
         self.ref_note = QLabel(REFERENCE_NOTE)
         self.ref_note.setObjectName("muted")
         _wrap(self.ref_note)
@@ -1080,10 +1101,10 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self._layout.addWidget(self.probes_empty)
         # Stopping Criteria node (under Solvers): combination, limits, oscillation check, criteria.
         self.stop_combine = _combo(("all", "any"))
-        self.stop_min = _spin(0, 10_000_000)
-        self.stop_max = _spin(1, 10_000_000)
+        self.stop_min = _spin(0, 10_000_000, " it.")
+        self.stop_max = _spin(1, 10_000_000, " it.")
         self.stop_osc_threshold = _dspin(0.01, 1000.0, 2, " %")
-        self.stop_osc_window = _spin(4, 10_000_000)
+        self.stop_osc_window = _spin(4, 10_000_000, " it.")
         for key, text, widget in (("combine", "Combine criteria", self.stop_combine),
                                   ("min", "Minimum iterations", self.stop_min),
                                   ("max", "Maximum iterations", self.stop_max),
@@ -1162,6 +1183,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         _wrap(note)
         box.addWidget(widget)
         box.addWidget(note)
+        host.setToolTip(widget.toolTip())
         return host, note
 
     def _ro_row(self, key: str, text: str) -> QLabel:
@@ -1397,6 +1419,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         show_name = self._kind == "root" or part is not None
         for widget in (self.name_edit, self.source_label, self.units_combo):
             widget.blockSignals(True)
+        self.name_edit.setToolTip("The project's name (its file name does not change; Save As makes a copy)"
+                                  if self._kind == "root" else "The part's name; its patch is named after it")
         try:
             if self._kind == "root":
                 self.name_edit.setText(sim.name)
@@ -1419,11 +1443,9 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.dimension_combo.setCurrentIndex(DIMENSIONS.index(sim.dimension))
         self.dimension_combo.blockSignals(False)
         if part is not None:
-            for key, spin in self.part_level_fields.items():
-                spin.blockSignals(True)
-                value = getattr(part, key)
-                spin.setValue(spin.minimum() if value is None else value)
-                spin.blockSignals(False)
+            levels = self._part_levels(part)
+            for i, (key, field) in enumerate(self.part_level_fields.items()):
+                field.set_state(getattr(part, key), levels[i] if levels is not None else None)
         if part is not None:
             patches = part_patch_names(sim.geometry.parts, sim.internal)
             self.patch_label.setText(", ".join(patches[self._index]))
@@ -1779,45 +1801,44 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
     def _refresh_reference(self, show: bool) -> None:
         for key in REFERENCE_ROWS:
             self._rows[key].setVisible(show)
-        self._sections["ref_used"].setVisible(show)
+        self._sections["ref_values"].setVisible(show)
         self.ref_note.setVisible(False)
         if not show:
             return
         sim = self._project.sim
         rep = sim.reports
-        widgets = (self.ref_rho, self.ref_basis, self.ref_area, self.ref_length, self.ref_cofr)
-        for w in widgets:
-            w.blockSignals(True)
+        try:
+            _box, _names, bounds = parts_layout(self._project)
+        except (MeshingNotReady, TypeError, ValueError, OSError):
+            bounds = None
+        ref = reference_values(bounds, rep) if bounds is not None else None
+        self.ref_rho.blockSignals(True)
+        self.ref_basis.blockSignals(True)
         try:
             self.ref_rho.setValue(sim.physics.rho_ref)
             self.ref_basis.setCurrentText(rep.reference_area_basis)
-            self.ref_area.setValue(rep.reference_area if rep.reference_area is not None else self.ref_area.minimum())
-            self.ref_length.setValue(
-                rep.reference_length if rep.reference_length is not None else self.ref_length.minimum())
-            self.ref_cofr.setText(format_vector(rep.center_of_rotation) if rep.center_of_rotation else "")
         finally:
-            for w in widgets:
-                w.blockSignals(False)
-        self.ref_area.setEnabled(rep.reference_area_basis == "custom")
-        self.ref_u.setText(f"{flow_speed(self._project):.4g} m/s (the first inlet's bulk speed)" if sim.internal
-                           else f"{sim.inflow.speed:.4g} m/s (free-stream speed)")
-        try:
-            _box, _names, bounds = parts_layout(self._project)
-        except MeshingNotReady:
-            bounds = None
-        if bounds is None:
-            for label in (self.ref_area_used, self.ref_length_used, self.ref_cofr_used):
-                label.setText("\u2014")
-            return
-        ref = reference_values(bounds, rep)
+            self.ref_rho.blockSignals(False)
+            self.ref_basis.blockSignals(False)
+        custom = rep.reference_area_basis == "custom"
+        self.ref_area.set_state(rep.reference_area if custom else None, ref.a_ref if ref is not None else None)
+        self.ref_length.set_state(rep.reference_length, ref.l_ref if ref is not None else None)
+        self.ref_cofr.set_state(rep.center_of_rotation, ref.cofr if ref is not None else None)
 
         def tag(auto: bool, label: str) -> str:
-            return f" \u2014 {label}" if auto else " (set)"
+            return f"In use: {label}" if auto else "In use: the value set"
 
-        self.ref_area_used.setText(f"{ref.a_ref:.4g} m\u00b2" + tag(ref.a_auto, AREA_BASIS_LABELS.get(ref.a_basis, "")))
-        self.ref_length_used.setText(f"{ref.l_ref:.4g} m" + tag(ref.l_auto, LENGTH_AUTO_LABEL))
-        self.ref_cofr_used.setText(f"({format_vector(ref.cofr)}) m" + tag(ref.cofr_auto, CENTRE_AUTO_LABEL))
-        self.ref_note.setVisible(ref.a_auto or ref.l_auto)
+        if ref is not None:
+            self.ref_area.setToolTip(f"{REF_AREA_TIP}\n{tag(ref.a_auto, AREA_BASIS_LABELS.get(ref.a_basis, ''))}")
+            self.ref_length.setToolTip(f"{REF_LENGTH_TIP}\n{tag(ref.l_auto, LENGTH_AUTO_LABEL)}")
+            self.ref_cofr.setToolTip(f"{REF_COFR_TIP}\n{tag(ref.cofr_auto, CENTRE_AUTO_LABEL)}")
+        else:
+            self.ref_area.setToolTip(REF_AREA_TIP)
+            self.ref_length.setToolTip(REF_LENGTH_TIP)
+            self.ref_cofr.setToolTip(REF_COFR_TIP)
+        self.ref_u.setText(f"{flow_speed(self._project):.4g} m/s (the first inlet's bulk speed)" if sim.internal
+                           else f"{sim.inflow.speed:.4g} m/s (free-stream speed)")
+        self.ref_note.setVisible(ref is not None and (ref.a_auto or ref.l_auto))
 
     def _commit_rho(self) -> None:
         if self._kind != "reference_values":
@@ -1852,10 +1873,13 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             return
         try:
             if key == "center_of_rotation":
-                value = parse_vector(self.ref_cofr.text())
+                if not self.ref_cofr.valid:
+                    return  # shown on the field (D-148)
+                value = self.ref_cofr.value()
             else:
-                widget = self.ref_area if key == "reference_area" else self.ref_length
-                value = None if widget.value() == widget.minimum() else widget.value()  # "auto"
+                value = (self.ref_area if key == "reference_area" else self.ref_length).value()  # None: auto
+            if getattr(self._project.sim.reports, key) == value:
+                return
             self._project.update_reports(**{key: value})
         except (ValueError, TypeError) as exc:  # includes pydantic errors
             self.message.emit(str(exc))
@@ -2173,7 +2197,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             for w in row.values():
                 w.blockSignals(True)
             row["name"].setText(probe.name)
-            row["location"].setText(format_vector(probe.location))
+            row["location"].setValue(probe.location)
             for w in row.values():
                 w.blockSignals(False)
 
@@ -2187,11 +2211,12 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         title.setObjectName("muted")
         box.addWidget(title)
         box.addWidget(field, 1)
-        if isinstance(field, QLineEdit):
-            field.setMinimumHeight(metrics().field)
-            field.setMinimumWidth(1)
-            field.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-            field.setFont(mono_font(QApplication.font(), 0.9))
+        edit = field.edit if isinstance(field, VectorField) else field
+        if isinstance(edit, QLineEdit):
+            edit.setMinimumHeight(metrics().field)
+            edit.setMinimumWidth(1)
+            edit.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            edit.setFont(mono_font(QApplication.font(), 0.9))
         row.setMinimumHeight(self._row_min_height)
         self._probe_titles.append((row, title))
         self._probe_box.addWidget(row)
@@ -2212,8 +2237,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             self._probe_row(f"Probe {i + 1}", remove)
             name = QLineEdit()
             name.setToolTip("Letters, digits and _, starting with a letter; used in the report names")
-            location = QLineEdit()
-            location.setToolTip("x y z in metres (a point in the fluid)")
+            location = VectorField("m", PROBE_LOCATION_TIP)
             self._probe_row("Name", name)
             self._probe_row("Location", location)
             name.editingFinished.connect(lambda n=i: self._commit_probe(n, "name"))
@@ -2234,15 +2258,14 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         if self._kind != "probes" or index >= len(self.probe_widgets):
             return
         text = self.probe_widgets[index][key].text()
+        if key == "location" and self.probe_widgets[index]["location"].check() is not None:
+            return  # shown on the field; nothing committed (D-148)
 
         def mutate(probes: list[dict]) -> None:
             if key == "name":
                 probes[index]["name"] = text.strip()
             else:
-                vector = parse_vector(text)
-                if vector is None:
-                    raise ValueError("Probe location: expected three numbers (x y z)")
-                probes[index]["location"] = vector
+                probes[index]["location"] = self.probe_widgets[index]["location"].value()
 
         self._edit_probes(mutate)
 
@@ -2618,11 +2641,23 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             self.message.emit(str(exc))
         self.refresh()
 
+    def _part_levels(self, part: Part) -> tuple[int, int] | None:
+        """The (min, max) surface levels a part meshes with: its overrides, else the Mesh's (None: no domain)."""
+        box = domain_box_for(self._project)
+        if box.bounds is None:
+            return None
+        try:
+            est = estimate_with_volumes(self._project, box)
+        except Exception:  # an unloadable part: no estimate
+            return None
+        return part_level_range(est.level_min, est.level_max, (part.surface_level_min, part.surface_level_max))
+
     def _commit_part_level(self, key: str) -> None:
         if self._kind != "part" or self._index is None:
             return
-        spin = self.part_level_fields[key]
-        value = None if spin.value() == spin.minimum() else spin.value()
+        value = self.part_level_fields[key].value()  # None: Auto
+        if getattr(self._project.sim.geometry.parts[self._index], key) == value:
+            return
         try:
             self._project.update_part(self._index, **{key: value})
         except (ValueError, TypeError, IndexError) as exc:  # includes pydantic errors

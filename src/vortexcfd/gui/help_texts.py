@@ -23,7 +23,7 @@ SECTION_HELP: dict[str, str] = {
     "sp_title": "surface-preparation",
     "vol_list": "refinement-volumes",
     "vol_edit": "refinement-volumes",
-    "ref_used": "reference-values",
+    "ref_values": "reference-values",
     "stop_criteria": "stopping-criteria",
     "ms_title": "mesh-independence-study",
     "ms_estimate": "mesh-independence-study",

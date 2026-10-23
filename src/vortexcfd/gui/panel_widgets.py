@@ -177,26 +177,45 @@ def format_vector_text(v) -> str:
 
 class VectorField(QWidget):
     """One "(x, y, z)" field with a unit label (D-148): accepts pasted text like "1.2 0 -0.5" or "(1.2, 0, -0.5)";
-    bad input is shown on the field (highlighted border, the reason as its tooltip) and not committed."""
+    bad input is shown on the field (highlighted border, the reason as its tooltip) and not committed. With ``auto``
+    an "Auto" checkbox: checked, ``value()`` is None and the field shows the computed vector, read-only.
+    ``editingFinished`` follows a valid finished edit (or a change of the Auto box)."""
 
-    edited = Signal()
+    editingFinished = Signal()
 
-    def __init__(self, unit: str = "m", tooltip: str = "") -> None:
+    def __init__(self, unit: str = "m", tooltip: str = "", auto: bool = False) -> None:
         super().__init__()
+        self.setMinimumWidth(1)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.edit = QLineEdit()
         self.edit.setPlaceholderText("(x, y, z)")
+        self.edit.setMinimumWidth(1)
         self.unit = QLabel(unit)
-        self.unit.setObjectName("muted")
+        self.unit.setObjectName("unitLabel")
         self._tip = tooltip
         self.edit.setToolTip(tooltip)
         box = QHBoxLayout(self)
         box.setContentsMargins(0, 0, 0, 0)
-        box.setSpacing(6)
+        box.setSpacing(4)
+        self.auto: QCheckBox | None = None
+        if auto:
+            self.auto = QCheckBox("Auto")
+            self.auto.setToolTip("Checked: the value is computed (shown greyed); uncheck to set it")
+            self.auto.toggled.connect(self._auto_toggled)
+            box.addWidget(self.auto)
         box.addWidget(self.edit, 1)
         box.addWidget(self.unit)
         self.edit.editingFinished.connect(self._finished)
         self.edit.textEdited.connect(lambda _t: self.check())
-        self._value: tuple[float, float, float] | None = None
+        self._computed = None
+
+    def _auto_toggled(self, on: bool) -> None:
+        self.edit.setReadOnly(on)
+        self.edit.setEnabled(not on)
+        if not on and self._computed is not None:
+            self.edit.setText(format_vector_text(self._computed))
+        set_invalid(self.edit, None, self._tip)
+        self.editingFinished.emit()
 
     def check(self) -> str | None:
         """The parse error of the text (shown on the field), or None."""
@@ -209,16 +228,40 @@ class VectorField(QWidget):
         return None
 
     def _finished(self) -> None:
+        if self.auto is not None and self.auto.isChecked():
+            return
         if self.check() is None:
-            self.edited.emit()
+            self.editingFinished.emit()
 
-    def value(self) -> tuple[float, float, float]:
+    @property
+    def valid(self) -> bool:
+        return self.edit.property("invalid") is not True
+
+    def value(self):
+        if self.auto is not None and self.auto.isChecked():
+            return None
         return parse_vector_text(self.edit.text())
 
     def setValue(self, v) -> None:
-        self.edit.blockSignals(True)
-        self.edit.setText(format_vector_text(v))
-        self.edit.blockSignals(False)
+        self.set_state(v, self._computed)
+
+    def set_state(self, value, computed=None) -> None:
+        """``value`` None (with Auto): Auto checked, showing ``computed``; else the vector."""
+        self._computed = computed
+        widgets = (self.edit, self.auto) if self.auto is not None else (self.edit,)
+        for w in widgets:
+            w.blockSignals(True)
+        try:
+            auto = value is None and self.auto is not None
+            if self.auto is not None:
+                self.auto.setChecked(auto)
+                self.edit.setReadOnly(auto)
+                self.edit.setEnabled(not auto)
+            shown = computed if auto else value
+            self.edit.setText(format_vector_text(shown) if shown is not None else "")
+        finally:
+            for w in widgets:
+                w.blockSignals(False)
         set_invalid(self.edit, None, self._tip)
 
     def text(self) -> str:
@@ -226,6 +269,12 @@ class VectorField(QWidget):
 
     def setText(self, text: str) -> None:
         self.edit.setText(text)
+
+    def setToolTip(self, text: str) -> None:
+        self._tip = text
+        super().setToolTip(text)
+        if self.valid:
+            self.edit.setToolTip(text)
 
 
 LENGTH_UNITS = {"L": None, "m": 1.0, "mm": 1e-3}
@@ -245,7 +294,6 @@ class ReferenceLengthField(QWidget):
         self.spin.setRange(0.001, 1e9)
         self.spin.setDecimals(4)
         self.spin.setKeyboardTracking(False)
-        self.spin.setToolTip(tooltip)
         self.unit_button = QPushButton("L")
         self.unit_button.setObjectName("unitBtn")
         self.unit_button.setToolTip("Enter in multiples of L, in metres or in millimetres (click to switch)")
@@ -270,6 +318,7 @@ class ReferenceLengthField(QWidget):
         self._in_l = 1.0
         self.spin.editingFinished.connect(self._finished)
         self.spin.valueChanged.connect(lambda _v: self._show_other())
+        self.setToolTip(tooltip)
 
     def set_reference(self, length_m: float | None) -> None:
         self.reference = length_m if length_m and length_m > 0 else 1.0

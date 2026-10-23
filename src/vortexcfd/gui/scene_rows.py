@@ -92,6 +92,7 @@ class SceneRowsMixin:
             button.clicked.connect(lambda _=False, k=kind: self.scene_action.emit(f"add:{k}"))
             layout.addWidget(button)
             self.sc_add_buttons[kind] = button
+        adds.setToolTip("Add a results object: a clip, an isosurface, streamlines or a line plot")
         self._layout.addWidget(self._make_row("sc_add", "Add", adds))
         actions = QWidget()
         box = QHBoxLayout(actions)
@@ -100,12 +101,14 @@ class SceneRowsMixin:
         self.sc_save_view.setToolTip("Save the viewer's camera as a view (the report shows every saved view)")
         self.sc_save_view.clicked.connect(lambda: self.scene_action.emit("save_view"))
         self.sc_image = QPushButton("Export image…")
+        self.sc_image.setToolTip("Write the viewer as a PNG at a chosen size (rendered again, not a screenshot)")
         self.sc_image.clicked.connect(lambda: self.scene_action.emit("image"))
         self.sc_report = QPushButton("Create report")
         self.sc_report.setToolTip("Write an HTML report to <project>/reports/")
         self.sc_report.clicked.connect(lambda: self.scene_action.emit("report"))
         for b in (self.sc_save_view, self.sc_image, self.sc_report):
             box.addWidget(b)
+        actions.setToolTip("Save the camera as a view, export an image, or write the HTML report")
         self._layout.addWidget(self._make_row("sc_actions", "", actions))
         # one object
         self._section("sc_object", "Scene object")

@@ -1074,9 +1074,11 @@ class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
             if internal_flow:
                 add(reports, "internal_reports", None, "Planes & Pressure Drops", "dot", "accent")
             add(reports, "probes", None, "Probes", "dot", "accent")
-            add(reports, "mesh_study", None, "Mesh Study", "dot", "accent")
+            add(reports, "mesh_study", None, "Mesh independence study", "dot", "accent")
             if not internal_flow:  # the angle of attack turns the parts: external flow only (D-120)
-                add(reports, "polar_sweep", None, "Polar Sweep", "dot", "accent")
+                on = self._project.sim.studies.polar.enabled  # opt-in (D-148)
+                add(reports, "polar_sweep", None, "Polar sweep" if on else "Polar sweep (off)", "dot",
+                    "accent" if on else "muted_text")
             results = add(root, "results", None, "Results", "folder", "text")  # the scene objects (D-132)
             scene = self._project.sim.results
             for i, obj in enumerate(scene.objects):

@@ -32,7 +32,7 @@ def test_part_fields_and_visibility(qtbot: QtBot) -> None:
     assert panel.units_combo.isVisible()
     panel.show_node("geometry", None)
     assert not panel.name_edit.isVisible()
-    assert panel.info_label.isVisible()
+    assert not panel.info_label.isVisible() and panel._rows["geometry_alpha_deg"].isVisible()  # Body attitude
     assert not project.observer_errors
 
 

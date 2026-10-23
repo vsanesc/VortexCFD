@@ -164,12 +164,13 @@ def test_reference_values_node_defaults_are_auto(make_window) -> None:
                                                 "ref_cofr"))
     assert p.ref_rho.value() == pytest.approx(1.225)
     assert p.ref_u.text() == "20 m/s (free-stream speed)"
-    assert p.ref_basis.currentText() == "planform" and not p.ref_area.isEnabled()
-    assert p.ref_area.text() == "auto" and p.ref_length.text() == "auto" and p.ref_cofr.text() == ""
-    # the auto labels state the basis exactly
-    assert p.ref_area_used.text().endswith("m\u00b2 \u2014 auto: bounding-box planform, x * y")
-    assert p.ref_length_used.text().endswith("m \u2014 auto: bounding-box length, x extent")
-    assert p.ref_cofr_used.text().endswith("\u2014 auto: bounding-box centre")
+    # Auto: the values in use are shown in the fields, greyed (D-148); the tooltips say where they come from
+    assert p.ref_basis.currentText() == "planform" and not p.ref_area.spin.isEnabled()
+    assert p.ref_area.value() is None and p.ref_length.auto.isChecked() and p.ref_cofr.auto.isChecked()
+    assert p.ref_area.spin.value() > 0 and p.ref_length.spin.value() > 0 and p.ref_cofr.text().startswith("(")
+    assert p.ref_area.toolTip().endswith("In use: auto: bounding-box planform, x * y")
+    assert p.ref_length.toolTip().endswith("In use: auto: bounding-box length, x extent")
+    assert p.ref_cofr.toolTip().endswith("In use: auto: bounding-box centre")
     assert p.ref_note.isVisible() and p.ref_note.text() == REFERENCE_NOTE and p.ref_note.objectName() == "muted"
     assert not p.info_label.isVisible()
     _select(w, "solvers")
@@ -188,20 +189,18 @@ def test_area_basis_frontal_and_custom(make_window) -> None:
     p.ref_basis.setCurrentText("frontal")
     reports = w.project.sim.reports
     assert reports.reference_area_basis == "frontal" and reports.reference_area is None
-    assert p.ref_area_used.text() == f"{frontal:.4g} m\u00b2 \u2014 auto: bounding-box frontal, y * z"
+    assert p.ref_area.spin.value() == pytest.approx(frontal, rel=1e-5)
+    assert p.ref_area.toolTip().endswith("In use: auto: bounding-box frontal, y * z")
     case = solving.prepare_solver_case(w.project)
     fc = read_foam_file(case / "system" / "controlDict")["functions"]["forceCoeffs1"]
     assert fc["Aref"] == pytest.approx(frontal) and frontal != pytest.approx(planform, rel=1e-6)
     # custom starts from the area in use and makes the field editable
     p.ref_basis.setCurrentText("custom")
-    assert w.project.sim.reports.reference_area == pytest.approx(frontal) and p.ref_area.isEnabled()
-    p.ref_area.setValue(0.785)
-    p.ref_area.editingFinished.emit()
+    assert w.project.sim.reports.reference_area == pytest.approx(frontal) and p.ref_area.spin.isEnabled()
+    p.ref_area.spin.setValue(0.785)
+    p.ref_area.spin.editingFinished.emit()
     assert w.project.sim.reports == Reports(reference_area_basis="custom", reference_area=0.785)
-    assert p.ref_area_used.text() == "0.785 m\u00b2 (set)"
-    p.ref_area.setValue(p.ref_area.minimum())  # "auto" is not a custom area: rejected, reverted
-    p.ref_area.editingFinished.emit()
-    assert w.project.sim.reports.reference_area == 0.785 and "custom" in w.statusBar().currentMessage()
+    assert p.ref_area.toolTip().endswith("In use: the value set")
     p.ref_basis.setCurrentText("planform")
     assert w.project.sim.reports == Reports()
     w.act_undo.trigger()
@@ -213,19 +212,21 @@ def test_reference_overrides_are_stored_and_used_by_force_coeffs(make_window) ->
     _select(w, "reference_values")
     p = w.properties
     p.ref_basis.setCurrentText("custom")
-    p.ref_area.setValue(0.785)
-    p.ref_area.editingFinished.emit()
-    p.ref_length.setValue(1.0)
-    p.ref_length.editingFinished.emit()
-    p.ref_cofr.setText("0.25, 0, 0")
-    p.ref_cofr.editingFinished.emit()
+    p.ref_area.spin.setValue(0.785)
+    p.ref_area.spin.editingFinished.emit()
+    p.ref_length.auto.setChecked(False)
+    p.ref_length.spin.setValue(1.0)
+    p.ref_length.spin.editingFinished.emit()
+    p.ref_cofr.auto.setChecked(False)
+    p.ref_cofr.setText("(0.25, 0, 0)")  # pasted with parentheses and commas
+    p.ref_cofr.edit.editingFinished.emit()
     p.ref_rho.setValue(1.0)
     p.ref_rho.editingFinished.emit()
     sim = w.project.sim
     assert sim.reports == Reports(reference_area_basis="custom", reference_area=0.785, reference_length=1.0,
                                   center_of_rotation=(0.25, 0, 0))
     assert sim.physics.rho_ref == 1.0
-    assert p.ref_area_used.text() == "0.785 m\u00b2 (set)" and p.ref_cofr_used.text() == "(0.25 0 0) m (set)"
+    assert p.ref_cofr.text() == "(0.25, 0, 0)" and p.ref_cofr.toolTip().endswith("In use: the value set")
     assert not p.ref_note.isVisible()  # both A_ref and l_ref are set
     assert w.results_stale is False  # no run yet
     case = solving.prepare_solver_case(w.project)
@@ -233,17 +234,15 @@ def test_reference_overrides_are_stored_and_used_by_force_coeffs(make_window) ->
     fc = functions["forceCoeffs1"]
     assert fc["Aref"] == 0.785 and fc["lRef"] == 1.0 and list(fc["CofR"]) == [0.25, 0, 0] and fc["rhoInf"] == 1.0
     assert list(functions["forces1"]["CofR"]) == [0.25, 0, 0]
-    # invalid text reverts with a message; empty text goes back to auto
+    # invalid text is shown on the field and not committed (D-148); Auto goes back to the computed values
     p.ref_cofr.setText("1 2")
-    p.ref_cofr.editingFinished.emit()
-    assert w.project.sim.reports.center_of_rotation == (0.25, 0, 0) and p.ref_cofr.text() == "0.25 0 0"
-    assert "three numbers" in w.statusBar().currentMessage()
-    p.ref_cofr.setText("")
-    p.ref_cofr.editingFinished.emit()
-    p.ref_length.setValue(p.ref_length.minimum())
-    p.ref_length.editingFinished.emit()
+    p.ref_cofr.edit.editingFinished.emit()
+    assert w.project.sim.reports.center_of_rotation == (0.25, 0, 0)
+    assert p.ref_cofr.edit.property("invalid") is True and "three numbers" in p.ref_cofr.edit.toolTip()
+    p.ref_cofr.auto.setChecked(True)
+    p.ref_length.auto.setChecked(True)
     assert w.project.sim.reports.center_of_rotation is None and w.project.sim.reports.reference_length is None
-    assert p.ref_note.isVisible() and "auto: bounding-box length" in p.ref_length_used.text()
+    assert p.ref_note.isVisible() and "auto: bounding-box length" in p.ref_length.toolTip()
 
 
 def test_reference_values_change_the_results_hash(make_window) -> None:
