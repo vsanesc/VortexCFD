@@ -607,13 +607,13 @@ class Ground(StrictModel):
 # The boundary type of each domain face (schema v22, D-147) [NUMERICS-REVIEW]. The defaults are the conditions every
 # domain had before (D-019, D-078): a velocity inlet, a pressure outlet and slip far-field faces.
 BOUNDARY_KINDS = ("velocity_inlet", "pressure_outlet", "slip", "symmetry", "wall", "moving_wall")
-BOUNDARY_KIND_LABELS = {
-    "velocity_inlet": "Inlet (velocity)",
-    "pressure_outlet": "Outlet (pressure)",
+BOUNDARY_KIND_LABELS = {  # short: the face's conditions are shown beside the choice (D-148)
+    "velocity_inlet": "Velocity inlet",
+    "pressure_outlet": "Pressure outlet",
     "slip": "Slip (far field)",
     "symmetry": "Symmetry",
-    "wall": "Wall (no-slip, stationary)",
-    "moving_wall": "Wall (moving with the free stream)",
+    "wall": "Wall",
+    "moving_wall": "Moving wall",
 }
 DEFAULT_FACE_KINDS = {"inlet": "velocity_inlet", "outlet": "pressure_outlet", "sides": "slip", "top": "slip",
                       "bottom": "slip", "farfield": "slip"}

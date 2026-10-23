@@ -417,9 +417,9 @@ def boundary_problem(project: Project) -> str | None:
         return None
     kinds = [project.sim.domain.face_kind(f) for f in domain_faces(project)]
     if "velocity_inlet" not in kinds:
-        return "The domain has no inlet: give a face the type Inlet (velocity) (Regions > Fluid Domain)."
+        return "The domain has no inlet: make a face a Velocity inlet (Regions > Fluid Domain)."
     if "pressure_outlet" not in kinds:
-        return "The domain has no outlet: give a face the type Outlet (pressure) (Regions > Fluid Domain)."
+        return "The domain has no outlet: make a face a Pressure outlet (Regions > Fluid Domain)."
     return None
 
 

@@ -137,7 +137,7 @@ FACE_BC_TEXTS = {
     "moving_wall": "U fixedValue (U\u221e, 0, 0): the wall moves with the free stream; p, k, \u03c9, \u03bd\u209c as a "
                    "wall; patch type wall, no prism layers",
 }
-GROUND_OPTION = ("ground", "Ground plane (D-116: its position, motion and layers)")
+GROUND_OPTION = ("ground", "Ground plane")
 
 
 def face_type_options(sim, face: str) -> list[tuple[str, str]]:

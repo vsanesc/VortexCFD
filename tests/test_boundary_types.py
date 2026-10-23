@@ -161,7 +161,7 @@ def test_the_face_node_edits_its_type(qtbot: QtBot, tmp_path: Path) -> None:
         combo.setCurrentIndex(combo.findData("wall"))
         combo.activated.emit(combo.currentIndex())
         assert w.project.sim.domain.boundary_types == {"top": "wall"}
-        assert w._items[("boundary_top", None)].text(0) == "top (wall (no-slip, stationary))"
+        assert w._items[("boundary_top", None)].text(0) == "top (wall)"
         assert "noSlip" in p.face_bcs.text()
         # the bottom face offers the ground plane; choosing it selects the ground node
         w.tree.setCurrentItem(w._items[("boundary_bottom", None)])
@@ -170,8 +170,7 @@ def test_the_face_node_edits_its_type(qtbot: QtBot, tmp_path: Path) -> None:
         assert w.project.sim.domain.ground.enabled and w._selection == ("boundary_ground", None)
         menu = w.tree_menu_for(("boundary_ground", None))
         types = next(a.menu() for a in menu.actions() if a.text() == "Boundary type")
-        assert [a.text() for a in types.actions() if a.isChecked()] == [
-            "Ground plane (D-116: its position, motion and layers)"]
+        assert [a.text() for a in types.actions() if a.isChecked()] == ["Ground plane"]
     finally:
         w.project.save = lambda *a, **k: None
         w.close()
