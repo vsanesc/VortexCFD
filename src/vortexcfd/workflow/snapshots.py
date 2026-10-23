@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 from vortexcfd.core.atomic_io import write_text_atomic
-from vortexcfd.core.model import MeanStableCriterion, Simulation
+from vortexcfd.core.model import DOMAIN_EXTENTS, MeanStableCriterion, Simulation
 from vortexcfd.core.project import Project
 from vortexcfd.core.project_io import load_simulation
 from vortexcfd.core.reports import available_reports, report_label
@@ -115,9 +115,10 @@ def setup_summary(sim: Simulation) -> dict[str, str]:
     if not sim.internal:
         for key, value in sim.inflow.model_dump().items():
             out[f"free stream: {key}"] = _text(value)
-        domain = sim.domain.model_dump(exclude={"parts", "ground", "boundary_types"})
+        domain = sim.domain.model_dump(exclude={"parts", "ground", "boundary_types", "units"})
         for key, value in domain.items():
-            out[f"domain: {key}"] = _text(value)
+            unit = f" {sim.domain.extent_unit(key)}" if key in DOMAIN_EXTENTS else ""  # "5 L", "2 m" (D-157)
+            out[f"domain: {key}"] = _text(value) + unit
         out["domain: ground"] = (f"on, {sim.domain.ground.motion}" if sim.domain.ground.enabled else "off")
         for face, kind in sorted(sim.domain.boundary_types.items()):
             out[f"domain: {face} type"] = kind

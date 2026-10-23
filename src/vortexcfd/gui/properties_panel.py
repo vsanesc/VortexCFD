@@ -114,7 +114,6 @@ DOMAIN_FIELD_TIPS = {
 DOMAIN_L_TIP = ("L: the largest extent (x, y or z) of the box around the parts the domain is sized around; every extent "
                 "is a multiple of it, so the domain follows the parts. An extent entered in m or mm is converted to "
                 "L with the current L.")
-DOMAIN_UNIT_KEY = "properties/domain_units"  # + "/<extent>": "L", "m" or "mm" (a display choice, D-148)
 # The ground plane of a box domain (D-116): its options and the boundary conditions it gets.
 GROUND_MOTIONS = {"stationary": "Stationary wall", "moving": "Moving (free-stream speed along +x)"}
 GROUND_POSITIONS = {"parts_min": "Parts' lowest z", "value": "Value"}
@@ -794,8 +793,6 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.domain_length.setToolTip(DOMAIN_L_TIP)
         for key in ("upstream", "downstream", "lateral", "vertical", "radius"):
             field = ReferenceLengthField(DOMAIN_FIELD_TIPS[key])
-            field.set_unit(str(settings().value(f"{DOMAIN_UNIT_KEY}/{key}", "L")))
-            field.unit_changed.connect(lambda unit, k=key: self._remember_domain_unit(k, unit))
             self.domain_fields[key] = field
             self._fields.append(field.spin)
             self._domain_keys.append(key)
@@ -2361,8 +2358,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             self.domain_enabled.setChecked(domain.enabled)
             self.domain_symmetry.setCurrentText(domain.symmetry)
             self.domain_shape.setCurrentIndex(DOMAIN_SHAPES.index(domain.shape))
-            for key, spin in self.domain_fields.items():
-                spin.setValue(getattr(domain, key))
+            for key, field in self.domain_fields.items():
+                field.setValue(getattr(domain, key), domain.extent_unit(key))  # in its own unit (D-157)
         finally:
             for w in widgets:
                 w.blockSignals(False)
@@ -2371,8 +2368,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.domain_length.setText(f"{box.reference_length:.4g} m: the parts' largest extent" if box.bounds
                                    else "\u2014 (import a part)")
         for field in self.domain_fields.values():
-            field.set_reference(box.reference_length if box.bounds else None)
-            field.setValue(field.value())  # the other form, with the current L
+            field.set_reference(box.reference_length if box.bounds else None)  # the other form, with the current L
         self.domain_size.setText(
             " \u00d7 ".join(f"{v:.3g}" for v in box.size) + " m" if box.bounds else "\u2014"
         )
@@ -2535,11 +2531,6 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             self.message.emit(str(exc))
         self.refresh()  # reverts a rejected value
 
-    def _remember_domain_unit(self, key: str, unit: str) -> None:
-        s = settings()
-        s.setValue(f"{DOMAIN_UNIT_KEY}/{key}", unit)
-        s.sync()
-
     def _commit_domain(self, key: str) -> None:
         if self._kind != "fluid_domain":
             return
@@ -2550,7 +2541,14 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         elif key == "shape":
             value = self.domain_shape.currentData()
         else:
-            value = self.domain_fields[key].value()
+            field = self.domain_fields[key]
+            units = {**self._project.sim.domain.units, key: field.unit}  # the value with its unit (D-157)
+            try:
+                self._project.update_domain(**{key: field.value(), "units": units})
+            except (ValueError, TypeError) as exc:  # includes pydantic errors
+                self.message.emit(str(exc))
+            self.refresh()  # reverts a rejected value
+            return
         try:
             self._project.update_domain(**{key: value})
         except (ValueError, TypeError) as exc:  # includes pydantic errors

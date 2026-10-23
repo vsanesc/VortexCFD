@@ -67,7 +67,8 @@ def migrate(data: dict[str, Any], notes: list[str] | None = None) -> dict[str, A
     results scene objects and saved views (none, D-132); v20 -> v21 adds the line plots, the streamlines' own
     colour range and the report sections left out (none: every section, D-136); v21 -> v22 adds the imported
     surface as a refinement volume shape (none, D-145), the domain faces' boundary types (none: the defaults, D-147)
-    and the polar sweep's opt-in (on for every older project, which always had it, D-148).
+    and the polar sweep's opt-in (on for every older project, which always had it, D-148); v22 -> v23 adds the
+    domain extents' units (none: every extent in L, as every older project stored them, D-157).
     Data already at the current version (or not a dict /
     without a version) is returned unchanged."""
     if not isinstance(data, dict):
@@ -161,6 +162,8 @@ def migrate(data: dict[str, Any], notes: list[str] | None = None) -> dict[str, A
             polar.setdefault("enabled", True)
             data["studies"] = {**studies, "polar": polar}
         data["schema_version"] = 22  # no imported refinement regions (D-145), no changed face types (D-147)
+    if data.get("schema_version") == 22:
+        data["schema_version"] = 23  # every extent in L, as before (D-157)
     return data
 
 

@@ -71,9 +71,10 @@ the mesh out of date; the geometry files are not changed.
 
 **Reference length L**: the largest extent of the box around the parts the domain is sized around; every extent is
 a multiple of it, so the domain follows the parts. Each extent (upstream, downstream, lateral or half-width,
-vertical, radius) can be entered in **L**, **m** or **mm**: the button beside the field switches the unit (remembered
-per extent) and the other form is shown under it. A value typed in metres is converted with the current L and kept
-in L. **Dimensions** gives the domain's size in metres. Defaults: 5 L upstream, 10 L downstream, 5 L to each side and
+vertical, radius) can be entered in **L**, **m** or **mm**: the button beside the field switches the unit, converting
+the value to the same length, and the other form is shown under it. The project stores each extent in its own unit:
+an extent in L follows the parts when they change, one in m or mm stays that length. **Dimensions** gives the
+domain's size in metres. Defaults: 5 L upstream, 10 L downstream, 5 L to each side and
 above and below (the 2D airfoil preset: a C-type of radius 50 L).
 
 ## Domain boundaries

@@ -45,7 +45,7 @@ ALLOWED_BOUNDARY_TYPES: dict[str, tuple[str, ...]] = {role: (t,) for role, t in 
 # The domain fields a preset carries (Domain minus "enabled", which follows the analysis type, and
 # "parts", which belongs to a project's geometry).
 DOMAIN_FIELDS = ("shape", "upstream", "downstream", "lateral", "vertical", "radius", "symmetry", "ground",
-                 "boundary_types")
+                 "boundary_types", "units")
 
 
 class PresetError(ValueError):
@@ -64,10 +64,21 @@ class PresetDomain(StrictModel):
     # The faces' boundary types when not their defaults (schema v22, D-147); none in the built-in presets.
     boundary_types: dict[str, str] = Field(default_factory=dict)
 
+    # The extents given in m or mm (schema v23, D-157); none in the built-in presets.
+    units: dict[str, str] = Field(default_factory=dict)
+
     @field_validator("boundary_types")
     @classmethod
     def _face_kinds(cls, value: dict[str, str]) -> dict[str, str]:
         return Domain(boundary_types=value).boundary_types  # the domain's validation and normalisation
+
+    @field_validator("units")
+    @classmethod
+    def _units(cls, value: dict[str, str]) -> dict[str, str]:
+        return Domain(units=value).units  # the domain's validation and normalisation
+
+    def extent_unit(self, name: str) -> str:
+        return self.units.get(name, "L")
 
 
 class Preset(StrictModel):
@@ -194,6 +205,11 @@ ANALYSIS_TEXT = {
 SHAPE_TEXT = {"box": "box", "bullet": "bullet (rounded front)", "c_type": "C-type (round front, 2D sections)"}
 
 
+def _extent(domain: "Domain | PresetDomain", name: str) -> str:
+    """A domain extent with its unit: "5 L", or "2.5 m" for one given in metres (D-157)."""
+    return f"{_number(getattr(domain, name))} {domain.extent_unit(name)}"
+
+
 def _number(value: float) -> str:
     return f"{value:g}"
 
@@ -218,10 +234,10 @@ def preset_description(preset: Preset) -> str:
     d = preset.domain
     if preset.analysis_type != "internal":
         if d.shape == "box":
-            sizes = (f"{_number(d.upstream)} L upstream, {_number(d.downstream)} L downstream, "
-                     f"{_number(d.lateral)} L to each side, {_number(d.vertical)} L above and below")
+            sizes = (f"{_extent(d, 'upstream')} upstream, {_extent(d, 'downstream')} downstream, "
+                     f"{_extent(d, 'lateral')} to each side, {_extent(d, 'vertical')} above and below")
         else:
-            sizes = f"radius {_number(d.radius)} L, {_number(d.downstream)} L downstream"
+            sizes = f"radius {_extent(d, 'radius')}, {_extent(d, 'downstream')} downstream"
         extra = []
         if d.symmetry == "y_min":
             extra.append("a symmetry plane at the parts' lowest y")

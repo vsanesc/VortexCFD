@@ -280,10 +280,16 @@ class VectorField(QWidget):
 LENGTH_UNITS = {"L": None, "m": 1.0, "mm": 1e-3}
 
 
+UNIT_TIP = ("Enter in multiples of L (the domain follows the parts), or in metres or millimetres (a fixed length); "
+            "click to switch: the value is converted to the same length")
+NO_L_TIP = "Import a part first: L, the parts' largest extent, converts between L and metres"
+
+
 class ReferenceLengthField(QWidget):
-    """A domain extent stored in multiples of a reference length L (D-078), entered either in L or in m / mm with a
-    toggle (D-148); the other form is shown live next to it. ``value()`` / ``setValue`` are always in L;
-    ``editingFinished`` follows a finished edit (like a spin box's)."""
+    """A domain extent in multiples of the reference length L (D-078) or in m / mm (D-157), with a button to switch;
+    the other form is shown under it. ``value()`` is in ``unit``; switching the unit converts the value to the same
+    length in the new unit and finishes an edit, so the model stores the value with its unit. ``editingFinished``
+    follows a finished edit (like a spin box's)."""
 
     editingFinished = Signal()
     unit_changed = Signal(str)
@@ -296,7 +302,7 @@ class ReferenceLengthField(QWidget):
         self.spin.setKeyboardTracking(False)
         self.unit_button = QPushButton("L")
         self.unit_button.setObjectName("unitBtn")
-        self.unit_button.setToolTip("Enter in multiples of L, in metres or in millimetres (click to switch)")
+        self.unit_button.setToolTip(UNIT_TIP)
         self.unit_button.clicked.connect(self._next_unit)
         self.other = QLabel()
         self.other.setObjectName("muted")
@@ -314,60 +320,67 @@ class ReferenceLengthField(QWidget):
         outer.addLayout(box)
         outer.addWidget(self.other)
         self.unit = "L"
-        self.reference = 1.0  # L in metres
-        self._in_l = 1.0
+        self.reference: float | None = None  # L in metres (None: no parts yet)
+        self._value = 1.0  # in ``unit``
         self.spin.editingFinished.connect(self._finished)
         self.spin.valueChanged.connect(lambda _v: self._show_other())
         self.setToolTip(tooltip)
 
     def set_reference(self, length_m: float | None) -> None:
-        self.reference = length_m if length_m and length_m > 0 else 1.0
+        """L in metres; without it (no parts) the unit cannot be switched, as there is nothing to convert with."""
+        self.reference = length_m if length_m and length_m > 0 else None
+        self.unit_button.setEnabled(self.reference is not None)
+        self.unit_button.setToolTip(UNIT_TIP if self.reference is not None else NO_L_TIP)
+        self._show_other()
 
-    def set_unit(self, unit: str) -> None:
-        self.unit = unit if unit in LENGTH_UNITS else "L"
-        self.unit_button.setText(self.unit)
-        self._show_value()
+    def _metres(self, value: float, unit: str) -> float | None:
+        factor = LENGTH_UNITS[unit]
+        if factor is not None:
+            return value * factor
+        return value * self.reference if self.reference is not None else None
+
+    def _in_unit(self, metres: float, unit: str) -> float:
+        factor = LENGTH_UNITS[unit]
+        return metres / factor if factor is not None else metres / (self.reference or 1.0)
 
     def _next_unit(self) -> None:
+        """The next unit, the same length: the value converted and committed with its unit."""
         order = list(LENGTH_UNITS)
-        self.set_unit(order[(order.index(self.unit) + 1) % len(order)])
-        self.unit_changed.emit(self.unit)
+        unit = order[(order.index(self.unit) + 1) % len(order)]
+        metres = self._metres(self.spin.value(), self.unit)
+        if metres is None:
+            return
+        self.setValue(self._in_unit(metres, unit), unit)
+        self.unit_changed.emit(unit)
+        self.editingFinished.emit()
 
-    def _to_l(self, shown: float) -> float:
-        factor = LENGTH_UNITS[self.unit]
-        return shown if factor is None else shown * factor / self.reference
-
-    def _from_l(self, value_l: float) -> float:
-        factor = LENGTH_UNITS[self.unit]
-        return value_l if factor is None else value_l * self.reference / factor
-
-    def setValue(self, value_l: float) -> None:
-        self._in_l = float(value_l)
-        self._show_value()
-
-    def _show_value(self) -> None:
+    def setValue(self, value: float, unit: str | None = None) -> None:
+        if unit is not None:
+            self.unit = unit if unit in LENGTH_UNITS else "L"
+            self.unit_button.setText(self.unit)
+        self._value = float(value)
         self.spin.blockSignals(True)
         self.spin.setDecimals({"L": 3, "m": 4, "mm": 1}[self.unit])
-        self.spin.setValue(self._from_l(self._in_l))
+        self.spin.setValue(self._value)
         self.spin.blockSignals(False)
         self._show_other()
 
     def _show_other(self) -> None:
-        value_l = self._to_l(self.spin.value())
-        metres = value_l * self.reference
+        metres = self._metres(self.spin.value(), self.unit)
         if self.unit == "L":
-            self.other.setText(f"= {metres:.4g} m")
+            self.other.setText(f"= {metres:.4g} m" if metres is not None else "")
+        elif self.reference is not None:
+            self.other.setText(f"= {metres / self.reference:.4g} L (fixed in {self.unit} when L changes)")
         else:
-            self.other.setText(f"= {value_l:.4g} L")
+            self.other.setText("")
 
     def _finished(self) -> None:
-        value = self._to_l(self.spin.value())
-        if abs(value - self._in_l) > 1e-9 * max(1.0, abs(value)):
-            self._in_l = value
+        self._value = self.spin.value()
         self.editingFinished.emit()
 
     def value(self) -> float:
-        return self._in_l
+        """In ``unit``."""
+        return self._value
 
     def suffix(self) -> str:
         return f" {self.unit}"

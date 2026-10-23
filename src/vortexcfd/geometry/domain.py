@@ -187,10 +187,11 @@ def compute_domain(
     ground = domain.ground.enabled and shape == "box"
     if shape == "box":
         z_ground = ground_z(domain, u) if ground else None
+        ext = {name: domain.extent_m(name, length) for name in ("upstream", "downstream", "lateral", "vertical")}
         bounds: Bounds = (
-            u[0] - domain.upstream * length, u[1] + domain.downstream * length,
-            u[2] if symmetric else u[2] - domain.lateral * length, u[3] + domain.lateral * length,
-            u[4] - domain.vertical * length if z_ground is None else z_ground, u[5] + domain.vertical * length,
+            u[0] - ext["upstream"], u[1] + ext["downstream"],
+            u[2] if symmetric else u[2] - ext["lateral"], u[3] + ext["lateral"],
+            u[4] - ext["vertical"] if z_ground is None else z_ground, u[5] + ext["vertical"],
         )
         boundaries = {
             "inlet": ((0, 0),),
@@ -203,8 +204,8 @@ def compute_domain(
             boundaries["symmetry"] = ((1, 0),)
         volume = (bounds[1] - bounds[0]) * (bounds[3] - bounds[2]) * (bounds[5] - bounds[4])
     else:
-        radius_m = domain.radius * length
-        x_rear = u[1] + domain.downstream * length
+        radius_m = domain.extent_m("radius", length)
+        x_rear = u[1] + domain.extent_m("downstream", length)
         if shape == "bullet":
             axis = (centre[0], u[2] if symmetric else centre[1], centre[2])
             bounds = (axis[0] - radius_m, x_rear, axis[1] if symmetric else axis[1] - radius_m,
@@ -213,8 +214,8 @@ def compute_domain(
                       + math.pi * radius_m ** 2 * max(0.0, x_rear - axis[0])) * (0.5 if symmetric else 1.0)
         else:  # c_type
             axis = (centre[0], centre[1], centre[2])
-            y_span = ((u[2], u[2] + domain.lateral * length) if symmetric
-                      else (centre[1] - domain.lateral * length, centre[1] + domain.lateral * length))
+            half = domain.extent_m("lateral", length)
+            y_span = (u[2], u[2] + half) if symmetric else (centre[1] - half, centre[1] + half)
             bounds = (axis[0] - radius_m, x_rear, y_span[0], y_span[1], axis[2] - radius_m, axis[2] + radius_m)
             area = 0.5 * math.pi * radius_m ** 2 + 2.0 * radius_m * max(0.0, x_rear - axis[0])
             volume = area * (y_span[1] - y_span[0])

@@ -818,6 +818,8 @@ def _domain_for_hash(domain) -> dict:
     if types:  # only the patch types change the mesh (D-147); none: the hash of the projects saved before v22
         data["patch_types"] = {f: "wall" if k in ("wall", "moving_wall") else "symmetry" if k == "symmetry" else "patch"
                                for f, k in sorted(types.items())}
+    if not data.get("units"):  # every extent in L: the hash of the projects saved before v23 (D-157)
+        data.pop("units", None)
     ground = data.pop("ground")
     if ground["enabled"]:
         ground.pop("motion")

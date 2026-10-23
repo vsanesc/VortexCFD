@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 22
+CURRENT_SCHEMA_VERSION: int = 23
 
 
 class StrictModel(BaseModel):
@@ -620,6 +620,10 @@ DEFAULT_FACE_KINDS = {"inlet": "velocity_inlet", "outlet": "pressure_outlet", "s
 EDITABLE_FACES = tuple(DEFAULT_FACE_KINDS)
 
 
+DOMAIN_EXTENTS = ("upstream", "downstream", "lateral", "vertical", "radius")
+ABSOLUTE_UNITS = {"m": 1.0, "mm": 1e-3}  # an extent given in metres or millimetres (schema v23, D-157)
+
+
 class Domain(StrictModel):
     """Far-field domain around the parts, in multiples of the reference length L.
 
@@ -646,6 +650,27 @@ class Domain(StrictModel):
     # A face's boundary type when it is not its default (DEFAULT_FACE_KINDS; schema v22, D-147). Defaults are dropped,
     # so a domain left as it was has none and writes the dictionaries it always wrote.
     boundary_types: dict[str, str] = Field(default_factory=dict)
+    # The unit of an extent entered in metres or millimetres (schema v23, D-157): its value is then in that unit and
+    # stays that length when L changes. An extent without an entry is in multiples of L ("L" entries are dropped).
+    units: dict[str, Literal["L", "m", "mm"]] = Field(default_factory=dict)
+
+    @field_validator("units")
+    @classmethod
+    def _known_extents(cls, value: dict[str, str]) -> dict[str, str]:
+        for name in value:
+            if name not in DOMAIN_EXTENTS:
+                raise ValueError(f"unknown domain extent {name!r} (one of {', '.join(DOMAIN_EXTENTS)})")
+        return {name: unit for name, unit in value.items() if unit != "L"}
+
+    def extent_unit(self, name: str) -> str:
+        """"L", "m" or "mm": the unit the extent ``name`` is stored in."""
+        return self.units.get(name, "L")
+
+    def extent_m(self, name: str, length: float) -> float:
+        """The extent ``name`` in metres, with the reference length ``length`` (m) for an extent in L."""
+        value = getattr(self, name)
+        unit = self.units.get(name)
+        return value * length if unit is None else value * ABSOLUTE_UNITS[unit]
 
     @field_validator("boundary_types")
     @classmethod

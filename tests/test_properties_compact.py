@@ -188,22 +188,25 @@ def test_domain_extents_in_l_or_metres(make_window) -> None:
     up = p.domain_fields["upstream"]
     assert p.domain_length.text() == "1 m: the parts' largest extent" and "largest extent" in p.domain_length.toolTip()
     assert (up.unit, up.spin.value(), up.other.text()) == ("L", 5.0, "= 5 m")
-    up.unit_button.click()  # L -> m: the same extent in metres, L shown beside
-    assert (up.unit, up.spin.value(), up.other.text()) == ("m", 5.0, "= 5 L")
+    up.unit_button.click()  # L -> m: the same extent, now stored in metres (D-157)
+    assert (up.unit, up.spin.value()) == ("m", 5.0) and up.other.text().startswith("= 5 L")
+    assert (w.project.sim.domain.upstream, w.project.sim.domain.units) == (5.0, {"upstream": "m"})
     up.spin.setValue(3.5)
-    assert up.other.text() == "= 3.5 L"  # live, before the edit is committed
+    assert up.other.text().startswith("= 3.5 L")  # live, before the edit is committed
     up.spin.editingFinished.emit()
-    assert w.project.sim.domain.upstream == pytest.approx(3.5)  # stored in L, as before (D-078)
+    assert w.project.sim.domain.upstream == pytest.approx(3.5) and w.project.sim.domain.extent_unit("upstream") == "m"
     up.unit_button.click()  # m -> mm
     assert up.unit == "mm" and up.spin.value() == pytest.approx(3500.0)
+    assert w.project.sim.domain.units == {"upstream": "mm"} and w.project.sim.domain.upstream == pytest.approx(3500.0)
     up.spin.setValue(2000.0)
     up.spin.editingFinished.emit()
-    assert w.project.sim.domain.upstream == pytest.approx(2.0)
+    assert w.project.sim.domain.upstream == pytest.approx(2000.0)
     assert "x" in p._row_labels["dom_size"].full_text() and p.domain_size.text().endswith(" m")
-    w2 = make_window()  # the unit choice is remembered per extent
-    select(w2, "fluid_domain")
-    assert w2.properties.domain_fields["upstream"].unit == "mm"
-    assert w2.properties.domain_fields["downstream"].unit == "L"
+    up.unit_button.click()  # mm -> L: 2 m with L = 1 m
+    assert (up.unit, up.spin.value()) == ("L", pytest.approx(2.0)) and w.project.sim.domain.units == {}
+    w.act_undo.trigger()  # one undo step per switch
+    assert w.project.sim.domain.units == {"upstream": "mm"} and up.unit == "mm"
+    assert p.domain_fields["downstream"].unit == "L"
 
 
 # -- probes, studies (G8 - G10) ---------------------------------------------------------------------------------

@@ -153,7 +153,7 @@ def test_an_unassigned_project_hashes_as_before(tmp_path: Path) -> None:
             and k != "cores"}  # the v9 fields (the v15 meshing cores are never hashed, D-111)
     payload = {
         "parts": [[part.name, part.units, _hash_file(project.resolve_part_path(part)), None, None]],
-        "domain": project.sim.domain.model_dump(exclude={"ground", "boundary_types"}),  # pre-v16 (D-116), pre-v22 (D-147)
+        "domain": project.sim.domain.model_dump(exclude={"ground", "boundary_types", "units"}),  # pre-v16, v22, v23
         "mesh": mesh, "yplus_inputs": None,
     }
     assert inputs_hash(project) == hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
