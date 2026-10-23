@@ -1,12 +1,36 @@
 # Status
 
-Updated 2026-10-23 (task/w4-w5: W4 done, W5 done on this machine).
+Updated 2026-10-23 (task/rc1-polish: the owner's review of w4-w5 applied; v1.0.0rc1 polish).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
 
-**task/w4-w5** (not yet published). The last two workstreams of v1; owner review pending for D-136 and D-137. Done on
-it (no push, no merge):
+**task/rc1-polish** (not yet published; no push, no merge). Done on it:
+- Owner review recorded: D-136 and D-137 accepted; the owner's clean-install test of scripts/install.sh in a fresh
+  WSL2 Ubuntu 24.04 passed; QUESTIONS 215, 216 accepted, 217 closed, 212 a note in manual 5.4.
+- Item 1, ParaView optional (D-138): "Open in ParaView" finds the Preferences path, `paraview` on PATH, or the
+  Windows ParaView under C:\Program Files; none: the button is disabled with a tooltip on how to install it
+  (`sudo apt install paraview`, or ParaView for Windows through \\wsl$). The install script reports it as optional;
+  manual 1.4. Note: /usr/bin/paraview exists on this machine (QUESTIONS 219).
+- Item 2 (QUESTIONS 213, D-139): the app uses QtCore, QtGui, QtWidgets, and through pyvistaqt / VTK / matplotlib
+  QtOpenGL, QtOpenGLWidgets, QtSvg (all PySide6-Essentials); the dependency is PySide6-Essentials 6.12.0, pinned.
+  Isolated install: 1870 MB -> 1442 MB.
+- Item 3: QUESTIONS 214 (the Start menu entry) left open for the owner on a real display.
+- Item 4: docs/RELEASE_v1.md: the clean install done; left: the public-repository decision, the licence review
+  sign-off, tagging v1.0.0.
+- Item 5: the NACA 0012 round 3 2D C-type domain is NOT reversed (round inlet at x < 0, flat outlet at +x, from the
+  case's domain.stl, snappyHexMeshDict and polyMesh/boundary; QUESTIONS 222); no fix, no validation re-run.
+- Item 6 (D-140, [NUMERICS-REVIEW]): 2D projects are shown looking along +y (flow left to right) in the geometry,
+  mesh and results scenes; exports copy that camera. Before, the geometry scene kept an ISO view with +x to the left.
+- No OpenFOAM run. Machine time: two isolated installs (34 s and 27 s), the fast test run.
+
+Next: owner review of D-138 to D-140 and QUESTIONS 214, 218 to 222; the public-repository decision; the licence
+review sign-off; tag v1.0.0 after scripts/ship.sh. Open: docs/QUESTIONS.md items 30, 67, 69, 70, 72, 73, 75, 82, 89
+to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 214, 218 to 222.
+
+### Previous branch (task/w4-w5, published in PR #32)
+
+The last two workstreams of v1. Done on it:
 - Owner review recorded: D-135 accepted, QUESTIONS 210 and 211 accepted, W3 closed by the closure rule (D-127 stays
   Proposed as a known limitation).
 - Part A, W4 remainder (D-136, schema v21): the HTML report's mesh study table (each quantity per level, the
@@ -169,7 +193,7 @@ review of the Proposed decisions (QUESTIONS 162 to 166).
 | 8.1-8.5 | Moving meshes | not started |
 | 9.1 | Project management | partly done: save/load, undo/redo, start screen, recent projects, project folders, presets (D-077); cloning not started |
 | 9.2 | Scripting API | not started |
-| 9.3 | Installer and docs | done for v1 (D-137): scripts/install.sh, the start-up OpenFOAM check, docs/manual/; a second-machine test owed (docs/RELEASE_v1.md) |
+| 9.3 | Installer and docs | done for v1 (D-137, D-139): scripts/install.sh, the start-up OpenFOAM check, docs/manual/; the owner's clean-install test passed; the Start menu entry not yet seen (QUESTIONS 214) |
 
 ## Known issues
 

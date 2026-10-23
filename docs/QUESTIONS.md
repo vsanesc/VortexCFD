@@ -381,28 +381,53 @@ settled the open ones on 2026-10-17.
 
 ## Task w4-w5 (W4 remainder, W5; decisions taken while Vic was away)
 
-212. **[OPEN]** **Image export and the report's saved views used PyVista's default camera (fixed, D-133 note).** The
+212. **[CLOSED as a note (owner review of w4-w5): docs/manual/05_results_and_report.md 5.4 says reports and images made before the fix should be made again]** **Image export and the report's saved views used PyVista's default camera (fixed, D-133 note).** The
      offscreen render reset the copied camera on its first render, so every exported image and every report view
      made before this task shows PyVista's default isometric view, not the viewer's or the saved camera (the test
      compared the viewer's camera with itself). Fixed in `render_image`, with a real test. Reports written before
      should be made again; nothing in docs/validation uses them. Anything else to re-check?
-213. **[OPEN]** **PySide6 6.12 installs Qt WebEngine and Qt Pdf, which the app does not use.** The meta-package
+213. **[CLOSED (task rc1-polish, item 2; D-139): nothing uses Qt WebEngine, Qt Pdf or an Addons module; the app depends on PySide6-Essentials 6.12.0 only, pinned; the isolated install 1870 MB -> 1442 MB]** **PySide6 6.12 installs Qt WebEngine and Qt Pdf, which the app does not use.** The meta-package
      PySide6 pulls PySide6_WebEngine (Chromium) and PySide6_Pdf. Depending on PySide6_Essentials and PySide6_Addons
      only would make the install smaller (and the licence list shorter); it is a change of dependencies, so not
      done. Change it?
-214. **[OPEN]** **The desktop entry has not been seen in the Windows Start menu.** scripts/install.sh writes
+214. **[OPEN, for the owner on a real display (task rc1-polish, item 3; docs/RELEASE_v1.md)]** **The desktop entry has not been seen in the Windows Start menu.** scripts/install.sh writes
      ~/.local/share/applications/vortexcfd.desktop; WSLg is expected to list it under the distribution's folder,
      but agents never use the real display. To check in the second-machine test (docs/RELEASE_v1.md).
-215. **[OPEN]** **The install script requires Ubuntu 24.04 and Python 3.12 exactly** (pyproject says Python >= 3.11).
+215. **[ACCEPTED for v1 (owner review of w4-w5)]** **The install script requires Ubuntu 24.04 and Python 3.12 exactly** (pyproject says Python >= 3.11).
      `--ignore-os` lets another Ubuntu through; another Python is refused with the apt command. Keep it that strict
      for v1?
-216. **[OPEN]** **The OpenFOAM check reads files, it does not run OpenFOAM** (D-137): a bashrc declaring v2606 with
+216. **[ACCEPTED for v1 (owner review of w4-w5)]** **The OpenFOAM check reads files, it does not run OpenFOAM** (D-137): a bashrc declaring v2606 with
      simpleFoam, snappyHexMesh and blockMesh under platforms/*/bin counts as found. A broken installation (missing
      libraries) is only found by the first mesh. Enough, or should Help > OpenFOAM Installation also run
      `foamVersion` through the runner on request?
-217. **[OPEN]** **A pre-existing UI-refresh failure fixed (D-132 note).** With the display "Section", adding any results
+217. **[CLOSED as fixed (owner review of w4-w5)]** **A pre-existing UI-refresh failure fixed (D-132 note).** With the display "Section", adding any results
      scene object made the telemetry's field range raise KeyError '_shown' (the section actor's PyVista pipeline
      output is empty until the next render), so the UI refresh after that edit failed. `ResultsView` now keeps the
      section dataset it drew. Recorded for the owner; no decision needed unless the telemetry should read
      differently.
+
+## Task rc1-polish (decisions taken while Vic was away)
+
+218. **[OPEN]** **The task branch started without the rc1 work.** task/rc1-polish was first created from main before
+     task/w4-w5 was shipped; the agent stopped (moving the branch was refused by the permission check) and Vic shipped
+     w4-w5 and recreated the branch. Recorded only.
+219. **[OPEN]** **ParaView IS installed on the development machine.** The brief says it is not, but /usr/bin/paraview
+     exists (Ubuntu package `paraview`), so the app's button and `scripts/install.sh` find it here
+     ("ok: found /usr/bin/paraview"). The tests replace the PATH lookup, so they do not depend on it. To see the
+     "not found" tooltip on this machine, remove the package or run with a PATH without /usr/bin. Intended?
+220. **[OPEN]** **ParaView detection order (D-138):** the Preferences path, then `paraview` on PATH, then the newest
+     C:\Program Files\ParaView*\bin\paraview.exe (a folder listing only; no cmd.exe, no registry). A Preferences path
+     that does not exist disables the button (no fallback), as in D-055. Accept, or fall back to detection?
+221. **[OPEN]** **[NUMERICS-REVIEW] The 2D default view (D-140)** is the XZ view along +y in the geometry and results
+     scenes, applied on every scene switch for a 2D project (a user's rotation survives edits, not scene switches);
+     the 3D views are unchanged. Accept?
+222. **[OPEN]** **The NACA 0012 round 3 domain is not reversed (task rc1-polish, item 5).** From the case's own files:
+     constant/triSurface/domain.stl puts the solid "inlet" on the half-disc (x -99.51 to 0.49, 17 distinct x),
+     "outlet" on the plane x = 100.97; snappyHexMeshDict names those regions inlet / outlet / farfield and puts
+     locationInMesh at x = -49.6 (halfway between the inlet and the airfoil); polyMesh/boundary's inlet faces have
+     centres at x -99.48 to -0.06 (299 faces, 148 distinct x at 0.1 m) and the outlet's at x = 100.97 (149 faces, one
+     x); U = (90 0 0). This is D-078's C-type (round front inlet, flat rear outlet), so the validated NACA 0012 results
+     are unaffected and no fix was made. The render with a flat inlet face and a round outflow side looked along -y
+     (x mirrored); D-140 makes the app's 2D views look along +y. Note: this case's radius is 100 chords (the domain
+     sensitivity case), not the preset's 50.
 

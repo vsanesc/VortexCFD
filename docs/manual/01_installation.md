@@ -96,7 +96,7 @@ never stops the installation.
 
 ## 1.5 Notes
 
-- The install script has been run in isolation on the development machine only; a test on a second machine is
-  still owed (docs/RELEASE_v1.md).
+- The install script has been tested by the owner in a clean WSL2 Ubuntu 24.04 distribution. That the WSLg
+  desktop entry shows in the Windows Start menu is still to be seen (docs/RELEASE_v1.md).
 - 3D drawing uses the GPU through WSLg (Mesa d3d12): VortexCFD selects the NVIDIA adapter at start-up unless you
   set `GALLIUM_DRIVER` / `MESA_D3D12_DEFAULT_ADAPTER_NAME` yourself.

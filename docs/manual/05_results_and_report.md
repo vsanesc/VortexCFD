@@ -40,6 +40,9 @@ optionally with a transparent background. The scene is rendered again at that si
 with the viewer's camera and scalar bars; the telemetry card is left out. Every 3D picture in this manual was made
 this way.
 
+Images and reports made with versions before 1.0.0rc1 (before the camera fix, D-133 note) show PyVista's default
+view instead of the viewer's or the saved camera: make them again.
+
 ## 5.5 The HTML report
 
 File > Create Report (or the Results node's Create report) first asks which sections to include; the choice is
