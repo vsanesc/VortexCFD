@@ -12,7 +12,8 @@ from pytestqt.qtbot import QtBot
 from tests.fakes import FakeDialogs
 from vortexcfd.core.project import Project
 from vortexcfd.gui.main_window import MainWindow
-from vortexcfd.gui.theme import DARK, DIM_ALPHA, blend, MAX_POINT_SIZE, MIN_POINT_SIZE, metrics
+from vortexcfd.gui.theme import (DARK, DEFAULT_POINT_SIZE, DIM_ALPHA, INTERFACE_SIZES, MAX_POINT_SIZE, MIN_POINT_SIZE,
+                                 blend, metrics)
 
 GUI_DIR = Path(__file__).resolve().parent.parent / "src" / "vortexcfd" / "gui"
 
@@ -112,9 +113,9 @@ def make_window(qtbot: QtBot):
 def test_zoom_actions_and_persistence(make_window) -> None:
     window = make_window()
     app = QApplication.instance()
-    assert app.font().pointSize() == 11
+    assert app.font().pointSize() == DEFAULT_POINT_SIZE == INTERFACE_SIZES["Small"] == 9  # compact default (D-148)
     window.act_zoom_in.trigger()
-    assert app.font().pointSize() == 12
+    assert app.font().pointSize() == 10
     window.set_point_size(MAX_POINT_SIZE - 1)
     for _ in range(3):  # one step reaches the maximum, the rest must be ignored
         window.act_zoom_in.trigger()
@@ -126,7 +127,23 @@ def test_zoom_actions_and_persistence(make_window) -> None:
     window.act_zoom_in.trigger()
     assert int(QSettings("VortexCFD", "VortexCFD").value("appearance/point_size")) == 9
     window.act_zoom_reset.trigger()
-    assert app.font().pointSize() == 11
+    assert app.font().pointSize() == DEFAULT_POINT_SIZE
+
+
+def test_interface_size_menu_applies_and_is_remembered(make_window) -> None:
+    window = make_window()
+    assert window.interface_size() == "Small" and window.act_interface_sizes["Small"].isChecked()
+    small_row = metrics().row
+    window.act_interface_sizes["Large"].trigger()
+    assert QApplication.instance().font().pointSize() == INTERFACE_SIZES["Large"]
+    assert metrics().row > small_row and window.tree.iconSize().height() >= metrics().u
+    assert window.act_interface_sizes["Large"].isChecked() and not window.act_interface_sizes["Small"].isChecked()
+    assert make_window().interface_size() == "Large"  # remembered
+    window.act_zoom_in.trigger()  # a zoom step between the sizes: none checked
+    assert window.interface_size() is None
+    assert not any(a.isChecked() for a in window.act_interface_sizes.values())
+    window.set_interface_size("Medium")
+    assert window.interface_size() == "Medium"
 
 
 def test_point_size_restored_by_new_window(make_window) -> None:
@@ -142,7 +159,7 @@ def test_no_theme_menu(make_window) -> None:
     window = make_window()
     assert [a.text() for a in window.menuBar().actions()] == ["&File", "&Edit", "&View", "&Help"]
     view = window.menuBar().actions()[2].menu()
-    assert [a.text() for a in view.actions() if a.menu() is not None] == ["Viewport &Telemetry"]  # no Theme menu
+    assert [a.text() for a in view.actions() if a.menu() is not None] == ["Interface &size", "Viewport &Telemetry"]
 
 
 def test_icons_exist_and_scale_with_font(make_window) -> None:

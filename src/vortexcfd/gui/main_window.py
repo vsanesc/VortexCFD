@@ -13,6 +13,7 @@ import numpy as np
 from PySide6.QtCore import QEvent, QPointF, QRect, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
+    QActionGroup,
     QCloseEvent,
     QColor,
     QDesktopServices,
@@ -38,6 +39,7 @@ from PySide6.QtWidgets import (
     QSplitterHandle,
     QStatusBar,
     QStyle,
+    QToolButton,
     QStyledItemDelegate,
     QStyleOptionViewItem,
     QTreeWidget,
@@ -101,6 +103,7 @@ from vortexcfd.workflow import solving
 from vortexcfd.gui.solver_worker import SolverWorker
 from vortexcfd.gui.study_control import StudyControlMixin
 from vortexcfd.gui.tree_actions import TreeActionsMixin
+from vortexcfd.gui.panel_widgets import FloatingPanel
 from vortexcfd.foam.results import latest_result_time
 from vortexcfd.gui import paraview
 from vortexcfd.gui.colormaps import COLORMAPS, DEFAULT_COLORMAP
@@ -129,6 +132,7 @@ from vortexcfd.gui.scene import (
 )
 from vortexcfd.gui.theme import (
     DEFAULT_POINT_SIZE,
+    INTERFACE_SIZES,
     LAYOUT,
     LEFT_INITIAL_U,
     LIMITS_U,
@@ -437,7 +441,16 @@ class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
         self.props_name = QLabel()
         self.props_name.setObjectName("accent2")
         self.props_header.row.insertWidget(1, self.props_name)
+        self.detach_button = QToolButton()  # the panel in its own window and back (D-148)
+        self.detach_button.setObjectName("helpBtn")
+        self.detach_button.setText("\u29c9")
+        self.detach_button.setToolTip("Detach the properties into their own window (click again to dock them)")
+        self.detach_button.clicked.connect(lambda: self.toggle_properties_window())
+        self.props_header.row.addWidget(self.detach_button)
         props_section = self._panel(self.props_header, self.properties)
+        self._props_section = props_section
+        self.properties_window: FloatingPanel | None = None
+        self.properties.help_requested.connect(lambda target: self.open_manual(section=target))
 
         self._left_split = _Splitter(Qt.Orientation.Vertical)
         self._left_split.addWidget(tree_section)
@@ -723,6 +736,56 @@ class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
         self._point_size = clamp_point_size(size)
         save_appearance(self._theme, self._point_size)
         self._apply_appearance()
+        self._sync_interface_size()
+
+    def set_interface_size(self, name: str) -> None:
+        """View > Interface size (D-148): Small, Medium or Large, applied to the fonts and every size derived from
+        them (rows, fields, the tree); remembered."""
+        self.set_point_size(INTERFACE_SIZES[name])
+
+    def interface_size(self) -> str | None:
+        """The interface size in use (None: a zoom step between them)."""
+        return next((n for n, size in INTERFACE_SIZES.items() if size == self._point_size), None)
+
+    def _sync_interface_size(self) -> None:
+        current = self.interface_size()
+        for name, act in getattr(self, "act_interface_sizes", {}).items():
+            act.setChecked(name == current)
+
+    def toggle_properties_window(self) -> None:
+        """Detach the properties panel into its own window, or dock it back into the left column (D-148)."""
+        if self.properties_window is None:
+            self.detach_properties()
+        else:
+            self.dock_properties()
+
+    def detach_properties(self) -> None:
+        if self.properties_window is not None:
+            return
+        sizes = self._left_split.sizes()
+        window = FloatingPanel("Properties", self.dock_properties)
+        window.setWindowIcon(self.windowIcon())
+        window.take(self._props_section)
+        self.properties_window = window
+        self._docked_sizes = sizes
+        window.resize(max(self._props_section.width(), 24 * metrics().u), max(sizes[1] if len(sizes) > 1 else 0,
+                                                                            30 * metrics().u))
+        window.show()
+        self.detach_button.setToolTip("Dock the properties back into the main window")
+
+    def dock_properties(self) -> None:
+        window = self.properties_window
+        if window is None:
+            return
+        self.properties_window = None
+        self._left_split.insertWidget(1, self._props_section)
+        self._props_section.show()
+        window.release()
+        window.close()
+        window.deleteLater()
+        if getattr(self, "_docked_sizes", None):
+            self._left_split.setSizes(self._docked_sizes)
+        self.detach_button.setToolTip("Detach the properties into their own window (click again to dock them)")
 
     def _apply_appearance(self) -> None:
         apply_theme(self._theme, self._point_size)
@@ -1195,14 +1258,22 @@ class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
                 apply_view(self.viewer, view)
                 self.viewer.render()
 
-    def open_manual(self, opener=None) -> Path | None:
-        """Help > User Manual: the local docs/manual/README.md in the system's viewer; returns its path."""
+    def open_manual(self, opener=None, section: str | None = None) -> Path | None:
+        """Help > User Manual: the local docs/manual/README.md in the system's viewer; returns its path.
+        ``section`` "<chapter file>#<anchor>": that chapter at that heading (a properties section's "?", D-148)."""
         path = manual_path()
         if path is None:
             self.show_message("The user manual was not found.", "error")
             return None
+        url = QUrl.fromLocalFile(str(path))
+        if section:
+            chapter, _, anchor = section.partition("#")
+            path = path.parent / chapter
+            url = QUrl.fromLocalFile(str(path))
+            if anchor:
+                url.setFragment(anchor)
         opener = opener or (lambda url: QDesktopServices.openUrl(url))
-        if not opener(QUrl.fromLocalFile(str(path))):
+        if not opener(url):
             self.show_message(f"No viewer opened the manual: it is at {path}", "warning")
         return path
 
@@ -2479,6 +2550,13 @@ class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
         self.act_zoom_reset = action(
             "&Reset Zoom", lambda: self.set_point_size(DEFAULT_POINT_SIZE), "Ctrl+0"
         )
+        self.act_interface_sizes: dict[str, QAction] = {}
+        size_group = QActionGroup(self)
+        for name in INTERFACE_SIZES:
+            act = action(name, lambda _=False, n=name: self.set_interface_size(n))
+            act.setCheckable(True)
+            size_group.addAction(act)
+            self.act_interface_sizes[name] = act
 
         self.act_toggle_sidebars = action("Toggle &Sidebars", self._toggle_sidebars, "Ctrl+B")
         self.act_toggle_monitors = action("&Monitors Panel", self._toggle_monitors)
@@ -2514,6 +2592,9 @@ class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
         edit_menu.addAction(self.act_preferences)
         view_menu = self.menuBar().addMenu("&View")
         self.view_menu = view_menu
+        size_menu = view_menu.addMenu("Interface &size")
+        size_menu.addActions(list(self.act_interface_sizes.values()))
+        self._sync_interface_size()
         view_menu.addActions([self.act_zoom_in, self.act_zoom_out, self.act_zoom_reset])
         view_menu.addSeparator()
         view_menu.addAction(self.act_toggle_sidebars)

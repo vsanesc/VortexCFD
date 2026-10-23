@@ -82,6 +82,9 @@ from vortexcfd.gui.internal_rows import InternalRowsMixin
 from vortexcfd.gui.scene_rows import SceneRowsMixin
 from vortexcfd.gui.study_rows import StudyRowsMixin
 from vortexcfd.gui.volume_rows import VolumeRowsMixin
+from vortexcfd.gui.help_texts import help_target
+from vortexcfd.gui.panel_widgets import SectionHeader
+from vortexcfd.gui.settings_store import settings
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
 
 # Allowed units are read from the model so the two never drift apart.
@@ -414,6 +417,7 @@ class ElidedLabel(QLabel):
         self.setToolTip(self._full if elided != self._full else "")
 
 
+COLLAPSED_KEY = "properties/collapsed"  # + "/<node kind>": the collapsed section keys (D-148)
 MIN_LABEL_U = 8  # label column width bounds, in u (and a fraction of the panel width)
 MAX_LABEL_FRACTION = 0.50
 MIN_FIELD_U = 7  # a field is never narrower than this in the side-by-side layout
@@ -434,6 +438,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
     """
 
     message = Signal(str)  # short text for the status bar
+    help_requested = Signal(str)  # "<manual chapter>#<anchor>": a section's "?" (D-148)
     pending_changed = Signal()  # an uncommitted name edit appeared or was resolved
     study_run_requested = Signal(str)  # "mesh" or "polar": Run / Stop on a study node (D-066, D-067)
     study_results_requested = Signal(str)
@@ -476,7 +481,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self._row_layouts: list[QHBoxLayout] = []
         self._row_labels: dict[str, ElidedLabel] = {}  # row key -> its label
         self._fields: list[QWidget] = []  # input widgets (kept at a minimum height)
-        self._sections: dict[str, QLabel] = {}
+        self._sections: dict[str, SectionHeader] = {}
+        self._collapse_hidden: list[QWidget] = []
         self._label_column = 0
         self.stacked = False
         self._row_fields: dict[str, QWidget] = {}
@@ -583,9 +589,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.status_value = QLabel()
         self.status_value.setObjectName("checkValue")
         self._layout.addWidget(self._make_row("status", "File", self.status_value))
-        self.checks_title = QLabel("CHECKS")
-        self.checks_title.setObjectName("sectionTitle")
-        self._layout.addWidget(self.checks_title)
+        self.checks_title = self._section("checks", "Checks")
         self.check_values: dict[str, QLabel] = {}
         for key, text in CHECK_ROWS:
             value = QLabel()
@@ -758,9 +762,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.mesh_thin_warning.setObjectName("checkValue")
         _wrap(self.mesh_thin_warning)
         self._layout.addWidget(self.mesh_thin_warning)
-        self.mesh_title = QLabel("LAST MESH")
-        self.mesh_title.setObjectName("sectionTitle")
-        self._layout.addWidget(self.mesh_title)
+        self.mesh_title = self._section("mesh_last", "Last mesh")
         # Mesh node: the read-only checkMesh report (or the "No mesh" empty state).
         self._mesh_report: MeshReport | None = None
         self.mesh_values: dict[str, QLabel] = {}
@@ -980,13 +982,63 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             _wrap(field)
         return row
 
-    def _section(self, key: str, text: str) -> QLabel:
-        """A small section header inside a node's rows."""
-        title = QLabel(text.upper())
-        title.setObjectName("subSection")
+    def _section(self, key: str, text: str) -> SectionHeader:
+        """A section header inside a node's rows: it collapses the rows below it (remembered per node type) and,
+        where the manual covers it, has a "?" (D-148)."""
+        title = SectionHeader(key, text, help_target(key))
+        title.toggled.connect(self._on_section_toggled)
+        title.help_requested.connect(self.help_requested.emit)
         self._layout.addWidget(title)
         self._sections[key] = title
         return title
+
+    # -- collapsible sections (D-148) ----------------------------------------------------------
+
+    def _collapsed(self, kind: str | None = None) -> set[str]:
+        value = settings().value(f"{COLLAPSED_KEY}/{kind or self._kind}", [])
+        if isinstance(value, str):
+            value = [value]
+        return {str(v) for v in value or []}
+
+    def _on_section_toggled(self, key: str, collapsed: bool) -> None:
+        keys = self._collapsed()
+        (keys.add if collapsed else keys.discard)(key)
+        s = settings()
+        s.setValue(f"{COLLAPSED_KEY}/{self._kind}", sorted(keys))
+        s.sync()
+        self.refresh()
+
+    def _layout_widgets(self):
+        """Every widget of the rows in layout order (a nested layout's widgets in place)."""
+        def walk(layout):
+            for i in range(layout.count()):
+                item = layout.itemAt(i)
+                if item.widget() is not None:
+                    yield item.widget()
+                elif item.layout() is not None:
+                    yield from walk(item.layout())
+        yield from walk(self._layout)
+
+    def _restore_collapsed(self) -> None:
+        for widget in self._collapse_hidden:
+            widget.setVisible(True)
+        self._collapse_hidden = []
+
+    def _apply_collapsed(self) -> None:
+        """Hide the rows below each collapsed (and visible) section header, up to the next header."""
+        collapsed = self._collapsed()
+        headers = set(self._sections.values())
+        hiding = False
+        for widget in self._layout_widgets():
+            if widget in headers:
+                if widget.isHidden():
+                    continue
+                widget.set_collapsed(widget.key in collapsed)
+                hiding = widget.key in collapsed
+                continue
+            if hiding and not widget.isHidden() and widget is not self.info_label:
+                widget.setVisible(False)
+                self._collapse_hidden.append(widget)
 
     # -- label column -------------------------------------------------------------------
 
@@ -1021,7 +1073,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             # Explicit minimum heights replace the layout's own: a stacked row needs the label
             # line as well, or its field would be squeezed into a sliver.
             label_h = box.itemAt(0).widget().fontMetrics().height()
-            row.setMinimumHeight(m.field + 2 * m.s2 + (label_h + m.s1 if self.stacked else 0))
+            row.setMinimumHeight(m.field + 2 * m.s1 + (label_h + m.s1 if self.stacked else 0))
         for lab in (*self._row_labels.values(), *(l for _, l in self._dynamic_titles())):
             if self.stacked:
                 lab.set_column_width(max(panel_w - 2 * m.s3, 1))  # the row's whole width
@@ -1050,9 +1102,9 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
 
     def apply_metrics(self, m: Metrics, theme: Theme) -> None:
         """Paddings and fonts derived from the font height."""
-        self._row_margins = (m.s3, m.s2, m.s3, m.s2)
+        self._row_margins = (m.s3, m.s1, m.s3, m.s1)  # compact rows (D-148)
         for box in self._row_layouts:
-            box.setContentsMargins(m.s3, m.s2, m.s3, m.s2)
+            box.setContentsMargins(*self._row_margins)
             box.setSpacing(m.s3)
         mono_fields = mono_font(QApplication.font(), 0.9)
         for field in self._fields:  # inputs and rows never shrink below their designed height
@@ -1061,24 +1113,23 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             field.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
             if not isinstance(field, QCheckBox):
                 field.setFont(mono_fields)
-        self._row_min_height = m.field + 2 * m.s2
+        self._row_min_height = m.field + 2 * m.s1
         for row in self._rows.values():
-            row.setMinimumHeight(m.field + 2 * m.s2)
+            row.setMinimumHeight(m.field + 2 * m.s1)
         sub = section_title_font(QApplication.font())
         sub.setPointSizeF(sub.pointSizeF() * 0.9)
         for title in self._sections.values():
             title.setFont(sub)
-            title.setContentsMargins(m.s3, m.s3, m.s3, m.s1)
-        self.checks_title.setFont(section_title_font(QApplication.font()))
-        self.checks_title.setContentsMargins(m.s3, m.s3, m.s3, m.s2)
+            title.setContentsMargins(m.s2, m.s1, m.s3, m.s1)
+            title.help.setFixedSize(m.u, m.u)
+
         mono = mono_font(QApplication.font(), 0.9)
         for label in (*self.check_values.values(), *self.mesh_values.values(), self.status_value):
             label.setFont(mono)
         for widget in (self.name_edit, self.source_label, self.units_combo, self.patch_label,
                        self.cad_file_label, self.cad_linear, self.cad_angular, *self.mesh_fields.values()):
             widget.setFont(mono)
-        self.mesh_title.setFont(section_title_font(QApplication.font()))
-        self.mesh_title.setContentsMargins(m.s3, m.s3, m.s3, m.s2)
+
         for label in (self.mesh_base_used, self.mesh_levels_used, self.mesh_bg_cells, self.mesh_volume_cells,
                       self.mesh_surface_cells,
                       self.mesh_first_layer, self.mesh_layer_count, self.mesh_layer_stack, self.inflow_k, self.inflow_omega):
@@ -1126,6 +1177,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
 
     def refresh(self) -> None:
         """Repopulate from the project without triggering any commit."""
+        self._restore_collapsed()
         sim = self._project.sim
         part: Part | None = None
         if self._kind == "part" and self._index is not None:
@@ -1192,6 +1244,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                                    "internal_reports", "results", "scene_object", "saved_view")
             and self._kind not in GROUPS
         )
+        self._apply_collapsed()
         self._apply_label_column()
 
     def _mesh_setting_rows(self) -> list[str]:

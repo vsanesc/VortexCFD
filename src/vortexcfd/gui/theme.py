@@ -13,7 +13,10 @@ from PySide6.QtWidgets import QApplication
 from vortexcfd.gui.settings_store import settings
 
 
-DEFAULT_POINT_SIZE = 11
+# View > Interface size (D-148): the application font's point size; every size derives from it (Metrics). The
+# zoom actions still step the point size between MIN and MAX.
+INTERFACE_SIZES = {"Small": 9, "Medium": 10, "Large": 12}
+DEFAULT_POINT_SIZE = INTERFACE_SIZES["Small"]  # owner decision: compact by default
 MIN_POINT_SIZE = 8
 MAX_POINT_SIZE = 24
 
@@ -192,8 +195,8 @@ class Metrics:
     s5: int
     s6: int
     header: int  # section header height (2u)
-    row: int  # tree row height (1.8u)
-    field: int  # input height (2u)
+    row: int  # tree row height (1.6u; compact, D-148)
+    field: int  # input height (1.6u; compact, D-148)
     radius_s: int  # 0.25u
     radius_m: int  # 0.5u
     menubar: int  # menu bar height (2u)
@@ -218,7 +221,7 @@ def metrics(u: int | None = None) -> Metrics:
 
     return Metrics(
         u=u, s1=k(0.25), s2=k(0.5), s3=k(0.75), s4=k(1), s5=k(1.5), s6=k(2),
-        header=k(2), row=k(1.8), field=k(2), radius_s=k(0.25), radius_m=k(0.5),
+        header=k(2), row=k(1.6), field=k(1.6), radius_s=k(0.25), radius_m=k(0.5),
         menubar=k(2), status=k(2), top_bar=k(2.4), tab_bar=k(1.6), button=k(1.7), dot=k(0.4), logo=k(1.6),
         hit=k(0.5),
     )
@@ -304,6 +307,17 @@ QSlider::handle:horizontal {{ background: {t.accent}; width: {m.s4}px; margin: -
     border-radius: {m.s2}px; }}
 QSlider::handle:horizontal:hover {{ background: {t.accent_hover}; }}
 QLabel#subSection {{ color: {t.muted_text}; background: transparent; }}
+QWidget#sectionHeader2 {{ background: {t.base}; border-top: {ln}px solid {t.border}; }}
+QWidget#sectionHeader2:hover {{ background: {t.elevated}; }}
+QToolButton#chevronBtn {{ color: {t.muted_text}; background: transparent; border: none; padding: 0; }}
+QToolButton#chevronBtn:hover {{ color: {t.accent}; }}
+QToolButton#helpBtn {{ color: {t.muted_text}; background: transparent; border: {ln}px solid {t.border};
+    border-radius: {m.radius_m}px; padding: 0 {m.s1}px; font-weight: 600; }}
+QToolButton#helpBtn:hover {{ color: {t.accent}; border-color: {t.accent}; }}
+QPushButton#unitBtn {{ background: {t.elevated}; color: {t.accent}; border: {ln}px solid {t.border};
+    border-radius: {btr}px; padding: 0 {m.s2}px; font-weight: 600; }}
+QPushButton#unitBtn:hover {{ border-color: {t.accent}; }}
+QLabel#unitLabel {{ color: {t.muted_text}; background: transparent; }}
 QWidget#sectionHeader {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
 QLabel#badge {{ background: {t.elevated}; color: {t.accent}; border: {ln}px solid {t.border};
     border-radius: {btr}px; padding: {m.s1}px {m.s2}px; }}

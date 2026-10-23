@@ -91,8 +91,8 @@ def test_inputs_keep_their_height_and_rows_are_not_squeezed(make_window, font: i
     for key, row in rows:
         field = p._row_fields[key]
         if isinstance(field, (QLineEdit, QComboBox, QAbstractSpinBox, QCheckBox)):
-            assert field.height() >= 1.8 * u, (key, field.height(), u)
-        assert row.height() >= 2.2 * u, (key, row.height(), u)
+            assert field.height() >= 1.5 * u, (key, field.height(), u)  # compact rows (D-148): 1.6u fields
+        assert row.height() >= 2.0 * u, (key, row.height(), u)
 
 
 @pytest.mark.parametrize("font", [11, 14])
