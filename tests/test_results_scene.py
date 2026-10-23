@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from PySide6.QtWidgets import QApplication
 import pyvista as pv
 from PySide6.QtGui import QColor
 from pytestqt.qtbot import QtBot
@@ -329,17 +330,22 @@ def test_results_scene_with_viewer(make_window, qtbot: QtBot) -> None:
     lo, hi = view.field_range()
     assert rows["Field range"] == f"{lo:.4g} \u2013 {hi:.4g}"
     w.field_combo.setCurrentText("|U|")
+    QApplication.processEvents()  # selectors apply once the event loop runs (D-152)
     assert view.field_key == "U_mag" and dict(w.telemetry_rows)["Field range"].endswith(" m/s")
     w.colormap_combo.setCurrentText("plasma")
+    QApplication.processEvents()  # selectors apply once the event loop runs (D-152)
     assert view.colormap == "plasma"
     w.range_combo.setCurrentText("fixed")
+    QApplication.processEvents()  # selectors apply once the event loop runs (D-152)
     assert w.range_min.isVisible() and w.range_max.isVisible()
     w.range_min.setValue(1.0)
     w.range_max.setValue(30.0)
     w.range_max.editingFinished.emit()
+    QApplication.processEvents()  # selectors apply once the event loop runs (D-152)
     assert view.clim() == (1.0, 30.0)
     assert not w.section_controls.isVisible()  # walls only
     w.display_combo.setCurrentText("Both")
+    QApplication.processEvents()  # selectors apply once the event loop runs (D-152)
     assert view.section_actor is not None and w.section_controls.isVisible()
     assert not w.section_toggle.isVisible() and not w.boundary_toggle.isVisible()
     w.section_slider.setValue(200)
@@ -361,6 +367,7 @@ def test_results_strip_wraps_and_never_clips_paraview(make_window, size: int) ->
     w.set_point_size(size)
     w.results_tab.click()
     w.range_combo.setCurrentText("fixed")  # the widest strip: min/max fields shown too
+    QApplication.processEvents()  # selectors apply once the event loop runs (D-152)
     QApplication.processEvents()
     strip = w.results_controls
     shown = [x for x in w._results_widgets() + [w.results_stale_label] if x.isVisible()]
@@ -428,3 +435,61 @@ def test_launch_writes_the_foam_file(tmp_path: Path) -> None:
     calls = []
     paraview.launch(Path("/usr/bin/paraview"), case, popen=lambda args, **kw: calls.append(args))
     assert (case / "case.foam").is_file() and calls == [["/usr/bin/paraview", str(case / "case.foam")]]
+
+
+# -- the selectors keep responding (D-152) -------------------------------------------------------------------------
+
+
+def _choose(qtbot: QtBot, combo, text: str) -> None:
+    """As a user: open the popup, pick the item, close it with Return."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    combo.showPopup()
+    view = combo.view()
+    view.setCurrentIndex(combo.model().index(combo.findText(text), 0))
+    QTest.keyClick(view, Qt.Key.Key_Return)
+    assert not view.isVisible()
+
+
+def test_every_results_selector_responds_to_repeated_changes(make_window, qtbot: QtBot) -> None:
+    from PySide6.QtWidgets import QWidget
+
+    w = make_window(with_viewer=True)
+    w.results_tab.click()
+    qtbot.waitUntil(lambda: w.results_view.has_results, timeout=15000)
+    view = w.results_view
+    combos = {"colormap": w.colormap_combo, "field": w.field_combo, "range": w.range_combo,
+              "display": w.display_combo}
+    sequences = {"colormap": ["plasma", "coolwarm", "viridis", "turbo", "grayscale", "plasma"],
+                 "field": ["|U|", "Cp", "p (kinematic)", "Cp"], "range": ["symmetric", "auto", "fixed", "auto"],
+                 "display": ["Section", "Both", "Walls", "Both"]}
+    read = {"colormap": lambda: view.colormap, "field": lambda: view.field_key, "range": lambda: view.range_mode,
+            "display": lambda: view.display}
+    expected = {"field": {"|U|": "U_mag", "Cp": "Cp", "p (kinematic)": "p"}}
+    for key, values in sequences.items():
+        combo = combos[key]
+        for value in values:
+            if combo.findText(value) < 0:
+                continue
+            _choose(qtbot, combo, value)
+            # never applied inside the selector's own signal: after the popup closed, from the event loop
+            qtbot.waitUntil(lambda: read[key]() == expected.get(key, {}).get(value, value), timeout=3000)
+            assert combo.isEnabled() and combo.isVisible() and not combo.signalsBlocked()
+            assert QWidget.mouseGrabber() is None
+    lut = view.actors[0].mapper.lookup_table.GetTableValue(0)
+    _choose(qtbot, w.colormap_combo, "coolwarm")
+    qtbot.waitUntil(lambda: view.actors and view.actors[0].mapper.lookup_table.GetTableValue(0) != lut, timeout=3000)
+
+
+def test_results_object_selectors_respond_to_repeated_changes(make_window, qtbot: QtBot) -> None:
+    w = make_window(with_viewer=True)
+    w.results_tab.click()
+    qtbot.waitUntil(lambda: w.results_view.has_results, timeout=15000)
+    w._on_scene_action("add:streamlines")
+    combos = {name: w.properties.sc_fields[("streamlines", name)] for name in ("colormap", "range_mode", "direction")}
+    for name, combo in combos.items():
+        for i in [*range(combo.count()), 0]:
+            _choose(qtbot, combo, combo.itemText(i))
+            qtbot.waitUntil(lambda: getattr(w.project.sim.results.objects[0], name) == combo.itemData(i), timeout=3000)
+            assert w.properties.sc_fields[("streamlines", name)] is combo and not combo.signalsBlocked()

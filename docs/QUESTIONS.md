@@ -470,4 +470,8 @@ settled the open ones on 2026-10-17.
 235. **[OPEN]** **The default properties column stays 18 u** (the D-041 rule keeps the viewer at least half the window);
      at the Small size the Auto fields' values fit with little room ("0.2685 m"). Widen the default column and
      relax the viewer rule?
+236. **[OPEN]** **The colormap selector that stopped responding (D-152) could not be reproduced offscreen.** The fix
+     applies every Results selector after its popup has closed (no redraw inside the selector's signal), which removes
+     the only step that differs on the real display. Please confirm on the real display that the colormap, field,
+     range and display selectors and the streamlines' selectors keep responding.
 

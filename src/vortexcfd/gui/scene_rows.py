@@ -6,6 +6,7 @@ knows the viewer and the results. Every committed edit is one Project step. A li
 (matplotlib, embedded) from the samples the Results Scene computed (D-136).
 """
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -195,7 +196,9 @@ class SceneRowsMixin:
             for box in widget.boxes.values():
                 box.toggled.connect(lambda _on, w=widget, n=name: self._commit_scene(**{n: w.value()}))
         else:
-            widget.currentIndexChanged.connect(lambda _i, w=widget, n=name: self._commit_scene(**{n: w.currentData()}))
+            # applied after the popup has closed (D-152): the commit redraws the scene
+            widget.currentIndexChanged.connect(
+                lambda _i, w=widget, n=name: QTimer.singleShot(0, lambda: self._commit_scene(**{n: w.currentData()})))
 
     def _scene_keys(self) -> list[str]:
         return (["sc_name", "sc_visible", "sc_status", "sc_delete", "sc_chart", "sc_line_actions"]

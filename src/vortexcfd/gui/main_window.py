@@ -2051,7 +2051,6 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.separation_toggle.setCheckable(True)
         self.separation_toggle.setToolTip("Highlight the wall faces where Cf_x < 0 (near-wall flow running "
                                           "upstream: separated or recirculating) in the error colour")
-        self.separation_toggle.toggled.connect(lambda _on: self._apply_results_controls())
         self.sections_button = QPushButton("Sections")
         self.sections_button.setObjectName("tbBtn")
         self.sections_button.setToolTip("Cp against x/c on cuts of the walls by planes normal to y (spanwise) or z")
@@ -2064,10 +2063,17 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
                        self.range_max, self.display_combo, self.separation_toggle, self.sections_button):
             row.addWidget(widget)
         row.addWidget(self.results_stale_label)
+        # A selector's choice is applied once its popup has closed and the event loop is back (D-152): the redraw
+        # (new actors, a scalar bar, an OpenGL render) never runs inside the selector's own signal.
+        self._results_apply_timer = QTimer(self)
+        self._results_apply_timer.setSingleShot(True)
+        self._results_apply_timer.setInterval(0)
+        self._results_apply_timer.timeout.connect(lambda: self._apply_results_controls())
         for combo in (self.field_combo, self.colormap_combo, self.range_combo, self.display_combo):
-            combo.currentTextChanged.connect(lambda _t: self._apply_results_controls())
+            combo.currentTextChanged.connect(lambda _t: self._results_apply_timer.start())
         for spin in (self.range_min, self.range_max):
-            spin.editingFinished.connect(self._apply_results_controls)
+            spin.editingFinished.connect(self._results_apply_timer.start)
+        self.separation_toggle.toggled.connect(lambda _on: self._results_apply_timer.start())
         self.results_controls.hide()
 
     def _results_widgets(self) -> list[QWidget]:
