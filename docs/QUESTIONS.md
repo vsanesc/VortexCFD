@@ -408,20 +408,20 @@ settled the open ones on 2026-10-17.
 
 ## Task rc1-polish (decisions taken while Vic was away)
 
-218. **[OPEN]** **The task branch started without the rc1 work.** task/rc1-polish was first created from main before
+218. **[ACCEPTED as implemented (owner review of rc1-polish)]** **The task branch started without the rc1 work.** task/rc1-polish was first created from main before
      task/w4-w5 was shipped; the agent stopped (moving the branch was refused by the permission check) and Vic shipped
      w4-w5 and recreated the branch. Recorded only.
-219. **[OPEN]** **ParaView IS installed on the development machine.** The brief says it is not, but /usr/bin/paraview
+219. **[ACCEPTED as implemented (owner review of rc1-polish)]** **ParaView IS installed on the development machine.** The brief says it is not, but /usr/bin/paraview
      exists (Ubuntu package `paraview`), so the app's button and `scripts/install.sh` find it here
      ("ok: found /usr/bin/paraview"). The tests replace the PATH lookup, so they do not depend on it. To see the
      "not found" tooltip on this machine, remove the package or run with a PATH without /usr/bin. Intended?
-220. **[OPEN]** **ParaView detection order (D-138):** the Preferences path, then `paraview` on PATH, then the newest
+220. **[CLOSED (owner review of rc1-polish; task release-1.0.0, item 1): a configured path that does not exist falls back to detection, and the tooltip says it was not found (D-138)]** **ParaView detection order (D-138):** the Preferences path, then `paraview` on PATH, then the newest
      C:\Program Files\ParaView*\bin\paraview.exe (a folder listing only; no cmd.exe, no registry). A Preferences path
      that does not exist disables the button (no fallback), as in D-055. Accept, or fall back to detection?
-221. **[OPEN]** **[NUMERICS-REVIEW] The 2D default view (D-140)** is the XZ view along +y in the geometry and results
+221. **[ACCEPTED as implemented (owner review of rc1-polish)]** **[NUMERICS-REVIEW] The 2D default view (D-140)** is the XZ view along +y in the geometry and results
      scenes, applied on every scene switch for a 2D project (a user's rotation survives edits, not scene switches);
      the 3D views are unchanged. Accept?
-222. **[OPEN]** **The NACA 0012 round 3 domain is not reversed (task rc1-polish, item 5).** From the case's own files:
+222. **[ACCEPTED as implemented (owner review of rc1-polish)]** **The NACA 0012 round 3 domain is not reversed (task rc1-polish, item 5).** From the case's own files:
      constant/triSurface/domain.stl puts the solid "inlet" on the half-disc (x -99.51 to 0.49, 17 distinct x),
      "outlet" on the plane x = 100.97; snappyHexMeshDict names those regions inlet / outlet / farfield and puts
      locationInMesh at x = -49.6 (halfway between the inlet and the airfoil); polyMesh/boundary's inlet faces have

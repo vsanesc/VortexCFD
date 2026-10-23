@@ -78,7 +78,8 @@ vortexcfd --check-openfoam
 VortexCFD does not need ParaView: it shows meshes and results itself. ParaView is only used by the Results Scene's
 "Open in ParaView" button, which looks for it in this order:
 
-1. the executable set in Edit > Preferences (if that file does not exist, the button stays off);
+1. the executable set in Edit > Preferences (if that file does not exist, the next two are tried and the button's
+   tooltip says the configured path was not found);
 2. `paraview` on your PATH (the Ubuntu package);
 3. ParaView for Windows under `C:\Program Files\ParaView*` (seen from WSL as `/mnt/c/Program Files`; the newest
    version is used).
