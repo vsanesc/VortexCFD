@@ -96,3 +96,48 @@ def test_the_panel_detaches_and_docks_back(make_window, qtbot: QtBot) -> None:
     w.toggle_properties_window()
     w.toggle_properties_window()
     assert section.window() is w
+
+
+# -- mesh (G3) ------------------------------------------------------------------------------------------
+
+
+def test_mesh_fields_have_units_tooltips_and_auto_boxes(make_window) -> None:
+    from PySide6.QtWidgets import QAbstractSpinBox
+
+    from vortexcfd.gui.panel_widgets import AutoField, ChoiceField
+
+    w = make_window()
+    select(w, "mesh")
+    p = w.properties
+    for key, widget in p.mesh_fields.items():
+        assert widget.toolTip(), key  # what it does, its default and why
+        spin = widget.spin if isinstance(widget, AutoField) else widget
+        if isinstance(spin, QAbstractSpinBox):
+            assert spin.suffix().strip(), key  # every number has its unit
+    for key in ("base_size", "surface_level_min", "surface_level_max", "cores"):
+        assert isinstance(p.mesh_fields[key], AutoField), key
+    sizing = p.mesh_fields["layer_sizing"]
+    assert isinstance(sizing, ChoiceField)
+    assert [b.text() for b in sizing.buttons.values()] == ["Sized from a target y+",
+                                                           "Thickness relative to the surface cell size"]
+    assert p._sections["mesh_layers"].text() == "PRISM LAYERS (WALLS)"
+    assert "Prism layers are thin cells" in p.mesh_layers_note.text() and p.mesh_layers_note.isVisibleTo(p)
+    for row in ("mset_first_layer", "mset_layer_count", "mset_layer_expansion", "mset_layer_stack"):
+        assert p._rows[row].isVisibleTo(p), row
+    assert p.mesh_first_layer.text().endswith("(for y+ 50)") and " m " in p.mesh_first_layer.text()
+    assert p.mesh_layer_stack.text().endswith(" m") and p.mesh_layer_expansion.text().startswith("1.")
+
+
+def test_curvature_levels_are_explained_editable_and_update_the_estimate_live(make_window) -> None:
+    w = make_window()
+    select(w, "mesh")
+    p = w.properties
+    spin = p.mesh_fields["curvature_levels"]
+    assert spin.value() == 2 and w.project.sim.mesh.curvature_levels == 2  # the default is kept
+    assert "multiply the cells" in spin.toolTip() and "Default 2" in spin.toolTip()
+    assert "bends" in p.mesh_curvature_note.text() and p.mesh_curvature_note.isVisibleTo(p)
+    before = p.mesh_curvature.text()
+    spin.setValue(3)  # an arrow or the wheel: committed at once, the estimate follows
+    assert w.project.sim.mesh.curvature_levels == 3 and p.mesh_curvature.text() != before
+    spin.setValue(0)
+    assert p.mesh_curvature.text() == "off"

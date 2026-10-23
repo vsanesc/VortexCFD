@@ -15,6 +15,7 @@ from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_report import LayerCoverage, MeshReport
 from vortexcfd.geometry.loader import clear_cache
 from vortexcfd.gui.main_window import MainWindow
+from vortexcfd.gui.panel_widgets import AutoField, ChoiceField
 from vortexcfd.gui.theme import metrics
 
 
@@ -120,14 +121,14 @@ def test_long_labels_are_elided_with_a_tooltip_in_the_side_by_side_layout(make_w
     p = w.properties
     assert not p.stacked
     u = metrics().u
-    assert 9 * u <= p._label_column <= 0.55 * p.width()
+    assert 8 * u <= p._label_column <= 0.55 * p.width()  # the widest label sets it (shorter since D-148)
     lab = p._row_labels["mset_background_cells_target"]
     assert lab.width() == p._label_column
     # Force a narrow column: the label is elided and the full text is the tooltip.
     lab.set_column_width(5 * u)
-    assert lab.text().endswith("…") and lab.toolTip() == "Background cells target"
+    assert lab.text().endswith("…") and lab.toolTip() == "Background cells"
     lab.set_column_width(p._label_column)
-    assert lab.text() == "Background cells target" and lab.toolTip() == ""
+    assert lab.text() == "Background cells" and lab.toolTip() == ""
 
 
 @pytest.mark.parametrize("font", [11, 14])
@@ -173,16 +174,24 @@ def test_every_mesh_field_shows_its_value(make_window, font: int) -> None:
     p = w.properties
     mesh = w.project.sim.mesh
     for key, widget in p.mesh_fields.items():
+        if isinstance(widget, AutoField):  # Auto shows the computed value, greyed (D-148)
+            assert widget.auto.isChecked() == (getattr(mesh, key) is None), key
+            assert not widget.spin.isEnabled() and widget.spin.text(), key
+            widget = widget.spin
+            shown = widget.text()
+            assert widget.fontMetrics().horizontalAdvance(shown) <= widget.width(), (key, shown, widget.width())
+            continue
+        if isinstance(widget, ChoiceField):  # long, self-explaining options as radio buttons (D-148)
+            assert widget.value() == getattr(mesh, key) and widget.isVisible(), key
+            continue
         shown = _displayed(widget)
         assert shown, key
         model = getattr(mesh, key)
         if isinstance(widget, QComboBox):
-            assert shown == model, key
-        elif model is None:
-            assert shown == "auto", key
+            assert widget.currentData() == model, key
         elif key == "layers" and mesh.layer_sizing == "absolute_yplus":
             # absolute sizing shows the computed count in the disabled field (D-089)
-            assert not widget.isEnabled() and shown == p.mesh_layer_count.text().split()[0], (key, shown)
+            assert not widget.isEnabled() and widget.value() == int(p.mesh_layer_count.text().split()[0]), (key, shown)
         else:
             assert float(widget.cleanText()) == pytest.approx(float(model)), (key, shown, model)
         assert widget.isVisible() and widget.width() >= 3 * metrics().u

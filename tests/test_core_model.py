@@ -621,7 +621,7 @@ def test_new_simulation_sizes_the_surface_from_l_ref_with_curvature() -> None:
     assert mesh.surface_size_reference == "l_ref" and mesh.target_surface_size == 0.01
     assert mesh.curvature_levels == 2
     with pytest.raises(ValidationError):
-        Mesh(curvature_levels=3)  # at most 2 levels above the part's surface level (D-085)
+        Mesh(curvature_levels=5)  # at most 4 levels above the part's surface level (D-085, D-148)
 
 
 def test_v10_file_keeps_explicit_values(tmp_path: Path) -> None:

@@ -83,7 +83,7 @@ from vortexcfd.gui.scene_rows import SceneRowsMixin
 from vortexcfd.gui.study_rows import StudyRowsMixin
 from vortexcfd.gui.volume_rows import VolumeRowsMixin
 from vortexcfd.gui.help_texts import help_target
-from vortexcfd.gui.panel_widgets import SectionHeader
+from vortexcfd.gui.panel_widgets import AutoField, ChoiceField, SectionHeader
 from vortexcfd.gui.settings_store import settings
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, mono_font, section_title_font
 
@@ -167,12 +167,23 @@ def _sci(suffix: str = "") -> SciEdit:
 
 
 def _widget_get(widget):
-    return widget.currentText() if isinstance(widget, QComboBox) else widget.value()
+    if isinstance(widget, QComboBox):
+        data = widget.currentData()
+        return data if data is not None else widget.currentText()
+    return widget.value()
 
 
 def _widget_set(widget, value) -> None:
-    if isinstance(widget, QComboBox):
-        widget.setCurrentText(str(value))
+    if isinstance(widget, AutoField):
+        widget.set_state(value, widget._computed)
+    elif isinstance(widget, ChoiceField):
+        widget.setValue(value)
+    elif isinstance(widget, QComboBox):
+        index = widget.findData(value)
+        if index >= 0:
+            widget.setCurrentIndex(index)
+        else:
+            widget.setCurrentText(str(value))
     elif isinstance(widget, QSpinBox):
         widget.setValue(int(value))
     elif isinstance(widget, SciEdit):
@@ -184,36 +195,90 @@ def _widget_set(widget, value) -> None:
 def _connect_commit(widget, slot) -> None:
     """Commit when a field is edited: combos on change, everything else on editing finished."""
     if isinstance(widget, QComboBox):
-        widget.currentTextChanged.connect(lambda _text: slot())
+        widget.currentIndexChanged.connect(lambda _index: slot())
+    elif isinstance(widget, (AutoField, ChoiceField)):
+        widget.edited.connect(slot)
     else:
         widget.editingFinished.connect(slot)
 
 
-# Editable Mesh settings: (Mesh field, label, widget factory). "auto" is the minimum special
-# value of the optional fields (stored as None).
+def _combo_data(pairs) -> QComboBox:
+    """A combo box whose items show a label and carry the model value as their data."""
+    box = QComboBox()
+    for value, label in pairs:
+        box.addItem(label, value)
+    return box
+
+
+def _auto(spin, tip: str = "") -> AutoField:
+    return AutoField(spin, tip)
+
+
+# The labels of the Mesh choices (D-148): the model values stay as they are.
+SURFACE_REFERENCES = (("l_ref", "l_ref"), ("largest_extent", "L (largest extent)"))
+LAYER_SIZINGS = (("absolute_yplus", "Sized from a target y+"),
+                 ("relative", "Thickness relative to the surface cell size"))
+LAYER_CONTROL_LABELS = (("robust", "Robust"), ("wall_resolved", "Wall-resolved"), ("legacy", "Legacy"))
+
+# Editable Mesh settings (D-148): (Mesh field, label, widget factory, tooltip: what it does, its default and why).
 MESH_SETTINGS = (
-    ("background_cells_target", "Background cells target", lambda: _spin(1000, 100_000_000, " cells")),
-    ("target_surface_size", "Target surface size", lambda: _dspin(0.0001, 1.0, 4, " \u00d7 length")),
-    ("surface_size_reference", "Surface size length", lambda: _combo(("l_ref", "largest_extent"))),
-    ("base_size", "Base size override", lambda: _dspin(0.0, 1000.0, 5, " m", "auto")),
-    ("surface_level_min", "Min surface level", lambda: _spin(-1, 30, "", "auto")),
-    ("surface_level_max", "Max surface level", lambda: _spin(-1, 30, "", "auto")),
-    ("curvature_levels", "Curvature refinement", lambda: _spin(0, MAX_CURVATURE_LEVELS, " levels", "off")),
-    ("feature_angle", "Feature angle", lambda: _dspin(1.0, 180.0, 1, "\u00b0")),
-    ("layers", "Layers", lambda: _spin(0, MAX_LAYERS)),
-    ("expansion_ratio", "Expansion ratio", lambda: _dspin(1.0, 3.0, 3)),
-    ("final_layer_thickness", "Final layer thickness", lambda: _dspin(0.001, 5.0, 3, " \u00d7 cell")),
-    ("min_thickness", "Min layer thickness", lambda: _dspin(0.001, 5.0, 3, " \u00d7 cell")),
-    ("layer_sizing", "Layer sizing", lambda: _combo(("relative", "absolute_yplus"))),
-    ("target_yplus", "Target y+", lambda: _dspin(0.01, 1000.0, 3)),
-    ("layer_controls", "Layer controls", lambda: _combo(("robust", "wall_resolved", "legacy"))),
-    ("cores", "Mesh cores", lambda: _spin(0, PHYSICAL_CORES, "", "auto")),
+    ("background_cells_target", "Background cells", lambda: _spin(1000, 100_000_000, " cells"),
+     "Cells of the uniform background mesh in the whole domain before any refinement; sets the background cell "
+     "size. Default 100,000: coarse far from the parts, so the refinement levels do the work."),
+    ("target_surface_size", "Surface cell size", lambda: _dspin(0.0001, 1.0, 4, " \u00d7 l_ref"),
+     "The cell size wanted on the part surfaces, as a fraction of the length chosen below (l_ref by default); the "
+     "refinement level is the first whose cell is at or below it. Default 0.01: 100 cells along l_ref."),
+    ("surface_size_reference", "Relative to", lambda: _combo_data(SURFACE_REFERENCES),
+     "The length the surface cell size is a fraction of: l_ref (Reference Values; default since v10, so the cells "
+     "follow the body's characteristic length) or L, the parts' largest extent (projects before v10)."),
+    ("base_size", "Background cell size", lambda: _auto(_dspin(0.0001, 1000.0, 4, " m")),
+     "Auto (default): computed from the background cells and the domain volume. Uncheck to set the background cell "
+     "size in metres; the cell count then follows from it."),
+    ("surface_level_min", "Surface level min", lambda: _auto(_spin(0, 30, " level")),
+     "Auto (default): from the surface cell size. Every surface is refined at least to this level (each level halves "
+     "the background cell)."),
+    ("surface_level_max", "Surface level max", lambda: _auto(_spin(0, 30, " level")),
+     "Auto (default): from the surface cell size. Surfaces at sharp angles (feature angle) are refined up to this "
+     "level."),
+    ("curvature_levels", "Curvature: extra levels", lambda: _spin(0, MAX_CURVATURE_LEVELS, " levels", "off"),
+     "Curved surfaces get up to this many levels beyond the maximum surface level where they bend, so small radii "
+     "keep enough cells around them. Default 2. Each extra level can multiply the cells near curved surfaces by "
+     "up to 4 (surface) to 8 (volume): watch the cell estimate below."),
+    ("feature_angle", "Feature angle", lambda: _dspin(1.0, 180.0, 1, "\u00b0"),
+     "Edges sharper than this angle are resolved at the maximum surface level and snapped as features. Default "
+     "30\u00b0."),
+    ("layer_sizing", "Layer sizing", lambda: ChoiceField(LAYER_SIZINGS),
+     "How the prism layers at the walls are sized. Sized from a target y+ (default since v10): the first-layer "
+     "height follows from the free-stream speed, the viscosity and l_ref, and the count from the surface cell. "
+     "Relative: the final layer is a fraction of the local surface cell and the count is set."),
+    ("target_yplus", "Target y+", lambda: _dspin(0.01, 1000.0, 3, " y+"),
+     "The dimensionless wall distance of the first cell centre. Default 50: the wall-function range (30-300). "
+     "About 1 resolves the viscous sublayer (wall-resolved, many more cells)."),
+    ("layers", "Layer count", lambda: _spin(0, MAX_LAYERS, " layers"),
+     "The number of prism layers on every part wall (relative sizing). With y+ sizing it is computed and shown here. "
+     "0: no layers."),
+    ("expansion_ratio", "Expansion ratio", lambda: _dspin(1.0, 3.0, 3, " \u00d7"),
+     "Each layer is this much thicker than the one below it. Default 1.2: a smooth growth that snappyHexMesh "
+     "extrudes reliably; larger values give fewer layers but a coarser transition."),
+    ("final_layer_thickness", "Final layer thickness", lambda: _dspin(0.001, 5.0, 3, " \u00d7 cell"),
+     "Relative sizing: the outermost layer's thickness as a fraction of the local surface cell. Default 0.5."),
+    ("min_thickness", "Minimum layer thickness", lambda: _dspin(0.001, 5.0, 3, " \u00d7 cell"),
+     "Layers thinner than this fraction of the local cell are not added (snappyHexMesh minThickness). Default 0.1."),
+    ("layer_controls", "Layer controls", lambda: _combo_data(LAYER_CONTROL_LABELS),
+     "The snappyHexMesh layer controls with y+ sizing. Robust (default): at most 30 layers, the expansion raised "
+     "up to 1.3 to keep the stack. Wall-resolved: for y+ about 1 (chosen automatically below y+ 5). Legacy: "
+     "projects saved before v13."),
+    ("cores", "Meshing cores", lambda: _auto(_spin(1, PHYSICAL_CORES, " cores")),
+     "snappyHexMesh ranks. Auto (default): the recommendation from the estimated background cells (12,500 per "
+     "core, at most 8). Meshing scales better than the solver; it can use more cores. 1 meshes in serial; with "
+     "more the mesh is reconstructed into one serial mesh afterwards."),
 )
 MESH_OPTIONAL = frozenset({"base_size", "surface_level_min", "surface_level_max", "cores"})
-# Tooltip of the Mesh cores field (D-111).
-MESH_CORES_TIP = ("snappyHexMesh ranks. auto: the recommendation from the estimated background cells (12,500 per "
-                  "core, at most 8). Meshing scales better than the solver; it can use more cores. 1 meshes in "
-                  "serial; with more the mesh is reconstructed into one serial mesh afterwards.")
+CURVATURE_NOTE = ("Curvature refinement adds cells where a surface bends (small radii, leading edges), up to the extra "
+                  "levels set here beyond the maximum surface level.")
+LAYERS_NOTE = ("Prism layers are thin cells stacked on the part walls to resolve the boundary layer. Sized from a "
+               "target y+: the first cell's height gives that y+ at the free-stream speed. Relative: the layers scale "
+               "with the surface cells.")
 # Reference Values node (D-047): the note under the auto (bounding box) values.
 REFERENCE_NOTE = "set the wing area and mean chord for aircraft"
 AREA_BASES = ("planform", "frontal", "custom")
@@ -424,10 +489,10 @@ MIN_FIELD_U = 7  # a field is never narrower than this in the side-by-side layou
 
 # First Mesh field of each section header in the Mesh rows.
 MESH_SECTIONS = {
-    "background_cells_target": "Sizing",
-    "surface_level_min": "Refinement",
-    "layers": "Layers",
-    "cores": "Parallel",
+    "background_cells_target": ("mesh_sizing", "Sizing"),
+    "surface_level_min": ("mesh_refinement", "Surface refinement"),
+    "layer_sizing": ("mesh_layers", "Prism layers (walls)"),
+    "cores": ("mesh_parallel", "Parallel meshing"),
 }
 
 
@@ -483,6 +548,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self._fields: list[QWidget] = []  # input widgets (kept at a minimum height)
         self._sections: dict[str, SectionHeader] = {}
         self._collapse_hidden: list[QWidget] = []
+        self._notes: list[QLabel] = []
         self._label_column = 0
         self.stacked = False
         self._row_fields: dict[str, QWidget] = {}
@@ -718,46 +784,58 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         # Mesh node: editable sizing/layer settings (Project.update_mesh) with computed values
         # shown read-only next to their overrides, then the checkMesh report.
         self.mesh_fields: dict[str, QWidget] = {}
-        for key, label, factory in MESH_SETTINGS:
+        for key, label, factory, tip in MESH_SETTINGS:
             if key in MESH_SECTIONS:
-                self._section(f"mesh_{MESH_SECTIONS[key].lower()}", MESH_SECTIONS[key])
+                section, title = MESH_SECTIONS[key]
+                self._section(section, title)
+                if section == "mesh_layers":
+                    self.mesh_layers_note = self._note(LAYERS_NOTE)
             widget = factory()
+            widget.setToolTip(tip)
             self.mesh_fields[key] = widget
-            self._layout.addWidget(self._make_row(f"mset_{key}", label, widget))
+            field: QWidget = widget
+            if key == "target_surface_size":  # the length it is relative to and the size in metres (D-148)
+                field, self.mesh_surface_length = self._with_note(widget)
+            self._layout.addWidget(self._make_row(f"mset_{key}", label, field))
+            if isinstance(widget, AutoField):
+                self._fields.append(widget.spin)
+            elif field is not widget:
+                self._fields.append(widget)
             _connect_commit(widget, lambda k=key: self._commit_mesh(k))
-            if key == "base_size":
-                self.mesh_base_used = self._ro_row("mset_base_used", "Base size used")
-            if key == "surface_level_max":
-                self.mesh_levels_used = self._ro_row("mset_levels_used", "Levels used")
+            if key == "curvature_levels":
+                widget.setKeyboardTracking(False)
+                widget.valueChanged.connect(lambda _v: self._commit_mesh("curvature_levels"))  # the estimate, live
+                self.mesh_curvature_note = self._note(CURVATURE_NOTE)
+            if key == "target_surface_size":
+                widget.setKeyboardTracking(False)
+                widget.valueChanged.connect(lambda _v: self._show_surface_size())
             if key == "layer_controls":  # what meshing uses, and why (D-123)
                 self.mesh_layer_mode = self._ro_row("mset_layer_mode", "Layer mode in use")
-            if key == "cores":
-                widget.setToolTip(MESH_CORES_TIP)
-                self.mesh_cores_used = self._ro_row("mset_cores_used", "Cores used")
             if key == "target_yplus":
                 self.mesh_yplus_note = QLabel(YPLUS_NOTE)
                 self.mesh_yplus_note.setObjectName("muted")
                 _wrap(self.mesh_yplus_note)
                 self._layout.addWidget(self.mesh_yplus_note)
-        self._section("mesh_estimate", "Estimate")
+            if key == "layer_controls":
+                self.mesh_first_layer = self._ro_row("mset_first_layer", "First-layer height")
+                self.mesh_layer_count = self._ro_row("mset_layer_count", "Layer count used")
+                self.mesh_layer_expansion = self._ro_row("mset_layer_expansion", "Expansion used")
+                self.mesh_layer_stack = self._ro_row("mset_layer_stack", "Total / final layer")
+                # planned vs achievable stack thickness and the expansion ratio written (layer cap, D-106)
+                self.mesh_layer_plan = self._ro_row("mset_layer_plan", "Planned / achievable")
+                self.mesh_layer_thickness_warning = QLabel()
+                self.mesh_layer_thickness_warning.setObjectName("checkValue")
+                _wrap(self.mesh_layer_thickness_warning)
+                self._layout.addWidget(self.mesh_layer_thickness_warning)
+        self._section("mesh_estimate", "Cell estimate")
         self.mesh_bg_cells = self._ro_row("mset_bg_cells", "Background cells")
         self.mesh_volume_cells = self._ro_row("mset_volume_cells", "Refinement volumes")
-        self.mesh_surface_length = self._ro_row("mset_surface_length", "Surface size from")
-        self.mesh_surface_cells = self._ro_row("mset_surface_cells", "Surface cell size")
+        self.mesh_surface_cells = self._ro_row("mset_surface_cells", "Surface cell (achieved)")
         self.mesh_curvature = self._ro_row("mset_curvature", "Curvature up to")
         self.mesh_length_warning = QLabel()
         self.mesh_length_warning.setObjectName("checkValue")
         _wrap(self.mesh_length_warning)
         self._layout.addWidget(self.mesh_length_warning)
-        self.mesh_first_layer = self._ro_row("mset_first_layer", "First layer thickness")
-        self.mesh_layer_count = self._ro_row("mset_layer_count", "Layers (computed)")
-        self.mesh_layer_stack = self._ro_row("mset_layer_stack", "Stack / final layer")
-        # planned vs achievable stack thickness and the expansion ratio written (layer cap, D-106)
-        self.mesh_layer_plan = self._ro_row("mset_layer_plan", "Planned / achievable")
-        self.mesh_layer_thickness_warning = QLabel()
-        self.mesh_layer_thickness_warning.setObjectName("checkValue")
-        _wrap(self.mesh_layer_thickness_warning)
-        self._layout.addWidget(self.mesh_layer_thickness_warning)
         self.mesh_thin_warning = QLabel()
         self.mesh_thin_warning.setObjectName("checkValue")
         _wrap(self.mesh_thin_warning)
@@ -956,6 +1034,31 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.dimension_combo.currentIndexChanged.connect(self._commit_dimension)
         self.refresh()
 
+    def _note(self, text: str) -> QLabel:
+        """A short explanation under a row or section header (muted, wrapped; shown with its node's rows)."""
+        label = QLabel(text)
+        label.setObjectName("muted")
+        _wrap(label)
+        self._layout.addWidget(label)
+        self._notes.append(label)
+        return label
+
+    @staticmethod
+    def _with_note(widget: QWidget) -> tuple[QWidget, QLabel]:
+        """A field with a muted value under it (e.g. "= 0.005 m (l_ref = 0.5 m)"); returns (host, note)."""
+        host = QWidget()
+        host.setMinimumWidth(1)
+        host.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        box = QVBoxLayout(host)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(2)
+        note = QLabel()
+        note.setObjectName("muted")
+        _wrap(note)
+        box.addWidget(widget)
+        box.addWidget(note)
+        return host, note
+
     def _ro_row(self, key: str, text: str) -> QLabel:
         """A read-only value row; returns its label."""
         value = QLabel()
@@ -1127,13 +1230,16 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         for label in (*self.check_values.values(), *self.mesh_values.values(), self.status_value):
             label.setFont(mono)
         for widget in (self.name_edit, self.source_label, self.units_combo, self.patch_label,
-                       self.cad_file_label, self.cad_linear, self.cad_angular, *self.mesh_fields.values()):
+                       self.cad_file_label, self.cad_linear, self.cad_angular,
+                       *(getattr(w, "spin", w) for w in self.mesh_fields.values())):
             widget.setFont(mono)
 
-        for label in (self.mesh_base_used, self.mesh_levels_used, self.mesh_bg_cells, self.mesh_volume_cells,
-                      self.mesh_surface_cells,
-                      self.mesh_first_layer, self.mesh_layer_count, self.mesh_layer_stack, self.inflow_k, self.inflow_omega):
+        for label in (self.mesh_bg_cells, self.mesh_volume_cells, self.mesh_surface_cells, self.mesh_first_layer,
+                      self.mesh_layer_count, self.mesh_layer_expansion, self.mesh_layer_stack, self.inflow_k,
+                      self.inflow_omega):
             label.setFont(mono)
+        for note in self._notes:
+            note.setContentsMargins(m.s3, 0, m.s3, m.s1)
         self.info_label.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
         self.mesh_empty.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
         self.stop_empty.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
@@ -1248,41 +1354,56 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self._apply_label_column()
 
     def _mesh_setting_rows(self) -> list[str]:
-        keys = [f"mset_{k}" for k, _, _ in MESH_SETTINGS]
-        return keys + ["mset_base_used", "mset_levels_used", "mset_bg_cells", "mset_volume_cells", "mset_surface_length",
-                       "mset_surface_cells", "mset_curvature", "mset_first_layer", "mset_layer_count",
-                       "mset_layer_stack", "mset_layer_plan", "mset_cores_used", "mset_layer_mode"]
+        keys = [f"mset_{k}" for k, *_ in MESH_SETTINGS]
+        return keys + ["mset_bg_cells", "mset_volume_cells", "mset_surface_cells", "mset_curvature", "mset_first_layer",
+                       "mset_layer_count", "mset_layer_expansion", "mset_layer_stack", "mset_layer_plan",
+                       "mset_layer_mode"]
 
     def _refresh_mesh_settings(self, show: bool) -> None:
         for key in self._mesh_setting_rows():
             self._rows[key].setVisible(show)
         for key in ("mesh_sizing", "mesh_refinement", "mesh_layers", "mesh_parallel", "mesh_estimate"):
             self._sections[key].setVisible(show)
+        for note in (self.mesh_layers_note, self.mesh_curvature_note):
+            note.setVisible(show)
         self.mesh_title.setVisible(show and self._mesh_report is not None)
         if not show:
             self.mesh_yplus_note.setVisible(False)
             self.mesh_thin_warning.setVisible(False)
             self.mesh_length_warning.setVisible(False)
+            self.mesh_layer_thickness_warning.setVisible(False)
             return
         thin = thin_part_warnings(self._project)
         self.mesh_thin_warning.setText("\n".join(thin))
         self._set_warn(self.mesh_thin_warning, True)
         self.mesh_thin_warning.setVisible(bool(thin))
         mesh = self._project.sim.mesh
+        box = domain_box_for(self._project)
+        est = estimate_with_volumes(self._project, box) if box.bounds is not None else None
+        length = surface_length(self._project, box) if box.bounds is not None else None
+        self._surface_length = length
         self.mesh_yplus_note.setVisible(mesh.layer_sizing == "absolute_yplus")
         yplus_used = mesh.layer_sizing == "absolute_yplus"
+        tips = {key: tip for key, _l, _f, tip in MESH_SETTINGS}
         self.mesh_fields["target_yplus"].setEnabled(yplus_used)
-        self.mesh_fields["target_yplus"].setToolTip(f"{YPLUS_AT_TIPS[mesh.yplus_at]}\n{YPLUS_GUIDANCE}" if yplus_used
-                                                    else YPLUS_RELATIVE_TIP)
-        widgets = list(self.mesh_fields.values())
+        self.mesh_fields["target_yplus"].setToolTip(
+            f"{tips['target_yplus']}\n{YPLUS_AT_TIPS[mesh.yplus_at]}" if yplus_used else YPLUS_RELATIVE_TIP)
+        computed = {}
+        if est is not None:
+            computed = {"base_size": est.base_size, "surface_level_min": est.level_min,
+                        "surface_level_max": est.level_max}
+            cores = mesh_cores(self._project, box, PHYSICAL_CORES)
+            computed["cores"] = cores.recommended
+            self.mesh_fields["cores"].setToolTip(f"{tips['cores']}\nIn use: {cores.describe()}")
+        widgets = [getattr(w, "spin", w) for w in self.mesh_fields.values()] + list(self.mesh_fields.values())
         for w in widgets:
             w.blockSignals(True)
         try:
-            for key, _, _ in MESH_SETTINGS:
+            for key, *_ in MESH_SETTINGS:
                 value = getattr(mesh, key)
                 widget = self.mesh_fields[key]
-                if value is None:
-                    widget.setValue(widget.minimum())  # the "auto" special value
+                if isinstance(widget, AutoField):
+                    widget.set_state(value, computed.get(key))
                 else:
                     _widget_set(widget, value)
             controls = self.mesh_fields["layer_controls"]
@@ -1291,19 +1412,26 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                 _widget_set(controls, "wall_resolved")  # locked while the target needs it (D-123)
             controls.setEnabled(not (yplus_used and mesh.layer_controls != "legacy"
                                      and mesh.target_yplus < WALL_RESOLVED_AUTO_YPLUS))
-            controls.setToolTip(layer_mode_text(mesh)[1])
+            controls.setToolTip(f"{tips['layer_controls']}\n{layer_mode_text(mesh)[1]}".strip())
+            reference = "l_ref" if mesh.surface_size_reference == "l_ref" else "L"
+            self.mesh_fields["target_surface_size"].setSuffix(f" \u00d7 {reference}")
         finally:
             for w in widgets:
                 w.blockSignals(False)
+        self._show_surface_size()
         mode, why = layer_mode_text(mesh)
         self.mesh_layer_mode.setText(mode)
         self.mesh_layer_mode.setToolTip(why)
-        box = domain_box_for(self._project)
         absolute = mesh.layer_sizing == "absolute_yplus"
+        for key in ("final_layer_thickness",):  # relative sizing only
+            self.mesh_fields[key].setEnabled(not absolute)
+        self.mesh_fields["final_layer_thickness"].setToolTip(
+            tips["final_layer_thickness"] if not absolute else "Sized from a target y+: the stack follows from the "
+            "first-layer height, the count and the expansion; this relative value is not used.")
         plan = plan_layers_for(self._project, box) if box.bounds is not None and absolute else None
         layers_field = self.mesh_fields["layers"]
         layers_field.setEnabled(not absolute)  # the count follows from y+ and the surface cell (D-089)
-        layers_field.setToolTip(LAYERS_ABSOLUTE_TIP if absolute else "")
+        layers_field.setToolTip(LAYERS_ABSOLUTE_TIP if absolute else tips["layers"])
         if plan is not None:
             layers_field.blockSignals(True)
             layers_field.setValue(plan.count)  # shown only: the stored Mesh.layers is not changed
@@ -1313,14 +1441,30 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             notes = [f"cap; planned {plan.planned_count}"] if plan.capped else []
             notes += ["limit 30"] if plan.warning else []
             self.mesh_layer_count.setText(f"{plan.count}" + (f" ({', '.join(notes)})" if notes else ""))
+            raised = plan.expansion != plan.planned_expansion
+            self.mesh_layer_expansion.setText(f"{plan.expansion:.3g} \u00d7"
+                                              + (f" (raised from {plan.planned_expansion:.3g})" if raised else ""))
             self.mesh_layer_stack.setText(f"{plan.total:.4g} m / {plan.final:.4g} m")
             self.mesh_layer_plan.setText(layer_plan_text(plan))
+        elif not absolute and est is not None and mesh.layers > 0:
+            # relative sizing: the final layer is a fraction of the surface cell (snappyHexMesh relativeSizes)
+            n, r = mesh.layers, mesh.expansion_ratio
+            final = mesh.final_layer_thickness * est.surface_size
+            first = final / r ** (n - 1)
+            total = first * (r ** n - 1) / (r - 1) if r != 1 else first * n
+            self.mesh_first_layer.setText(f"\u2248 {first:.4g} m (relative to the {est.surface_size:.4g} m surface cell)")
+            self.mesh_layer_count.setText(f"{n} (set)")
+            self.mesh_layer_expansion.setText(f"{r:.3g} \u00d7 (set)")
+            self.mesh_layer_stack.setText(f"\u2248 {total:.4g} m / {final:.4g} m")
+            self.mesh_layer_plan.setText("\u2014 (relative sizing)")
         else:
             blank = "relative sizing" if not absolute else "\u2014"
-            self.mesh_first_layer.setText(blank)
+            self.mesh_first_layer.setText(blank if mesh.layers or absolute else "no layers")
             self.mesh_layer_count.setText(f"{mesh.layers} (set)" if not absolute else "\u2014")
+            self.mesh_layer_expansion.setText("\u2014")
             self.mesh_layer_stack.setText("\u2014")
             self.mesh_layer_plan.setText("\u2014")
+        self._rows["mset_layer_plan"].setVisible(absolute)
         thin = plan.thickness_warning if plan is not None else None
         self.mesh_layer_thickness_warning.setText(thin or "")
         self._set_warn(self.mesh_layer_thickness_warning, True)
@@ -1332,30 +1476,20 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             self._set_warn(label, warn)
         for label in (self.mesh_layer_count, self.mesh_layer_stack):
             label.setToolTip(plan.warning if warn else "")
-        if box.bounds is None:
-            for label in (self.mesh_base_used, self.mesh_levels_used, self.mesh_bg_cells, self.mesh_volume_cells,
-                          self.mesh_surface_length, self.mesh_surface_cells, self.mesh_curvature,
-                          self.mesh_cores_used):
+        if est is None:
+            for label in (self.mesh_bg_cells, self.mesh_volume_cells, self.mesh_surface_cells, self.mesh_curvature):
                 label.setText("\u2014")
             self._set_warn(self.mesh_bg_cells, False)
             self.mesh_length_warning.setVisible(False)
             return
-        length = surface_length(self._project, box)
-        est = estimate_with_volumes(self._project, box)
-        self.mesh_surface_length.setText(length.describe())
         warning = surface_length_warning(length)
         self.mesh_length_warning.setText(warning or "")
         self._set_warn(self.mesh_length_warning, True)
         self.mesh_length_warning.setVisible(warning is not None)
         self.mesh_curvature.setText(
             f"level {est.curvature_level} ({est.curvature_size:.4g} m)" if mesh.curvature_levels else "off")
-        auto = "" if est.base_size_overridden else " (computed)"
-        self.mesh_base_used.setText(f"{est.base_size:.4g} m{auto}")
-        self.mesh_levels_used.setText(
-            f"{est.level_min} \u2013 {est.level_max}" + ("" if est.levels_overridden else " (computed)")
-        )
         nx, ny, nz = est.cells
-        self.mesh_bg_cells.setText(f"{nx} \u00d7 {ny} \u00d7 {nz} = {est.total_cells:,}")
+        self.mesh_bg_cells.setText(f"{nx} \u00d7 {ny} \u00d7 {nz} = {est.total_cells:,} cells")
         self._set_warn(self.mesh_bg_cells, est.too_many_cells)
         count = len(self._project.sim.refinement_volumes)
         self.mesh_volume_cells.setText(
@@ -1363,8 +1497,17 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             if count else "none")
         self.mesh_volume_cells.setToolTip(OVERLAP_NOTE if count else "")
         self._set_warn(self.mesh_volume_cells, est.too_many_cells and est.volume_cells > 0)
-        self.mesh_surface_cells.setText(f"{est.surface_size:.4g} m")
-        self.mesh_cores_used.setText(mesh_cores(self._project, box, PHYSICAL_CORES).describe())
+        self.mesh_surface_cells.setText(f"{est.surface_size:.4g} m (level {est.level_max})")
+
+    def _show_surface_size(self) -> None:
+        """The surface cell size's note, live while the field changes: "= <size> m (<length> = <value> m)"."""
+        length = getattr(self, "_surface_length", None)
+        if length is None:
+            self.mesh_surface_length.setText("")
+            return
+        fraction = self.mesh_fields["target_surface_size"].value()
+        self.mesh_surface_length.setText(f"= {fraction * length.value:.4g} m ({length.describe()})")
+        self.mesh_surface_length.setToolTip(length.describe())
 
     def _refresh_groups(self) -> None:
         """Show the group of the selected node (Physics, Inflow or Solvers) and fill it."""
@@ -1418,9 +1561,9 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         if self._kind != "mesh":
             return
         widget = self.mesh_fields[key]
-        value = _widget_get(widget)
-        if key in MESH_OPTIONAL and value == widget.minimum():
-            value = None  # the "auto" special value
+        value = _widget_get(widget)  # an AutoField gives None while Auto is checked
+        if getattr(self._project.sim.mesh, key) == value:
+            return
         try:
             self._project.update_mesh(**{key: value})
         except (ValueError, TypeError) as exc:  # includes pydantic errors

@@ -175,8 +175,9 @@ class SurfacePrep(StrictModel):
         return next((p for p in self.parts if p.part == part_name), None)
 
 
-# Curvature refinement goes at most this many levels above a part's maximum surface level (D-085).
-MAX_CURVATURE_LEVELS = 2
+# Curvature refinement goes at most this many levels above a part's maximum surface level: 2 in D-085, the owner's
+# conservative cap; editable up to 4 since D-148 (the default stays 2). [NUMERICS-REVIEW]
+MAX_CURVATURE_LEVELS = 4
 # A target y+ below this lies in the viscous sublayer, where the robust controls cannot build the stack (D-122):
 # with absolute (y+) sizing the robust controls then give way to the wall-resolved ones (D-123).
 WALL_RESOLVED_AUTO_YPLUS = 5.0

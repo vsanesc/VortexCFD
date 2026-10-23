@@ -431,3 +431,14 @@ settled the open ones on 2026-10-17.
      (x mirrored); D-140 makes the app's 2D views look along +y. Note: this case's radius is 100 chords (the domain
      sensitivity case), not the preset's 50.
 
+## Task gui-polish (decisions taken while Vic was away)
+
+223. **[OPEN]** **Recent list: temporary folders are refused and missing projects pruned (D-141).** The Recent list
+     never records a project under the system temporary folder (/tmp, /var/tmp), and at start-up drops entries whose
+     file no longer exists. A user who keeps real projects under /tmp would not see them in Recent. Accept?
+224. **[OPEN]** **Interface size values (D-148): Small 9 pt (default), Medium 10 pt, Large 12 pt.** The previous default
+     was 11 pt. Inputs and tree rows are now 1.6 u high (were 2 u and 1.8 u). Accept the sizes?
+225. **[OPEN] [NUMERICS-REVIEW]** **Curvature refinement: the maximum extra levels is now 4 (was 2, D-085), the default
+     stays 2.** The owner asked for the maximum to be editable; the model cap was the "conservative 2" of D-085. A
+     project at 0 to 2 writes the same dictionaries as before. Accept 4 as the new cap?
+

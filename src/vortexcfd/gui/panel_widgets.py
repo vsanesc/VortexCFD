@@ -10,12 +10,14 @@ import math
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QRadioButton,
     QSizePolicy,
     QSpinBox,
     QToolButton,
@@ -53,6 +55,8 @@ class SectionHeader(QWidget):
         self.chevron.clicked.connect(self.toggle)
         self.title = QLabel(text.upper())
         self.title.setObjectName("subSection")
+        self.title.setMinimumWidth(1)  # a long title never widens the panel
+        self.title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         box.addWidget(self.chevron)
         box.addWidget(self.title, 1)
         self.help_anchor = help_anchor
@@ -98,9 +102,11 @@ class AutoField(QWidget):
         self.auto.setToolTip(auto_tip or "Checked: the value is computed (shown greyed); uncheck to set it")
         box = QHBoxLayout(self)
         box.setContentsMargins(0, 0, 0, 0)
-        box.setSpacing(6)
+        box.setSpacing(4)
         box.addWidget(self.auto)
         box.addWidget(spin, 1)
+        self.setMinimumWidth(1)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         spin.setKeyboardTracking(False)
         self._computed: float | None = None
         self.auto.toggled.connect(self._auto_toggled)
@@ -338,3 +344,49 @@ class FloatingPanel(QWidget):
         if self.content is not None:  # closed by the user: dock the panel back
             self._on_close()
         super().closeEvent(event)
+
+
+class ChoiceField(QWidget):
+    """A choice between a few long, self-explaining options as radio buttons stacked vertically (D-148); ``value()``
+    is the chosen option's model value."""
+
+    edited = Signal()
+
+    def __init__(self, pairs) -> None:
+        super().__init__()
+        self.setMinimumWidth(1)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        box = QVBoxLayout(self)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(2)
+        self.group = QButtonGroup(self)
+        self.buttons: dict[str, QRadioButton] = {}
+        for value, label in pairs:
+            button = QRadioButton(label)
+            button.setMinimumWidth(1)
+            button.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            self.group.addButton(button)
+            self.buttons[value] = button
+            box.addWidget(button)
+            button.toggled.connect(lambda on: on and self.edited.emit())
+
+    def value(self):
+        return next((v for v, b in self.buttons.items() if b.isChecked()), None)
+
+    def setValue(self, value) -> None:
+        for b in self.buttons.values():
+            b.blockSignals(True)
+        try:
+            if value in self.buttons:
+                self.buttons[value].setChecked(True)  # the exclusive group unchecks the others
+        finally:
+            for b in self.buttons.values():
+                b.blockSignals(False)
+
+    def setToolTip(self, text: str) -> None:
+        super().setToolTip(text)
+        for b in self.buttons.values():
+            b.setToolTip(text)
+
+    def setEnabled(self, on: bool) -> None:
+        super().setEnabled(on)
