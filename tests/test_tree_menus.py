@@ -139,12 +139,20 @@ def test_add_region_from_a_file(window: MainWindow, tmp_path: Path) -> None:
     assert volume.name == "Wake_region" and volume.shape.file == "geometry/Wake region.stl"
     assert (w.project.folder / "geometry" / "Wake region.stl").is_file()
     assert w._items[("refinement_volume", 0)].text(0) == "Wake_region (surface)"
-    # an open surface is refused and its copy removed
-    pv.Plane().triangulate().save(str(source))
+    assert volume.shape.mode == "inside"  # a closed surface: refined inside
+    # an open surface is added to refine within a distance of it (one surface cell); inside is refused for it (D-159)
+    pv.Plane(center=(1.0, 0, 0)).triangulate().save(str(source))
     w.add_region_from_file()
-    assert len(w.project.sim.refinement_volumes) == 1
+    assert len(w.project.sim.refinement_volumes) == 2
+    sheet = w.project.sim.refinement_volumes[1]
+    assert sheet.shape.mode == "distance" and sheet.shape.distance == pytest.approx(sheet.target_size)
+    assert "within a distance: the surface is open" in w.console.text()
+    w.tree.setCurrentItem(w._items[("refinement_volume", 1)])
+    p = w.properties
+    p.vol_surface_mode.setCurrentIndex(p.vol_surface_mode.findData("inside"))
+    assert w.project.volume(sheet.id).shape.mode == "distance"  # refused, back to the distance mode
+    assert p.vol_surface_mode.currentData() == "distance"
     assert "not a closed surface" in w.statusBar().currentMessage()
-    assert not (w.project.folder / "geometry" / "Wake region_2.stl").exists()
 
 
 def test_clear_mesh_and_mesh_report(window: MainWindow) -> None:

@@ -25,8 +25,9 @@ SHAPE_LABELS = {"box": "Box", "cylinder": "Cylinder", "sphere": "Sphere", "cone"
                 "surface": "Imported surface"}
 # An imported region's modes (D-145).
 REGION_MODES = {"inside": "Inside the surface", "distance": "Within a distance of the surface"}
-REGION_MODE_TIP = ("Inside: every cell inside the closed surface is refined to the target size. Within a distance: "
-                   "every cell closer to the surface than the distance (on either side) is refined.")
+REGION_MODE_TIP = ("Inside: every cell inside the surface is refined to the target size (a closed surface only). "
+                   "Within a distance: every cell closer to the surface than the distance (on either side) is "
+                   "refined; the surface may be open.")
 COORD_RANGE = 1e6
 SURFACE_ROWS = ("vol_surface_file", "vol_surface_mode", "vol_surface_distance")
 ANGLE_RANGES = {"pitch_deg": (-90.0, 90.0), "yaw_deg": (-360.0, 360.0)}
@@ -297,6 +298,13 @@ class VolumeRowsMixin:
         if volume is None or volume.shape.kind != "surface":
             return
         mode = self.vol_surface_mode.currentData()
+        if mode == "inside" and self._project.folder is not None:  # only a closed surface has an inside (D-159)
+            try:
+                refinement.load_region(self._project.folder / volume.shape.file, volume.shape.units, "inside")
+            except refinement.RegionFileError as exc:
+                self.message.emit(str(exc))
+                self.refresh()  # back to the distance mode
+                return
         shape = {"mode": mode}
         if mode == "distance" and volume.shape.distance <= 0:
             shape["distance"] = volume.target_size

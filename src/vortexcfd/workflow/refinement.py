@@ -26,24 +26,32 @@ FINER_WARNING = ("The target is finer than the finest part surface level (level 
 
 
 class RegionFileError(ValueError):
-    """An imported refinement region's surface cannot be used (missing, unreadable or not closed)."""
+    """An imported refinement region's surface cannot be used (missing, unreadable, or not closed in the inside
+    mode)."""
 
 
-NOT_CLOSED = ("{name} is not a closed surface ({detail}): a refinement region needs a closed surface (fix it, "
-              "or import it as a part and repair it first)")
+class RegionNotClosedError(RegionFileError):
+    """The surface is open: usable only to refine within a distance of it (D-159)."""
 
 
-def load_region(path: Path, units: str) -> "rv.pv.PolyData":
-    """An imported region's surface in metres with outward normals (an inward-oriented closed surface is flipped,
-    on a copy), or RegionFileError when it is missing, unreadable or not closed (D-145)."""
+NOT_CLOSED = ("{name} is not a closed surface ({detail}): refining inside a surface needs a closed one (refine "
+              "within a distance of it instead, fix it, or import it as a part and repair it first)")
+
+
+def load_region(path: Path, units: str, mode: str = "inside") -> "rv.pv.PolyData":
+    """An imported region's surface in metres, or RegionFileError when it is missing or unreadable (D-145). The
+    inside mode needs a closed surface (outward normals: an inward-oriented one is flipped, on a copy); the distance
+    mode takes an open one too, as snappyHexMesh's distance refinement does (D-159)."""
     try:
         mesh = load_surface(path, units)
     except (FileNotFoundError, SurfaceLoadError) as exc:
         raise RegionFileError(f"{Path(path).name}: {exc}") from exc
     report = check_surface(mesh, intersections=False)
     if not report.watertight:
+        if mode == "distance":
+            return mesh
         detail = f"{report.open_edges} open edges, {report.non_manifold_edges} non-manifold edges"
-        raise RegionFileError(NOT_CLOSED.format(name=Path(path).name, detail=detail))
+        raise RegionNotClosedError(NOT_CLOSED.format(name=Path(path).name, detail=detail))
     if report.normals_inward:
         mesh = mesh.copy()
         mesh.flip_faces(inplace=True)
@@ -59,7 +67,7 @@ def geometry_shape(project: Project, shape):
     folder = project.folder
     if folder is None:
         raise RegionFileError("the project has no folder")
-    mesh = load_region(folder / shape.file, shape.units)
+    mesh = load_region(folder / shape.file, shape.units, shape.mode)
     return rv.SurfaceRegion(mesh, shape.mode, shape.distance)
 
 
@@ -216,11 +224,28 @@ def write_region_surfaces(case_dir: Path, tri_surface: str, project: Project, en
         meshing_shape(project, volume, attitude).mesh.save(str(folder / file), binary=False)
 
 
-def surface_volume(project: Project, relative: str, units: str, est: MeshEstimate, mode: str = "inside",
+def is_closed(path: Path, units: str) -> bool:
+    """Whether a region's surface can refine inside itself (closed); RegionFileError when it cannot be read."""
+    try:
+        load_region(path, units, "inside")
+    except RegionNotClosedError:
+        return False
+    return True
+
+
+def region_mode(path: Path, units: str) -> str:
+    """The mode a new imported region starts in: inside a closed surface, within a distance of an open one."""
+    return "inside" if is_closed(path, units) else "distance"
+
+
+def surface_volume(project: Project, relative: str, units: str, est: MeshEstimate, mode: str | None = None,
                    distance: float = 0.0, name: str | None = None) -> RefinementVolume:
-    """A refinement volume of the imported surface ``relative`` (in the project folder; checked: closed, D-145),
-    its target the part surface cell size; ``distance`` in metres for the distance mode (0: one surface cell)."""
-    load_region(project.folder / relative, units)  # RegionFileError when not usable
+    """A refinement volume of the imported surface ``relative`` (in the project folder), its target the part surface
+    cell size; ``mode`` None: inside a closed surface, within a distance of an open one (D-159); ``distance`` in
+    metres for the distance mode (0: one surface cell)."""
+    if mode is None:
+        mode = region_mode(project.folder / relative, units)  # RegionFileError when not readable
+    load_region(project.folder / relative, units, mode)  # RegionFileError when not usable in that mode
     if mode == "distance" and distance <= 0:
         distance = est.surface_size
     shape = SurfaceShape(file=relative, units=units, mode=mode, distance=distance if mode == "distance" else 0.0)

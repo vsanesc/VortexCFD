@@ -95,14 +95,36 @@ def test_region_containment_volume_and_growth(tmp_path: Path) -> None:
     assert rv.outline(region) is mesh
 
 
-def test_inward_surfaces_are_flipped_and_open_ones_refused(tmp_path: Path) -> None:
+def test_inward_surfaces_are_flipped_and_open_ones_only_for_the_distance_mode(tmp_path: Path) -> None:
     mesh = refinement.load_region(write_box(tmp_path / "in.stl", inward=True), "m")
     assert rv.contains(rv.SurfaceRegion(mesh), [[1.5, 0, 0]]).tolist() == [True]
-    pv.Plane().triangulate().save(str(tmp_path / "open.stl"))  # an open sheet
-    with pytest.raises(refinement.RegionFileError, match="not a closed surface"):
-        refinement.load_region(tmp_path / "open.stl", "m")
+    pv.Plane(i_size=2, j_size=2).triangulate().save(str(tmp_path / "open.stl"))  # an open sheet in z = 0 (D-159)
+    with pytest.raises(refinement.RegionNotClosedError, match="not a closed surface.*within a distance"):
+        refinement.load_region(tmp_path / "open.stl", "m")  # inside: needs a closed surface
+    sheet = refinement.load_region(tmp_path / "open.stl", "m", "distance")
+    shell = rv.SurfaceRegion(sheet, "distance", 0.25)
+    assert rv.contains(shell, [[0, 0, 0.2], [0, 0, -0.2], [0, 0, 0.3], [0.5, 0.5, 0.1]]).tolist() == [True, True,
+                                                                                                    False, True]
+    exact = 2 * 2 * 0.5 + 8 * np.pi * 0.25 ** 2 / 2 + 4 / 3 * np.pi * 0.25 ** 3  # the sheet's Minkowski sum, r = 0.25
+    assert rv.volume(shell) == pytest.approx(exact, rel=0.06)  # sampled on a grid
+    assert not refinement.is_closed(tmp_path / "open.stl", "m") and refinement.is_closed(tmp_path / "in.stl", "m")
+    assert refinement.region_mode(tmp_path / "open.stl", "m") == "distance"
     with pytest.raises(refinement.RegionFileError):
-        refinement.load_region(tmp_path / "missing.stl", "m")
+        refinement.load_region(tmp_path / "missing.stl", "m", "distance")
+    with pytest.raises(refinement.RegionFileError):
+        refinement.is_closed(tmp_path / "missing.stl", "m")  # unreadable is not "open"
+
+
+def test_an_open_region_meshes_in_the_distance_mode_only(tmp_path: Path) -> None:
+    project, vid = region_project(tmp_path)
+    volume = project.volume(vid)
+    pv.Plane(i_size=0.5, j_size=0.5, center=(1.0, 0, 0)).triangulate().save(str(project.folder / volume.shape.file))
+    project.update_refinement_volume(vid, shape={"mode": "inside"})
+    assert refinement.region_problems(project) and "not a closed surface" in refinement.region_problems(project)[0]
+    project.update_refinement_volume(vid, shape={"mode": "distance", "distance": 0.05})
+    assert refinement.region_problems(project) == []
+    shape = refinement.geometry_shape(project, project.volume(vid).shape)
+    assert shape.mode == "distance" and shape.mesh.n_cells > 0
 
 
 def test_estimate_counts_the_region(tmp_path: Path) -> None:

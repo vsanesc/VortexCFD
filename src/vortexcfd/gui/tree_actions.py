@@ -28,8 +28,10 @@ log = logging.getLogger(__name__)
 DELETABLE = ("part", "refinement_volume", "scene_object", "saved_view")
 RENAMABLE = ("root", "part", "refinement_volume", "scene_object")
 REGION_FROM_FILE = "Add from imported geometry…"
-USE_AS_REGION_TIP = ("The part's closed surface becomes a refinement volume: the cells inside it are refined to a "
-                     "target size; it is no longer meshed as a wall (undoable)")
+USE_AS_REGION_TIP = ("The part's surface becomes a refinement volume: the cells inside it (a closed surface) or within "
+                     "a distance of it (an open one) are refined to a target size; it is no longer meshed as a wall "
+                     "(undoable)")
+REGION_MODE_LOG = {"inside": "inside", "distance": "within a distance: the surface is open"}
 
 
 class TreeActionsMixin:
@@ -300,8 +302,8 @@ class TreeActionsMixin:
         target the part surface cell size) and is no longer a wall; one undo step."""
         self._flush_edits()
         part = self._project.sim.geometry.parts[index]
-        try:
-            refinement.load_region(self._project.folder / part.source_file, part.units)
+        try:  # a closed part refines inside itself, an open one within a distance of itself (D-159)
+            mode = refinement.region_mode(self._project.folder / part.source_file, part.units)
         except refinement.RegionFileError as exc:
             self.show_message(f"'{part.name}' cannot be a refinement region: {exc}", "error")
             return
@@ -309,11 +311,12 @@ class TreeActionsMixin:
         if target is None:
             return
         added: list[str] = []
-        self._run_edit(lambda: added.append(self._project.part_to_refinement_region(index, target)))
+        distance = target if mode == "distance" else 0.0
+        self._run_edit(lambda: added.append(self._project.part_to_refinement_region(index, target, mode, distance)))
         if added:
             self._select_volume(added[0])
-            log.info("Part '%s' is now the refinement region '%s' (target %.4g m)", part.name,
-                     self._project.volume(added[0]).name, target)
+            log.info("Part '%s' is now the refinement region '%s' (%s, target %.4g m)", part.name,
+                     self._project.volume(added[0]).name, REGION_MODE_LOG[mode], target)
 
     def _region_target_size(self) -> float | None:
         """The default target cell size of a new imported region: the part surface cell size (needs the domain)."""
@@ -382,8 +385,8 @@ class TreeActionsMixin:
             self.show_message(f"Could not use {source.name} as a refinement region: {exc}", "error")
             return
         self._add_volume(volume, f"Add refinement region '{volume.name}' from {source.name}")
-        log.info("Imported %s as the refinement region '%s' (inside, target %.4g m)", source.name, volume.name,
-                 volume.target_size)
+        log.info("Imported %s as the refinement region '%s' (%s, target %.4g m)", source.name, volume.name,
+                 REGION_MODE_LOG[volume.shape.mode], volume.target_size)
 
     # -- Show in OpenFOAM file (D-150) ----------------------------------------------------------
 

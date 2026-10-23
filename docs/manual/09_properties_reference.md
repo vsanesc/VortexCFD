@@ -101,9 +101,10 @@ intersection features). Run it again after the parts change.
 ## Refinement volumes
 
 Boxes, cylinders, spheres, cones (Add, or right-click Refinement volumes), a wake box behind the parts, or an
-imported closed surface (Add from imported geometry, or a part's Use as refinement region). Each has a **Target cell
-size**; the mesh uses the first level at or below it. An imported surface refines **Inside the surface** or
-**Within a distance** of it.
+imported surface (Add from imported geometry, or a part's Use as refinement region). Each has a **Target cell
+size**; the mesh uses the first level at or below it. An imported surface refines **Inside the surface** (a closed
+surface only) or **Within a distance** of it (on either side; the surface may be open, such as a sheet or a wake
+surface). A closed surface starts in the inside mode, an open one in the distance mode (one surface cell).
 
 ## Reference values
 
