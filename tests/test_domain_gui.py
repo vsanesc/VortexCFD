@@ -149,7 +149,7 @@ def test_selecting_a_boundary_highlights_its_face(make_window) -> None:
     w.tree.setCurrentItem(w._items[("boundary_inlet", None)])
     actor = w.domain_view.highlight_actor
     assert actor is not None
-    assert pv.Color(actor.prop.color).hex_rgb.lower() == w._theme.accent_secondary.lower()
+    assert pv.Color(actor.prop.color).hex_rgb.lower() == w._theme.accent.lower()  # the selection colour (D-144)
     xmin, xmax, *_ = actor.GetBounds()
     assert xmin == xmax == pytest.approx(-10.0)  # x_min face: 0 - 5 * L
     w.tree.setCurrentItem(w._items[("boundary_sides", None)])

@@ -29,11 +29,11 @@ def _select(w, kind: str) -> None:
 
 def test_residual_palette_is_derived_from_owner_tokens() -> None:
     assert {f: residual_style(DARK, f) for f in RESIDUAL_STYLES} == {
-        "p": ("#D87403", "SolidLine"),
-        "Ux": ("#309DCF", "SolidLine"), "Uy": ("#309DCF", "DashLine"), "Uz": ("#309DCF", "DotLine"),
-        "k": ("#28AC61", "SolidLine"), "omega": ("#28AC61", "DashLine"),
+        "p": ("#C4810F", "SolidLine"),
+        "Ux": ("#329CCC", "SolidLine"), "Uy": ("#329CCC", "DashLine"), "Uz": ("#329CCC", "DotLine"),
+        "k": ("#2AAC62", "SolidLine"), "omega": ("#2AAC62", "DashLine"),
     }
-    assert {RESIDUAL_STYLES[f][0] for f in RESIDUAL_STYLES} == {"accent", "axis_z", "axis_y"}
+    assert {RESIDUAL_STYLES[f][0] for f in RESIDUAL_STYLES} == {"accent_secondary", "axis_z", "axis_y"}
     assert residual_style(DARK, "epsilon") == (DARK.muted_text, "DashDotLine")
 
 
@@ -49,7 +49,7 @@ def test_chart_empty_state_and_live_series(make_window, qtbot: QtBot) -> None:
     qtbot.waitUntil(lambda: len(chart.series.get("p", [])) == 2, timeout=5000)
     assert list(chart.series) == ["Ux", "Uy", "Uz", "p", "omega", "k"]
     assert [name for name, _, _ in chart.legend_entries()] == list(chart.series)
-    assert chart.legend_entries()[3] == ("p", "#D87403", "SolidLine")
+    assert chart.legend_entries()[3] == ("p", "#C4810F", "SolidLine")
     assert chart.x_range() == (1.0, 2.0)
     runner.release(iteration(3, p=2e-8) + ["End\n"])
     wait_done(qtbot, w)

@@ -79,9 +79,9 @@ def logo_pixmap(theme, side: int, dpr: float = 1.0) -> QPixmap:
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
     line = 1.0
-    accent = QColor(theme.accent_secondary)
+    accent = QColor(theme.accent)
     p.setPen(QPen(accent, line))
-    p.setBrush(QColor(blend(theme.accent_secondary, theme.base, LOGO_FILL_ALPHA)))
+    p.setBrush(QColor(blend(theme.accent, theme.base, LOGO_FILL_ALPHA)))
     box = QRectF(line / 2, line / 2, side - line, side - line)
     radius = side * LOGO_RADIUS_FRACTION
     p.drawRoundedRect(box, radius, radius)

@@ -332,7 +332,7 @@ class DomainView:
             if faces.n_cells:
                 self.highlight_cells = faces.n_cells
                 self.highlight_actor = self.plotter.add_mesh(
-                    faces, color=t.accent_secondary, opacity=HIGHLIGHT_OPACITY, lighting=False,
+                    faces, color=t.accent, opacity=HIGHLIGHT_OPACITY, lighting=False,
                     pickable=False, reset_camera=False, render=False, name=self.HIGHLIGHT,
                 )
 

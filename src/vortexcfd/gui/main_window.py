@@ -174,8 +174,9 @@ ADD_PART_NOT_BUILT = "Not built yet: an empty part without a surface. Add parts 
 
 
 class _RowDelegate(QStyledItemDelegate):
-    """Tree rows: fixed height, full-width hover/selection fill, 2px accent_secondary bar on the
-    left edge of the selected row, drawn chevrons for rows with children and an eye for parts."""
+    """Tree rows: fixed height, full-width hover/selection fill (the accent tint), a 2px accent bar on the
+    left edge of the selected row and its text in the accent (D-144), drawn chevrons for rows with children and
+    an eye for parts."""
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
@@ -219,7 +220,7 @@ class _RowDelegate(QStyledItemDelegate):
         row = QRect(0, r.top(), width, r.height())
         if selected:
             painter.fillRect(row, QColor(t.selection))
-            painter.fillRect(QRect(0, r.top(), m.bar, r.height()), QColor(t.accent_secondary))
+            painter.fillRect(QRect(0, r.top(), m.bar, r.height()), QColor(t.accent))
         elif hover:
             painter.fillRect(row, QColor(t.elevated))
         if index.model().hasChildren(index):
@@ -235,10 +236,13 @@ class _RowDelegate(QStyledItemDelegate):
             | QStyle.StateFlag.State_HasFocus
         )
         opt.rect = r.adjusted(self.slot, 0, 0, 0)
+        if selected:  # the selected row's text in the accent
+            opt.palette.setColor(QPalette.ColorRole.Text, QColor(t.accent))
+            opt.palette.setColor(QPalette.ColorRole.WindowText, QColor(t.accent))
         super().paint(painter, opt, index)
 
     def _draw_chevron(self, painter, r, expanded: bool, hover: bool, m: Metrics, t: Theme) -> None:
-        pen = QPen(QColor(t.accent_secondary_hover if hover else t.muted_text), max(1.2, m.u / 12))
+        pen = QPen(QColor(t.accent_hover if hover else t.muted_text), max(1.2, m.u / 12))
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         painter.save()

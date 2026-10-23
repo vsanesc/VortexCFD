@@ -46,7 +46,7 @@ class Badge(QLabel):
         self.setProperty("dot", "true" if with_dot else "false")
 
     def set_state(self, state: str) -> None:
-        """state: '' (accent_secondary), 'success', 'warning' or 'error'."""
+        """state: '' (accent), 'success', 'warning' or 'error'."""
         self._state = state
         self.setProperty("state", state)
         self.style().unpolish(self)
@@ -59,7 +59,7 @@ class Badge(QLabel):
             return None
         return {"success": self._theme.success, "warning": self._theme.warning,
                 "error": self._theme.error}.get(
-            self._state, self._theme.accent_secondary
+            self._state, self._theme.accent
         )
 
     def configure(self, m: Metrics | None = None, t: Theme | None = None) -> None:
@@ -83,7 +83,7 @@ class Badge(QLabel):
 
 
 class DotButton(QPushButton):
-    """Checkable button with a small dot on the left: muted when off, accent_secondary when on."""
+    """Checkable button with a small dot on the left: muted when off, accent when on."""
 
     def __init__(self, text: str, parent: QWidget | None = None) -> None:
         super().__init__(text, parent)
@@ -98,7 +98,7 @@ class DotButton(QPushButton):
     def dot_color(self) -> str | None:
         if self._theme is None:
             return None
-        return self._theme.accent_secondary if self.isChecked() else self._theme.muted_text
+        return self._theme.accent if self.isChecked() else self._theme.muted_text
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)

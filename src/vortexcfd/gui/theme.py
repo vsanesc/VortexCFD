@@ -1,8 +1,8 @@
 """Design tokens and application of the look (Fusion style + palette + stylesheet).
 
 Every color lives in a ``Theme`` token and every size derives from the font height
-(``Metrics``): change a value here and nothing else. The "Tungsten & Amber" values marked
-as owner values are fixed by the owner and change only on his request.
+(``Metrics``): change a value here and nothing else. The "Zinc & Teal" values marked as owner
+values are fixed by the owner (D-144) and change only on his request.
 """
 
 from dataclasses import dataclass
@@ -35,27 +35,27 @@ class Theme:
     """Named colors (hex strings)."""
 
     name: str
-    canvas: str  # viewer background
-    base: str  # window, panels, tree, console, status line
-    elevated: str  # inputs, section headers, tree row hover
-    floating: str  # menus, popups, tooltips, dialogs
+    canvas: str  # the background: viewer background, the gaps between panels
+    base: str  # panels: window chrome, tree, properties, monitors, console, status line, dialogs
+    elevated: str  # inputs (inset, darker than the panel), section headers, tree row hover
+    floating: str  # menus, popups, tooltips (lighter than the panel)
     border: str
     border_active: str
     text: str
     muted_text: str
     disabled_text: str  # disabled controls and input placeholders ONLY
-    accent: str  # amber: execution / calculation
+    accent: str  # teal: selection, primary actions (Generate Mesh, Run Solver), focus, active tabs
     accent_hover: str
     accent_dim: str  # accent at 15% over base
-    accent_text: str  # text on accent
-    accent_secondary: str  # teal: navigation / selection (dots, selected-row bar, active tab)
+    accent_text: str  # text on accent (dark)
+    accent_secondary: str  # amber: highlights and warnings, never selection
     accent_secondary_hover: str
     accent_secondary_dim: str  # accent_secondary at 15% over base
-    selection: str  # selected tree row: accent_secondary_dim over base
+    selection: str  # selected tree row: accent_dim over base
     part_surface: str  # imported part faces in the viewer
     part_edge: str  # imported part edges
-    part_selected: str  # selected part (= accent_secondary)
-    mesh_edge: str  # cell edges of the mesh section (owner colour disabled_text, reused)
+    part_selected: str  # selected part (= accent)
+    mesh_edge: str  # cell edges of the mesh section (= disabled_text)
     mesh_surface: str  # cell faces of the mesh section (= elevated)
     success: str
     warning: str
@@ -66,38 +66,41 @@ class Theme:
 
 
 DIM_ALPHA = 0.15  # accent_dim / accent_secondary_dim: the accent at this alpha over base
-_BASE = "#12161F"
-_ACCENT = "#FF8800"
-_ACCENT_SECONDARY = "#00B4A2"
+_CANVAS = "#18181B"  # owner: background
+_BASE = "#27272A"  # owner: panel
+_ACCENT = "#2DD4BF"  # owner: accent (teal)
+_ACCENT_SECONDARY = "#F59E0B"  # owner: secondary (amber)
 
-# Tungsten & Amber, the owner's final palette (values change only on his request).
+# Zinc & Teal, the owner's palette (D-144; replaces Tungsten & Amber). The owner fixed the background, panel,
+# accent, secondary and primary text; the other values are zinc steps and the accents' lighter steps chosen for
+# WCAG AA on the background and the panel (tests/test_theme.py).
 DARK = Theme(
     name="dark",
-    canvas="#0A0D12",
+    canvas=_CANVAS,
     base=_BASE,
-    elevated="#1A202C",
-    floating="#232B3A",
-    border="#2A3446",
-    border_active="#3B4963",
-    text="#F1F5F9",
-    muted_text="#94A3B8",
-    disabled_text="#526077",
+    elevated="#1C1C20",
+    floating="#303036",
+    border="#3F3F46",
+    border_active="#52525B",
+    text="#FAFAFA",
+    muted_text="#A1A1AA",
+    disabled_text="#71717A",
     accent=_ACCENT,
-    accent_hover="#FFA033",
+    accent_hover="#5EEAD4",
     accent_dim=blend(_ACCENT, _BASE, DIM_ALPHA),
-    accent_text="#0A0D12",
+    accent_text=_CANVAS,
     accent_secondary=_ACCENT_SECONDARY,
-    accent_secondary_hover="#14C8B6",
+    accent_secondary_hover="#FBBF24",
     accent_secondary_dim=blend(_ACCENT_SECONDARY, _BASE, DIM_ALPHA),
-    selection=blend(_ACCENT_SECONDARY, _BASE, DIM_ALPHA),
-    part_surface="#7F8DA3",
-    part_edge="#2A3446",
-    part_selected=_ACCENT_SECONDARY,
-    mesh_edge="#526077",
-    mesh_surface="#1A202C",
-    success="#10B981",
-    warning="#FACC15",
-    error="#F43F5E",
+    selection=blend(_ACCENT, _BASE, DIM_ALPHA),
+    part_surface="#9F9FA9",
+    part_edge="#3F3F46",
+    part_selected=_ACCENT,
+    mesh_edge="#71717A",
+    mesh_surface="#1C1C20",
+    success="#22C55E",
+    warning=_ACCENT_SECONDARY,
+    error="#FB7185",
     axis_x="#FF4D4D",
     axis_y="#2ECC71",
     axis_z="#38BDF8",
@@ -135,7 +138,7 @@ LIMITS_U: dict[str, tuple[int, int | None]] = {
 
 # Derived-color alphas and drawing constants (the only place for these numbers).
 DISABLED_ALPHA = 0.5  # muted text/borders of disabled actions, blended over `base`
-LOGO_FILL_ALPHA = 0.15  # logo fill: accent_secondary over base
+LOGO_FILL_ALPHA = 0.15  # logo fill: accent over base
 LOGO_RADIUS_FRACTION = 0.25 / 1.6  # logo corner radius / side (radius_s at the 1.6u logo)
 WINDOW_ICON_SIZES = (16, 24, 32, 48, 64, 128)  # px
 TELEMETRY_OPACITY = 0.92  # telemetry card background opacity
@@ -161,12 +164,12 @@ EMPTY_SCENE_POINT_FRACTION = 1.0  # "No geometry yet" size in px per u
 # (OKLCH L <= 0.66). Three hues; the fields of one family differ by line style (legend + dashes).
 # field -> (token, weight over canvas, Qt pen style name)
 RESIDUAL_STYLES = {
-    "p": ("accent", 0.84, "SolidLine"),
-    "Ux": ("axis_z", 0.82, "SolidLine"),
-    "Uy": ("axis_z", 0.82, "DashLine"),
-    "Uz": ("axis_z", 0.82, "DotLine"),
-    "k": ("axis_y", 0.83, "SolidLine"),
-    "omega": ("axis_y", 0.83, "DashLine"),
+    "p": ("accent_secondary", 0.78, "SolidLine"),  # amber: the teal accent is too close to k's green (D-144)
+    "Ux": ("axis_z", 0.80, "SolidLine"),
+    "Uy": ("axis_z", 0.80, "DashLine"),
+    "Uz": ("axis_z", 0.80, "DotLine"),
+    "k": ("axis_y", 0.82, "SolidLine"),
+    "omega": ("axis_y", 0.82, "DashLine"),
 }
 RESIDUAL_FALLBACK = ("muted_text", 1.0, "DashDotLine")  # any other field (not plotted by simpleFoam here)
 
@@ -286,7 +289,7 @@ QToolTip {{ background: {t.floating}; color: {t.text}; border: {ln}px solid {t.b
 QWidget#panel {{ background: {t.base}; }}
 QWidget#canvas {{ background: {t.canvas}; }}
 QLabel#muted {{ color: {t.muted_text}; }}
-QLabel#accent2 {{ color: {t.accent_secondary}; background: transparent; }}
+QLabel#accent2 {{ color: {t.accent}; background: transparent; }}
 QLabel#sectionTitle {{ color: {t.text}; background: transparent; }}
 QScrollArea#propScroll {{ background: transparent; border: none; }}
 QScrollBar:vertical {{ background: {t.base}; width: {m.s3}px; margin: 0; border: none; }}
@@ -296,46 +299,46 @@ QScrollBar::handle:vertical:hover {{ background: {t.muted_text}; }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; border: none; }}
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
 QSlider::groove:horizontal {{ height: {m.s1}px; background: {t.border}; border-radius: {m.s1 // 2}px; }}
-QSlider::sub-page:horizontal {{ background: {t.accent_secondary}; border-radius: {m.s1 // 2}px; }}
-QSlider::handle:horizontal {{ background: {t.accent_secondary}; width: {m.s4}px; margin: -{m.s1}px 0;
+QSlider::sub-page:horizontal {{ background: {t.accent}; border-radius: {m.s1 // 2}px; }}
+QSlider::handle:horizontal {{ background: {t.accent}; width: {m.s4}px; margin: -{m.s1}px 0;
     border-radius: {m.s2}px; }}
-QSlider::handle:horizontal:hover {{ background: {t.accent_secondary_hover}; }}
+QSlider::handle:horizontal:hover {{ background: {t.accent_hover}; }}
 QLabel#subSection {{ color: {t.muted_text}; background: transparent; }}
 QWidget#sectionHeader {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
-QLabel#badge {{ background: {t.elevated}; color: {t.accent_secondary}; border: {ln}px solid {t.border};
+QLabel#badge {{ background: {t.elevated}; color: {t.accent}; border: {ln}px solid {t.border};
     border-radius: {btr}px; padding: {m.s1}px {m.s2}px; }}
 QLabel#badge[state="success"] {{ color: {t.success}; }}
 QLabel#badge[state="warning"] {{ color: {t.warning}; }}
 QLabel#badge[state="error"] {{ color: {t.error}; }}
-QLabel#dirtyDot {{ color: {t.accent}; background: transparent; }}
+QLabel#dirtyDot {{ color: {t.accent_secondary}; background: transparent; }}
 QWidget#topBar {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
 QFrame#vsep {{ background: {t.border}; border: none; }}
 QPushButton#tbBtn, QPushButton#dotBtn {{ background: transparent; color: {t.muted_text};
     border: {ln}px solid transparent; border-radius: {btr}px; padding: 0 {m.s3}px; }}
-QPushButton#tbBtn:checked {{ color: {t.accent_secondary}; border-color: {t.accent_secondary};
-    background: {t.accent_secondary_dim}; }}
+QPushButton#tbBtn:checked {{ color: {t.accent}; border-color: {t.accent};
+    background: {t.accent_dim}; }}
 QPushButton#dotBtn {{ padding-left: {2 * m.s3 + m.dot}px; }}
 QPushButton#tbBtn:hover, QPushButton#dotBtn:hover {{ color: {t.text}; background: {t.elevated}; }}
-QPushButton#dotBtn:checked {{ color: {t.text}; border-color: {t.accent_secondary}; background: {t.accent_secondary_dim}; }}
-QPushButton#dotBtn:checked:hover {{ border-color: {t.accent_secondary_hover}; }}
+QPushButton#dotBtn:checked {{ color: {t.text}; border-color: {t.accent}; background: {t.accent_dim}; }}
+QPushButton#dotBtn:checked:hover {{ border-color: {t.accent_hover}; }}
 QFrame#segmented {{ background: {t.elevated}; border: {ln}px solid {t.border}; border-radius: {btr}px; }}
 QFrame#segSep {{ background: {t.border}; border: none; }}
 QPushButton#segBtn {{ background: transparent; color: {t.muted_text}; border: {ln}px solid transparent;
     border-radius: {btr}px; padding: 0 {m.s3}px; }}
 QPushButton#segBtn:hover {{ color: {t.text}; }}
-QPushButton#segBtn:checked {{ background: {t.floating}; color: {t.text}; border-color: {t.accent_secondary}; }}
-QPushButton#segBtn:checked:hover {{ border-color: {t.accent_secondary_hover}; }}
+QPushButton#segBtn:checked {{ background: {t.accent_dim}; color: {t.accent}; border-color: {t.accent}; }}
+QPushButton#segBtn:checked:hover {{ border-color: {t.accent_hover}; }}
 QLabel#badge[dot="true"] {{ padding-left: {2 * m.s2 + m.dot}px; }}
 QPushButton#nameBtn {{ background: transparent; color: {t.text}; border: none; text-align: left;
     padding: 0 {m.s2}px; border-radius: {btr}px; }}
 QPushButton#nameBtn:hover {{ background: {t.elevated}; }}
-QPushButton#meshBtn {{ background: transparent; color: {t.accent}; border: {ln}px solid {t.accent};
-    border-radius: {btr}px; padding: 0 {m.s4}px; }}
+QPushButton#meshBtn {{ background: {t.accent}; color: {t.accent_text}; border: {ln}px solid {t.accent};
+    border-radius: {btr}px; padding: 0 {m.s4}px; font-weight: 600; }}
 QPushButton#runBtn {{ background: {t.accent}; color: {t.accent_text}; border: {ln}px solid {t.accent};
-    border-radius: {btr}px; padding: 0 {m.s4}px; }}
-QPushButton#meshBtn:hover {{ color: {t.accent_hover}; border-color: {t.accent_hover}; }}
+    border-radius: {btr}px; padding: 0 {m.s4}px; font-weight: 600; }}
+QPushButton#meshBtn:hover {{ background: {t.accent_hover}; border-color: {t.accent_hover}; }}
 QPushButton#runBtn:hover {{ background: {t.accent_hover}; border-color: {t.accent_hover}; }}
-QPushButton#meshBtn:disabled {{ background: transparent; color: {dis_text}; border-color: {dis_border}; }}
+QPushButton#meshBtn:disabled {{ background: {t.elevated}; color: {dis_text}; border-color: {t.border}; }}
 QPushButton#runBtn:disabled {{ background: {t.elevated}; color: {dis_text}; border-color: {t.border}; }}
 QToolButton#chevronBtn:disabled {{ background: transparent; }}
 QToolButton {{ background: transparent; border: none; border-radius: {btr}px; padding: {m.s1}px; }}
@@ -345,15 +348,15 @@ QPushButton#flatBtn {{ background: transparent; color: {t.muted_text}; border: n
 QPushButton#flatBtn:hover {{ color: {t.text}; background: {t.elevated}; }}
 QWidget#tabBar {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
 QLabel#sceneTab {{ color: {t.text}; background: {t.elevated}; border: none;
-    border-bottom: {m.bar}px solid {t.accent_secondary}; padding: 0 {m.s4}px; }}
+    border-bottom: {m.bar}px solid {t.accent}; padding: 0 {m.s4}px; }}
 QPushButton#sceneTabBtn {{ color: {t.muted_text}; background: transparent; border: none;
     border-bottom: {m.bar}px solid transparent; padding: 0 {m.s4}px; border-radius: 0; }}
 QPushButton#sceneTabBtn:hover {{ color: {t.text}; }}
-QPushButton#sceneTabBtn:checked {{ color: {t.text}; background: {t.elevated};
-    border-bottom-color: {t.accent_secondary}; }}
+QPushButton#sceneTabBtn:checked {{ color: {t.accent}; background: {t.accent_dim};
+    border-bottom-color: {t.accent}; }}
 QWidget#consoleBar {{ background: {t.base}; border-bottom: {ln}px solid {t.border}; }}
 QLabel#consoleTab {{ color: {t.text}; background: transparent; border: none;
-    border-bottom: {m.bar}px solid {t.accent_secondary}; padding: 0 {m.s3}px; }}
+    border-bottom: {m.bar}px solid {t.accent}; padding: 0 {m.s3}px; }}
 QPlainTextEdit#console {{ background: {t.base}; color: {t.text}; border: none; padding: {m.s2}px; }}
 QWidget#kpiRow {{ background: {t.base}; border-top: {ln}px solid {t.border}; }}
 QWidget#kpiCell {{ background: {t.base}; border-right: {ln}px solid {t.border}; }}
@@ -423,7 +426,7 @@ QMenuBar::item:selected {{ background: {t.elevated}; }}
 QMenu {{ background: {t.floating}; border: {ln}px solid {t.border};
     border-radius: {m.radius_s}px; padding: {m.s1}px 0; }}
 QMenu::item {{ padding: {m.s2}px {m.s4}px; border-left: {m.bar}px solid transparent; }}
-QMenu::item:selected {{ background: {t.elevated}; border-left: {m.bar}px solid {t.accent}; }}
+QMenu::item:selected {{ background: {t.accent_dim}; color: {t.text}; border-left: {m.bar}px solid {t.accent}; }}
 QMenu::item:disabled {{ color: {t.disabled_text}; }}
 QMenu::separator {{ height: {ln}px; background: {t.border}; margin: {m.s1}px 0; }}
 """

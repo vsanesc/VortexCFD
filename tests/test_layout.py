@@ -382,7 +382,7 @@ def test_wireframe_toggle_switches_representation(make_window) -> None:
     assert not w._empty_message.actor.GetVisibility()
     w.top_bar.wireframe_button.click()
     assert actor.prop.style.lower() == "wireframe" and w.wireframe
-    assert w.top_bar.wireframe_button.dot_color() == w._theme.accent_secondary
+    assert w.top_bar.wireframe_button.dot_color() == w._theme.accent
     w.top_bar.wireframe_button.click()
     assert actor.prop.style.lower() == "surface"
     assert w.top_bar.wireframe_button.dot_color() == w._theme.muted_text
