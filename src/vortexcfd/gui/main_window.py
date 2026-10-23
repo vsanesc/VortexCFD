@@ -2101,14 +2101,14 @@ class MainWindow(StudyControlMixin, QMainWindow):
         has = self.results_time() is not None
         self.paraview_button.setEnabled(exe is not None and has)
         self.paraview_button.setToolTip(
-            paraview.NOT_FOUND_TIP if exe is None else f"Open the case in ParaView ({exe})")
+            paraview.not_found_tip() if exe is None else f"Open the case in ParaView ({exe})")
 
     def open_in_paraview(self) -> None:
-        """Write case.foam and launch the Windows ParaView on it, detached."""
+        """Write case.foam and launch ParaView (Linux or Windows) on it, detached."""
         exe = paraview.executable()
         case_dir = case_dir_for(self._project)
         if exe is None or case_dir is None:
-            self.show_message(paraview.NOT_FOUND_TIP, "warning")
+            self.show_message(paraview.not_found_tip(), "warning")
             return
         try:
             paraview.launch(exe, case_dir)

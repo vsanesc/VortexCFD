@@ -71,7 +71,7 @@ D-074; licence review for v1: the section at the end (prepared for the owner, ta
 | Program | Licence | Use |
 |---|---|---|
 | OpenFOAM ESI v2606 | GPL-3.0-or-later | the solver and mesher, run as separate processes (D-001, D-004); installed by the user from the ESI packages |
-| ParaView (optional, Windows) | BSD-3-Clause | "Open in ParaView" starts it on a case (D-055) |
+| ParaView (optional, not installed by VortexCFD: Ubuntu package or Windows) | BSD-3-Clause | "Open in ParaView" starts it on a case (D-055, D-138) |
 
 To refresh: `.venv/bin/pip freeze --exclude-editable`; the licence fields are in each package's
 `*.dist-info/METADATA`.

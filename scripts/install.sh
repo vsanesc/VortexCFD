@@ -6,6 +6,7 @@
 # What it does, in order (safe to run again: every step is idempotent):
 #   1. checks the system: Ubuntu 24.04 (WSL2 expected), Python 3.12 with venv, OpenFOAM ESI v2606;
 #   2. when OpenFOAM v2606 is missing, PRINTS the official ESI install commands (it never runs them);
+#      reports ParaView, which is optional ("Open in ParaView"; D-138);
 #   3. creates (or reuses) a virtual environment in DIR/venv (default ~/.local/share/vortexcfd/venv);
 #   4. installs the pinned dependencies (scripts/requirements-v1.txt) and VortexCFD from this checkout;
 #   5. checks the import and `vortexcfd --version`, copies the user manual next to the venv;
@@ -17,7 +18,8 @@
 #
 # Environment: VORTEXCFD_PREFIX (default prefix), PYTHON (default python3), VORTEXCFD_OPENFOAM_BASHRC (an
 # OpenFOAM v2606 etc/bashrc outside the standard places), VORTEXCFD_OPENFOAM_SEARCH (a colon-separated list replacing
-# the standard places; tests), VORTEXCFD_OS_RELEASE (default /etc/os-release; tests),
+# the standard places; tests), VORTEXCFD_OS_RELEASE (default /etc/os-release; tests), VORTEXCFD_PARAVIEW_COMMAND
+# (default paraview; tests), VORTEXCFD_WINDOWS_PROGRAMS (default /mnt/c/Program Files; tests),
 # PIP_* (pip's own settings, e.g. PIP_INDEX_URL or PIP_FIND_LINKS for an offline wheelhouse).
 set -euo pipefail
 
@@ -29,7 +31,7 @@ CHECK_ONLY=0
 LAUNCHER=1
 IGNORE_OS=0
 
-usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -124,6 +126,24 @@ else
     printf '       sudo apt-get update\n'
     printf '       sudo apt-get install openfoam2606-default\n'
     printf '   Installed elsewhere? Set VORTEXCFD_OPENFOAM_BASHRC to its etc/bashrc, or set it in the app (Help > OpenFOAM Installation).\n'
+fi
+
+step "ParaView (optional)"
+PARAVIEW_COMMAND="${VORTEXCFD_PARAVIEW_COMMAND:-paraview}"
+WINDOWS_PROGRAMS="${VORTEXCFD_WINDOWS_PROGRAMS:-/mnt/c/Program Files}"
+WINDOWS_PARAVIEW=""
+for exe in "$WINDOWS_PROGRAMS"/ParaView*/bin/paraview.exe; do
+    if [ -f "$exe" ]; then WINDOWS_PARAVIEW="$exe"; fi
+done
+if command -v "$PARAVIEW_COMMAND" >/dev/null 2>&1; then
+    ok "found $(command -v "$PARAVIEW_COMMAND") (Open in ParaView uses it)"
+elif [ -n "$WINDOWS_PARAVIEW" ]; then
+    ok "found the Windows ParaView $WINDOWS_PARAVIEW (Open in ParaView uses it)"
+else
+    printf '   not found: ParaView is optional, VortexCFD shows its results without it ("Open in ParaView" stays off).\n'
+    printf '   To use it, either install it in Ubuntu (run this yourself, it needs sudo):\n'
+    printf '       sudo apt install paraview\n'
+    printf '   or install ParaView for Windows and open the case.foam of a case through \\\\wsl$\\%s\\...\n' "${WSL_DISTRO_NAME:-<distribution>}"
 fi
 
 if [ "$CHECK_ONLY" = 1 ]; then

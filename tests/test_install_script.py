@@ -1,5 +1,6 @@
 """scripts/install.sh (D-137) without installing anything: its syntax, that it never runs sudo, and its system checks
-(--check-only) on fake environments: the Ubuntu version, OpenFOAM found or missing (the ESI commands printed)."""
+(--check-only) on fake environments: the Ubuntu version, OpenFOAM found or missing (the ESI commands printed), the
+optional ParaView (D-138) on PATH, under the Windows Program Files, or missing."""
 
 import os
 import re
@@ -65,3 +66,25 @@ def test_a_wrong_python_is_refused(tmp_path: Path) -> None:
     result = _run(tmp_path, "--check-only", PYTHON=str(fake))
     assert result.returncode == 1 and "Python 3.12 is required (found" in result.stderr
     assert "sudo apt-get install python3.12 python3.12-venv" in result.stdout
+
+
+def test_paraview_is_reported_as_optional(tmp_path: Path) -> None:
+    bashrc = fake_install(tmp_path / "of")
+    no_paraview = {"VORTEXCFD_OPENFOAM_SEARCH": str(bashrc), "VORTEXCFD_PARAVIEW_COMMAND": "paraview-not-here",
+                   "VORTEXCFD_WINDOWS_PROGRAMS": str(tmp_path / "ProgramFiles"), "WSL_DISTRO_NAME": "Ubuntu-24.04"}
+    result = _run(tmp_path, "--check-only", **no_paraview)
+    assert result.returncode == 0, result.stdout + result.stderr  # missing ParaView changes nothing
+    assert "== ParaView (optional)" in result.stdout and "not found: ParaView is optional" in result.stdout
+    assert "       sudo apt install paraview\n" in result.stdout
+    assert "through \\\\wsl$\\Ubuntu-24.04\\..." in result.stdout
+    windows = tmp_path / "ProgramFiles" / "ParaView 5.13.2" / "bin" / "paraview.exe"
+    windows.parent.mkdir(parents=True)
+    windows.write_text("")
+    result = _run(tmp_path, "--check-only", **no_paraview)
+    assert result.returncode == 0 and f"ok: found the Windows ParaView {windows}" in result.stdout
+    linux = tmp_path / "bin" / "paraview"
+    linux.parent.mkdir()
+    linux.write_text("#!/bin/sh\n")
+    linux.chmod(0o755)
+    result = _run(tmp_path, "--check-only", **{**no_paraview, "VORTEXCFD_PARAVIEW_COMMAND": str(linux)})
+    assert result.returncode == 0 and f"ok: found {linux} (Open in ParaView uses it)" in result.stdout
