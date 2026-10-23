@@ -1048,7 +1048,7 @@ class MainWindow(TreeActionsMixin, StudyControlMixin, QMainWindow):
             physics_item = add(continua, "physics", None, "Physics", "dot", "accent")
             internal_flow = self._project.sim.internal
             if not internal_flow:  # internal flow: the inlets carry the flow conditions (D-129)
-                add(physics_item, "inflow", None, "Inflow", "dot", "accent")
+                add(physics_item, "inflow", None, "Free stream", "dot", "accent")
             regions = add(root, "regions", None, "Regions", "folder", "text")
             domain = self._project.sim.domain
             generated = domain.enabled or self._project.sim.analysis_type != "empty"

@@ -27,7 +27,7 @@ def _select(w: MainWindow, kind: str) -> None:
 
 def test_tree_has_inflow_under_physics(window: MainWindow) -> None:
     physics = window._items[("physics", None)]
-    assert [physics.child(i).text(0) for i in range(physics.childCount())] == ["Inflow"]
+    assert [physics.child(i).text(0) for i in range(physics.childCount())] == ["Free stream"]  # D-148
     assert window._items[("inflow", None)].parent() is physics
 
 
@@ -67,8 +67,10 @@ def test_inflow_editor_and_computed_turbulence(window: MainWindow) -> None:
     _select(window, "inflow")
     p = window.properties
     f = p.group_fields["inflow"]
-    assert [f[k].value() for k in ("speed", "alpha_deg", "turbulence_intensity", "viscosity_ratio")] == [20, 0, 0.01, 10]
-    assert f["speed"].suffix() == " m/s" and f["alpha_deg"].suffix() == "°"
+    assert [f[k].value() for k in ("speed", "turbulence_intensity", "viscosity_ratio")] == [20, 0.01, 10]
+    assert f["speed"].suffix() == " m/s" and f["turbulence_intensity"].suffix() == " %"
+    assert f["turbulence_intensity"].text() == "1.00 %"  # entered and shown in percent (D-148)
+    assert "alpha_deg" not in f and p._sections["free_stream"].text() == "FREE STREAM"
     k, omega = inlet_turbulence(20, 0.01, 1.5e-5, 10)
     assert k == pytest.approx(0.06) and omega == pytest.approx(0.06 / 1.5e-4)
     assert p.inflow_k.text().startswith("0.06 ") and p.inflow_omega.text().startswith("400 ")
@@ -77,12 +79,20 @@ def test_inflow_editor_and_computed_turbulence(window: MainWindow) -> None:
     f["speed"].editingFinished.emit()
     assert window.project.sim.inflow.speed == 40.0
     assert p.inflow_k.text().startswith("0.24 ")  # k = 1.5 (V I)^2 follows the speed
-    f["alpha_deg"].setValue(5.0)
-    f["alpha_deg"].editingFinished.emit()
+    f["turbulence_intensity"].setValue(0.025)
+    f["turbulence_intensity"].editingFinished.emit()
+    assert window.project.sim.inflow.turbulence_intensity == pytest.approx(0.025)
+    assert window.project.undo_label == "Edit free stream (turbulence_intensity)"
+    # the angle of attack is the body attitude, on the Geometry node (D-148)
+    _select(window, "geometry")
+    a = p.group_fields["geometry"]["alpha_deg"]
+    assert a.suffix() == "°" and "nose up positive" in a.toolTip() and p._rows["geometry_centre"].isVisible()
+    a.setValue(5.0)
+    a.editingFinished.emit()
     assert window.project.sim.inflow.alpha_deg == 5.0
-    assert window.project.undo_label == "Edit inflow (alpha_deg)"
+    assert window.project.undo_label == "Edit body attitude (alpha_deg)"
     window.act_undo.trigger()
-    assert f["alpha_deg"].value() == 0.0
+    assert a.value() == 0.0
 
 
 def test_solvers_editor(window: MainWindow) -> None:
@@ -160,7 +170,9 @@ def test_group_editors_are_hidden_on_other_nodes(window: MainWindow) -> None:
     p = window.properties
     for gkind in ("physics", "inflow", "solvers"):
         assert not any(p._rows[f"{gkind}_{k}"].isVisible() for k in p.group_fields[gkind])
-    assert not p._rows["inflow_k"].isVisible() and p.info_label.isVisible()
+    assert not p._rows["inflow_k"].isVisible() and p._rows["geometry_alpha_deg"].isVisible()
+    _select(window, "solvers")
+    assert not p._rows["geometry_alpha_deg"].isVisible()
 
 
 def _project_with_sphere(tmp_path):

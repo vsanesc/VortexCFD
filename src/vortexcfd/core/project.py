@@ -535,8 +535,9 @@ class Project:
         self._update_section("physics", "physics", fields)
 
     def update_inflow(self, **fields: Any) -> None:
-        """Edit inflow conditions as one undoable step."""
-        self._update_section("inflow", "inflow", fields)
+        """Edit the free-stream conditions (and the angle of attack) as one undoable step."""
+        label = "body attitude" if set(fields) == {"alpha_deg"} else "free stream"
+        self._update_section("inflow", label, fields)
 
     def update_solver(self, **fields: Any) -> None:
         """Edit solver settings as one undoable step."""

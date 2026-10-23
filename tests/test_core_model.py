@@ -432,7 +432,7 @@ def test_physics_models_reject_invalid_values(model, fields: dict) -> None:
 
 @pytest.mark.parametrize("method, fields, label", [
     ("update_physics", {"nu": 2e-5}, "Edit physics (nu)"),
-    ("update_inflow", {"speed": 30.0, "alpha_deg": 4.0}, "Edit inflow (speed, alpha_deg)"),
+    ("update_inflow", {"speed": 30.0, "alpha_deg": 4.0}, "Edit free stream (speed, alpha_deg)"),
     ("update_solver", {"iterations": 500}, "Edit solver (iterations)"),
 ])
 def test_update_apis_are_one_undoable_step_and_validate(method, fields, label) -> None:

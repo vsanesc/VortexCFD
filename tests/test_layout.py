@@ -189,7 +189,8 @@ def test_properties_header_and_rows(make_window) -> None:
     assert w.props_name.text() == "Part 1"
     w.tree.setCurrentItem(w._items[("geometry", None)])
     assert w.props_name.text() == "Geometry"
-    assert not p._rows["name"].isVisible() and p.info_label.isVisible()
+    assert not p._rows["name"].isVisible() and not p.info_label.isVisible()
+    assert p._rows["geometry_alpha_deg"].isVisible()  # the Body attitude group (D-148)
     w._select_root()
     assert p._rows["name"].isVisible() and not p._rows["source"].isVisible()
 

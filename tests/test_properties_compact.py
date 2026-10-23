@@ -141,3 +141,38 @@ def test_curvature_levels_are_explained_editable_and_update_the_estimate_live(ma
     assert w.project.sim.mesh.curvature_levels == 3 and p.mesh_curvature.text() != before
     spin.setValue(0)
     assert p.mesh_curvature.text() == "off"
+
+
+# -- free stream and body attitude (G4, G5) ----------------------------------------------------------------------
+
+
+def test_group_fields_have_units_and_tooltips(make_window) -> None:
+    from PySide6.QtWidgets import QAbstractSpinBox
+
+    w = make_window()
+    p = w.properties
+    for gkind, fields in p.group_fields.items():
+        for key, widget in fields.items():
+            assert widget.toolTip(), (gkind, key)
+            if isinstance(widget, QAbstractSpinBox) and key not in ("iterations", "write_interval"):
+                assert widget.suffix().strip(), (gkind, key)
+    assert w._items[("inflow", None)].text(0) == "Free stream"
+    select(w, "inflow")
+    labels = [p._row_labels[f"inflow_{k}"].full_text() for k in ("speed", "turbulence_intensity", "viscosity_ratio")]
+    assert labels == ["Free-stream speed", "Turbulence intensity", "Viscosity ratio"]
+
+
+def test_body_attitude_on_the_geometry_node(make_window) -> None:
+    w = make_window()
+    p = w.properties
+    select(w, "geometry")
+    assert p._sections["body_attitude"].isVisibleTo(p) and p._row_labels["geometry_alpha_deg"].full_text() == \
+        "Angle of attack α"
+    tip = p.group_fields["geometry"]["alpha_deg"].toolTip()
+    assert "rotation of the parts about the y axis, nose up positive, relative to the free stream" in tip
+    assert p.attitude_centre.text().startswith("(0 0 0) m \u2014 auto")  # the sphere's box centre
+    w.project.update_reports(center_of_rotation=(0.25, 0.0, 0.0))
+    p.refresh()
+    assert p.attitude_centre.text() == "(0.25 0 0) m (set)"
+    select(w, "inflow")
+    assert "inflow_alpha_deg" not in p._rows  # moved out of the free stream

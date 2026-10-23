@@ -312,10 +312,6 @@ YPLUS_NOTE = ("Flat-plate verification: Cf about 6% low at y+ 1, about 3.6% low 
 LAYERS_ABSOLUTE_TIP = ("Absolute (y+) layer sizing: the layer count follows from the target y+ and the surface "
                        "cell size; it is shown here and cannot be set. Choose relative sizing to set it.")
 # Added to the Target y+ tooltip with absolute layer sizing: the usual targets (owner review of 5.4b).
-# The angle of attack rotates the parts (D-120).
-ALPHA_TOOLTIP = ("Turns the parts nose up about the y axis through the centre of rotation (Reference Values > CofR); "
-                 "the free stream stays along +x, lift is +z and drag +x. A change puts the mesh out of date; the "
-                 "project's geometry itself is not changed.")
 YPLUS_GUIDANCE = ("Wall-resolved (no wall functions): about 1 at the first cell centre. Wall functions: 30-300; "
                   "the default is 50.")
 # Tooltip of the Target y+ field with absolute layer sizing, by Mesh.yplus_at (D-107), then YPLUS_GUIDANCE.
@@ -354,33 +350,76 @@ def layer_mode_text(mesh) -> tuple[str, str]:
 YPLUS_RELATIVE_TIP = ("Relative layer sizing: the layer thickness follows the surface cell size, so y+ is not "
                       "targeted. Choose absolute_yplus to size the layers for this y+.")
 
-# Physics / Inflow / Solvers nodes: model section, update method and editable fields.
+class PercentSpin(QDoubleSpinBox):
+    """A fraction (0..1) shown and entered in percent; ``value()`` / ``setValue`` use the fraction."""
+
+    def value(self) -> float:  # noqa: D102
+        return super().value() / 100.0
+
+    def setValue(self, fraction: float) -> None:  # noqa: D102
+        super().setValue(100.0 * float(fraction))
+
+
+def _percent(low: float, high: float, decimals: int) -> PercentSpin:
+    box = PercentSpin()
+    box.setRange(100 * low, 100 * high)
+    box.setDecimals(decimals)
+    box.setSuffix(" %")
+    return box
+
+
+# Physics / Free stream / Solvers nodes (and the Body attitude group of the Geometry node, D-148): model section,
+# update method, section title and editable fields (key, label, factory, tooltip).
 GROUPS: dict[str, dict] = {
     "physics": {
-        "model": lambda sim: sim.physics, "update": "update_physics",
+        "model": lambda sim: sim.physics, "update": "update_physics", "section": ("physics_fluid", "Fluid"),
         "fields": (
-            ("flow", "Flow", lambda: _combo(("incompressible_steady",))),
-            ("nu", "Kinematic viscosity", lambda: _sci(" m\u00b2/s")),
-            ("rho_ref", "Reference density", lambda: _dspin(0.001, 100000.0, 4, " kg/m\u00b3")),
-            ("turbulence_model", "Turbulence model", lambda: _combo(("kOmegaSST",))),
+            ("flow", "Flow", lambda: _combo(("incompressible_steady",)),
+             "Steady incompressible flow (simpleFoam), the only flow type of v1."),
+            ("nu", "Kinematic viscosity", lambda: _sci(" m\u00b2/s"),
+             "\u03bd of the fluid in m\u00b2/s. Default 1.5e-05: air at about 20 \u00b0C."),
+            ("rho_ref", "Reference density", lambda: _dspin(0.001, 100000.0, 4, " kg/m\u00b3"),
+             "Only scales the forces (the solver is incompressible and works with p / \u03c1). Default 1.225 kg/m\u00b3: "
+             "air at sea level."),
+            ("turbulence_model", "Turbulence model", lambda: _combo(("kOmegaSST",)),
+             "RANS turbulence model: k-\u03c9 SST, the only model of v1 (robust for attached and separated flow)."),
         ),
     },
     "inflow": {
-        "model": lambda sim: sim.inflow, "update": "update_inflow",
+        "model": lambda sim: sim.inflow, "update": "update_inflow", "section": ("free_stream", "Free stream"),
         "fields": (
-            ("speed", "Speed", lambda: _dspin(0.001, 10000.0, 3, " m/s")),
-            ("alpha_deg", "Angle of attack", lambda: _dspin(-90.0, 90.0, 3, "\u00b0")),
-            ("turbulence_intensity", "Turbulence intensity", lambda: _dspin(0.0001, 1.0, 4)),
-            ("viscosity_ratio", "Viscosity ratio", lambda: _dspin(0.001, 100000.0, 3)),
+            ("speed", "Free-stream speed", lambda: _dspin(0.001, 10000.0, 3, " m/s"),
+             "The undisturbed flow speed, along +x, at the inlet; the reference speed of the coefficients and of "
+             "the y+ layer sizing. Default 20 m/s."),
+            ("turbulence_intensity", "Turbulence intensity", lambda: _percent(0.0001, 1.0, 2),
+             "Velocity fluctuations at the inlet as a percentage of the speed (k = 1.5 (I U)\u00b2). Default 1 %: a "
+             "calm free stream (wind tunnel about 0.1-1 %, open air 1-5 %)."),
+            ("viscosity_ratio", "Viscosity ratio", lambda: _dspin(0.001, 100000.0, 3, " \u03bd\u209c/\u03bd"),
+             "Turbulent to molecular viscosity at the inlet, which sets \u03c9 = k / (\u03bd ratio). Default 10: a "
+             "common free-stream value; it decays towards the body anyway."),
+        ),
+    },
+    "geometry": {
+        "model": lambda sim: sim.inflow, "update": "update_inflow", "section": ("body_attitude", "Body attitude"),
+        "fields": (
+            ("alpha_deg", "Angle of attack \u03b1", lambda: _dspin(-90.0, 90.0, 3, "\u00b0"),
+             "Angle of attack \u03b1: rotation of the parts about the y axis, nose up positive, relative to the free "
+             "stream (which stays along +x; lift is +z, drag +x). The rotation centre is shown below (Reference "
+             "Values > CofR). A change puts the mesh out of date; the geometry files are not changed. Default 0\u00b0."),
         ),
     },
     "solvers": {
-        "model": lambda sim: sim.solvers, "update": "update_solver",
+        "model": lambda sim: sim.solvers, "update": "update_solver", "section": ("solver_run", "Run"),
         "fields": (
-            ("iterations", "Iterations", lambda: _spin(1, 10_000_000)),
-            ("write_interval", "Write interval", lambda: _spin(1, 10_000_000)),
-            ("cores", f"Cores ({PHYSICAL_CORES} physical)", lambda: _spin(1, PHYSICAL_CORES)),
-            ("relaxation", "Relaxation preset", lambda: _combo(("robust",))),
+            ("iterations", "Iterations", lambda: _spin(1, 10_000_000, " it."),
+             "The iteration limit (endTime); the stopping criteria can end the run earlier. Default 1000."),
+            ("write_interval", "Write interval", lambda: _spin(1, 10_000_000, " it."),
+             "Results are written every this many iterations (and at the end). Default 200."),
+            ("cores", "Cores", lambda: _spin(1, PHYSICAL_CORES, f" / {PHYSICAL_CORES}"),
+             f"MPI ranks of the solver run; at most the {PHYSICAL_CORES} physical cores of this machine. 1 runs in "
+             "serial. The recommendation for the current mesh is shown below."),
+            ("relaxation", "Relaxation preset", lambda: _combo(("robust",)),
+             "SIMPLE under-relaxation factors: the robust set (p 0.3, U 0.7), the only preset of v1."),
         ),
     },
 }
@@ -864,17 +903,22 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.mesh_empty.setObjectName("muted")
         _wrap(self.mesh_empty)
         self._layout.addWidget(self.mesh_empty)
-        # Physics / Inflow / Solvers nodes: editable fields, one generic group each.
+        # Physics / Free stream / Solvers nodes and the Body attitude (Geometry): one generic group each.
         self.group_fields: dict[str, dict[str, QWidget]] = {}
         for gkind, spec in GROUPS.items():
             fields: dict[str, QWidget] = {}
-            for key, label, factory in spec["fields"]:
+            self._section(*spec["section"])
+            for key, label, factory, tip in spec["fields"]:
                 widget = factory()
+                widget.setToolTip(tip)
                 fields[key] = widget
                 self._layout.addWidget(self._make_row(f"{gkind}_{key}", label, widget))
                 _connect_commit(widget, lambda k=key, g=gkind: self._commit_group(g, k))
             self.group_fields[gkind] = fields
-        self.group_fields["inflow"]["alpha_deg"].setToolTip(ALPHA_TOOLTIP)
+            if gkind == "geometry":  # the rotation centre of the body attitude (D-120, D-148)
+                self.attitude_centre = self._ro_row("geometry_centre", "Rotation centre")
+                self.attitude_centre.setToolTip("The angle of attack turns the parts about the y axis through this "
+                                                "point: Reference Values > CofR, auto the centre of the parts' box")
         self._section("inflow_computed", "Computed")
         self.inflow_k = self._ro_row("inflow_k", "Turbulence k")
         self.inflow_omega = self._ro_row("inflow_omega", "Turbulence omega")
@@ -1348,7 +1392,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             and self._kind not in ("mesh", "reference_values", "stopping", "reports", "probes", "surface_prep",
                                    "refinement_volumes", "refinement_volume", "internal_patch",
                                    "internal_reports", "results", "scene_object", "saved_view")
-            and self._kind not in GROUPS
+            and not any(self._group_shown(g) for g in GROUPS)
         )
         self._apply_collapsed()
         self._apply_label_column()
@@ -1509,13 +1553,21 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.mesh_surface_length.setText(f"= {fraction * length.value:.4g} m ({length.describe()})")
         self.mesh_surface_length.setToolTip(length.describe())
 
+    def _group_shown(self, gkind: str) -> bool:
+        """The group of the selected node; the Body attitude only for external flow (D-120, D-129)."""
+        if gkind == "geometry":
+            return self._kind in ("geometry", "parts") and not self._project.sim.internal
+        return self._kind == gkind
+
     def _refresh_groups(self) -> None:
-        """Show the group of the selected node (Physics, Inflow or Solvers) and fill it."""
+        """Show the group of the selected node (Physics, Free stream, Solvers, the Geometry's Body attitude) and fill
+        it."""
         sim = self._project.sim
         for gkind, spec in GROUPS.items():
-            show = self._kind == gkind
-            for key, _, _ in spec["fields"]:
+            show = self._group_shown(gkind)
+            for key, *_ in spec["fields"]:
                 self._rows[f"{gkind}_{key}"].setVisible(show)
+            self._sections[spec["section"][0]].setVisible(show)
             if not show:
                 continue
             model = spec["model"](sim)
@@ -1523,11 +1575,15 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             for w in widgets:
                 w.blockSignals(True)
             try:
-                for key, _, _ in spec["fields"]:
+                for key, *_ in spec["fields"]:
                     _widget_set(self.group_fields[gkind][key], getattr(model, key))
             finally:
                 for w in widgets:
                     w.blockSignals(False)
+        attitude = self._group_shown("geometry")
+        self._rows["geometry_centre"].setVisible(attitude)
+        if attitude:
+            self.attitude_centre.setText(self._rotation_centre_text())
         solvers = self._kind == "solvers"
         self._rows["solvers_recommended"].setVisible(solvers)
         if solvers:
@@ -1547,8 +1603,19 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             self.inflow_k.setText(f"{k:.4g} m\u00b2/s\u00b2")
             self.inflow_omega.setText(f"{omega:.4g} 1/s")
 
+    def _rotation_centre_text(self) -> str:
+        """The CofR the angle of attack turns the parts about (the Reference Values' override, else auto)."""
+        try:
+            _box, _names, bounds = parts_layout(self._project)
+        except (MeshingNotReady, TypeError, ValueError, OSError):  # no part file, or an unsaved project
+            bounds = None
+        if bounds is None:
+            return "\u2014 (import a part)"
+        ref = reference_values(bounds, self._project.sim.reports)
+        return f"({format_vector(ref.cofr)}) m" + (f" \u2014 {CENTRE_AUTO_LABEL}" if ref.cofr_auto else " (set)")
+
     def _commit_group(self, gkind: str, key: str) -> None:
-        if self._kind != gkind:
+        if not self._group_shown(gkind):
             return
         value = _widget_get(self.group_fields[gkind][key])
         try:
@@ -1671,7 +1738,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                 w.blockSignals(False)
         self.ref_area.setEnabled(rep.reference_area_basis == "custom")
         self.ref_u.setText(f"{flow_speed(self._project):.4g} m/s (the first inlet's bulk speed)" if sim.internal
-                           else f"{sim.inflow.speed:.4g} m/s (inflow speed)")
+                           else f"{sim.inflow.speed:.4g} m/s (free-stream speed)")
         try:
             _box, _names, bounds = parts_layout(self._project)
         except MeshingNotReady:

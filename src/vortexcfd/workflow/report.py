@@ -317,7 +317,7 @@ def reports_section(project: Project) -> Section:
     body += _note("Means over the last iterations: the window of a mean-stable criterion on the quantity, else the "
                   "oscillation window of the stopping criteria (D-118, D-119).")
     if balance is not None and balance[2] is not None:
-        body += _pairs([("Mass imbalance at the last iteration", f"{balance[2]:.3g} % of the inflow")])
+        body += _pairs([("Mass imbalance at the last iteration", f"{balance[2]:.3g} % of the inlet flux")])
     return Section(title, body)
 
 

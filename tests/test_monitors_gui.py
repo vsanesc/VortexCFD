@@ -163,7 +163,7 @@ def test_reference_values_node_defaults_are_auto(make_window) -> None:
     assert all(p._rows[k].isVisible() for k in ("ref_rho", "ref_u", "ref_basis", "ref_area", "ref_length",
                                                 "ref_cofr"))
     assert p.ref_rho.value() == pytest.approx(1.225)
-    assert p.ref_u.text() == "20 m/s (inflow speed)"
+    assert p.ref_u.text() == "20 m/s (free-stream speed)"
     assert p.ref_basis.currentText() == "planform" and not p.ref_area.isEnabled()
     assert p.ref_area.text() == "auto" and p.ref_length.text() == "auto" and p.ref_cofr.text() == ""
     # the auto labels state the basis exactly
