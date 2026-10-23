@@ -95,8 +95,9 @@ class SceneRowsMixin:
         adds.setToolTip("Add a results object: a clip, an isosurface, streamlines or a line plot")
         self._layout.addWidget(self._make_row("sc_add", "Add", adds))
         actions = QWidget()
-        box = QHBoxLayout(actions)
+        box = FlowLayout(actions)  # three buttons: wrap in a narrow panel
         box.setContentsMargins(0, 0, 0, 0)
+        box.set_spacing(4, 4)
         self.sc_save_view = QPushButton("Save view")
         self.sc_save_view.setToolTip("Save the viewer's camera as a view (the report shows every saved view)")
         self.sc_save_view.clicked.connect(lambda: self.scene_action.emit("save_view"))

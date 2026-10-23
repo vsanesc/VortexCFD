@@ -364,15 +364,13 @@ def test_results_strip_wraps_and_never_clips_paraview(make_window, size: int) ->
     QApplication.processEvents()
     strip = w.results_controls
     shown = [x for x in w._results_widgets() + [w.results_stale_label] if x.isVisible()]
-    assert w.paraview_button in shown
+    assert w.paraview_button not in shown and w.paraview_button.parent() is w.top_bar  # in the top bar (D-151)
     rect = strip.rect()
     for widget in shown:  # every control fully inside the strip, none overlapping another
         assert rect.contains(widget.geometry()), (size, widget, widget.geometry(), rect)
     for i, a in enumerate(shown):
         for b in shown[i + 1:]:
             assert not a.geometry().intersects(b.geometry()), (size, a, b)
-    b = w.paraview_button
-    assert b.width() >= b.fontMetrics().horizontalAdvance(b.text())  # its text is not clipped
     rows = {x.geometry().top() for x in shown}
     if size == 18:
         assert len(rows) >= 2  # wrapped onto a second row at the largest font
@@ -391,3 +389,42 @@ def test_results_scene_opens_from_upstream_and_above(make_window, qtbot: QtBot) 
     assert direction[0] < 0 and direction[2] > 0  # upstream (-x) and above (+z)
     assert np.allclose(np.asarray(up) / np.linalg.norm(up), (0, 0, 1), atol=1e-6)
     assert dict(w.telemetry_rows)["View"] == "Upstream ISO" and w.top_bar.active_view() is None
+
+
+# -- Open in ParaView in the top bar and the Results menu (D-151) ------------------------------------------------
+
+
+def test_paraview_in_the_top_bar_and_the_results_menu(make_window, tmp_path: Path, monkeypatch) -> None:
+    w = make_window(results=False)  # a meshed case, no results yet
+    b = w.paraview_button
+    top = w.top_bar
+    assert b.parent() is top and top._row.indexOf(b) == top._row.indexOf(top.wireframe_button) + 1
+    assert not b.isEnabled() and "sudo apt install paraview" in b.toolTip()  # not found: how to install it
+    menu = w.tree_menu_for(("results", None))
+    assert w.act_paraview in menu.actions() and not w.act_paraview.isEnabled()
+    exe = _fake_install(tmp_path / "ProgramFiles", "ParaView 5.13.0")
+    w.dialogs.paraview_path = ""
+    w.act_preferences.trigger()  # detection again: found under Program Files
+    assert b.isEnabled() and w.act_paraview.isEnabled() and str(exe) in b.toolTip()
+    launched = []
+    monkeypatch.setattr(paraview, "launch", lambda e, case: launched.append((e, case)))
+    w.act_paraview.trigger()  # the mesh alone is enough: the current case opens
+    b.click()
+    assert launched == [(exe, w.project.folder / "case")] * 2
+
+
+def test_paraview_needs_a_case(make_window, tmp_path: Path) -> None:
+    w = make_window(results=False)
+    shutil.rmtree(w.project.folder / "case" / "constant")
+    _fake_install(tmp_path / "ProgramFiles", "ParaView 5.13.0")
+    w.dialogs.paraview_path = ""
+    w.act_preferences.trigger()
+    assert not w.paraview_button.isEnabled() and "Generate the mesh first" in w.paraview_button.toolTip()
+
+
+def test_launch_writes_the_foam_file(tmp_path: Path) -> None:
+    case = tmp_path / "case"
+    case.mkdir()
+    calls = []
+    paraview.launch(Path("/usr/bin/paraview"), case, popen=lambda args, **kw: calls.append(args))
+    assert (case / "case.foam").is_file() and calls == [["/usr/bin/paraview", str(case / "case.foam")]]

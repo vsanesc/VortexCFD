@@ -648,6 +648,8 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.top_bar.wireframe_toggled.connect(self._set_wireframe)
         self.top_bar.mesh_clicked.connect(self.generate_mesh)
         self.top_bar.run_clicked.connect(self.run_solver)
+        self.paraview_button = self.top_bar.paraview_button  # Open in ParaView (D-151)
+        self.paraview_button.clicked.connect(lambda: self.open_in_paraview())
         self.top_bar.set_viewer_enabled(self.viewer is not None)
         central = QWidget()
         central_layout = QVBoxLayout(central)
@@ -836,9 +838,6 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         for w in self._results_widgets():
             w.setFont(mono_font(QApplication.font(), 0.85))
             w.setFixedHeight(m.tab_bar - 2 * m.s1)
-        pad = 4 * m.s3
-        self.paraview_button.setMinimumWidth(
-            self.paraview_button.fontMetrics().horizontalAdvance(self.paraview_button.text()) + pad)
         if self.results_view is not None:
             self.results_view.font_size = self._point_size
         self._section_row.setContentsMargins(m.s3, 0, m.s3, 0)
@@ -980,6 +979,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self._sync_scene()
         self._update_selection_views()
         self._update_actions()
+        self._update_paraview_button()
         self._update_title(sim.name)
         self._update_mesh_stale()
         self._update_mesh_button()
@@ -1592,6 +1592,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             warnings = [w for w in (layer_warning(self._project), *thin_part_warnings(self._project)) if w]
             warning = "\n".join(warnings) or None
         self.top_bar.set_mesh_state(reason, running, warning)
+        self._update_paraview_button()  # a new or cleared mesh
 
     def generate_mesh(self) -> None:
         """Generate Mesh / Stop: write the meshing case and run it in the background."""
@@ -2059,14 +2060,10 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.results_stale_label = QLabel("Results out of date: run the solver again")
         self.results_stale_label.setObjectName("statusWarn")
         self.results_stale_label.setVisible(False)
-        self.paraview_button = QPushButton("Open in ParaView")
-        self.paraview_button.setObjectName("tbBtn")
-        self.paraview_button.clicked.connect(self.open_in_paraview)
         for widget in (self.field_combo, self.colormap_combo, self.range_combo, self.range_min,
                        self.range_max, self.display_combo, self.separation_toggle, self.sections_button):
             row.addWidget(widget)
         row.addWidget(self.results_stale_label)
-        row.addWidget(self.paraview_button)
         for combo in (self.field_combo, self.colormap_combo, self.range_combo, self.display_combo):
             combo.currentTextChanged.connect(lambda _t: self._apply_results_controls())
         for spin in (self.range_min, self.range_max):
@@ -2075,7 +2072,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
 
     def _results_widgets(self) -> list[QWidget]:
         return [self.field_combo, self.colormap_combo, self.range_combo, self.range_min, self.range_max,
-                self.display_combo, self.separation_toggle, self.sections_button, self.paraview_button]
+                self.display_combo, self.separation_toggle, self.sections_button]
 
     def results_time(self) -> str | None:
         """The latest time directory with results in the project's case, or None."""
@@ -2229,15 +2226,28 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.current_view = self.UPSTREAM_VIEW
         self.top_bar.set_active_view(None)
 
+    def _paraview_executable(self):
+        """ParaView's executable (D-138), looked for once and again after Edit > Preferences: the Windows Program
+        Files listing can be slow under WSL."""
+        if not hasattr(self, "_paraview_exe"):
+            self._paraview_exe = paraview.executable()
+        return self._paraview_exe
+
     def _update_paraview_button(self) -> None:
-        exe = paraview.executable()
-        has = self.results_time() is not None
-        self.paraview_button.setEnabled(exe is not None and has)
+        """Open in ParaView (top bar and the Results menu, D-151): enabled with ParaView found and a case with a mesh
+        or results; else disabled and its tooltip says why (how to install ParaView, D-138)."""
+        exe = self._paraview_executable()
+        case = case_dir_for(self._project) if self.has_project else None
+        has = case is not None and ((case / "constant" / "polyMesh").is_dir() or self.results_time() is not None)
         missing = paraview.configured_missing()
         tip = paraview.not_found_tip() if exe is None else f"Open the case in ParaView ({exe})"
         if exe is not None and missing:  # the configured path is gone: the detected ParaView is used (QUESTIONS 220)
             tip = f"{tip}\n{paraview.missing_note(missing)} Using the detected one."
-        self.paraview_button.setToolTip(tip)
+        if exe is not None and not has:
+            tip = "Generate the mesh first: ParaView opens the case's mesh and results."
+        for widget in (self.paraview_button, self.act_paraview):
+            widget.setEnabled(exe is not None and has)
+            widget.setToolTip(tip)
 
     def open_in_paraview(self) -> None:
         """Write case.foam and launch ParaView (Linux or Windows) on it, detached."""
@@ -2292,6 +2302,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         if path is None:
             return
         paraview.set_configured(path.strip())
+        self.__dict__.pop("_paraview_exe", None)  # look for it again
         self._update_paraview_button()
         log.info("ParaView executable: %s", path.strip() or "detect automatically")
 
@@ -2564,6 +2575,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.act_prepare_surfaces = action("&Surface Preparation...", lambda: self.prepare_surfaces())
         self.act_prepare_surfaces.setToolTip(surface_prep.EXPLANATION)
         self.act_prepare_surfaces.setStatusTip("Prepare crossing or unsewn parts so they mesh as one surface")
+        self.act_paraview = action("Open in &ParaView", lambda: self.open_in_paraview())
         self.act_add_wake = action("Add &Wake Volume", self.add_wake_volume)
         self.act_add_wake.setToolTip("A refinement box behind the selected part (all parts when none is selected), "
                                      "aligned with the free stream")
