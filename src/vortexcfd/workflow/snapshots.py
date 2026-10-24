@@ -25,7 +25,7 @@ from vortexcfd.core.model import DOMAIN_EXTENTS, MeanStableCriterion, Simulation
 from vortexcfd.core.project import Project
 from vortexcfd.core.project_io import load_simulation
 from vortexcfd.core.reports import available_reports, report_label
-from vortexcfd.workflow import flow_numbers
+from vortexcfd.workflow import flow_numbers, plot_axes
 from vortexcfd.foam.convergence import window_stats
 from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam.mesh_record import read_mesh_record
@@ -474,7 +474,7 @@ def draw(figure, snaps: list[Snapshot], choice: str, colors: list[str] | None = 
                 ax.plot(line.distance, ys, lw=1.2, color=colors[i % len(colors)], label=s.label)
         ax.set_xlabel("Distance along the line [m]")
         ax.set_ylabel(key)
-    ax.grid(alpha=0.3, which="both")
+    plot_axes.apply(ax, x_integer=not choice.startswith("line:"))  # iterations or a distance (D-169)
     if ax.get_legend_handles_labels()[0]:
         ax.legend(fontsize=7, ncol=2)
     with warnings.catch_warnings():  # a canvas too small for the margins keeps matplotlib's default layout

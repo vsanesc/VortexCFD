@@ -28,7 +28,7 @@ from vortexcfd.core.model import (
 from vortexcfd.core.labels import value_label
 from vortexcfd.core.project import Project
 from vortexcfd.core.reports import FLOW_QUANTITIES, FLOW_QUANTITY_LABELS, report_label
-from vortexcfd.workflow import flow_numbers
+from vortexcfd.workflow import flow_numbers, plot_axes
 from vortexcfd.foam.convergence import window_stats
 from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam import mesh_study, polar_sweep
@@ -241,7 +241,7 @@ def residual_png(text: str) -> bytes | None:
         ax.semilogy([p[0] for p in points], [p[1] for p in points], lw=1.0, label=name)
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Initial residual")
-    ax.grid(alpha=0.3, which="both")
+    plot_axes.apply(ax, x_integer=True)  # 1-2-5 iteration ticks, minor ticks, a light grid (D-169)
     ax.legend(fontsize=8, ncol=4)
     fig.tight_layout()
     buffer = io.BytesIO()
@@ -377,7 +377,7 @@ def polar_png(points) -> bytes | None:
         ax.set_xlabel("Angle of attack [deg]", fontsize=8)
         ax.set_ylabel(label, fontsize=8)
         ax.tick_params(labelsize=8)
-        ax.grid(alpha=0.3)
+        plot_axes.apply(ax, target=4)
     fig.tight_layout()
     buffer = io.BytesIO()
     fig.savefig(buffer, format="png")

@@ -13,7 +13,7 @@ from vortexcfd.core.project import Project
 from vortexcfd.foam.dictfile import read_foam_file
 from vortexcfd.foam.logparse import TimeStep
 from vortexcfd.workflow import solving
-from vortexcfd.gui.monitors import ResidualChart, nice_ticks
+from vortexcfd.gui.monitors import ResidualChart
 from vortexcfd.gui.properties_panel import REFERENCE_NOTE, parse_vector
 from vortexcfd.gui.theme import DARK, RESIDUAL_STYLES, residual_style
 
@@ -76,9 +76,11 @@ def test_chart_decimates_long_runs(qtbot: QtBot) -> None:
     assert panel.chart.series == {} and panel.chart.axis_labels()[0] == "1e0"
 
 
-def test_nice_ticks() -> None:
-    assert nice_ticks(1, 20) == [5, 10, 15, 20]
-    assert nice_ticks(1, 3) == [1, 1.5, 2, 2.5, 3]
+def test_the_iteration_axis_has_whole_iterations() -> None:
+    from vortexcfd.core.ticks import ticks
+
+    assert list(ticks(1, 20, 4, integer=True).major) == [5, 10, 15, 20]
+    assert list(ticks(1, 3, 4, integer=True).major) == [1, 2, 3]  # never 1.5 iterations (D-169)
     assert ResidualChart.EMPTY_MESSAGE == "No solver run yet"
 
 

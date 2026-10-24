@@ -5,6 +5,9 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PySide6.QtWidgets import QSizePolicy
 
+from PySide6.QtCore import Qt
+
+from vortexcfd.gui.plot_interaction import ZoomPan
 from vortexcfd.gui.theme import DARK, Theme, role_point_size
 from vortexcfd.workflow.line_plot import LineSamples, draw
 
@@ -21,6 +24,14 @@ class LinePlotCanvas(FigureCanvasQTAgg):
         self.setMinimumHeight(CHART_HEIGHT)
         self.samples: LineSamples | None = None
         self.note_color = DARK.muted_text
+        self.zoom_pan = ZoomPan(self, ctrl_wheel=True)  # D-169
+
+    def wheelEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        """The wheel scrolls the properties panel; with Ctrl it zooms the chart."""
+        if not event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            event.ignore()
+            return
+        super().wheelEvent(event)
 
     def configure(self, theme: Theme) -> None:
         self.note_color = theme.muted_text

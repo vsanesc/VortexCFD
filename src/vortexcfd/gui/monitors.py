@@ -29,6 +29,7 @@ from vortexcfd.gui.icons import make_glyph
 from vortexcfd.gui.panel_widgets import FloatingPanel
 from vortexcfd.gui.settings_store import settings
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, repolish, residual_style, role_font, set_text_role
+from vortexcfd.gui.chart_axis import ZoomPanMixin, draw_x_axis
 from vortexcfd.gui.widgets import ElidedLabel, SectionHeader, discard
 
 EMPTY = "—"
@@ -51,23 +52,10 @@ def _pen_style(name: str) -> Qt.PenStyle:
     return getattr(Qt.PenStyle, name)
 
 
-def nice_ticks(lo: float, hi: float, count: int = 4) -> list[float]:
-    """About ``count`` round tick values covering [lo, hi]."""
-    span = max(hi - lo, 1e-12)
-    raw = span / count
-    mag = 10 ** math.floor(math.log10(raw))
-    step = next(m * mag for m in (1, 2, 5, 10) if m * mag >= raw)
-    first = math.ceil(lo / step) * step
-    ticks, v = [], first
-    while v <= hi + 1e-9 * span:
-        ticks.append(round(v, 10))
-        v += step
-    return ticks
-
-
-class ResidualChart(QWidget):
+class ResidualChart(ZoomPanMixin, QWidget):
     """Initial residual per iteration on a log10 axis (one line per field, legend), drawn with
-    QPainter. The x axis always ends at the latest iteration (autoscroll)."""
+    QPainter. The x axis ends at the latest iteration (autoscroll) until it is zoomed or panned (the wheel, a
+    drag); a double click shows the whole history and follows the run again (D-169)."""
 
     EMPTY_MESSAGE = "No solver run yet"
     X_CAPTION = "Iteration"
@@ -83,6 +71,8 @@ class ResidualChart(QWidget):
         self.series: dict[str, list[tuple[float, float]]] = {}
         self._legend: list[tuple[str, str, str, float, int]] = []
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        self._init_zoom_pan()
+        self.x_ticks = None  # the iteration ticks of the last paint (core/ticks.Ticks)
 
     def configure(self, m: Metrics, t: Theme) -> None:
         self._theme, self._margin, self._line = t, m.s3, m.line
@@ -105,10 +95,18 @@ class ResidualChart(QWidget):
     def axis_labels(self) -> list[str]:
         return [f"1e{d}" for d in self.decades()]
 
-    def x_range(self) -> tuple[float, float]:
+    def data_x_range(self) -> tuple[float, float] | None:
+        """The iterations of the whole history (None: no data)."""
         xs = [x for s in self.series.values() for x, _ in s]
+        if not xs:
+            return None
         lo, hi = min(xs), max(xs)
         return (lo, hi) if hi > lo else (lo, lo + 1)
+
+    def x_range(self) -> tuple[float, float]:
+        """The iterations shown: the whole history, or the zoomed or panned view."""
+        data = self.data_x_range() or (0.0, 1.0)
+        return self.x_view.range(*data)
 
     def legend_entries(self) -> list[tuple[str, str, str]]:
         """(field, colour, pen style name) in the order the fields appeared."""
@@ -185,14 +183,10 @@ class ResidualChart(QWidget):
             py = area.top() + (hi - math.log10(v)) / max(hi - lo, 1) * area.height()
             return QPointF(px, py)
 
-        # x tick labels under the plot area
-        painter.setPen(QColor(t.muted_text))
-        for tick in nice_ticks(x0, x1):
-            p = to_px(tick, 10.0 ** hi)
-            text = f"{tick:g}"
-            w = fm.horizontalAdvance(text)
-            painter.drawText(QRectF(p.x() - w / 2, area.bottom() + fm.height() / 4, w, fm.height()),
-                             int(Qt.AlignmentFlag.AlignCenter), text)
+        # the iteration axis: 1-2-5 ticks for the shown range, minor marks, a light grid (D-169)
+        self._plot_area = QRectF(area)
+        grid = QColor(t.border)
+        self.x_ticks = draw_x_axis(painter, area, x0, x1, fm, grid, QColor(t.muted_text), integer=True)
         painter.save()
         painter.setClipRect(area.adjusted(-2, -2, 2, 2))
         painter.setBrush(Qt.BrushStyle.NoBrush)
