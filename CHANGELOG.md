@@ -148,6 +148,14 @@ What changed between 1.0.0rc1 (task w4-w5) and the tag.
 - The angle of attack said where users look for it: the Free stream's link, "Geometry · α 4°", the Body attitude
   explained (D-167).
 
+**Convergence panel**
+- "Satisfied now" says whether each criterion holds at the last iteration ("yes", "no", "not yet: 40 of 50
+  iterations", "yes (stops from 3,502)" before it may stop the run); it said "no" for every criterion of a two-stage
+  run stopped before stage 2's minimum, although all held (D-178).
+- "Residuals met, but Cl is still changing": a warning when every residual criterion holds while a monitored force
+  coefficient still drifts (D-178).
+- A mass imbalance below what the postProcessing files resolve shows as "< 4.7e-05" (%), not 0 (D-178).
+
 **Projects**
 - Save As copies the mesh and results by default (with the size, progress and Cancel); the duplicate opens with its
   results and can continue (D-174, amending D-079).
@@ -157,8 +165,12 @@ What changed between 1.0.0rc1 (task w4-w5) and the tag.
 - The logo: the generator ported (scripts/brand/make_logo.py, matching the saved mark), the icons (PNG, .ico), the
   lockups with the word as paths (Sora, OFL-1.1), in the window icon, the top bar, the start screen, About, the
   desktop entry, the README, the manual and the report (D-175).
-- The logo is licensed under CC BY-SA 4.0, separately from the code's GPL-3.0-or-later (assets/branding/LICENSE);
-  please do not use it in a way that suggests a fork is the official project (D-177).
+- The logo is licensed under CC BY-SA 4.0, separately from the code's GPL-3.0-or-later (assets/branding/LICENSE,
+  Copyright 2026 Víctor Sánchez Escalante); please do not use it in a way that suggests a fork is the official project
+  (D-177).
+- The taskbar shows the logo under WSLg: the window's app id and WM_CLASS are "vortexcfd", the name of the desktop
+  entry install.sh writes (its icon by absolute path; `--desktop-only` writes it again); scripts/windows/make_shortcut.ps1
+  makes a Start-menu and desktop shortcut with the logo for Windows (D-179).
 
 #### Fixed
 

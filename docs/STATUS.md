@@ -46,9 +46,25 @@ after it, one commit each:
   known limitations (CHANGELOG, manual 8, RELEASE_v1); docs/RELEASE_v1.md: everything done except the owner's tag and
   the decision whether the repository becomes public.
 
-Next: scripts/ship.sh (the owner), then the tag (docs/RELEASE_v1.md) and the repository-public decision.
+Owner review 2 (2026-10-24): D-176 and D-177 accepted; the logo's copyright line "Copyright 2026 Víctor Sánchez
+Escalante"; the licence review signed off (foamlib GPL-3.0-only, pymeshfix AGPL-3.0 accepted; pytetwild 0.4.2 and
+certifi 2026.7.22 checked: no "Incompatible With Secondary Licenses" notice, only the template inside the MPL-2.0
+text). Done after it, one commit each:
+- Item 1 (D-178): the convergence panel. "Satisfied" showed "holds and may stop the run now"; the owner's run
+  (~/simulation_4: two stages switched at 1502, minimum 2000, stopped at 2831) could stop in stage 2 only from 3502,
+  so every row said "no". Now "Satisfied now": whether it holds at the last iteration, a window's progress, "yes
+  (stops from 3,502)". The warning "Residuals met, but Cl is still changing". The mass imbalance was no reading bug:
+  both fluxes are written to 7 digits and cancel (true imbalance from the log about 1e-8 %); below the files'
+  resolution it shows "< 4.7e-05". QUESTIONS 245 ([NUMERICS-REVIEW]): stage 2's minimum.
+- Item 2 (D-179): the taskbar icon under WSLg: app id and WM_CLASS "vortexcfd" set before the QApplication; the
+  desktop entry (absolute icon path, update-desktop-database, `--desktop-only`); scripts/windows/make_shortcut.ps1
+  for the owner (not run here); manual 1.5. QUESTIONS 246: the owner checks the taskbar on the real display.
+- Item 3: CHANGELOG and STATUS.
+
+Next: the owner's review (D-178, D-179, QUESTIONS 245 and 246); scripts/ship.sh (the owner), then the tag
+(docs/RELEASE_v1.md) and the repository-public decision.
 Open: docs/QUESTIONS.md items 30, 67, 69, 70, 72, 73, 75, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167,
-168 (a, c), 174, 214.
+168 (a, c), 174, 214, 245, 246.
 
 ### Previous branch (task/gui-polish, published in PR #35)
 
