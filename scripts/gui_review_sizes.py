@@ -6,7 +6,7 @@ Each screen is shown at its minimum size, its default size and 1920x1080, at eac
 Large), and saved as <out>/<screen>/<window size>_<interface size>.png. Screens: ``new_sim``, ``start``, ``main``
 (the main window: tree, viewer, properties, top bar), ``properties`` (the detached properties window), ``compare``
 (the Compare tab), ``foam_file`` (the Show in OpenFOAM file viewer), ``monitors`` (the detached residual chart and
-convergence criteria windows) and ``all``. ``main:<node>[@<setup>]`` is the main window on a tree node (e.g.
+convergence criteria windows), ``report_chart`` (a report's chart window, D-170) and ``all``. ``main:<node>[@<setup>]`` is the main window on a tree node (e.g.
 ``main:inflow``, ``main:part:0``) after an optional named set-up of SETUPS (e.g. ``main:stopping@criteria_changed``),
 saved as <out>/main_<node>[_<setup>]/.
 """
@@ -34,8 +34,14 @@ sys.path.insert(0, str(REPO / "scripts"))
 import gui_review as gr  # noqa: E402
 
 LARGE = (1920, 1080)
-SCREENS = ["new_sim", "start", "main", "properties", "compare", "foam_file", "monitors"]
+SCREENS = ["new_sim", "start", "main", "properties", "compare", "foam_file", "monitors", "report_chart"]
 log = logging.getLogger("gui_review_sizes")
+
+
+def metrics_u() -> int:
+    from vortexcfd.gui.theme import metrics
+
+    return metrics().u
 
 
 def _sizes(widget: QWidget, default: tuple[int, int]) -> dict[str, tuple[int, int]]:
@@ -178,6 +184,17 @@ def shoot(out: Path, screens: list[str]) -> None:
                 gr._settle(app)
                 _shoot_sizes(app, viewer, out, screen, interface, (viewer.width(), viewer.height()))
                 dispose(viewer)
+                dispose(window)
+            elif screen == "report_chart":  # a report chart's window (D-170) and the slots with their buttons
+                window = _main_window(app, vcfd)
+                window.project.update_reports(slots=["Cd", "Cl", "yplus_avg"])
+                gr._settle(app)
+                _shoot_sizes(app, window, out, "main_slots", interface, gr.SIZE)
+                chart = window.monitors.open_chart("Cd")
+                chart.resize(48 * metrics_u(), 30 * metrics_u())
+                gr._settle(app)
+                _shoot_sizes(app, chart, out, screen, interface, (chart.width(), chart.height()))
+                window.monitors.close_chart("Cd")
                 dispose(window)
             elif screen == "monitors":
                 window = _main_window(app, vcfd)

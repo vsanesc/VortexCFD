@@ -42,6 +42,8 @@ class FakeDialogs:
         self.export_asked: list = []
         self.line_export_path = None  # ask_line_export's answer (a Path or None)
         self.line_export_asked: list = []
+        self.chart_export_path = None  # ask_chart_export's answer (a Path or None)
+        self.chart_export_asked: list = []
         self.report_omit = None  # ask_report_sections' answer; None keeps the project's choice
         self.report_sections_asked: list = []
         self.openfoam_answer = None  # show_openfoam's answer: (check, bashrc to remember) or None
@@ -94,6 +96,10 @@ class FakeDialogs:
     def ask_line_export(self, suggested, kind):
         self.line_export_asked.append((suggested, kind))
         return self.line_export_path
+
+    def ask_chart_export(self, suggested, kind):
+        self.chart_export_asked.append((suggested, kind))
+        return self.chart_export_path
 
     def ask_report_sections(self, omit):
         self.report_sections_asked.append(list(omit))

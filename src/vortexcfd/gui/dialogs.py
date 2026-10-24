@@ -110,6 +110,13 @@ class Dialogs:
             "PNG images (*.png)" if kind == "png" else "CSV files (*.csv)")
         return Path(name) if name else None
 
+    def ask_chart_export(self, suggested: Path, kind: str) -> Path | None:
+        """Where to export a report chart (D-170): ``kind`` "png" (the chart) or "csv" (its history)."""
+        name, _ = QFileDialog.getSaveFileName(
+            self.parent, "Export report chart", str(suggested),
+            "PNG images (*.png)" if kind == "png" else "CSV files (*.csv)")
+        return Path(name) if name else None
+
     def ask_report_sections(self, omit: list[str]) -> list[str] | None:
         """The report sections to leave out (D-136), starting from ``omit``; None: cancelled."""
         from vortexcfd.gui.report_dialog import ReportSectionsDialog

@@ -30,6 +30,7 @@ from vortexcfd.gui.panel_widgets import FloatingPanel
 from vortexcfd.gui.settings_store import settings
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, repolish, residual_style, role_font, set_text_role
 from vortexcfd.gui.chart_axis import ZoomPanMixin, draw_x_axis
+from vortexcfd.gui.report_charts import ReportChartWindow
 from vortexcfd.gui.widgets import ElidedLabel, SectionHeader, discard
 
 EMPTY = "—"
@@ -231,13 +232,20 @@ class ResidualChart(ZoomPanMixin, QWidget):
 
 
 class Sparkline(QWidget):
-    """A tiny line of the last values of a report (no axes)."""
+    """A tiny line of the last values of a report (no axes); a double click opens the report's chart (D-170)."""
+
+    double_clicked = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.values: list[float] = []
         self._color = QColor(DARK.accent)
         self._line = 1
+        self.setToolTip("Double-click: open this report's chart in a window (the whole history, zoom, export)")
+
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        self.double_clicked.emit()
+        super().mouseDoubleClickEvent(event)
 
     def configure(self, m: Metrics, t: Theme) -> None:
         self._color, self._line = QColor(t.accent), m.line
@@ -273,6 +281,8 @@ class ReportSlots(QWidget):
                       "and viscous parts and the centre of pressure), the mass imbalance, y+ min / avg / max on "
                       "the walls (written at each write interval) or a probe's p and U")
     assigned = Signal(int, object)  # slot (0-based), report id or None
+    chart_requested = Signal(int)  # slot (0-based): open its report's chart (D-170)
+    CHART_TOOLTIP = "Open chart: this report's whole history in a window of its own (zoom, mean, export)"
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -285,6 +295,7 @@ class ReportSlots(QWidget):
         self.subtitles: dict[int, QLabel] = {}
         self.sparks: dict[int, Sparkline] = {}
         self.assign_buttons: dict[int, QToolButton] = {}
+        self.chart_buttons: dict[int, QToolButton] = {}
         self.menus: dict[int, QMenu] = {}
         self.assignments: list[str | None] = [None] * REPORT_SLOTS
         self.options: list[str] = available_reports([], [])
@@ -309,7 +320,15 @@ class ReportSlots(QWidget):
             menu = QMenu(self)
             self._fill_menu(menu, slot - 1)
             button.setMenu(menu)
+            chart = QToolButton()
+            chart.setObjectName("helpBtn")
+            chart.setText("\u2197")
+            chart.setAccessibleName("Open chart")
+            chart.setToolTip(self.CHART_TOOLTIP)
+            chart.setCursor(Qt.CursorShape.PointingHandCursor)
+            chart.clicked.connect(lambda _=False, i=slot - 1: self.chart_requested.emit(i))
             head.addWidget(title, 1)
+            head.addWidget(chart)
             head.addWidget(button)
             value = QLabel(EMPTY)
             value.setObjectName("kpiValue")
@@ -318,6 +337,7 @@ class ReportSlots(QWidget):
             mean.setToolTip("Mean over the last iterations and the half range of the oscillation (max - min) / 2 "
                             "as a share of |mean| (the oscillation check's scale, D-059)")
             spark = Sparkline()
+            spark.double_clicked.connect(lambda i=slot - 1: self.chart_requested.emit(i))
             sub = ElidedLabel(self.NOT_ASSIGNED, Qt.TextElideMode.ElideRight)
             sub.setObjectName("kpiSub")
             box.addLayout(head)
@@ -327,6 +347,7 @@ class ReportSlots(QWidget):
             box.addWidget(sub)
             self.titles[slot], self.values[slot], self.means[slot] = title, value, mean
             self.subtitles[slot], self.assign_buttons[slot] = sub, button
+            self.chart_buttons[slot] = chart
             self.sparks[slot], self.menus[slot] = spark, menu
             self._layouts.append(box)
             row.addWidget(cell, 1)
@@ -397,6 +418,9 @@ class ReportSlots(QWidget):
             report_id = self.assignments[slot - 1]
             self.subtitles[slot].setText(report_label(report_id) if report_id else self.NOT_ASSIGNED)
             self.subtitles[slot].setToolTip(self.subtitles[slot].text())
+            self.chart_buttons[slot].setEnabled(bool(report_id))
+            self.chart_buttons[slot].setToolTip(self.CHART_TOOLTIP if report_id else "Assign a report first (the "
+                                                "chevron), then open its chart")
             self._fill_menu(self.menus[slot], slot - 1)
 
     def set_series(self, series_of) -> None:
@@ -425,6 +449,8 @@ class ReportSlots(QWidget):
         for button in self.assign_buttons.values():
             button.setIcon(icon)
             button.setIconSize(QSize(m.u, m.u))
+        for button in self.chart_buttons.values():
+            button.setFixedSize(m.u, m.u)
 
 
 def set_state(label: QLabel, state: str | None) -> None:
@@ -639,6 +665,12 @@ DETACHABLE = {
                  "Dock the convergence criteria back into the main window"),
 }
 WINDOWS_KEY = "monitors/windows"  # per user: <key>/detached, <key>/geometry
+CHARTS_KEY = "monitors/charts"  # per user (D-170): open (the report ids), <report key>/geometry and frame
+
+
+def _chart_key(report_id: str) -> str:
+    """A report id as a settings key (no "/" or ":")."""
+    return "".join(c if c.isalnum() or c in "_-" else "_" for c in report_id)
 
 
 def stage_text(stage: int, switch: int | None = None, reason: str = "") -> str:
@@ -670,6 +702,13 @@ class MonitorsPanel(QWidget):
         self.convergence = ConvergencePanel()
         self.kpis = ReportSlots()
         self.kpis.assigned.connect(self.slot_assigned)
+        self.kpis.chart_requested.connect(self._open_slot_chart)
+        # The report charts in their own windows (D-170), by report id; ``ask_export(suggested, kind)`` gives the
+        # export path (the window's dialogs), ``export_folder`` the suggested folder.
+        self.chart_windows: dict[str, ReportChartWindow] = {}
+        self.ask_export = lambda _suggested, _kind: None
+        self.export_folder: Path | None = None
+        self._theme: Theme = DARK
         # The turbulence stage of a two-stage run (D-126): "" (hidden) for a single-stage run.
         self.stage_label = QLabel()
         self.stage_label.setObjectName("muted")
@@ -843,6 +882,7 @@ class MonitorsPanel(QWidget):
         self.kpis.window_of = self.mean_window
         self.kpis.set_series(self.reports.series if self.reports is not None else None)
         self._update_convergence()
+        self._update_charts()
         self.updated.emit()
 
     def mean_window(self, quantity: str) -> int:
@@ -996,7 +1036,110 @@ class MonitorsPanel(QWidget):
             self.detach(key, geometry)
 
     def floating_windows(self) -> list[FloatingPanel]:
-        return list(self.windows.values())
+        return [*self.windows.values(), *self.chart_windows.values()]
+
+    # -- the report charts in their own windows (D-170) ----------------------------------------------------------
+
+    def _open_slot_chart(self, index: int) -> None:
+        report_id = self.kpis.assignments[index]
+        if report_id:
+            self.open_chart(report_id)
+
+    def open_chart(self, report_id: str, geometry: QByteArray | None = None) -> ReportChartWindow:
+        """The chart window of ``report_id`` (raised when it is open); at its remembered place unless that is on no
+        screen now."""
+        window = self.chart_windows.get(report_id)
+        if window is not None:
+            window.raise_()
+            window.activateWindow()
+            return window
+        window = ReportChartWindow(report_id, lambda r=report_id: self._chart_closed(r))
+        window.setWindowIcon(self.window().windowIcon())
+        window.configure(self._theme)
+        window.export_requested.connect(self._export_chart)
+        u = metrics().u
+        window.resize(48 * u, 30 * u)
+        s = settings()
+        key = _chart_key(report_id)
+        geometry = geometry if geometry is not None else s.value(f"{CHARTS_KEY}/{key}/geometry")
+        frame = s.value(f"{CHARTS_KEY}/{key}/frame")
+        if isinstance(geometry, QByteArray) and isinstance(frame, QRect) and on_a_screen(frame):
+            window.restoreGeometry(geometry)
+        self.chart_windows[report_id] = window
+        self._fill_chart(report_id)
+        window.show()
+        self._save_charts()
+        return window
+
+    def close_chart(self, report_id: str, remember: bool = True) -> None:
+        window = self.chart_windows.get(report_id)
+        if window is not None:
+            if not remember:
+                self.chart_windows.pop(report_id, None)
+            window.close()
+
+    def _chart_closed(self, report_id: str) -> None:
+        """A chart window closed (by the user or at exit): its place remembered, the list of open charts saved."""
+        window = self.chart_windows.pop(report_id, None)
+        if window is not None:
+            self._save_chart_geometry(report_id, window)
+            window.release()
+            window.deleteLater()
+            self._save_charts()
+
+    def _save_chart_geometry(self, report_id: str, window) -> None:
+        s = settings()
+        key = _chart_key(report_id)
+        s.setValue(f"{CHARTS_KEY}/{key}/geometry", window.saveGeometry())
+        s.setValue(f"{CHARTS_KEY}/{key}/frame", window.frameGeometry())
+        s.sync()
+
+    def _save_charts(self) -> None:
+        s = settings()
+        s.setValue(f"{CHARTS_KEY}/open", list(self.chart_windows))
+        s.sync()
+
+    def _fill_chart(self, report_id: str) -> None:
+        window = self.chart_windows[report_id]
+        points = self.reports.series(report_id) if self.reports is not None else []
+        window.set_data(points, self.mean_window(report_id))
+
+    def _update_charts(self) -> None:
+        for report_id in list(self.chart_windows):
+            self._fill_chart(report_id)
+
+    def _export_chart(self, report_id: str, kind: str) -> None:
+        window = self.chart_windows.get(report_id)
+        if window is None:
+            return
+        name = report_id.replace(":", "_").replace("@", "_") + f"_chart.{kind}"
+        path = self.ask_export((self.export_folder or Path.home()) / name, kind)
+        if path is None:
+            return
+        (window.write_png if kind == "png" else window.write_csv)(Path(path))
+
+    def save_charts(self) -> None:
+        """At exit: the open charts and their places remembered, then the windows closed."""
+        s = settings()
+        s.setValue(f"{CHARTS_KEY}/open", list(self.chart_windows))
+        for report_id, window in list(self.chart_windows.items()):
+            self._save_chart_geometry(report_id, window)
+        open_ids = list(self.chart_windows)
+        for report_id in open_ids:
+            window = self.chart_windows.pop(report_id)
+            window.release()
+            window.close()
+            window.deleteLater()
+        s.setValue(f"{CHARTS_KEY}/open", open_ids)
+        s.sync()
+
+    def restore_charts(self) -> None:
+        """The charts open at the last exit, each where it was (or placed anew when that is on no screen now)."""
+        value = settings().value(f"{CHARTS_KEY}/open", [])
+        ids = [value] if isinstance(value, str) else list(value or [])
+        for report_id in ids:
+            if isinstance(report_id, str) and report_id:
+                self.open_chart(report_id)
 
     def configure(self, m: Metrics, t: Theme) -> None:
         self.header.configure(m)
@@ -1006,3 +1149,6 @@ class MonitorsPanel(QWidget):
         self.chart.configure(m, t)
         self.convergence.configure(m, t)
         self.kpis.configure(m, t)
+        self._theme = t
+        for window in self.chart_windows.values():
+            window.configure(t)

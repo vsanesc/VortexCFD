@@ -620,6 +620,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         # -- right: monitors, bottom: console ----------------------------------------
         self.monitors = MonitorsPanel()
         self.monitors.slot_assigned.connect(self._assign_report)
+        self.monitors.ask_export = lambda suggested, kind: self.dialogs.ask_chart_export(suggested, kind)  # D-170
         self.monitors.updated.connect(
             lambda: self.properties.set_report_monitor(self.monitors.reports, self.monitors.case_dir))
         self.console = ConsolePanel()
@@ -985,6 +986,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             if self.viewer is not None:
                 self._style_viewer()  # axes viewport depends on the real viewer size
             self.monitors.restore_windows()  # the residual chart and criteria windows as the user left them
+            self.monitors.restore_charts()  # and the report charts (D-170)
 
     # -- refresh -------------------------------------------------------------
 
@@ -1006,6 +1008,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.monitors.kpis.set_options(available_reports(**solving.report_scope(self._project)))
         self.monitors.set_assignments(list(sim.reports.slots))
         self.monitors.set_project_stopping(sim.solvers.stopping)  # a run keeps its own criteria (D-165)
+        self.monitors.export_folder = self._project.folder  # the report charts' exports (D-170)
         self._update_results_tab()
 
     def _node_icon(self, glyph: str, token: str) -> QIcon:
@@ -3490,6 +3493,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             return
         self.geometry_worker.wait(30)  # a job may still write into the project folder
         self.monitors.save_windows()  # remembered for the next start, then docked (D-156)
+        self.monitors.save_charts()  # the report charts too (D-170)
         self.dock_properties()  # a window of its own would keep the application open
         self._release_background()
         super().closeEvent(event)

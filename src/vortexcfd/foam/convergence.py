@@ -253,6 +253,22 @@ def window_stats(series, window: int, floor: float | None = None, quantity: str 
     return WindowStats(mean, spread, amplitude, len(values))
 
 
+def rolling_window(series, window: int) -> list[tuple[float, float, float, float]]:
+    """(iteration, mean, mean - half range, mean + half range) over the last ``window`` values at each iteration from
+    the ``window``-th on (a report chart's windowed mean and oscillation band, D-170); one value per iteration."""
+    import numpy as np
+
+    points = unique_by_iteration(series)
+    if window < 2 or len(points) < window or isinstance(points[-1][1], tuple):
+        return []
+    xs = np.asarray([p[0] for p in points], dtype=float)
+    values = np.asarray([p[1] for p in points], dtype=float)
+    windows = np.lib.stride_tricks.sliding_window_view(values, window)
+    mean = windows.mean(axis=1)
+    half = (windows.max(axis=1) - windows.min(axis=1)) / 2
+    return list(zip(xs[window - 1:].tolist(), mean.tolist(), (mean - half).tolist(), (mean + half).tolist()))
+
+
 @dataclass(frozen=True)
 class CriterionStatus:
     """One criterion's live state: value compared with threshold, and whether it is met."""
