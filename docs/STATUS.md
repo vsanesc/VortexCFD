@@ -62,9 +62,26 @@ Follow-up (the owner's 13 items), one commit each:
   226, 227, 230, 231 closed and 224, 225, 228, 229, 232 to 235 accepted by the owner.
 - Machine time: no OpenFOAM run in the follow-up; offscreen screenshots and the fast test run at nice 15.
 
-Next: the owner's review of D-152 to D-162 (the [NUMERICS-REVIEW] item: D-161) and QUESTIONS 223 and 236; then
-scripts/ship.sh and the v1.0.0 tag (docs/RELEASE_v1.md). Open: docs/QUESTIONS.md items 30, 67, 69, 70, 72, 73, 75,
-82, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167, 168 (a, c), 174, 214, 223, 236.
+Owner review (2026-10-24): D-161 accepted ([NUMERICS-REVIEW]: off by default, benchmarks byte-identical), schema v23
+carrying D-157 and D-161 accepted, QUESTIONS 223 accepted; 236 stays open until the colormap is checked on a real
+display. Review follow-up, one commit each:
+- Item 1 (D-163): the flaky polar sweep test. The run's thread set the record to "finished" and called on_done while
+  still alive, so the window handled the end with the run still "running" (status label "Running: n of 3", Run
+  button "Stop", never updated again). The end now reaches the window after the thread has ended; the tests wait
+  for the label's final text. tests/test_study_gui.py passed 20 runs in a row.
+- Item 2 (D-164, QUESTIONS 82 closed): the offscreen teardown crash. Worker threads emitted Qt signals on QObjects
+  being deleted with their window (heap corruption; every plotter was closed at each crash). Every worker emits
+  through a ThreadGate the window closes before it can be deleted, together with the console and the viewer (also
+  after a refused close); scripts dispose of their windows and finish cleanly. The ship.sh test command
+  (`QT_QPA_PLATFORM=offscreen pytest -q -m "not validation and not long and not bench"`, at nice 15) passed 3 runs in
+  a row in one process: 1366 passed each, 18:33, 18:36, 18:36 (1157 s, 1163 s, 1164 s wall); it crashed in run 2
+  of 2 before. The all-screens review script exits 0 in 36 s (81 images).
+- Machine time: the ship.sh command 5 times in one process (with its slow tests' real snappyHexMesh runs, as the
+  owner chose), about 1 h 45 min at nice 15; no OpenFOAM process left running.
+
+Next: QUESTIONS 236 (the colormap on a real display); then scripts/ship.sh and the v1.0.0 tag (docs/RELEASE_v1.md).
+Open: docs/QUESTIONS.md items 30, 67, 69, 70, 72, 73, 75, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167,
+168 (a, c), 174, 214, 236.
 
 ### Previous branch (task/release-1.0.0, published in PR #34)
 
