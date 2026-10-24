@@ -1,6 +1,7 @@
 # Status
 
-Updated 2026-10-24 (task/gui-2: **a second round of GUI work after the owner used the app**).
+Updated 2026-10-24 (task/gui-2: **a second round of GUI work after the owner used the app, and its owner review; v1.0.0
+ready to tag**).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
@@ -32,9 +33,22 @@ app; one commit per item:
   iteration 32 and continued to 80 (43,299 cells; 13.5 s mesh, 4.7 s + 5.9 s solve), and 100 iterations with the
   live view every 10 and one Write Fields Now (8.6 s solve); no OpenFOAM process left running.
 
-Next: the owner's review (QUESTIONS 237 to 244, the [NUMERICS-REVIEW] items D-171 and D-172); then scripts/ship.sh.
+Owner review of gui-2 (2026-10-24): D-165 to D-175 accepted, with the [NUMERICS-REVIEW] parts of D-171 and D-172;
+QUESTIONS 237, 242, 243 and 244 accepted; 236, 238 and 240 closed (checked by the owner on the real display). Done
+after it, one commit each:
+- Item 1 (D-176, QUESTIONS 241): Continue Solver after "Criteria met" too; one dialog asks how many more iterations
+  and shows each criterion's threshold or tolerance to tighten (saved in the project, one undoable edit); the run then
+  continues as in D-171 (tests/test_continue_met.py, fake runners).
+- Item 2 (D-177, QUESTIONS 239): the logo is CC BY-SA 4.0, separately from the code: assets/branding/LICENSE (the full
+  text), THIRD_PARTY_LICENSES.md, the README (and its line asking forks not to pass as the official project).
+- Item 3: version 1.0.0 in its single source; CHANGELOG 1.0.0 lists everything since 1.0.0rc1 (the release polish,
+  both GUI rounds, the branding, the two fixed intermittent failures, D-163 and D-164); "no restart" dropped from the
+  known limitations (CHANGELOG, manual 8, RELEASE_v1); docs/RELEASE_v1.md: everything done except the owner's tag and
+  the decision whether the repository becomes public.
+
+Next: scripts/ship.sh (the owner), then the tag (docs/RELEASE_v1.md) and the repository-public decision.
 Open: docs/QUESTIONS.md items 30, 67, 69, 70, 72, 73, 75, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167,
-168 (a, c), 174, 214, 236 to 244.
+168 (a, c), 174, 214.
 
 ### Previous branch (task/gui-polish, published in PR #35)
 
