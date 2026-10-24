@@ -8,7 +8,7 @@ patch is an inlet, an outlet or a wall (D-129).
 File > New Simulation, preset **Internal flow** (3D, wall functions) or **2D internal flow** (a section,
 wall-resolved). Import ONE closed surface whose solids (a multi-solid STL) or CAD faces separate the inlets, the
 outlets and the walls: in an internal project each solid becomes its own patch. An open geometry is refused with the
-number of open edges; close it with Edit > Prepare Surfaces or Repair part.
+number of open edges; close it with Edit > Surface Preparation or Repair part.
 
 ## 4.2 Patch roles
 

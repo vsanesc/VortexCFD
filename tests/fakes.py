@@ -46,6 +46,12 @@ class FakeDialogs:
         self.report_sections_asked: list = []
         self.openfoam_answer = None  # show_openfoam's answer: (check, bashrc to remember) or None
         self.openfoam_shown: list = []
+        self.confirm_answer = True  # confirm's answer
+        self.snapshot_name = None  # ask_snapshot_name's answer
+        self.snapshot_names_asked: list = []
+        self.foam_files: list = []  # show_foam_file calls: (title, entries, files)
+        self.confirmed: list = []
+        self.texts: list = []  # show_text calls: (title, text)
 
     def ask_open_path(self):
         return self.open_path
@@ -60,6 +66,20 @@ class FakeDialogs:
 
     def show_error(self, title, text):
         self.errors.append((title, text))
+
+    def ask_snapshot_name(self, suggested):
+        self.snapshot_names_asked.append(suggested)
+        return self.snapshot_name
+
+    def show_foam_file(self, title, entries, files):
+        self.foam_files.append((title, list(entries), dict(files)))
+
+    def confirm(self, title, text):
+        self.confirmed.append((title, text))
+        return self.confirm_answer
+
+    def show_text(self, title, text):
+        self.texts.append((title, text))
 
     def show_warning(self, title, text):
         self.warnings.append((title, text))

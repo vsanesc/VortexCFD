@@ -6,7 +6,6 @@ import time
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QApplication,
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
@@ -15,7 +14,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from vortexcfd.gui.theme import DARK, Metrics, Theme, mono_font
+from vortexcfd.gui.theme import DARK, Metrics, Theme, set_text_role
+from vortexcfd.gui.thread_gate import ThreadGate
 
 APP_LOGGER = "vortexcfd"
 
@@ -59,8 +59,8 @@ class ConsolePanel(QWidget):
         self._bar.setFixedHeight(m.tab_bar)
         self._bar_row.setContentsMargins(m.s3, 0, m.s3, 0)
         self.tab.setFixedHeight(m.tab_bar - m.line)
-        self.view.setFont(mono_font(QApplication.font(), 0.85))
-        self.clear_button.setFont(mono_font(QApplication.font(), 0.85))
+        set_text_role(self.view, "control")
+        set_text_role(self.clear_button, "control")
 
     def append_output(self, text: str) -> None:
         """Append one line of tool output verbatim (mono, normal text colour)."""
@@ -94,12 +94,10 @@ class ConsoleHandler(logging.Handler):
     def __init__(self, panel: ConsolePanel) -> None:
         super().__init__(logging.INFO)
         self._panel = panel
+        self.gate = ThreadGate()  # log records come from any thread (D-164); closed by detach
 
     def emit(self, record: logging.LogRecord) -> None:
-        try:
-            self._panel.log_record.emit(record.created, record.levelname, record.getMessage())
-        except RuntimeError:  # the panel's C++ object is already gone
-            pass
+        self.gate.emit(self._panel.log_record, record.created, record.levelname, record.getMessage())
 
 
 def attach(panel: ConsolePanel) -> ConsoleHandler:
@@ -113,5 +111,7 @@ def attach(panel: ConsolePanel) -> ConsoleHandler:
 
 
 def detach(handler: ConsoleHandler) -> None:
+    """The panel no longer receives records; a record being emitted from another thread is waited for."""
     logging.getLogger(APP_LOGGER).removeHandler(handler)
+    handler.gate.close()
 

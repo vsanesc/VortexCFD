@@ -21,7 +21,7 @@ Each case was run through the app's own pipeline and is recorded in docs/validat
   at 25 degrees by about 14 % (body Cd 0.325 against the experimental 0.285); no set-up tried reproduced the slant's
   reattachment, and steady SST oscillates there. Use the mean-stable criterion (chapter 7) and treat drag of such
   bodies as indicative.
-- **The 3D mesh study's GCI is indicative.** A 3D study's levels refine the walls and the background by the level
+- **The 3D mesh independence study's GCI is indicative.** A 3D study's levels refine the walls and the background by the level
   ratio but not the transition zones around the parts (D-127, Proposed): its GCI covers the wall cells and the
   background, not the near field. The 2D study refines everywhere and its GCI stands.
 - **Flat plate skin friction** is 3.3 % below the TMR reference, unexplained (the wall-function blending or

@@ -35,4 +35,12 @@ QT_QPA_PLATFORM=offscreen .venv/bin/pytest -q -m "not slow and not validation an
 ```
 
 Architecture: ARCHITECTURE.md. Decisions: DECISIONS.md. Plan and status: docs/PLAN.md, docs/STATUS.md. Validation
-records: docs/validation/. Licence: GPL-3.0-or-later (LICENSE); dependencies: THIRD_PARTY_LICENSES.md.
+records: docs/validation/. How to contribute: [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Licence
+
+VortexCFD's own code is licensed under the GNU General Public License, version 3 or (at your option) any later
+version (GPL-3.0-or-later); the full text is in [LICENSE](LICENSE). VortexCFD uses foamlib, which is licensed under
+GPL-3.0-only, so VortexCFD as distributed together with its dependencies (the combined work) is under GPL-3.0. The
+licences of every dependency and of the external programs it runs (OpenFOAM, ParaView) are listed in
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).

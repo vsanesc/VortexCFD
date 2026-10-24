@@ -1,11 +1,12 @@
 """Reports & Monitors views: the Forces table (D-060)."""
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QGridLayout, QLabel, QSizePolicy, QWidget
+from PySide6.QtWidgets import QGridLayout, QLabel, QSizePolicy, QWidget
 
 from vortexcfd.foam.convergence import WindowStats
 from vortexcfd.foam.forces import ForceRow
-from vortexcfd.gui.theme import mono_font
+from vortexcfd.gui.theme import set_text_role
+from vortexcfd.gui.widgets import discard
 
 # (attribute of ForceRow, row label, tooltip, format); one column per wall set.
 FORCE_TABLE_ROWS = (
@@ -54,7 +55,7 @@ class ForcesTable(QWidget):
     def _label(self, text: str, muted: bool = False, shrink: bool = False) -> QLabel:
         label = QLabel(text)
         label.setObjectName("muted" if muted else "checkValue")
-        label.setFont(mono_font(QApplication.font(), 0.8))
+        set_text_role(label, "data")
         if shrink:  # the row-name column gives way first
             label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         return label
@@ -68,7 +69,7 @@ class ForcesTable(QWidget):
         while self.grid.count():
             item = self.grid.takeAt(0)
             if item.widget() is not None:
-                item.widget().deleteLater()
+                discard(item.widget())
         self.rows, self.cells = list(rows), {}
         if not rows:
             return
@@ -145,7 +146,7 @@ class InternalFlowTable(ForcesTable):
         while self.grid.count():
             item = self.grid.takeAt(0)
             if item.widget() is not None:
-                item.widget().deleteLater()
+                discard(item.widget())
         self.rows, self.cells = list(rows), {}
         if not rows and not drops:
             return

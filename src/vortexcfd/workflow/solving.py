@@ -35,6 +35,8 @@ from vortexcfd.workflow import internal
 from vortexcfd.workflow.meshing import (
     MeshingNotReady,
     _body_parts,
+    boundary_problem,
+    face_kinds,
     case_dir_for,
     inputs_hash,
     parts_layout,
@@ -147,7 +149,7 @@ def readiness(project: Project, *, has_mesh: bool, mesh_stale: bool, meshing: bo
         return "The mesh is out of date: generate it again."
     if failed_checks is not None:
         return failed_checks_reason(failed_checks)
-    return physics_problem(project)
+    return boundary_problem(project) or physics_problem(project)
 
 
 def section_span(project: Project, box=None) -> float | None:
@@ -253,7 +255,7 @@ def solver_input(project: Project) -> SolverCaseInput:
                            far_field_patches(sim.domain.shape, ground, strip, two_d),
                            ground=sim.domain.ground.motion if ground else None,
                            span=section_span(project, box) if two_d else None,
-                           two_stage=two_stage_turbulence(project))
+                           two_stage=two_stage_turbulence(project), patch_kinds=face_kinds(project))
 
 
 def clear_results(case_dir: Path) -> list[str]:
@@ -308,4 +310,6 @@ def results_hash(project: Project) -> str:
         payload["turbulence_stages"] = 2
     if sim.internal:  # the boundaries (D-129); external projects keep their hash
         payload["boundaries"] = [b.model_dump() for b in sim.boundaries]
+    if sim.domain.boundary_types:  # the faces' conditions (D-147); a domain left as it was keeps its hash
+        payload["boundary_types"] = dict(sorted(sim.domain.boundary_types.items()))
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()

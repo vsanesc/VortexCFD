@@ -22,8 +22,8 @@ the closed curve of the coordinates; the app builds the slab and the domain from
 
 ## 3.3 Angle of attack
 
-Physics > Inflow > Angle of attack. The free stream always blows along +x; the angle is a rotation of the parts
-about the reference centre of rotation, nose up positive (D-120). Each angle therefore has its own mesh, and the
+Geometry > Body attitude > Angle of attack α. The free stream always blows along +x; the angle is a rotation of the
+parts about the reference centre of rotation (shown under it), nose up positive (D-120). Each angle therefore has its own mesh, and the
 forces are reported in wind axes (Cl normal to the free stream, Cd along it). Body-axis coefficients (C_axial,
 C_normal) are available as report slots.
 
@@ -32,7 +32,9 @@ chord times the span the app uses; the defaults come from the section's box.
 
 ## 3.4 The polar sweep
 
-Reports & Monitors > Polar Sweep: the list of angles (start, end and step, or a list), then Run. Each angle is meshed
+Reports & Monitors > Polar sweep. The sweep is for lifting bodies and is off in a new project ("Polar sweep (off)"):
+tick "Enable the polar sweep" (or right-click > Enable polar sweep). Then the list of angles (start, end and step, or
+a list), then Run. Each angle is meshed
 and solved in its own case (case_sweep/point_<n>/), one after the other; a stopped sweep resumes at the first angle
 not finished. The results window plots CL against alpha, the drag polar and CM against alpha; points that did not
 meet their stopping criteria are drawn hollow. Export CSV writes the table; the HTML report has the same table and
@@ -50,5 +52,5 @@ report draws a sweep).*
 ## 3.5 What to expect
 
 Through the preset, with only the TMR inputs, the NACA 0012 at Re 6e6 is within 2.3 % of the NASA TMR SST lift and
-6.9 % of its drag at 0, 10 and 15 degrees (chapter 8, docs/validation/naca0012/RESULT.md). For a mesh study of a
+6.9 % of its drag at 0, 10 and 15 degrees (chapter 8, docs/validation/naca0012/RESULT.md). For a mesh independence study of a
 2D airfoil the study places the current settings itself within the wall-resolved limit (D-128).

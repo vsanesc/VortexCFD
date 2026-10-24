@@ -1,11 +1,13 @@
 """Geometry of the user refinement volumes (D-103; numpy and pyvista, no Qt).
 
-The shapes are core.model's BoxShape, CylinderShape, SphereShape and ConeShape, in metres. This module
-answers which points a shape contains, its exact volume, how much of it lies inside the far-field domain
-(sampled), its outline for the viewer, and the cone the "Add wake volume" helper proposes.
+The shapes are core.model's BoxShape, CylinderShape, SphereShape and ConeShape, in metres, and ``SurfaceRegion``, an
+imported closed surface loaded in metres (D-145). This module answers which points a shape contains, its exact
+volume (sampled for a surface region grown by a buffer or in distance mode), how much of it lies inside the
+far-field domain (sampled), its outline for the viewer, and the cone the "Add wake volume" helper proposes.
 """
 
 import math
+from dataclasses import dataclass, replace
 
 import numpy as np
 import pyvista as pv
@@ -25,6 +27,33 @@ WAKE_LENGTH_L = 2.0
 WAKE_WIDTH_FACTOR = 1.1
 WAKE_HEIGHT_FACTOR = 2.0
 WAKE_SIZE_FACTOR = 2.0
+
+
+# Samples per axis of a surface region's bounding box when its volume is sampled (about 64,000 points).
+SURFACE_VOLUME_SAMPLES = 40
+
+
+@dataclass(frozen=True, eq=False)
+class SurfaceRegion:
+    """An imported surface as a refinement region (D-145): ``mesh`` the closed triangulated surface in metres
+    (as meshed: turned with the parts at an angle of attack), ``mode`` "inside" (the cells inside it) or "distance"
+    (the cells within ``distance`` m of it, either side), ``grown`` the outward buffer of the cell estimate's
+    staircase (m; 0 for the region itself)."""
+
+    mesh: pv.PolyData
+    mode: str = "inside"
+    distance: float = 0.0
+    grown: float = 0.0
+
+    @property
+    def reach(self) -> float:
+        """How far outside the surface the region reaches (m)."""
+        return (self.distance if self.mode == "distance" else 0.0) + self.grown
+
+    def signed_distance(self, points: np.ndarray) -> np.ndarray:
+        """The signed distance of the points to the surface (negative inside, VTK's implicit distance)."""
+        cloud = pv.PolyData(np.atleast_2d(points))
+        return np.asarray(cloud.compute_implicit_distance(self.mesh)["implicit_distance"], dtype=float)
 
 
 def _arr(v) -> np.ndarray:
@@ -47,6 +76,9 @@ def box_corners(shape: BoxShape) -> np.ndarray:
 
 def bounds(shape) -> tuple[float, float, float, float, float, float]:
     """The axis-aligned bounding box (xmin, xmax, ymin, ymax, zmin, zmax)."""
+    if isinstance(shape, SurfaceRegion):
+        b, r = shape.mesh.bounds, shape.reach
+        return (float(b[0] - r), float(b[1] + r), float(b[2] - r), float(b[3] + r), float(b[4] - r), float(b[5] + r))
     if isinstance(shape, BoxShape):
         pts = box_corners(shape)
         lo, hi = pts.min(axis=0), pts.max(axis=0)
@@ -66,6 +98,11 @@ def bounds(shape) -> tuple[float, float, float, float, float, float]:
 def contains(shape, points) -> np.ndarray:
     """Boolean mask of the points (n, 3) inside the shape (its boundary included)."""
     p = np.atleast_2d(_arr(points))
+    if isinstance(shape, SurfaceRegion):
+        d = shape.signed_distance(p)
+        if shape.mode == "distance":
+            return np.abs(d) <= shape.distance + shape.grown
+        return d <= shape.grown
     if isinstance(shape, BoxShape):
         d = p - _arr(shape.centre)
         half = _arr(shape.size) / 2 * (1 + 1e-12)
@@ -83,7 +120,12 @@ def contains(shape, points) -> np.ndarray:
 
 
 def volume(shape) -> float:
-    """The shape's exact volume (m3)."""
+    """The shape's exact volume (m3); a surface region's is the closed surface's own volume in inside mode, else
+    sampled on a regular grid over its bounding box."""
+    if isinstance(shape, SurfaceRegion):
+        if shape.mode == "inside" and shape.grown <= 0:
+            return float(abs(shape.mesh.volume))
+        return _sampled_volume(shape)
     if isinstance(shape, BoxShape):
         return float(np.prod(shape.size))
     if isinstance(shape, SphereShape):
@@ -95,12 +137,25 @@ def volume(shape) -> float:
     return math.pi * h / 3.0 * (r1 * r1 + r1 * r2 + r2 * r2)
 
 
+def _grid(b, samples: int) -> np.ndarray:
+    axes = [np.linspace(b[2 * i], b[2 * i + 1], samples + 2)[1:-1] for i in range(3)]
+    return np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1).reshape(-1, 3)
+
+
+def _sampled_volume(shape: "SurfaceRegion", samples: int = SURFACE_VOLUME_SAMPLES) -> float:
+    b = bounds(shape)
+    box_volume = (b[1] - b[0]) * (b[3] - b[2]) * (b[5] - b[4])
+    return float(box_volume * contains(shape, _grid(b, samples)).mean())
+
+
 def grow(shape, distance: float):
     """The shape grown outwards by ``distance`` (m): a box's edges by 2 x distance (same orientation), a
     sphere's radius by distance, a cylinder's or cone's radii by distance and its ends moved out by distance
     along its axis (for the cell estimate's level buffer, D-103)."""
     if distance <= 0:
         return shape
+    if isinstance(shape, SurfaceRegion):
+        return replace(shape, grown=shape.grown + distance)
     if isinstance(shape, BoxShape):
         return shape.model_copy(update={"size": tuple(s + 2 * distance for s in shape.size)})
     if isinstance(shape, SphereShape):
@@ -155,8 +210,7 @@ def domain_fraction(shape, box: DomainBox, samples: int = FRACTION_SAMPLES) -> f
         return 0.0
     if not box.rounded and _inside_box(sb, box.bounds):
         return 1.0
-    axes = [np.linspace(sb[2 * i], sb[2 * i + 1], samples + 2)[1:-1] for i in range(3)]
-    grid = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1).reshape(-1, 3)
+    grid = _grid(sb, samples)
     grid = grid[contains(shape, grid)]
     if not len(grid):
         grid = np.atleast_2d(_arr([(sb[0] + sb[1]) / 2, (sb[2] + sb[3]) / 2, (sb[4] + sb[5]) / 2]))
@@ -185,7 +239,9 @@ def _frustum(p1, p2, r1: float, r2: float, segments: int = OUTLINE_SEGMENTS) -> 
 
 
 def outline(shape) -> pv.PolyData:
-    """The shape's surface for the viewer (drawn translucent with its edges)."""
+    """The shape's surface for the viewer (drawn translucent with its edges); a surface region is its own surface."""
+    if isinstance(shape, SurfaceRegion):
+        return shape.mesh
     if isinstance(shape, BoxShape):
         c = box_corners(shape)  # index = 4 sx + 2 sy + sz, each 0 or 1
         quads = ((0, 2, 3, 1), (4, 5, 7, 6), (0, 1, 5, 4), (2, 6, 7, 3), (0, 4, 6, 2), (1, 3, 7, 5))

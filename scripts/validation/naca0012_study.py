@@ -24,8 +24,10 @@ sys.path.insert(0, str(ROOT))
 
 from tests.validation import naca0012_case as nc  # noqa: E402
 from vortexcfd.core.display_guard import apply_display_guard  # noqa: E402
+from vortexcfd.core.user_dirs import isolate_settings  # noqa: E402
 
 apply_display_guard()
+isolate_settings()  # never the user's settings or Recent list (D-141)
 
 import numpy as np  # noqa: E402
 

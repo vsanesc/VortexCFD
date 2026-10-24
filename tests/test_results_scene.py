@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from PySide6.QtWidgets import QApplication
 import pyvista as pv
 from PySide6.QtGui import QColor
 from pytestqt.qtbot import QtBot
@@ -329,17 +330,22 @@ def test_results_scene_with_viewer(make_window, qtbot: QtBot) -> None:
     lo, hi = view.field_range()
     assert rows["Field range"] == f"{lo:.4g} \u2013 {hi:.4g}"
     w.field_combo.setCurrentText("|U|")
+    QApplication.processEvents()  # selectors apply once the event loop runs (D-152)
     assert view.field_key == "U_mag" and dict(w.telemetry_rows)["Field range"].endswith(" m/s")
     w.colormap_combo.setCurrentText("plasma")
+    QApplication.processEvents()  # selectors apply once the event loop runs (D-152)
     assert view.colormap == "plasma"
     w.range_combo.setCurrentText("fixed")
+    QApplication.processEvents()  # selectors apply once the event loop runs (D-152)
     assert w.range_min.isVisible() and w.range_max.isVisible()
     w.range_min.setValue(1.0)
     w.range_max.setValue(30.0)
     w.range_max.editingFinished.emit()
+    QApplication.processEvents()  # selectors apply once the event loop runs (D-152)
     assert view.clim() == (1.0, 30.0)
     assert not w.section_controls.isVisible()  # walls only
     w.display_combo.setCurrentText("Both")
+    QApplication.processEvents()  # selectors apply once the event loop runs (D-152)
     assert view.section_actor is not None and w.section_controls.isVisible()
     assert not w.section_toggle.isVisible() and not w.boundary_toggle.isVisible()
     w.section_slider.setValue(200)
@@ -361,18 +367,17 @@ def test_results_strip_wraps_and_never_clips_paraview(make_window, size: int) ->
     w.set_point_size(size)
     w.results_tab.click()
     w.range_combo.setCurrentText("fixed")  # the widest strip: min/max fields shown too
+    QApplication.processEvents()  # selectors apply once the event loop runs (D-152)
     QApplication.processEvents()
     strip = w.results_controls
     shown = [x for x in w._results_widgets() + [w.results_stale_label] if x.isVisible()]
-    assert w.paraview_button in shown
+    assert w.paraview_button not in shown and w.paraview_button.parent() is w.top_bar  # in the top bar (D-151)
     rect = strip.rect()
     for widget in shown:  # every control fully inside the strip, none overlapping another
         assert rect.contains(widget.geometry()), (size, widget, widget.geometry(), rect)
     for i, a in enumerate(shown):
         for b in shown[i + 1:]:
             assert not a.geometry().intersects(b.geometry()), (size, a, b)
-    b = w.paraview_button
-    assert b.width() >= b.fontMetrics().horizontalAdvance(b.text())  # its text is not clipped
     rows = {x.geometry().top() for x in shown}
     if size == 18:
         assert len(rows) >= 2  # wrapped onto a second row at the largest font
@@ -391,3 +396,100 @@ def test_results_scene_opens_from_upstream_and_above(make_window, qtbot: QtBot) 
     assert direction[0] < 0 and direction[2] > 0  # upstream (-x) and above (+z)
     assert np.allclose(np.asarray(up) / np.linalg.norm(up), (0, 0, 1), atol=1e-6)
     assert dict(w.telemetry_rows)["View"] == "Upstream ISO" and w.top_bar.active_view() is None
+
+
+# -- Open in ParaView in the top bar and the Results menu (D-151) ------------------------------------------------
+
+
+def test_paraview_in_the_top_bar_and_the_results_menu(make_window, tmp_path: Path, monkeypatch) -> None:
+    w = make_window(results=False)  # a meshed case, no results yet
+    b = w.paraview_button
+    top = w.top_bar
+    assert b.parent() is top and top._row.indexOf(b) == top._row.indexOf(top.wireframe_button) + 1
+    assert not b.isEnabled() and "sudo apt install paraview" in b.toolTip()  # not found: how to install it
+    menu = w.tree_menu_for(("results", None))
+    assert w.act_paraview in menu.actions() and not w.act_paraview.isEnabled()
+    exe = _fake_install(tmp_path / "ProgramFiles", "ParaView 5.13.0")
+    w.dialogs.paraview_path = ""
+    w.act_preferences.trigger()  # detection again: found under Program Files
+    assert b.isEnabled() and w.act_paraview.isEnabled() and str(exe) in b.toolTip()
+    launched = []
+    monkeypatch.setattr(paraview, "launch", lambda e, case: launched.append((e, case)))
+    w.act_paraview.trigger()  # the mesh alone is enough: the current case opens
+    b.click()
+    assert launched == [(exe, w.project.folder / "case")] * 2
+
+
+def test_paraview_needs_a_case(make_window, tmp_path: Path) -> None:
+    w = make_window(results=False)
+    shutil.rmtree(w.project.folder / "case" / "constant")
+    _fake_install(tmp_path / "ProgramFiles", "ParaView 5.13.0")
+    w.dialogs.paraview_path = ""
+    w.act_preferences.trigger()
+    assert not w.paraview_button.isEnabled() and "Generate the mesh first" in w.paraview_button.toolTip()
+
+
+def test_launch_writes_the_foam_file(tmp_path: Path) -> None:
+    case = tmp_path / "case"
+    case.mkdir()
+    calls = []
+    paraview.launch(Path("/usr/bin/paraview"), case, popen=lambda args, **kw: calls.append(args))
+    assert (case / "case.foam").is_file() and calls == [["/usr/bin/paraview", str(case / "case.foam")]]
+
+
+# -- the selectors keep responding (D-152) -------------------------------------------------------------------------
+
+
+def _choose(qtbot: QtBot, combo, text: str) -> None:
+    """As a user: open the popup, pick the item, close it with Return."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    combo.showPopup()
+    view = combo.view()
+    view.setCurrentIndex(combo.model().index(combo.findText(text), 0))
+    QTest.keyClick(view, Qt.Key.Key_Return)
+    assert not view.isVisible()
+
+
+def test_every_results_selector_responds_to_repeated_changes(make_window, qtbot: QtBot) -> None:
+    from PySide6.QtWidgets import QWidget
+
+    w = make_window(with_viewer=True)
+    w.results_tab.click()
+    qtbot.waitUntil(lambda: w.results_view.has_results, timeout=15000)
+    view = w.results_view
+    combos = {"colormap": w.colormap_combo, "field": w.field_combo, "range": w.range_combo,
+              "display": w.display_combo}
+    sequences = {"colormap": ["plasma", "coolwarm", "viridis", "turbo", "grayscale", "plasma"],
+                 "field": ["|U|", "Cp", "p (kinematic)", "Cp"], "range": ["symmetric", "auto", "fixed", "auto"],
+                 "display": ["Section", "Both", "Walls", "Both"]}
+    read = {"colormap": lambda: view.colormap, "field": lambda: view.field_key, "range": lambda: view.range_mode,
+            "display": lambda: view.display}
+    expected = {"field": {"|U|": "U_mag", "Cp": "Cp", "p (kinematic)": "p"}}
+    for key, values in sequences.items():
+        combo = combos[key]
+        for value in values:
+            if combo.findText(value) < 0:
+                continue
+            _choose(qtbot, combo, value)
+            # never applied inside the selector's own signal: after the popup closed, from the event loop
+            qtbot.waitUntil(lambda: read[key]() == expected.get(key, {}).get(value, value), timeout=3000)
+            assert combo.isEnabled() and combo.isVisible() and not combo.signalsBlocked()
+            assert QWidget.mouseGrabber() is None
+    lut = view.actors[0].mapper.lookup_table.GetTableValue(0)
+    _choose(qtbot, w.colormap_combo, "coolwarm")
+    qtbot.waitUntil(lambda: view.actors and view.actors[0].mapper.lookup_table.GetTableValue(0) != lut, timeout=3000)
+
+
+def test_results_object_selectors_respond_to_repeated_changes(make_window, qtbot: QtBot) -> None:
+    w = make_window(with_viewer=True)
+    w.results_tab.click()
+    qtbot.waitUntil(lambda: w.results_view.has_results, timeout=15000)
+    w._on_scene_action("add:streamlines")
+    combos = {name: w.properties.sc_fields[("streamlines", name)] for name in ("colormap", "range_mode", "direction")}
+    for name, combo in combos.items():
+        for i in [*range(combo.count()), 0]:
+            _choose(qtbot, combo, combo.itemText(i))
+            qtbot.waitUntil(lambda: getattr(w.project.sim.results.objects[0], name) == combo.itemData(i), timeout=3000)
+            assert w.properties.sc_fields[("streamlines", name)] is combo and not combo.signalsBlocked()

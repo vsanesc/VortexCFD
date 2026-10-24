@@ -198,7 +198,7 @@ def test_selection_highlights_the_actor(make_window, sphere_stl: Path) -> None:
     w.tree.setCurrentItem(w._items[("part", 0)])
     hexes = [pv.Color(a.prop.color).hex_rgb.lower() for a in w.scene.actors]
     assert hexes == [t.part_selected.lower(), t.part_surface.lower()]
-    assert t.part_selected == t.accent_secondary
+    assert t.part_selected == t.accent
 
 
 def test_eye_toggles_actor_visibility(make_window, sphere_stl: Path) -> None:

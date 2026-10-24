@@ -235,16 +235,16 @@ def test_migrate_v1_to_v2_and_current_unchanged() -> None:
     keeps the v9 mesh behaviour that the v10 defaults changed (D-085)."""
     legacy = dict(V9_MESH_BEHAVIOUR)
     assert migrate({"schema_version": 1, "custom": "data"}) == {
-        "schema_version": 21, "custom": "data", "domain": {}, "mesh": legacy, "analysis_type": "external",
+        "schema_version": 23, "custom": "data", "domain": {}, "mesh": legacy, "analysis_type": "external",
         "physics": {}, "inflow": {}, "solvers": {"stopping": DEFAULT_STOPPING}, "reports": {},
     }
     assert migrate({"schema_version": 2, "x": 1}) == {
-        "schema_version": 21, "x": 1, "physics": {}, "inflow": {}, "solvers": {"stopping": DEFAULT_STOPPING},
+        "schema_version": 23, "x": 1, "physics": {}, "inflow": {}, "solvers": {"stopping": DEFAULT_STOPPING},
         "reports": {}, "analysis_type": "external", "mesh": legacy,
     }
-    assert migrate({"schema_version": 3, "reports": {}}) == {"schema_version": 21, "reports": {},
+    assert migrate({"schema_version": 3, "reports": {}}) == {"schema_version": 23, "reports": {},
                                                              "analysis_type": "external", "mesh": legacy}
-    current = {"schema_version": 21, "custom": "data"}
+    current = {"schema_version": 23, "custom": "data"}
     assert migrate(current) == current
 
 
@@ -270,7 +270,7 @@ def test_domain_defaults() -> None:
         True, 5.0, 10.0, 5.0, 5.0, "none",
     )
     assert Simulation(name="x").domain == d
-    assert CURRENT_SCHEMA_VERSION == 21
+    assert CURRENT_SCHEMA_VERSION == 23
 
 
 @pytest.mark.parametrize("field", ["upstream", "downstream", "lateral", "vertical"])
@@ -432,7 +432,7 @@ def test_physics_models_reject_invalid_values(model, fields: dict) -> None:
 
 @pytest.mark.parametrize("method, fields, label", [
     ("update_physics", {"nu": 2e-5}, "Edit physics (nu)"),
-    ("update_inflow", {"speed": 30.0, "alpha_deg": 4.0}, "Edit inflow (speed, alpha_deg)"),
+    ("update_inflow", {"speed": 30.0, "alpha_deg": 4.0}, "Edit free stream (speed, alpha_deg)"),
     ("update_solver", {"iterations": 500}, "Edit solver (iterations)"),
 ])
 def test_update_apis_are_one_undoable_step_and_validate(method, fields, label) -> None:
@@ -541,7 +541,7 @@ def test_v4_fixture_migrates_to_v5_with_unset_part_levels_and_keeps_its_data() -
         ("Ball", "m", None, None), ("Pod", "mm", None, None)]
     assert sim.mesh.surface_level_max == 5 and sim.solvers.iterations == 500
     assert sim.reports.reference_area_basis == "frontal" and sim.reports.slots == ["Cd", None, "yplus_avg"]
-    assert migrate({"schema_version": 4, "x": 1}) == {"schema_version": 21, "x": 1, "analysis_type": "external",
+    assert migrate({"schema_version": 4, "x": 1}) == {"schema_version": 23, "x": 1, "analysis_type": "external",
                                                      "mesh": dict(V9_MESH_BEHAVIOUR)}  # no solvers: nothing to convert
 
 
@@ -604,7 +604,7 @@ def test_v9_fixture_keeps_its_mesh_behaviour() -> None:
     stored = json.loads(V9_FIXTURE.read_text())
     assert stored["schema_version"] == 9 and "curvature_levels" not in stored["mesh"]
     sim = load_simulation(V9_FIXTURE)
-    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 21
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 23
     for key, value in stored["mesh"].items():
         assert getattr(sim.mesh, key) == value, key
     assert sim.mesh.surface_size_reference == "largest_extent" and sim.mesh.curvature_levels == 0
@@ -621,7 +621,7 @@ def test_new_simulation_sizes_the_surface_from_l_ref_with_curvature() -> None:
     assert mesh.surface_size_reference == "l_ref" and mesh.target_surface_size == 0.01
     assert mesh.curvature_levels == 2
     with pytest.raises(ValidationError):
-        Mesh(curvature_levels=3)  # at most 2 levels above the part's surface level (D-085)
+        Mesh(curvature_levels=5)  # at most 4 levels above the part's surface level (D-085, D-148)
 
 
 def test_v10_file_keeps_explicit_values(tmp_path: Path) -> None:

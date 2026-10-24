@@ -27,7 +27,7 @@ def _select(w: MainWindow, kind: str) -> None:
 
 def test_tree_has_inflow_under_physics(window: MainWindow) -> None:
     physics = window._items[("physics", None)]
-    assert [physics.child(i).text(0) for i in range(physics.childCount())] == ["Inflow"]
+    assert [physics.child(i).text(0) for i in range(physics.childCount())] == ["Free stream"]  # D-148
     assert window._items[("inflow", None)].parent() is physics
 
 
@@ -67,8 +67,10 @@ def test_inflow_editor_and_computed_turbulence(window: MainWindow) -> None:
     _select(window, "inflow")
     p = window.properties
     f = p.group_fields["inflow"]
-    assert [f[k].value() for k in ("speed", "alpha_deg", "turbulence_intensity", "viscosity_ratio")] == [20, 0, 0.01, 10]
-    assert f["speed"].suffix() == " m/s" and f["alpha_deg"].suffix() == "°"
+    assert [f[k].value() for k in ("speed", "turbulence_intensity", "viscosity_ratio")] == [20, 0.01, 10]
+    assert f["speed"].suffix() == " m/s" and f["turbulence_intensity"].suffix() == " %"
+    assert f["turbulence_intensity"].text() == "1.00 %"  # entered and shown in percent (D-148)
+    assert "alpha_deg" not in f and p._sections["free_stream"].text() == "FREE STREAM"
     k, omega = inlet_turbulence(20, 0.01, 1.5e-5, 10)
     assert k == pytest.approx(0.06) and omega == pytest.approx(0.06 / 1.5e-4)
     assert p.inflow_k.text().startswith("0.06 ") and p.inflow_omega.text().startswith("400 ")
@@ -77,12 +79,20 @@ def test_inflow_editor_and_computed_turbulence(window: MainWindow) -> None:
     f["speed"].editingFinished.emit()
     assert window.project.sim.inflow.speed == 40.0
     assert p.inflow_k.text().startswith("0.24 ")  # k = 1.5 (V I)^2 follows the speed
-    f["alpha_deg"].setValue(5.0)
-    f["alpha_deg"].editingFinished.emit()
+    f["turbulence_intensity"].setValue(0.025)
+    f["turbulence_intensity"].editingFinished.emit()
+    assert window.project.sim.inflow.turbulence_intensity == pytest.approx(0.025)
+    assert window.project.undo_label == "Edit free stream (turbulence_intensity)"
+    # the angle of attack is the body attitude, on the Geometry node (D-148)
+    _select(window, "geometry")
+    a = p.group_fields["geometry"]["alpha_deg"]
+    assert a.suffix() == "°" and "nose up positive" in a.toolTip() and p._rows["geometry_centre"].isVisible()
+    a.setValue(5.0)
+    a.editingFinished.emit()
     assert window.project.sim.inflow.alpha_deg == 5.0
-    assert window.project.undo_label == "Edit inflow (alpha_deg)"
+    assert window.project.undo_label == "Edit body attitude (alpha_deg)"
     window.act_undo.trigger()
-    assert f["alpha_deg"].value() == 0.0
+    assert a.value() == 0.0
 
 
 def test_solvers_editor(window: MainWindow) -> None:
@@ -110,7 +120,7 @@ def test_cores_field_is_limited_to_the_physical_cores(window: MainWindow) -> Non
     assert box.value() == 1 and box.maximum() == n and box.minimum() == 1
     from PySide6.QtWidgets import QLabel
 
-    assert f"Cores ({n} physical)" in [label.text() for label in window.properties.findChildren(QLabel)]
+    assert box.suffix() == f" / {n}" and f"{n} physical cores" in box.toolTip()  # "N / physical" (D-148)
     box.setValue(min(4, n))
     box.editingFinished.emit()
     assert window.project.sim.solvers.cores == min(4, n)
@@ -124,24 +134,25 @@ def test_mesh_node_has_layer_sizing_rows(window: MainWindow) -> None:
     p = window.properties
     f = p.mesh_fields
     # a new simulation: absolute sizing for y+ 50 (D-086), the field in use
-    assert f["layer_sizing"].currentText() == "absolute_yplus" and f["target_yplus"].value() == 50.0
+    assert f["layer_sizing"].value() == "absolute_yplus" and f["target_yplus"].value() == 50.0
     assert f["target_yplus"].isEnabled()
-    assert f["target_yplus"].toolTip() == f"{YPLUS_AT_TIPS['cell_centre']}\n{YPLUS_GUIDANCE}"
+    assert f["target_yplus"].toolTip().endswith(YPLUS_AT_TIPS["cell_centre"])
+    assert "Default 50" in f["target_yplus"].toolTip()  # what it does, its default and why (D-148)
     assert YPLUS_GUIDANCE == ("Wall-resolved (no wall functions): about 1 at the first cell centre. Wall functions: "
                               "30-300; the default is 50.")
     assert "first cell centre" in YPLUS_AT_TIPS["cell_centre"]  # the y+ convention (D-107)
     window.project.update_mesh(yplus_at="cell_height")  # a project saved before v14
-    assert f["target_yplus"].toolTip() == f"{YPLUS_AT_TIPS['cell_height']}\n{YPLUS_GUIDANCE}"
+    assert f["target_yplus"].toolTip().endswith(YPLUS_AT_TIPS["cell_height"])
     assert "half" in YPLUS_AT_TIPS["cell_height"]
     window.project.update_mesh(yplus_at="cell_centre")
-    f["layer_sizing"].setCurrentText("relative")
+    f["layer_sizing"].buttons["relative"].setChecked(True)  # "Thickness relative to the surface cell size"
     assert window.project.sim.mesh.layer_sizing == "relative"
     assert not p.mesh_yplus_note.isVisible()  # relative sizing: no y+ guidance
     # relative sizing: the target y+ sizes nothing, so its field is disabled and says why
     assert not f["target_yplus"].isEnabled()
     assert f["target_yplus"].toolTip() == YPLUS_RELATIVE_TIP
     assert "follows the surface cell size" in YPLUS_RELATIVE_TIP and "not targeted" in YPLUS_RELATIVE_TIP
-    f["layer_sizing"].setCurrentText("absolute_yplus")
+    f["layer_sizing"].buttons["absolute_yplus"].setChecked(True)
     assert window.project.sim.mesh.layer_sizing == "absolute_yplus"
     assert window.project.undo_label == "Edit mesh (layer_sizing)"
     assert f["target_yplus"].isEnabled()
@@ -159,7 +170,9 @@ def test_group_editors_are_hidden_on_other_nodes(window: MainWindow) -> None:
     p = window.properties
     for gkind in ("physics", "inflow", "solvers"):
         assert not any(p._rows[f"{gkind}_{k}"].isVisible() for k in p.group_fields[gkind])
-    assert not p._rows["inflow_k"].isVisible() and p.info_label.isVisible()
+    assert not p._rows["inflow_k"].isVisible() and p._rows["geometry_alpha_deg"].isVisible()
+    _select(window, "solvers")
+    assert not p._rows["geometry_alpha_deg"].isVisible()
 
 
 def _project_with_sphere(tmp_path):
@@ -196,7 +209,7 @@ def test_mesh_properties_show_the_computed_first_layer_thickness(qtbot: QtBot, t
         h50 = first_layer_thickness(50.0, 20.0, 1.5e-5, length)
         assert p.mesh_first_layer.text() == f"{h50:.4g} m (for y+ 50)"  # the default (D-086)
         project.update_mesh(layer_sizing="relative")
-        assert p.mesh_first_layer.text() == "relative sizing"
+        assert p.mesh_first_layer.text().startswith("\u2248 ") and "relative to the" in p.mesh_first_layer.text()
         project.update_mesh(layer_sizing="absolute_yplus", target_yplus=30.0)
         h = first_layer_thickness(30.0, 20.0, 1.5e-5, length)
         assert p.mesh_first_layer.text() == f"{h:.4g} m (for y+ 30)"
@@ -246,9 +259,10 @@ def test_layer_count_rows_and_the_y_plus_warning(qtbot: QtBot, tmp_path) -> None
         w.tree.setCurrentItem(w._items[("mesh", None)])
         p = w.properties
         project.update_mesh(layer_sizing="relative")
-        assert p.mesh_layer_count.text() == "3 (set)" and p.mesh_layer_stack.text() == "—"  # relative
+        assert p.mesh_layer_count.text() == "3 (set)" and p.mesh_layer_stack.text().startswith("\u2248 ")  # relative
+        assert p.mesh_layer_stack.text().endswith(" m") and p.mesh_layer_expansion.text() == "1.2 \u00d7 (set)"
         layers_field = p.mesh_fields["layers"]
-        assert layers_field.isEnabled() and layers_field.value() == 3 and layers_field.toolTip() == ""
+        assert layers_field.isEnabled() and layers_field.value() == 3 and "prism layers" in layers_field.toolTip()
         box = domain_box_for(project)
         surface = project_estimate(project, box).surface_size
         # the target distance as the first-layer height (a project saved before v14, D-107): the stack this
@@ -267,7 +281,7 @@ def test_layer_count_rows_and_the_y_plus_warning(qtbot: QtBot, tmp_path) -> None
         assert WARNING_HINT not in w.top_bar.mesh_button.toolTip() and w.top_bar.mesh_button.isEnabled()
         assert p.mesh_layer_plan.text() == layer_plan_text(plan) and not p.mesh_layer_thickness_warning.isVisible()
         controls = p.mesh_fields["layer_controls"]
-        assert p.mesh_layer_mode.text() == "robust" and controls.isEnabled() and controls.currentText() == "robust"
+        assert p.mesh_layer_mode.text() == "robust" and controls.isEnabled() and controls.currentData() == "robust"
         assert "below 5" in p.mesh_layer_mode.toolTip()
         project.update_mesh(target_yplus=5.0)  # y+ 5 on this surface mesh: the stack cannot reach 0.5 h
         # the robust controls cap the 23 planned layers (D-106): 12 at ratio 1.3, a thinner stack, shown
@@ -285,13 +299,13 @@ def test_layer_count_rows_and_the_y_plus_warning(qtbot: QtBot, tmp_path) -> None
         assert project.sim.mesh.layer_controls == "robust" and auto.expansion == 1.2 and not auto.capped
         assert p.mesh_layer_mode.text() == "wall-resolved (automatic: target y+ 1 < 5)"
         assert "viscous sublayer" in p.mesh_layer_mode.toolTip() and "5 or more" in p.mesh_layer_mode.toolTip()
-        assert controls.currentText() == "wall_resolved" and not controls.isEnabled()  # seen, cannot be lost
-        assert controls.toolTip() == p.mesh_layer_mode.toolTip()
+        assert controls.currentData() == "wall_resolved" and not controls.isEnabled()  # seen, cannot be lost
+        assert controls.toolTip().endswith(p.mesh_layer_mode.toolTip())
         project.update_mesh(layer_controls="legacy")  # a project saved before v13: no cap, no automatic mode
         assert p.mesh_layer_count.text() == "30 (limit 30)" and not p.mesh_layer_thickness_warning.isVisible()
         assert p.mesh_layer_plan.property("warn") == "false"
         assert p.mesh_layer_count.property("warn") == "true" and WARNING_HINT in p.mesh_layer_count.toolTip()
-        assert p.mesh_layer_mode.text() == "legacy" and controls.isEnabled() and controls.currentText() == "legacy"
+        assert p.mesh_layer_mode.text() == "legacy" and controls.isEnabled() and controls.currentData() == "legacy"
         tip = w.top_bar.mesh_button.toolTip()
         assert w.top_bar.mesh_button.isEnabled() and "Warning" in tip and WARNING_HINT in tip
         project.update_mesh(layer_controls="robust")

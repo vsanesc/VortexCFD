@@ -18,6 +18,8 @@ from vortexcfd.foam.mesh_run import MeshRunResult
 from vortexcfd.geometry.loader import clear_cache
 from vortexcfd.gui import mesh_worker
 from vortexcfd.gui.main_window import MainWindow
+from vortexcfd.gui.scene import domain_box_for
+from vortexcfd.workflow.meshing import estimate_with_volumes
 
 
 @pytest.fixture(autouse=True)
@@ -350,14 +352,16 @@ def test_mesh_editor_shows_values_suffixes_and_computed_sizes(make_window) -> No
     assert p._rows["mset_background_cells_target"].isVisible()
     f = p.mesh_fields
     assert f["background_cells_target"].value() == 100_000 and f["background_cells_target"].suffix() == " cells"
-    assert f["target_surface_size"].value() == 0.01 and f["target_surface_size"].suffix() == " \u00d7 length"
-    assert f["base_size"].suffix() == " m" and f["base_size"].specialValueText() == "auto"
-    assert f["base_size"].value() == 0.0  # None shows as "auto"
-    assert f["surface_level_max"].value() == -1 and f["surface_level_max"].specialValueText() == "auto"
-    assert f["feature_angle"].suffix() == "°" and f["layers"].value() == 1 or True
-    # computed values are read-only labels next to their overrides
-    assert "(computed)" in p.mesh_base_used.text() and "(computed)" in p.mesh_levels_used.text()
-    assert "=" in p.mesh_bg_cells.text() and p.mesh_surface_cells.text().endswith(" m")
+    assert f["target_surface_size"].value() == 0.01 and f["target_surface_size"].suffix() == " \u00d7 l_ref"
+    # Auto checked: the computed value in use is shown, read-only and greyed (D-148)
+    est = estimate_with_volumes(w.project, domain_box_for(w.project))
+    assert f["base_size"].auto.isChecked() and not f["base_size"].spin.isEnabled()
+    assert f["base_size"].spin.suffix() == " m" and f["base_size"].spin.value() == pytest.approx(est.base_size, abs=1e-4)
+    assert f["surface_level_max"].auto.isChecked() and f["surface_level_max"].spin.value() == est.level_max
+    assert f["surface_level_min"].spin.value() == est.level_min
+    assert f["feature_angle"].suffix() == "°" and f["layers"].suffix() == " layers"
+    assert "=" in p.mesh_bg_cells.text() and p.mesh_bg_cells.text().endswith(" cells")
+    assert " m (level " in p.mesh_surface_cells.text()
 
 
 def test_editing_a_mesh_field_is_one_undoable_step(make_window) -> None:
@@ -377,15 +381,17 @@ def test_override_and_auto_round_trip(make_window) -> None:
     w = make_window(with_viewer=False)
     _mesh_node(w)
     f = w.properties.mesh_fields
-    f["base_size"].setValue(0.3)
-    f["base_size"].editingFinished.emit()
+    f["base_size"].auto.setChecked(False)  # unchecking Auto starts from the value in use
+    computed = f["base_size"].spin.value()
+    assert w.project.sim.mesh.base_size == pytest.approx(computed) and f["base_size"].spin.isEnabled()
+    f["base_size"].spin.setValue(0.3)
+    f["base_size"].spin.editingFinished.emit()
     assert w.project.sim.mesh.base_size == 0.3
-    assert "(computed)" not in w.properties.mesh_base_used.text()
-    f["base_size"].setValue(0.0)  # back to auto
-    f["base_size"].editingFinished.emit()
-    assert w.project.sim.mesh.base_size is None
-    f["surface_level_max"].setValue(4)
-    f["surface_level_max"].editingFinished.emit()
+    f["base_size"].auto.setChecked(True)  # back to auto
+    assert w.project.sim.mesh.base_size is None and not f["base_size"].spin.isEnabled()
+    f["surface_level_max"].auto.setChecked(False)
+    f["surface_level_max"].spin.setValue(4)
+    f["surface_level_max"].spin.editingFinished.emit()
     assert w.project.sim.mesh.surface_level_max == 4
 
 
@@ -408,8 +414,8 @@ def test_invalid_level_order_is_rejected_by_the_model(make_window) -> None:
     w = make_window(with_viewer=False)
     _mesh_node(w)
     f = w.properties.mesh_fields
-    f["surface_level_min"].setValue(5)  # above the fixture's max of 2
-    f["surface_level_min"].editingFinished.emit()
+    f["surface_level_min"].spin.setValue(5)  # above the fixture's max of 2
+    f["surface_level_min"].spin.editingFinished.emit()
     assert w.project.sim.mesh.surface_level_min == 1
     assert "surface_level_max" in w.statusBar().currentMessage()
 
@@ -567,18 +573,24 @@ def test_mesh_properties_state_the_surface_length_and_warn_when_l_ref_is_auto(ma
     w.project.update_reports(reference_length=None)
     _mesh_node(w)
     p = w.properties
-    assert p._rows["mset_surface_length"].isVisible() and p.mesh_surface_length.text().startswith("l_ref = ")
+    # the surface size says which length it is a fraction of, with its value, and the size in metres (D-148)
+    assert p.mesh_surface_length.isVisible() and p.mesh_surface_length.text().startswith("= ")
+    assert "(l_ref = " in p.mesh_surface_length.text() and " m" in p.mesh_surface_length.text()
     assert "auto: bounding-box length" in p.mesh_surface_length.text()
     assert p.mesh_length_warning.isVisible() and "l_ref is not set" in p.mesh_length_warning.text()
     assert p.mesh_curvature.text().startswith("level ") and p.mesh_fields["curvature_levels"].value() == 2
     w.project.update_reports(reference_length=0.5)
     p.refresh()
-    assert p.mesh_surface_length.text() == "l_ref = 0.5 m" and not p.mesh_length_warning.isVisible()
+    assert p.mesh_surface_length.text() == "= 0.005 m (l_ref = 0.5 m)" and not p.mesh_length_warning.isVisible()
+    p.mesh_fields["target_surface_size"].setValue(0.02)  # live, before the edit is committed
+    assert p.mesh_surface_length.text() == "= 0.01 m (l_ref = 0.5 m)"
+    p.refresh()
     w.project.update_mesh(surface_size_reference="largest_extent", curvature_levels=0)
     p.refresh()
-    assert p.mesh_surface_length.text().startswith("L = ") and p.mesh_curvature.text() == "off"
+    assert "(L = " in p.mesh_surface_length.text() and p.mesh_curvature.text() == "off"
     assert p.mesh_fields["curvature_levels"].specialValueText() == "off"
-    assert p.mesh_fields["surface_size_reference"].currentText() == "largest_extent"
+    assert p.mesh_fields["surface_size_reference"].currentData() == "largest_extent"
+    assert p.mesh_fields["target_surface_size"].suffix() == " \u00d7 L"
 
 
 # -- parallel meshing (D-111) ----------------------------------------------------------------------
@@ -639,15 +651,15 @@ def test_the_mesh_cores_field_shows_auto_and_the_cores_used(make_window) -> None
     w = make_window(with_viewer=False)
     _mesh_node(w)
     p = w.properties
-    spin = p.mesh_fields["cores"]
-    assert spin.value() == 0 and spin.specialValueText() == "auto" and spin.maximum() == properties_panel.PHYSICAL_CORES
-    assert "Meshing scales better than the solver; it can use more cores" in spin.toolTip()
-    assert p._rows["mset_cores_used"].isVisible() and w.project.sim.solvers.cores == 1
-    used = p.mesh_cores_used.text()  # the recommendation, whatever the Solvers cores (owner review of D-111)
-    assert used.startswith(f"{used.split(' ')[0]} (automatic; recommended {used.split(' ')[0]} for ")
-    spin.setValue(2)
-    spin.editingFinished.emit()
-    assert w.project.sim.mesh.cores == 2 and p.mesh_cores_used.text().startswith("2 (set; recommended ")
-    spin.setValue(0)
-    spin.editingFinished.emit()
+    field = p.mesh_fields["cores"]
+    assert field.auto.isChecked() and field.spin.maximum() == properties_panel.PHYSICAL_CORES
+    assert "Meshing scales better than the solver; it can use more cores" in field.toolTip()
+    assert w.project.sim.solvers.cores == 1
+    used = field.spin.value()  # the recommendation, whatever the Solvers cores (owner review of D-111)
+    assert f"In use: {used} (automatic; recommended {used} for " in field.toolTip()
+    field.auto.setChecked(False)
+    field.spin.setValue(2)
+    field.spin.editingFinished.emit()
+    assert w.project.sim.mesh.cores == 2 and "In use: 2 (set; recommended " in field.toolTip()
+    field.auto.setChecked(True)
     assert w.project.sim.mesh.cores is None  # back to automatic

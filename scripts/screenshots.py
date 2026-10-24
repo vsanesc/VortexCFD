@@ -15,18 +15,16 @@ from vortexcfd.core.display_guard import apply_display_guard
 
 apply_display_guard()  # before Qt is imported
 
-from PySide6.QtCore import QSettings  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 OUT = Path("/tmp/vortexcfd_shots")
 
 
 def main() -> int:
-    # Never touch the user's real settings: redirect QSettings to a temp folder first.
-    tmp = tempfile.mkdtemp(prefix="vortexcfd_settings_")
-    for fmt in (QSettings.Format.NativeFormat, QSettings.Format.IniFormat):
-        for scope in (QSettings.Scope.UserScope, QSettings.Scope.SystemScope):
-            QSettings.setPath(fmt, scope, tmp)
+    # Never touch the user's real settings or Recent list (D-141).
+    from vortexcfd.core.user_dirs import isolate_settings
+
+    isolate_settings()
 
     from vortexcfd.core.model import Part
     from vortexcfd.core.project import Project
@@ -124,4 +122,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        code = main()
+    finally:
+        from vortexcfd.gui.teardown import finish
+
+        finish()  # every window and plotter ended while the application exists (D-164)
+    sys.exit(code)

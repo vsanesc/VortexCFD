@@ -2,7 +2,6 @@
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -11,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from vortexcfd.gui.icons import logo_pixmap
-from vortexcfd.gui.theme import Metrics, Theme, mono_font
+from vortexcfd.gui.theme import Metrics, Theme, metrics, set_text_role
 from vortexcfd.gui.widgets import Badge, DotButton
 
 # (label, plotter method, tooltip). Fit is momentary: it does not change the active view.
@@ -23,6 +22,13 @@ VIEW_BUTTONS = (
     ("Fit", "reset_camera", "Fit the model in the view"),
 )
 FIT_METHOD = "reset_camera"
+
+
+PARAVIEW_TEXT = "Open in ParaView"
+PARAVIEW_SHORT = "ParaView"
+COMPACT_LEVELS = 5  # full, short badge texts, dot-only badges, short ParaView button, no brand text
+MIN_NAME_U = 4  # the project name's narrowest (elided) width
+NAME_TOOLTIP = "Select the simulation (edit its name in Properties)"
 
 
 class TopBar(QWidget):
@@ -41,7 +47,8 @@ class TopBar(QWidget):
         self.name_button = QPushButton("Untitled")
         self.name_button.setObjectName("nameBtn")
         self.name_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.name_button.setToolTip("Select the simulation (edit its name in Properties)")
+        self.name_button.setToolTip(NAME_TOOLTIP)
+        self._name = "Untitled"
         self.name_button.clicked.connect(self.name_clicked)
         self.state_badge = Badge("Saved", with_dot=True)
         self.mesh_badge = Badge("Mesh out of date", with_dot=True)
@@ -50,10 +57,12 @@ class TopBar(QWidget):
         self._mesh_stale = False
         self._mesh_error: str | None = None
         self._mesh_warning: str | None = None
-        self.results_badge = Badge("Results out of date", with_dot=True)
+        self.results_badge = Badge(with_dot=True)
+        self.results_badge.setText("Results out of date", "Results")
         self.results_badge.set_state("warning")
         self.results_badge.hide()
         self._pad = 0
+        self._compact = 0
 
         row = QHBoxLayout(self)
         self._row = row
@@ -94,6 +103,10 @@ class TopBar(QWidget):
         self.wireframe_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.wireframe_button.toggled.connect(self.wireframe_toggled)
         row.addWidget(self.wireframe_button)
+        self.paraview_button = QPushButton(PARAVIEW_TEXT)  # next to the scene controls (D-151)
+        self.paraview_button.setObjectName("tbBtn")
+        self.paraview_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        row.addWidget(self.paraview_button)
         row.addStretch(1)
         self.mesh_button = self._future_button("Generate Mesh", "meshBtn", "Save the project first.")
         self.mesh_button.clicked.connect(self.mesh_clicked)
@@ -103,6 +116,32 @@ class TopBar(QWidget):
         self.run_button.clicked.connect(self.run_clicked)
         row.addWidget(self.mesh_button)
         row.addWidget(self.run_button)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._fit_width()
+
+    def compact_level(self) -> int:
+        return self._compact
+
+    def _fit_width(self) -> None:
+        """The least compact form that fits the bar's width (D-155): the out-of-date badges with their short texts,
+        then as dots only (their text in the tooltip), then "ParaView" for "Open in ParaView"."""
+        self._fit_name()
+        for level in range(COMPACT_LEVELS):
+            self._apply_compact(level)
+            excess = self._row.sizeHint().width() - self.width()
+            if excess <= 0:
+                return
+        self._fit_name(max(MIN_NAME_U * metrics().u, self.name_button.minimumWidth() - excess))  # the name gives way last
+
+    def _apply_compact(self, level: int) -> None:
+        self._compact = level
+        for badge in (self.mesh_badge, self.results_badge):
+            badge.set_compact(min(level, 2))
+        self.paraview_button.setText(PARAVIEW_SHORT if level >= 3 else PARAVIEW_TEXT)
+        self.brand.setVisible(level < 4)  # the logo stays
+        self._row.invalidate()
 
     def _separator(self) -> QFrame:
         sep = QFrame()
@@ -119,6 +158,7 @@ class TopBar(QWidget):
         return button
 
     def set_project(self, file_name: str, dirty: bool) -> None:
+        self._name = file_name
         self.name_button.setText(file_name)
         self._fit_name()
         self._dirty = dirty
@@ -144,19 +184,21 @@ class TopBar(QWidget):
     def _update_mesh_badge(self) -> None:
         error = self._mesh_error
         if error:
-            self.mesh_badge.setText(error)
+            self.mesh_badge.setText(error, "Mesh invalid")
             self.mesh_badge.set_state("error")
         elif self._mesh_stale or not self._mesh_warning:
-            self.mesh_badge.setText("Mesh out of date")
+            self.mesh_badge.setText("Mesh out of date", "Mesh")
             self.mesh_badge.set_state("warning")
         else:
-            self.mesh_badge.setText(self._mesh_warning)
+            self.mesh_badge.setText(self._mesh_warning, "Mesh")
             self.mesh_badge.set_state("warning")
         self.mesh_badge.setHidden(not (error or self._mesh_stale or self._mesh_warning))
+        self._fit_width()
 
     def set_results_stale(self, stale: bool) -> None:
         """Show the "Results out of date" badge (the saved results no longer match the inputs)."""
         self.results_badge.setHidden(not stale)
+        self._fit_width()
 
     def set_solver_state(self, reason: str | None, running: bool, warning: str | None = None,
                          first_cell: str | None = None) -> None:
@@ -234,28 +276,25 @@ class TopBar(QWidget):
         self._row.setSpacing(m.s2)
         self._logo.setPixmap(logo_pixmap(t, m.logo, dpr))
         self._logo.setFixedSize(m.logo, m.logo)
-        brand = QApplication.font()
-        brand.setBold(True)
-        self.brand.setFont(brand)
-        self.name_button.setFont(mono_font(QApplication.font(), 0.9))
+        set_text_role(self.brand, "strong")
+        set_text_role(self.name_button, "value")
         self.state_badge.configure(m, t)
         self.mesh_badge.configure(m, t)
         self.results_badge.configure(m, t)
         self.wireframe_button.configure(m, t)
-        small = mono_font(QApplication.font(), 0.85)
         self._seg_row.setContentsMargins(m.line, m.line, m.line, m.line)
         self._seg_row.setSpacing(0)
         inner = m.button - 2 * m.line
         for button in self.view_buttons.values():
-            button.setFont(small)
+            set_text_role(button, "control")
             button.setFixedHeight(inner - 2 * m.line)
         self.segmented.setFixedHeight(m.button)
-        self.wireframe_button.setFont(small)
+        set_text_role(self.wireframe_button, "control")
         self.wireframe_button.setFixedHeight(m.button)
-        bold = QApplication.font()
-        bold.setBold(True)
+        set_text_role(self.paraview_button, "control")
+        self.paraview_button.setFixedHeight(m.button)
         for button in (self.mesh_button, self.run_button):
-            button.setFont(bold)
+            set_text_role(button, "strong")
             button.setFixedHeight(m.button)
         self.name_button.setFixedHeight(m.button)
         for sep in self.findChildren(QFrame, "vsep"):
@@ -264,8 +303,17 @@ class TopBar(QWidget):
             sep.setFixedSize(m.line, inner - 2 * m.line)
         self._pad = 2 * m.s3
         self._fit_name()
+        self._fit_width()
 
-    def _fit_name(self) -> None:
-        # Explicit minimum so the name is never clipped by a stale size hint.
-        width = self.name_button.fontMetrics().horizontalAdvance(self.name_button.text())
-        self.name_button.setMinimumWidth(width + self._pad)
+    def _fit_name(self, width: int | None = None) -> None:
+        """The project name in full, or elided in the middle to ``width`` pixels (the full name then in the
+        tooltip). An explicit width, so the name is never clipped by a stale size hint."""
+        fm = self.name_button.fontMetrics()
+        full = fm.horizontalAdvance(self._name)
+        if width is None or width >= full + self._pad:
+            text, width = self._name, full + self._pad
+        else:
+            text = fm.elidedText(self._name, Qt.TextElideMode.ElideMiddle, max(width - self._pad, 0))
+        self.name_button.setText(text)
+        self.name_button.setFixedWidth(width)
+        self.name_button.setToolTip(NAME_TOOLTIP + (f"\n{self._name}" if text != self._name else ""))

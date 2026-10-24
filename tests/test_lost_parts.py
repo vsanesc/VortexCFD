@@ -256,14 +256,15 @@ def test_gui_lost_part_fails_the_mesh_and_blocks_the_solver(qtbot: QtBot, tmp_pa
         assert not rb.isEnabled() and rb.toolTip().startswith("Part Pod was lost during meshing")
         # per-part levels in the Part properties
         w.tree.setCurrentItem(w._items[("part", 1)])
-        spin = p.part_level_fields["surface_level_max"]
-        assert p._rows["part_surface_level_max"].isVisible() and spin.text() == "auto"
-        spin.setValue(6)
-        spin.editingFinished.emit()
+        field = p.part_level_fields["surface_level_max"]
+        assert p._rows["part_surface_level_max"].isVisible() and field.auto.isChecked()
+        assert not field.spin.isEnabled() and field.spin.text().endswith(" level")  # the level in use, greyed
+        field.auto.setChecked(False)
+        field.spin.setValue(6)
+        field.spin.editingFinished.emit()
         assert w.project.sim.geometry.parts[1].surface_level_max == 6
         assert w.mesh_stale  # part levels are meshing inputs
-        spin.setValue(spin.minimum())
-        spin.editingFinished.emit()
+        field.auto.setChecked(True)
         assert w.project.sim.geometry.parts[1].surface_level_max is None
     finally:
         w.project.save = lambda *a, **k: None

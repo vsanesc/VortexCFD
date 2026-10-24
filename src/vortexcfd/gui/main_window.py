@@ -13,6 +13,7 @@ import numpy as np
 from PySide6.QtCore import QEvent, QPointF, QRect, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
+    QActionGroup,
     QCloseEvent,
     QColor,
     QDesktopServices,
@@ -31,14 +32,15 @@ from PySide6.QtWidgets import (
     QLabel,
     QButtonGroup,
     QMainWindow,
-    QMenu,
     QPushButton,
     QSlider,
     QSizePolicy,
     QSplitter,
     QSplitterHandle,
+    QStackedWidget,
     QStatusBar,
     QStyle,
+    QToolButton,
     QStyledItemDelegate,
     QStyleOptionViewItem,
     QTreeWidget,
@@ -52,7 +54,6 @@ from vortexcfd.core.model import (
     OUTLET_KIND_LABELS,
     PATCH_ROLE_LABELS,
     SCENE_OBJECT_LABELS,
-    VOLUME_SHAPES,
     Part,
     Simulation,
     StoppingCriteria,
@@ -102,6 +103,10 @@ from vortexcfd.foam.solver_run import CRITERIA_MET, read_stages, stage2_criteria
 from vortexcfd.workflow import solving
 from vortexcfd.gui.solver_worker import SolverWorker
 from vortexcfd.gui.study_control import StudyControlMixin
+from vortexcfd.gui.tree_actions import TreeActionsMixin
+from vortexcfd.gui.compare_control import CompareControlMixin
+from vortexcfd.core.model import BOUNDARY_KIND_LABELS
+from vortexcfd.gui.panel_widgets import FloatingPanel
 from vortexcfd.foam.results import latest_result_time
 from vortexcfd.gui import paraview
 from vortexcfd.gui.colormaps import COLORMAPS, DEFAULT_COLORMAP
@@ -130,9 +135,11 @@ from vortexcfd.gui.scene import (
 )
 from vortexcfd.gui.theme import (
     DEFAULT_POINT_SIZE,
+    INTERFACE_SIZES,
     LAYOUT,
     LEFT_INITIAL_U,
     LIMITS_U,
+    MIN_WINDOW_U,
     SECTION_PREVIEW_MS,
     SECTION_SLIDER_STEPS,
     WINDOW_ICON_SIZES,
@@ -142,7 +149,9 @@ from vortexcfd.gui.theme import (
     clamp_point_size,
     load_appearance,
     metrics,
-    mono_font,
+    refresh_text_roles,
+    repolish,
+    set_text_role,
     save_appearance,
     settings,
 )
@@ -174,8 +183,9 @@ ADD_PART_NOT_BUILT = "Not built yet: an empty part without a surface. Add parts 
 
 
 class _RowDelegate(QStyledItemDelegate):
-    """Tree rows: fixed height, full-width hover/selection fill, 2px accent_secondary bar on the
-    left edge of the selected row, drawn chevrons for rows with children and an eye for parts."""
+    """Tree rows: fixed height, full-width hover/selection fill (the accent tint), a 2px accent bar on the
+    left edge of the selected row and its text in the accent (D-144), drawn chevrons for rows with children and
+    an eye for parts."""
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
@@ -219,7 +229,7 @@ class _RowDelegate(QStyledItemDelegate):
         row = QRect(0, r.top(), width, r.height())
         if selected:
             painter.fillRect(row, QColor(t.selection))
-            painter.fillRect(QRect(0, r.top(), m.bar, r.height()), QColor(t.accent_secondary))
+            painter.fillRect(QRect(0, r.top(), m.bar, r.height()), QColor(t.accent))
         elif hover:
             painter.fillRect(row, QColor(t.elevated))
         if index.model().hasChildren(index):
@@ -235,10 +245,13 @@ class _RowDelegate(QStyledItemDelegate):
             | QStyle.StateFlag.State_HasFocus
         )
         opt.rect = r.adjusted(self.slot, 0, 0, 0)
+        if selected:  # the selected row's text in the accent
+            opt.palette.setColor(QPalette.ColorRole.Text, QColor(t.accent))
+            opt.palette.setColor(QPalette.ColorRole.WindowText, QColor(t.accent))
         super().paint(painter, opt, index)
 
     def _draw_chevron(self, painter, r, expanded: bool, hover: bool, m: Metrics, t: Theme) -> None:
-        pen = QPen(QColor(t.accent_secondary_hover if hover else t.muted_text), max(1.2, m.u / 12))
+        pen = QPen(QColor(t.accent_hover if hover else t.muted_text), max(1.2, m.u / 12))
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         painter.save()
@@ -293,6 +306,9 @@ class _Handle(QSplitterHandle):
             painter.fillRect(QRect(0, y, self.width(), line), color)
 
 
+PROPERTIES_WINDOW_MIN_U = (18, 16)  # the detached properties window's minimum, in font heights (D-155)
+
+
 class _Splitter(QSplitter):
     line_edge = "center"  # where the 1px line sits in the handle: start, center or end
 
@@ -304,7 +320,7 @@ class _Splitter(QSplitter):
         return _Handle(self.orientation(), self)
 
 
-class MainWindow(StudyControlMixin, QMainWindow):
+class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMainWindow):
     """Top bar, left column (tree + properties), scene, monitors and console.
 
     All changes go through the Project edit API. Only the GUI thread may call Project methods
@@ -336,6 +352,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._root_item: QTreeWidgetItem | None = None
         self._filter = ""
         self._first_show = True
+        self._released = False  # _release_background ran (D-164)
         self._saved_sizes: dict[str, list[int]] = {}
         # GUI-side visibility of each part (by name); Task 2.2 wires it to the viewer.
         self.part_visibility: dict[str, bool] = {}
@@ -405,6 +422,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.tree.setItemDelegate(self._delegate)
         self.tree.eye_clicked.connect(self._on_eye_clicked)
         self.tree.itemActivated.connect(self._on_item_activated)
+        self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
         self.properties = PropertiesPanel(project)
         self.properties.message.connect(lambda text: self.show_message(text, "warning"))
         self.properties.regions_selected.connect(self._on_regions_selected)
@@ -433,7 +451,18 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.props_name = QLabel()
         self.props_name.setObjectName("accent2")
         self.props_header.row.insertWidget(1, self.props_name)
+        self.detach_button = QToolButton()  # the panel in its own window and back (D-148)
+        self.detach_button.setObjectName("helpBtn")
+        self.detach_button.setText("\u2197")
+        self.detach_button.setToolTip("Detach the properties into their own window (click again to dock them)")
+        self.detach_button.clicked.connect(lambda: self.toggle_properties_window())
+        self.props_header.row.addWidget(self.detach_button)
         props_section = self._panel(self.props_header, self.properties)
+        self._props_section = props_section
+        self.properties_window: FloatingPanel | None = None
+        self.properties.help_requested.connect(lambda target: self.open_manual(section=target))
+        self.properties.face_type_changed.connect(lambda face: self._select_node(f"boundary_{face}", None))
+        self.properties.show_in_file_requested.connect(lambda key: self.show_in_openfoam_file(key))
 
         self._left_split = _Splitter(Qt.Orientation.Vertical)
         self._left_split.addWidget(tree_section)
@@ -480,6 +509,14 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self._tab_group.addButton(button)
             button.clicked.connect(lambda _=False, m=mode: self._set_scene_mode(m))
             tab_row.addWidget(button)
+        self.compare_tab = QPushButton("Compare")  # results snapshots side by side (D-149)
+        self.compare_tab.setObjectName("sceneTabBtn")
+        self.compare_tab.setCheckable(True)
+        self.compare_tab.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.compare_tab.setToolTip("Compare runs: results snapshots of this and other projects")
+        self._tab_group.addButton(self.compare_tab)
+        self.compare_tab.clicked.connect(lambda _=False: self.show_compare())
+        tab_row.addWidget(self.compare_tab)
         self.scene_tab.setChecked(True)
         tab_row.addStretch(1)
         # Section-plane controls of the mesh scene (hidden until a mesh is shown).
@@ -572,7 +609,12 @@ class MainWindow(StudyControlMixin, QMainWindow):
             canvas.setObjectName("canvas")
             canvas.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._canvas = canvas
-        center_layout.addWidget(canvas, 1)
+        self._init_compare()
+        self._center_stack = QStackedWidget()  # the viewer, or the Compare tab (D-149)
+        self._center_stack.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        self._center_stack.addWidget(canvas)
+        self._center_stack.addWidget(self.compare_view)
+        center_layout.addWidget(self._center_stack, 1)
 
         # -- right: monitors, bottom: console ----------------------------------------
         self.monitors = MonitorsPanel()
@@ -613,6 +655,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.top_bar.wireframe_toggled.connect(self._set_wireframe)
         self.top_bar.mesh_clicked.connect(self.generate_mesh)
         self.top_bar.run_clicked.connect(self.run_solver)
+        self.paraview_button = self.top_bar.paraview_button  # Open in ParaView (D-151)
+        self.paraview_button.clicked.connect(lambda: self.open_in_paraview())
         self.top_bar.set_viewer_enabled(self.viewer is not None)
         central = QWidget()
         central_layout = QVBoxLayout(central)
@@ -699,8 +743,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         """
         bar = self.statusBar()
         bar.setProperty("level", level)
-        bar.style().unpolish(bar)
-        bar.style().polish(bar)
+        repolish(bar)
         bar.showMessage(text, MESSAGE_TIMEOUT_MS)
         if log_it and level in _LOGGED_LEVELS:
             log.log(_LOGGED_LEVELS[level], text)
@@ -719,6 +762,63 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._point_size = clamp_point_size(size)
         save_appearance(self._theme, self._point_size)
         self._apply_appearance()
+        self._sync_interface_size()
+
+    def set_interface_size(self, name: str) -> None:
+        """View > Interface size (D-148): Small, Medium or Large, applied to the fonts and every size derived from
+        them (rows, fields, the tree); remembered."""
+        self.set_point_size(INTERFACE_SIZES[name])
+
+    def interface_size(self) -> str | None:
+        """The interface size in use (None: a zoom step between them)."""
+        return next((n for n, size in INTERFACE_SIZES.items() if size == self._point_size), None)
+
+    def _sync_interface_size(self) -> None:
+        current = self.interface_size()
+        for name, act in getattr(self, "act_interface_sizes", {}).items():
+            act.setChecked(name == current)
+
+    def detach_monitor(self, key: str):
+        """The residual chart ("residuals") or the convergence criteria ("criteria") in their own window (D-156)."""
+        return self.monitors.detach(key)
+
+    def dock_monitor(self, key: str) -> None:
+        self.monitors.dock(key)
+
+    def toggle_properties_window(self) -> None:
+        """Detach the properties panel into its own window, or dock it back into the left column (D-148)."""
+        if self.properties_window is None:
+            self.detach_properties()
+        else:
+            self.dock_properties()
+
+    def detach_properties(self) -> None:
+        if self.properties_window is not None:
+            return
+        sizes = self._left_split.sizes()
+        window = FloatingPanel("Properties", self.dock_properties, PROPERTIES_WINDOW_MIN_U)
+        window.setWindowIcon(self.windowIcon())
+        window.take(self._props_section)
+        self.properties_window = window
+        self._docked_sizes = sizes
+        window.resize(max(self._props_section.width(), 24 * metrics().u), max(sizes[1] if len(sizes) > 1 else 0,
+                                                                            30 * metrics().u))
+        window.show()
+        self.detach_button.setToolTip("Dock the properties back into the main window")
+
+    def dock_properties(self) -> None:
+        window = self.properties_window
+        if window is None:
+            return
+        self.properties_window = None
+        self._left_split.insertWidget(1, self._props_section)
+        self._props_section.show()
+        window.release()
+        window.close()
+        window.deleteLater()
+        if getattr(self, "_docked_sizes", None):
+            self._left_split.setSizes(self._docked_sizes)
+        self.detach_button.setToolTip("Detach the properties into their own window (click again to dock them)")
 
     def _apply_appearance(self) -> None:
         apply_theme(self._theme, self._point_size)
@@ -728,7 +828,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.setWindowIcon(logo_icon(t, WINDOW_ICON_SIZES, self.devicePixelRatioF()))
         self.tree_header.configure(m)
         self.props_header.configure(m)
-        self.props_name.setFont(mono_font(QApplication.font(), 0.9))
+        set_text_role(self.props_name, "value")
         self.search.configure(m, t)
         self._search_layout.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
         self.properties.apply_metrics(m, t)
@@ -742,38 +842,36 @@ class MainWindow(StudyControlMixin, QMainWindow):
         )
         self.tree.setIndentation(m.u)
         self.tree.setIconSize(QSize(m.u, m.u))
-        self.tree.setFont(QApplication.font())
+        set_text_role(self.tree, "body")
         self._tab_bar.setFixedHeight(m.tab_bar)
         for tab in (self.scene_tab, self.mesh_tab, self.results_tab):
             tab.setFixedHeight(m.tab_bar - m.line)
         self._results_row.setContentsMargins(m.s3, m.s1, m.s3, m.s1)
         self._results_row.set_spacing(m.s2, m.s1)
         for w in self._results_widgets():
-            w.setFont(mono_font(QApplication.font(), 0.85))
+            set_text_role(w, "control")
             w.setFixedHeight(m.tab_bar - 2 * m.s1)
-        pad = 4 * m.s3
-        self.paraview_button.setMinimumWidth(
-            self.paraview_button.fontMetrics().horizontalAdvance(self.paraview_button.text()) + pad)
         if self.results_view is not None:
             self.results_view.font_size = self._point_size
         self._section_row.setContentsMargins(m.s3, 0, m.s3, 0)
         self.section_controls.setFixedHeight(m.tab_bar)
         self._section_row.setSpacing(m.s2)
-        small = mono_font(QApplication.font(), 0.85)
         control_h = m.tab_bar - 2 * m.s1
         for button in (self.section_toggle, self.boundary_toggle, *self.axis_buttons.values()):
-            button.setFont(small)
+            set_text_role(button, "control")
             button.setFixedHeight(control_h)
         self.section_toggle.configure(m, t)
         self.boundary_toggle.configure(m, t)
         self.section_slider.setFixedWidth(10 * m.u)
         self.menuBar().setFixedHeight(m.menubar)
         self._status_bar.setFixedHeight(m.status)
-        self._selection_label.setFont(mono_font(QApplication.font(), 0.85))
+        set_text_role(self._selection_label, "control")
         self._selection_label.setContentsMargins(m.s3, 0, m.s3, 0)
         for splitter in (self._outer, self._inner, self._right_split, self._left_split):
             splitter.setHandleWidth(m.hit)
         self._apply_limits(m)
+        for root in (self, self.properties, self.monitors, *self.monitors.floating_windows()):  # some in own windows
+            refresh_text_roles(root)
         if self.viewer is not None:
             self._style_viewer()
         if self._unsubscribe is not None:
@@ -793,6 +891,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.console.setMinimumHeight(LIMITS_U["console"][0] * m.u)
         self._left_split.widget(0).setMinimumHeight(LIMITS_U["tree"][0] * m.u)
         self._left_split.widget(1).setMinimumHeight(LIMITS_U["properties"][0] * m.u)
+        # The splitters do not pass their regions' minimum heights on, so the window's own minimum is set (D-155).
+        self.setMinimumSize(MIN_WINDOW_U[0] * m.u, MIN_WINDOW_U[1] * m.u)
 
     def _style_viewer(self) -> None:
         t = self._theme
@@ -883,6 +983,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self._apply_initial_sizes()  # needs the real size
             if self.viewer is not None:
                 self._style_viewer()  # axes viewport depends on the real viewer size
+            self.monitors.restore_windows()  # the residual chart and criteria windows as the user left them
 
     # -- refresh -------------------------------------------------------------
 
@@ -895,6 +996,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self._sync_scene()
         self._update_selection_views()
         self._update_actions()
+        self._update_paraview_button()
         self._update_title(sim.name)
         self._update_mesh_stale()
         self._update_mesh_button()
@@ -956,8 +1058,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             # Between the geometry and the domain / mesh (D-093): the surface preparation operation.
             prep_item = add(root, "surface_prep", None, prep_text, "dot",
                             "warning" if prep_state == "stale" else ("accent" if prep is not None else "accent_secondary"))
-            if prep is None:
-                add(prep_item, "prepare_surfaces", None, "Prepare surfaces\u2026", "dot", "accent_secondary")
+            prep_item.setToolTip(0, surface_prep.EXPLANATION)  # D-146: one action, explained on the node
             continua = add(root, "continua", None, "Continua", "folder", "text")
             mesh_item = add(continua, "mesh", None, "Mesh", "dot", "accent_secondary")
             volumes = self._project.sim.refinement_volumes
@@ -969,14 +1070,20 @@ class MainWindow(StudyControlMixin, QMainWindow):
                 if not volume.enabled:
                     item.setForeground(0, QColor(t.muted_text))
                     item.setToolTip(0, "Disabled: not written to the mesh")
-                elif self._domain_box is not None and self._domain_box.bounds is not None and \
-                        domain_fraction(volume.shape, self._domain_box) <= 0.0:
-                    item.setIcon(0, self._node_icon("dot", "warning"))
-                    item.setToolTip(0, OUTSIDE_IGNORED)
+                elif self._domain_box is not None and self._domain_box.bounds is not None:
+                    try:
+                        outside = domain_fraction(refinement.geometry_shape(self._project, volume.shape),
+                                                  self._domain_box) <= 0.0
+                        problem = OUTSIDE_IGNORED if outside else None
+                    except refinement.RegionFileError as exc:
+                        problem = str(exc)
+                    if problem is not None:
+                        item.setIcon(0, self._node_icon("dot", "warning"))
+                        item.setToolTip(0, problem)
             physics_item = add(continua, "physics", None, "Physics", "dot", "accent")
             internal_flow = self._project.sim.internal
             if not internal_flow:  # internal flow: the inlets carry the flow conditions (D-129)
-                add(physics_item, "inflow", None, "Inflow", "dot", "accent")
+                add(physics_item, "inflow", None, "Free stream", "dot", "accent")
             regions = add(root, "regions", None, "Regions", "folder", "text")
             domain = self._project.sim.domain
             generated = domain.enabled or self._project.sim.analysis_type != "empty"
@@ -1000,9 +1107,11 @@ class MainWindow(StudyControlMixin, QMainWindow):
             if internal_flow:
                 add(reports, "internal_reports", None, "Planes & Pressure Drops", "dot", "accent")
             add(reports, "probes", None, "Probes", "dot", "accent")
-            add(reports, "mesh_study", None, "Mesh Study", "dot", "accent")
+            add(reports, "mesh_study", None, "Mesh independence study", "dot", "accent")
             if not internal_flow:  # the angle of attack turns the parts: external flow only (D-120)
-                add(reports, "polar_sweep", None, "Polar Sweep", "dot", "accent")
+                on = self._project.sim.studies.polar.enabled  # opt-in (D-148)
+                add(reports, "polar_sweep", None, "Polar sweep" if on else "Polar sweep (off)", "dot",
+                    "accent" if on else "muted_text")
             results = add(root, "results", None, "Results", "folder", "text")  # the scene objects (D-132)
             scene = self._project.sim.results
             for i, obj in enumerate(scene.objects):
@@ -1032,7 +1141,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
                     "folder", "text")
         if domain.enabled:
             for bname in shape_roles(domain.shape, domain.symmetry == "y_min", domain.ground.enabled):
-                add(fluid, f"boundary_{bname}", None, bname, "dot", "accent")
+                kind = domain.boundary_types.get(bname)  # a changed type is named on the node (D-147)
+                text = f"{bname} ({BOUNDARY_KIND_LABELS[kind].lower()})" if kind else bname
+                add(fluid, f"boundary_{bname}", None, text, "dot", "accent_secondary" if kind else "accent")
         elif not generated:  # the "Empty" analysis: the domain is an operation (D-078)
             add(fluid, "generate_domain", None, "Generate domain\u2026", "dot", "accent_secondary")
         labels = [label for part, patches in zip(parts, part_patch_names(parts))
@@ -1186,14 +1297,22 @@ class MainWindow(StudyControlMixin, QMainWindow):
                 apply_view(self.viewer, view)
                 self.viewer.render()
 
-    def open_manual(self, opener=None) -> Path | None:
-        """Help > User Manual: the local docs/manual/README.md in the system's viewer; returns its path."""
+    def open_manual(self, opener=None, section: str | None = None) -> Path | None:
+        """Help > User Manual: the local docs/manual/README.md in the system's viewer; returns its path.
+        ``section`` "<chapter file>#<anchor>": that chapter at that heading (a properties section's "?", D-148)."""
         path = manual_path()
         if path is None:
             self.show_message("The user manual was not found.", "error")
             return None
+        url = QUrl.fromLocalFile(str(path))
+        if section:
+            chapter, _, anchor = section.partition("#")
+            path = path.parent / chapter
+            url = QUrl.fromLocalFile(str(path))
+            if anchor:
+                url.setFragment(anchor)
         opener = opener or (lambda url: QDesktopServices.openUrl(url))
-        if not opener(QUrl.fromLocalFile(str(path))):
+        if not opener(url):
             self.show_message(f"No viewer opened the manual: it is at {path}", "warning")
         return path
 
@@ -1294,7 +1413,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
                 self.viewer.camera = camera  # after the mode: entering a scene frames the camera
                 self.viewer.render()
         try:
-            path = write_report(self._project, images)
+            path = write_report(self._project, images, comparison=self.compare_view.selected_snapshots())
         except (OSError, ValueError) as exc:
             self.show_message(f"Could not write the report: {exc}", "error")
             return None
@@ -1391,11 +1510,16 @@ class MainWindow(StudyControlMixin, QMainWindow):
         preview = self._volume_preview if self._volume_preview is not None and \
             self._volume_preview.id == self._selected_volume_id() else None
         volumes = self._project.sim.refinement_volumes
-        if self._project.sim.inflow.alpha_deg:  # drawn where meshing puts them: body volumes turn (D-120)
-            attitude = meshing.project_attitude(self._project)
-            volumes = [refinement.meshing_volume(v, attitude) for v in volumes]
+        attitude = meshing.project_attitude(self._project) if self._project.sim.inflow.alpha_deg else None
+        if attitude is not None:  # drawn where meshing puts them: body volumes turn (D-120)
             preview = refinement.meshing_volume(preview, attitude) if preview is not None else None
-        self.volume_view.update(volumes, self._selected_volume_id(), self._scene_mode == "geometry", preview)
+        shapes = {}
+        for v in volumes:  # imported regions drawn as their surfaces (D-145)
+            try:
+                shapes[v.id] = refinement.meshing_shape(self._project, v, attitude)
+            except refinement.RegionFileError:
+                pass
+        self.volume_view.update(volumes, self._selected_volume_id(), self._scene_mode == "geometry", preview, shapes)
 
     def _log_renderer(self) -> None:
         """Write the OpenGL renderer string (and the GPU variables set at start-up) to the console log."""
@@ -1485,6 +1609,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
             warnings = [w for w in (layer_warning(self._project), *thin_part_warnings(self._project)) if w]
             warning = "\n".join(warnings) or None
         self.top_bar.set_mesh_state(reason, running, warning)
+        self._update_paraview_button()  # a new or cleared mesh
 
     def generate_mesh(self) -> None:
         """Generate Mesh / Stop: write the meshing case and run it in the background."""
@@ -1868,6 +1993,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
     def _set_scene_mode(self, mode: str) -> None:
         """Switch between the geometry, mesh and results scenes (tab bar)."""
         self._scene_mode = mode
+        self._center_stack.setCurrentWidget(self._canvas)  # back from the Compare tab
+        self.compare_tab.setChecked(False)
         self.scene_tab.setChecked(mode == "geometry")
         self.mesh_tab.setChecked(mode == "mesh")
         self.results_tab.setChecked(mode == "results")
@@ -1941,7 +2068,6 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.separation_toggle.setCheckable(True)
         self.separation_toggle.setToolTip("Highlight the wall faces where Cf_x < 0 (near-wall flow running "
                                           "upstream: separated or recirculating) in the error colour")
-        self.separation_toggle.toggled.connect(lambda _on: self._apply_results_controls())
         self.sections_button = QPushButton("Sections")
         self.sections_button.setObjectName("tbBtn")
         self.sections_button.setToolTip("Cp against x/c on cuts of the walls by planes normal to y (spanwise) or z")
@@ -1950,23 +2076,26 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.results_stale_label = QLabel("Results out of date: run the solver again")
         self.results_stale_label.setObjectName("statusWarn")
         self.results_stale_label.setVisible(False)
-        self.paraview_button = QPushButton("Open in ParaView")
-        self.paraview_button.setObjectName("tbBtn")
-        self.paraview_button.clicked.connect(self.open_in_paraview)
         for widget in (self.field_combo, self.colormap_combo, self.range_combo, self.range_min,
                        self.range_max, self.display_combo, self.separation_toggle, self.sections_button):
             row.addWidget(widget)
         row.addWidget(self.results_stale_label)
-        row.addWidget(self.paraview_button)
+        # A selector's choice is applied once its popup has closed and the event loop is back (D-152): the redraw
+        # (new actors, a scalar bar, an OpenGL render) never runs inside the selector's own signal.
+        self._results_apply_timer = QTimer(self)
+        self._results_apply_timer.setSingleShot(True)
+        self._results_apply_timer.setInterval(0)
+        self._results_apply_timer.timeout.connect(lambda: self._apply_results_controls())
         for combo in (self.field_combo, self.colormap_combo, self.range_combo, self.display_combo):
-            combo.currentTextChanged.connect(lambda _t: self._apply_results_controls())
+            combo.currentTextChanged.connect(lambda _t: self._results_apply_timer.start())
         for spin in (self.range_min, self.range_max):
-            spin.editingFinished.connect(self._apply_results_controls)
+            spin.editingFinished.connect(self._results_apply_timer.start)
+        self.separation_toggle.toggled.connect(lambda _on: self._results_apply_timer.start())
         self.results_controls.hide()
 
     def _results_widgets(self) -> list[QWidget]:
         return [self.field_combo, self.colormap_combo, self.range_combo, self.range_min, self.range_max,
-                self.display_combo, self.separation_toggle, self.sections_button, self.paraview_button]
+                self.display_combo, self.separation_toggle, self.sections_button]
 
     def results_time(self) -> str | None:
         """The latest time directory with results in the project's case, or None."""
@@ -2120,15 +2249,28 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.current_view = self.UPSTREAM_VIEW
         self.top_bar.set_active_view(None)
 
+    def _paraview_executable(self):
+        """ParaView's executable (D-138), looked for once and again after Edit > Preferences: the Windows Program
+        Files listing can be slow under WSL."""
+        if not hasattr(self, "_paraview_exe"):
+            self._paraview_exe = paraview.executable()
+        return self._paraview_exe
+
     def _update_paraview_button(self) -> None:
-        exe = paraview.executable()
-        has = self.results_time() is not None
-        self.paraview_button.setEnabled(exe is not None and has)
+        """Open in ParaView (top bar and the Results menu, D-151): enabled with ParaView found and a case with a mesh
+        or results; else disabled and its tooltip says why (how to install ParaView, D-138)."""
+        exe = self._paraview_executable()
+        case = case_dir_for(self._project) if self.has_project else None
+        has = case is not None and ((case / "constant" / "polyMesh").is_dir() or self.results_time() is not None)
         missing = paraview.configured_missing()
         tip = paraview.not_found_tip() if exe is None else f"Open the case in ParaView ({exe})"
         if exe is not None and missing:  # the configured path is gone: the detected ParaView is used (QUESTIONS 220)
             tip = f"{tip}\n{paraview.missing_note(missing)} Using the detected one."
-        self.paraview_button.setToolTip(tip)
+        if exe is not None and not has:
+            tip = "Generate the mesh first: ParaView opens the case's mesh and results."
+        for widget in (self.paraview_button, self.act_paraview):
+            widget.setEnabled(exe is not None and has)
+            widget.setToolTip(tip)
 
     def open_in_paraview(self) -> None:
         """Write case.foam and launch ParaView (Linux or Windows) on it, detached."""
@@ -2183,6 +2325,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         if path is None:
             return
         paraview.set_configured(path.strip())
+        self.__dict__.pop("_paraview_exe", None)  # look for it again
         self._update_paraview_button()
         log.info("ParaView executable: %s", path.strip() or "detect automatically")
 
@@ -2443,13 +2586,19 @@ class MainWindow(StudyControlMixin, QMainWindow):
         # An empty part without a surface is not built (D-039: disabled with a tooltip, docs/REVIEW.md R-18).
         self.act_add_part.setEnabled(False)
         self.act_add_part.setToolTip(ADD_PART_NOT_BUILT)
-        self.act_remove_part = action("&Remove part", self.remove_selected_part, S.Delete)
-        # Delete applies only while the tree has focus, so text fields keep their Delete key.
-        self.act_remove_part.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        self.tree.addAction(self.act_remove_part)
+        self.act_remove_part = action("&Remove part", self.remove_selected_part)
+        # Delete and F2 apply only while the tree has focus, so text fields keep their keys (D-145).
+        self.act_delete = action("&Delete", lambda: self.delete_selected(), S.Delete)
+        self.act_rename = action("Re&name", lambda: self.rename_selected(), "F2")
+        for act in (self.act_delete, self.act_rename):
+            act.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            self.tree.addAction(act)
         self.act_repair_part = action("Re&pair part", self.repair_selected_part)
         self.act_generate_domain = action("&Generate Domain...", lambda: self.generate_domain())
-        self.act_prepare_surfaces = action("Prepare &Surfaces...", lambda: self.prepare_surfaces())
+        self.act_prepare_surfaces = action("&Surface Preparation...", lambda: self.prepare_surfaces())
+        self.act_prepare_surfaces.setToolTip(surface_prep.EXPLANATION)
+        self.act_prepare_surfaces.setStatusTip("Prepare crossing or unsewn parts so they mesh as one surface")
+        self.act_paraview = action("Open in &ParaView", lambda: self.open_in_paraview())
         self.act_add_wake = action("Add &Wake Volume", self.add_wake_volume)
         self.act_add_wake.setToolTip("A refinement box behind the selected part (all parts when none is selected), "
                                      "aligned with the free stream")
@@ -2460,6 +2609,13 @@ class MainWindow(StudyControlMixin, QMainWindow):
         self.act_zoom_reset = action(
             "&Reset Zoom", lambda: self.set_point_size(DEFAULT_POINT_SIZE), "Ctrl+0"
         )
+        self.act_interface_sizes: dict[str, QAction] = {}
+        size_group = QActionGroup(self)
+        for name in INTERFACE_SIZES:
+            act = action(name, lambda _=False, n=name: self.set_interface_size(n))
+            act.setCheckable(True)
+            size_group.addAction(act)
+            self.act_interface_sizes[name] = act
 
         self.act_toggle_sidebars = action("Toggle &Sidebars", self._toggle_sidebars, "Ctrl+B")
         self.act_toggle_monitors = action("&Monitors Panel", self._toggle_monitors)
@@ -2495,6 +2651,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
         edit_menu.addAction(self.act_preferences)
         view_menu = self.menuBar().addMenu("&View")
         self.view_menu = view_menu
+        size_menu = view_menu.addMenu("Interface &size")
+        size_menu.addActions(list(self.act_interface_sizes.values()))
+        self._sync_interface_size()
         view_menu.addActions([self.act_zoom_in, self.act_zoom_out, self.act_zoom_reset])
         view_menu.addSeparator()
         view_menu.addAction(self.act_toggle_sidebars)
@@ -2553,8 +2712,6 @@ class MainWindow(StudyControlMixin, QMainWindow):
         kind, _index = item.data(0, ROLE_NODE)
         if kind == "generate_domain":
             self.generate_domain()
-        elif kind == "prepare_surfaces":
-            self.prepare_surfaces()
 
     # -- refinement volumes (D-103) ------------------------------------------------------------------
 
@@ -2563,6 +2720,8 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self.add_refinement_volume(action.removeprefix("add:"))
         elif action == "wake":
             self.add_wake_volume()
+        elif action == "region_file":
+            self.add_region_from_file()
         elif action == "duplicate":
             self.duplicate_selected_volume()
         elif action == "delete":
@@ -2651,29 +2810,6 @@ class MainWindow(StudyControlMixin, QMainWindow):
             self.properties.vol_name.setFocus()
             self.properties.vol_name.selectAll()
 
-    def _tree_context_menu(self, position) -> None:
-        item = self.tree.itemAt(position)
-        if item is None or not self.has_project:
-            return
-        kind, _index = item.data(0, ROLE_NODE)
-        if kind not in ("mesh", "refinement_volumes", "refinement_volume", "part"):
-            return
-        self.tree.setCurrentItem(item)
-        menu = QMenu(self.tree)
-        add_menu = menu.addMenu("Add refinement volume")
-        for shape in VOLUME_SHAPES:
-            add_menu.addAction(shape.capitalize(), lambda s=shape: self.add_refinement_volume(s))
-        menu.addAction(self.act_add_wake)
-        if kind == "refinement_volume":
-            menu.addSeparator()
-            vid = self._selected_volume_id()
-            enabled = vid is not None and self._project.volume(vid).enabled
-            menu.addAction("Disable" if enabled else "Enable", self.toggle_selected_volume)
-            menu.addAction("Rename", self.rename_selected_volume)
-            menu.addAction("Duplicate", self.duplicate_selected_volume)
-            menu.addAction("Delete", self.delete_selected_volume)
-        menu.popup(self.tree.viewport().mapToGlobal(position))
-
     def generate_domain(self) -> None:
         """Edit > Generate Domain (D-078): the parts it is sized around (the selected part, else all),
         its shape and sizes, applied as one undoable step."""
@@ -2696,7 +2832,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
                  ", ".join(fields["parts"]) if fields.get("parts") else "every part")
 
     def prepare_surfaces(self) -> None:
-        """Edit > Prepare Surfaces (D-093): the strategy, then the preparation on the geometry worker;
+        """Edit > Surface Preparation (D-093): the strategy, then the preparation on the geometry worker;
         its result is applied as one undoable step if the parts did not change meanwhile."""
         if not self.has_project:
             return
@@ -2908,7 +3044,7 @@ class MainWindow(StudyControlMixin, QMainWindow):
         pairs = sorted({tuple(sorted((a, b))) for a, others in crossings.items() for b in others})
         if pairs and surface_prep.state(self._project) != "current":
             log.warning("Parts cross each other: %s. snappyHexMesh needs their junctions prepared: run Surface "
-                        "Preparation (Edit > Prepare Surfaces).", "; ".join(f"{a} / {b}" for a, b in pairs))
+                        "Preparation (Edit > Surface Preparation).", "; ".join(f"{a} / {b}" for a, b in pairs))
 
     def _request_checks(self, parts) -> None:
         """Queue the self-intersection check of newly imported parts (announced when done)."""
@@ -3288,10 +3424,9 @@ class MainWindow(StudyControlMixin, QMainWindow):
 
     def _fill_recent_menu(self) -> None:
         self.recent_menu.clear()
-        entries = self.recent.entries()
-        for path, exists in entries:
-            act = self.recent_menu.addAction(str(path) if exists else f"{path} (not found)")
-            act.setEnabled(exists)
+        entries = self.recent.existing()  # a missing project is not offered (D-141)
+        for path in entries:
+            act = self.recent_menu.addAction(str(path))
             act.triggered.connect(lambda _=False, p=path: self.open_project(p))
         if not entries:
             self.recent_menu.addAction("No recent projects").setEnabled(False)
@@ -3328,17 +3463,30 @@ class MainWindow(StudyControlMixin, QMainWindow):
             event.ignore()
             return
         self.geometry_worker.wait(30)  # a job may still write into the project folder
-        if self.mesh_worker.is_running():
-            self.mesh_worker.request_stop()
-        if self.solver_worker.is_running():
-            self.solver_worker.request_stop()
-        for worker in (self.study_worker, self.sweep_worker):
-            if worker.is_running():
-                worker.request_stop()
-        if self.viewer is not None:
-            self.viewer.close()  # release VTK interactor resources
-        console_log.detach(self._console_handler)
+        self.monitors.save_windows()  # remembered for the next start, then docked (D-156)
+        self.dock_properties()  # a window of its own would keep the application open
+        self._release_background()
         super().closeEvent(event)
+
+    def _release_background(self) -> None:
+        """Everything that outlives the window's widgets, ended before Qt can delete them (D-164), once: the
+        worker threads' signals are closed (a run is asked to stop; a thread still working never emits again),
+        the console no longer receives log records, and the viewer's VTK render window and interactor are closed
+        (finalized) while their Qt widget still exists."""
+        if self._released:
+            return
+        self._released = True
+        for worker in (self.mesh_worker, self.solver_worker, self.study_worker, self.sweep_worker,
+                       self.geometry_worker, self.intersections, self.overlaps, self.results_loader):
+            worker.shutdown()
+        console_log.detach(self._console_handler)
+        if self.viewer is not None:
+            self.viewer.close()  # pyvista finalizes the render window and the interactor
+
+    def event(self, event) -> bool:
+        if event.type() == QEvent.Type.DeferredDelete:  # deleted without an accepted close (tests, scripts)
+            self._release_background()
+        return super().event(event)
 
 
 def manual_path() -> Path | None:
@@ -3363,6 +3511,7 @@ def start_window(args: list[str], dialogs: Dialogs | None = None, openfoam=None)
             log.exception("Could not open project %s", args[0])
             error = f"Could not open {args[0]}: {exc}"
     window = MainWindow(project, dialogs, openfoam=openfoam)  # None: the empty start state
+    window.recent.prune()  # D-141: missing projects and temporary folders leave the list
     if error:
         window.show_message(error, "error")
     for note in project.migration_notes if project is not None else ():  # D-120

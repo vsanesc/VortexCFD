@@ -332,7 +332,7 @@ class DomainView:
             if faces.n_cells:
                 self.highlight_cells = faces.n_cells
                 self.highlight_actor = self.plotter.add_mesh(
-                    faces, color=t.accent_secondary, opacity=HIGHLIGHT_OPACITY, lighting=False,
+                    faces, color=t.accent, opacity=HIGHLIGHT_OPACITY, lighting=False,
                     pickable=False, reset_camera=False, render=False, name=self.HIGHLIGHT,
                 )
 
@@ -363,7 +363,10 @@ class VolumeView:
         self.actors: dict[str, tuple] = {}  # volume id -> (face actor, edge actor)
         self.selected_id: str | None = None
 
-    def update(self, volumes, selected_id: str | None, visible: bool, preview=None) -> None:
+    def update(self, volumes, selected_id: str | None, visible: bool, preview=None, shapes=None) -> None:
+        """``shapes``: {volume id: the geometry to draw} (an imported region's loaded surface, a turned shape at an
+        angle of attack; D-120, D-145); a volume missing from it is drawn from its own shape, or skipped when that
+        is an imported surface (not loadable)."""
         self.clear()
         self.selected_id = selected_id
         if not visible:
@@ -374,7 +377,12 @@ class VolumeView:
                 volume = preview
             if not volume.enabled:
                 continue
-            surface = volume_outline(volume.shape)
+            shape = (shapes or {}).get(volume.id, volume.shape)
+            if preview is not None and preview.id == volume.id and preview.shape.kind != "surface":
+                shape = volume.shape
+            if getattr(shape, "kind", None) == "surface":
+                continue  # the surface could not be loaded
+            surface = volume_outline(shape)
             selected = volume.id == selected_id
             color = t.accent if selected else t.accent_secondary
             face = self.plotter.add_mesh(

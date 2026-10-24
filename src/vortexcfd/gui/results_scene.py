@@ -16,6 +16,7 @@ from vortexcfd.foam.results import FIELDS_BY_KEY, FieldSpec, available_fields, f
 from vortexcfd.foam.wall_fields import skin_friction_along
 from vortexcfd.gui.colormaps import DEFAULT_COLORMAP, matplotlib_name
 from vortexcfd.gui.theme import Theme
+from vortexcfd.gui.thread_gate import ThreadGate
 from vortexcfd.workflow.line_plot import LineSamples, sample_line
 from vortexcfd.workflow.results_objects import object_geometry, point_fields
 
@@ -65,16 +66,23 @@ class ResultsLoader(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._thread: threading.Thread | None = None
+        self.gate = ThreadGate()  # the reading thread emits through it (D-164)
 
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
+    def shutdown(self) -> None:
+        """Before the owner is deleted: a read still running finishes without reporting (D-164)."""
+        self.gate.close()
+
     def start(self, case_dir: Path, time: str, patch_names) -> None:
+        gate = self.gate
+
         def work() -> None:
             try:
-                self.loaded.emit(read_results(case_dir, time, tuple(patch_names)))
+                gate.emit(self.loaded, read_results(case_dir, time, tuple(patch_names)))
             except Exception as exc:  # VTK reader errors, missing files
-                self.failed.emit(f"{type(exc).__name__}: {exc}")
+                gate.emit(self.failed, f"{type(exc).__name__}: {exc}")
 
         self._thread = threading.Thread(target=work, daemon=True)
         self._thread.start()

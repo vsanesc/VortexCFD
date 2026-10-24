@@ -6,6 +6,7 @@ knows the viewer and the results. Every committed edit is one Project step. A li
 (matplotlib, embedded) from the samples the Results Scene computed (D-136).
 """
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -92,20 +93,24 @@ class SceneRowsMixin:
             button.clicked.connect(lambda _=False, k=kind: self.scene_action.emit(f"add:{k}"))
             layout.addWidget(button)
             self.sc_add_buttons[kind] = button
+        adds.setToolTip("Add a results object: a clip, an isosurface, streamlines or a line plot")
         self._layout.addWidget(self._make_row("sc_add", "Add", adds))
         actions = QWidget()
-        box = QHBoxLayout(actions)
+        box = FlowLayout(actions)  # three buttons: wrap in a narrow panel
         box.setContentsMargins(0, 0, 0, 0)
+        box.set_spacing(4, 4)
         self.sc_save_view = QPushButton("Save view")
         self.sc_save_view.setToolTip("Save the viewer's camera as a view (the report shows every saved view)")
         self.sc_save_view.clicked.connect(lambda: self.scene_action.emit("save_view"))
         self.sc_image = QPushButton("Export image…")
+        self.sc_image.setToolTip("Write the viewer as a PNG at a chosen size (rendered again, not a screenshot)")
         self.sc_image.clicked.connect(lambda: self.scene_action.emit("image"))
         self.sc_report = QPushButton("Create report")
         self.sc_report.setToolTip("Write an HTML report to <project>/reports/")
         self.sc_report.clicked.connect(lambda: self.scene_action.emit("report"))
         for b in (self.sc_save_view, self.sc_image, self.sc_report):
             box.addWidget(b)
+        actions.setToolTip("Save the camera as a view, export an image, or write the HTML report")
         self._layout.addWidget(self._make_row("sc_actions", "", actions))
         # one object
         self._section("sc_object", "Scene object")
@@ -191,7 +196,9 @@ class SceneRowsMixin:
             for box in widget.boxes.values():
                 box.toggled.connect(lambda _on, w=widget, n=name: self._commit_scene(**{n: w.value()}))
         else:
-            widget.currentIndexChanged.connect(lambda _i, w=widget, n=name: self._commit_scene(**{n: w.currentData()}))
+            # applied after the popup has closed (D-152): the commit redraws the scene
+            widget.currentIndexChanged.connect(
+                lambda _i, w=widget, n=name: QTimer.singleShot(0, lambda: self._commit_scene(**{n: w.currentData()})))
 
     def _scene_keys(self) -> list[str]:
         return (["sc_name", "sc_visible", "sc_status", "sc_delete", "sc_chart", "sc_line_actions"]

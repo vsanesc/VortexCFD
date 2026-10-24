@@ -1,10 +1,11 @@
 """Small composite widgets shared by the main window panels."""
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt
-from PySide6.QtGui import QAction, QColor, QPainter
+import math
+
+from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt
+from PySide6.QtGui import QAction, QColor, QFontMetrics, QPainter, QTextDocument
 from PySide6.QtWidgets import (
     QLayout,
-    QApplication,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -14,7 +15,15 @@ from PySide6.QtWidgets import (
 )
 
 from vortexcfd.gui.icons import make_glyph
-from vortexcfd.gui.theme import Metrics, Theme, mono_font, section_title_font
+from vortexcfd.gui.theme import Metrics, Theme, repolish, role_font, set_text_role
+
+
+def set_invalid(widget: QWidget, reason: str | None, tooltip: str = "") -> None:
+    """Inline validation: a highlighted border (the ``invalid`` property in the stylesheet) and the reason as the
+    widget's tooltip; ``reason`` None clears it and restores ``tooltip``."""
+    widget.setProperty("invalid", reason is not None)
+    widget.setToolTip(reason if reason is not None else tooltip)
+    repolish(widget)
 
 
 def glyph_pixmap(widget: QWidget, name: str, color: str, size: int):
@@ -22,26 +31,116 @@ def glyph_pixmap(widget: QWidget, name: str, color: str, size: int):
     return icon.pixmap(QSize(size, size))
 
 
+def wrapped_height(label: QLabel, width: int | None = None) -> int:
+    """A word-wrapped label's height for its text at ``width`` (default: its own), padding and border included:
+    measured as the label lays the text out (QLabel.heightForWidth overestimates a padded label)."""
+    margins = label.contentsMargins()
+    document = QTextDocument()
+    document.setDocumentMargin(0)
+    document.setDefaultFont(label.font())
+    document.setPlainText(label.text())
+    width = label.width() if width is None else width
+    document.setTextWidth(max(width - margins.left() - margins.right(), 1))
+    return math.ceil(document.size().height()) + margins.top() + margins.bottom()
+
+
+def discard(widget: QWidget) -> None:
+    """Remove a widget taken out of its layout: hidden at once (a deleteLater'd widget is drawn where it was until the
+    event loop deletes it, over the rows that replace it), then deleted."""
+    widget.hide()
+    widget.deleteLater()
+
+
+class ElidedLabel(QLabel):
+    """A one-line label that elides its text to its width (D-155); ``text()`` is the full text, and when elided the
+    full text leads the tooltip (before any tooltip of its own)."""
+
+    def __init__(self, text: str = "", mode: Qt.TextElideMode = Qt.TextElideMode.ElideMiddle) -> None:
+        super().__init__()
+        self.full_text = ""
+        self._mode = mode
+        self._tip = ""
+        self.setMinimumWidth(1)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setText(text)
+
+    def setText(self, text: str) -> None:
+        self.full_text = text
+        self._elide()
+
+    def text(self) -> str:
+        return self.full_text
+
+    def setToolTip(self, tip: str) -> None:
+        self._tip = tip
+        self._elide()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._elide()
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.FontChange:
+            self._elide()
+
+    def _elide(self) -> None:
+        width = self.contentsRect().width() if self.width() > 1 else 10_000
+        shown = self.fontMetrics().elidedText(self.full_text, self._mode, max(width, 0))
+        QLabel.setText(self, shown)
+        tip = self._tip if shown == self.full_text else "\n".join(t for t in (self.full_text, self._tip) if t)
+        QLabel.setToolTip(self, tip)
+
+
 class Badge(QLabel):
-    """Small mono label with a border; optionally with a status dot inside the pill."""
+    """Small mono label with a border; optionally with a status dot inside the pill.
+
+    Where room is short (the top bar, D-155) a badge can be compact: ``set_compact(1)`` shows its short text,
+    ``set_compact(2)`` (a badge with a dot) only the dot; the full text is then its tooltip. ``text()`` is always the
+    full text."""
 
     def __init__(self, text: str = "", with_dot: bool = False, parent: QWidget | None = None) -> None:
-        super().__init__(text, parent)
+        super().__init__(parent)
         self.setObjectName("badge")
-        self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)  # never squeezed: compact instead
         self._with_dot = with_dot
         self._state = ""
         self._theme: Theme | None = None
         self._dot_d = 0
         self._pad = 0
+        self._full = ""
+        self._short = ""
+        self._compact = 0
         self.setProperty("dot", "true" if with_dot else "false")
+        self.setText(text)
+
+    def setText(self, text: str, short: str = "") -> None:
+        self._full, self._short = text, short
+        self._show_text()
+
+    def text(self) -> str:
+        return self._full
+
+    def set_compact(self, level: int) -> None:
+        """0: the full text; 1: the short text (if any); 2: only the dot (a badge with a dot)."""
+        self._compact = level
+        self._show_text()
+
+    def _show_text(self) -> None:
+        if self._compact >= 2 and self._with_dot:
+            shown = ""
+        elif self._compact >= 1 and self._short:
+            shown = self._short
+        else:
+            shown = self._full
+        super().setText(shown)
+        self.setToolTip(self._full if shown != self._full else "")
 
     def set_state(self, state: str) -> None:
-        """state: '' (accent_secondary), 'success', 'warning' or 'error'."""
+        """state: '' (accent), 'success', 'warning' or 'error'."""
         self._state = state
         self.setProperty("state", state)
-        self.style().unpolish(self)
-        self.style().polish(self)
+        repolish(self)
         self.update()
 
     def dot_color(self) -> str | None:
@@ -50,13 +149,18 @@ class Badge(QLabel):
             return None
         return {"success": self._theme.success, "warning": self._theme.warning,
                 "error": self._theme.error}.get(
-            self._state, self._theme.accent_secondary
+            self._state, self._theme.accent
         )
 
     def configure(self, m: Metrics | None = None, t: Theme | None = None) -> None:
-        self.setFont(mono_font(QApplication.font(), 0.8))
+        set_text_role(self, "badge")
         if m is not None and t is not None:
             self._theme, self._dot_d, self._pad = t, m.dot, m.s2 + m.line
+        self.ensurePolished()
+        # The height from the badge role's font (descenders included) and the stylesheet's padding and border, fixed
+        # so a tight row (the top bar) cannot squeeze the text.
+        margins = self.contentsMargins()
+        self.setFixedHeight(QFontMetrics(role_font("badge")).height() + margins.top() + margins.bottom())
         self.updateGeometry()
 
     def paintEvent(self, event) -> None:
@@ -74,7 +178,7 @@ class Badge(QLabel):
 
 
 class DotButton(QPushButton):
-    """Checkable button with a small dot on the left: muted when off, accent_secondary when on."""
+    """Checkable button with a small dot on the left: muted when off, accent when on."""
 
     def __init__(self, text: str, parent: QWidget | None = None) -> None:
         super().__init__(text, parent)
@@ -89,7 +193,7 @@ class DotButton(QPushButton):
     def dot_color(self) -> str | None:
         if self._theme is None:
             return None
-        return self._theme.accent_secondary if self.isChecked() else self._theme.muted_text
+        return self._theme.accent if self.isChecked() else self._theme.muted_text
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
@@ -129,7 +233,7 @@ class SectionHeader(QWidget):
         self.title.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
         self.row.setContentsMargins(m.s3, 0, m.s3, 0)
         self.row.setSpacing(m.s2)
-        self.title.setFont(section_title_font(QApplication.font()))
+        set_text_role(self.title, "section_title")
         if self.badge is not None:
             self.badge.configure()
 
@@ -147,7 +251,7 @@ class SearchField(QLineEdit):
         self._action.setIcon(
             make_glyph("search", QColor(t.muted_text), m.u, self.devicePixelRatioF())
         )
-        self.setFont(mono_font(QApplication.font(), 0.85))
+        set_text_role(self, "control")
 
 
 class FlowLayout(QLayout):

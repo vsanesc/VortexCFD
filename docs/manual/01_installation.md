@@ -64,7 +64,7 @@ are in its `platforms/*/bin`. If none is found (or only another version), a dial
 install commands, and a field for the path of your `etc/bashrc` (checked before it is accepted, then remembered).
 
 Without OpenFOAM the app still opens: you can open projects and look at their meshes and results. Generate Mesh,
-Run Solver, the Mesh Study and the Polar Sweep stay disabled, and their tooltip says why. Once OpenFOAM is found
+Run Solver, the mesh independence study and the polar sweep stay disabled, and their tooltip says why. Once OpenFOAM is found
 (Help > OpenFOAM Installation, Check) they are enabled without a restart.
 
 From a terminal, without starting the window:
@@ -75,8 +75,9 @@ vortexcfd --check-openfoam
 
 ## 1.4 ParaView (optional)
 
-VortexCFD does not need ParaView: it shows meshes and results itself. ParaView is only used by the Results Scene's
-"Open in ParaView" button, which looks for it in this order:
+VortexCFD does not need ParaView: it shows meshes and results itself. ParaView is only used by the "Open in
+ParaView" button of the top bar (also in the Results node's right-click menu), which opens the current case as soon
+as it has a mesh. It looks for ParaView in this order:
 
 1. the executable set in Edit > Preferences (if that file does not exist, the next two are tried and the button's
    tooltip says the configured path was not found);

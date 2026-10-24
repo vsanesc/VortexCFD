@@ -20,7 +20,7 @@ from typing import Literal
 from pydantic import Field, ValidationError, field_serializer, field_validator
 
 from vortexcfd.core.atomic_io import write_text_atomic
-from vortexcfd.core.model import CURRENT_SCHEMA_VERSION, Ground, Mesh, Simulation, StrictModel
+from vortexcfd.core.model import CURRENT_SCHEMA_VERSION, Domain, Ground, Mesh, Simulation, StrictModel
 from vortexcfd.core.project_io import V9_MESH_BEHAVIOUR, V13_MESH_FIELDS, V14_MESH_FIELDS
 
 # 1: no schema_version (every such file was written before schema v10); 2: schema_version (D-090).
@@ -44,7 +44,8 @@ ALLOWED_BOUNDARY_TYPES: dict[str, tuple[str, ...]] = {role: (t,) for role, t in 
 
 # The domain fields a preset carries (Domain minus "enabled", which follows the analysis type, and
 # "parts", which belongs to a project's geometry).
-DOMAIN_FIELDS = ("shape", "upstream", "downstream", "lateral", "vertical", "radius", "symmetry", "ground")
+DOMAIN_FIELDS = ("shape", "upstream", "downstream", "lateral", "vertical", "radius", "symmetry", "ground",
+                 "boundary_types", "units", "wall_layers")
 
 
 class PresetError(ValueError):
@@ -60,6 +61,31 @@ class PresetDomain(StrictModel):
     radius: float = Field(default=5.0, gt=0)
     symmetry: Literal["none", "y_min"] = "none"
     ground: Ground = Field(default_factory=Ground)  # schema v16 (D-116): a domain setting
+    # The faces' boundary types when not their defaults (schema v22, D-147); none in the built-in presets.
+    boundary_types: dict[str, str] = Field(default_factory=dict)
+
+    # The extents given in m or mm (schema v23, D-157) and the wall faces with prism layers (D-161); none in the
+    # built-in presets.
+    units: dict[str, str] = Field(default_factory=dict)
+    wall_layers: list[str] = Field(default_factory=list)
+
+    @field_validator("boundary_types")
+    @classmethod
+    def _face_kinds(cls, value: dict[str, str]) -> dict[str, str]:
+        return Domain(boundary_types=value).boundary_types  # the domain's validation and normalisation
+
+    @field_validator("units")
+    @classmethod
+    def _units(cls, value: dict[str, str]) -> dict[str, str]:
+        return Domain(units=value).units  # the domain's validation and normalisation
+
+    @field_validator("wall_layers")
+    @classmethod
+    def _wall_layers(cls, value: list[str]) -> list[str]:
+        return Domain(wall_layers=value).wall_layers
+
+    def extent_unit(self, name: str) -> str:
+        return self.units.get(name, "L")
 
 
 class Preset(StrictModel):
@@ -166,6 +192,77 @@ BUILTIN_PRESETS: tuple[Preset, ...] = (
            mesh=Mesh(background_cells_target=20_000, target_surface_size=0.02, curvature_levels=0,
                      target_yplus=1.0, layer_controls="wall_resolved")),
 )
+
+
+# One line per built-in preset for the New simulation list (D-143); user presets get a generated one.
+BUILTIN_SUMMARIES: dict[str, str] = {
+    "External flow": "3D flow around the parts in a box far field (cars, wings, bluff bodies)",
+    "Empty": "Nothing generated yet: import the parts, then add the domain",
+    "2D airfoil": "2D section in a C-type far field, meshed wall-resolved for y+ about 1",
+    "Internal flow": "3D flow inside a closed geometry (pipes, ducts, manifolds)",
+    "2D internal flow": "2D section of a channel or duct, meshed wall-resolved for y+ about 1",
+}
+
+ANALYSIS_TEXT = {
+    "external": "External flow: a far-field domain is generated around the parts.",
+    "empty": "Empty: nothing is generated; the domain is added later with Generate domain.",
+    "internal": "Internal flow: no far-field domain; the fluid is the inside of the closed geometry and each "
+                "surface patch is an inlet, an outlet or a wall.",
+}
+SHAPE_TEXT = {"box": "box", "bullet": "bullet (rounded front)", "c_type": "C-type (round front, 2D sections)"}
+
+
+def _extent(domain: "Domain | PresetDomain", name: str) -> str:
+    """A domain extent with its unit: "5 L", or "2.5 m" for one given in metres (D-157)."""
+    return f"{_number(getattr(domain, name))} {domain.extent_unit(name)}"
+
+
+def _number(value: float) -> str:
+    return f"{value:g}"
+
+
+def preset_summary(preset: Preset) -> str:
+    """One line for the preset list: the built-in text, or the analysis, dimension and domain shape."""
+    if preset.name in BUILTIN_SUMMARIES and is_builtin_name(preset.name):
+        return BUILTIN_SUMMARIES[preset.name]
+    dim = "2D section" if preset.dimension == "2d" else "3D"
+    if preset.analysis_type == "internal":
+        return f"User preset: {dim} internal flow"
+    if preset.analysis_type == "empty":
+        return f"User preset: {dim}, domain added later"
+    return f"User preset: {dim} external flow, {SHAPE_TEXT[preset.domain.shape].split(' ')[0]} domain"
+
+
+def preset_description(preset: Preset) -> str:
+    """The full description shown under the list: what is generated, the domain and the mesh settings."""
+    lines = [ANALYSIS_TEXT[preset.analysis_type]]
+    lines.append("Dimension: " + ("2D section in the x-z plane, one cell across the span (y); forces per unit span."
+                                  if preset.dimension == "2d" else "3D."))
+    d = preset.domain
+    if preset.analysis_type != "internal":
+        if d.shape == "box":
+            sizes = (f"{_extent(d, 'upstream')} upstream, {_extent(d, 'downstream')} downstream, "
+                     f"{_extent(d, 'lateral')} to each side, {_extent(d, 'vertical')} above and below")
+        else:
+            sizes = f"radius {_extent(d, 'radius')}, {_extent(d, 'downstream')} downstream"
+        extra = []
+        if d.symmetry == "y_min":
+            extra.append("a symmetry plane at the parts' lowest y")
+        if d.ground.enabled:
+            extra.append("a ground plane")
+        when = " (when generated)" if preset.analysis_type == "empty" else ""
+        lines.append(f"Domain{when}: {SHAPE_TEXT[d.shape]}, {sizes} (L: the parts' largest extent)"
+                     + ("; " + ", ".join(extra) if extra else "") + ".")
+    m = preset.mesh
+    if m.layer_sizing == "absolute_yplus":
+        mode = "wall-resolved" if m.effective_layer_controls == "wall_resolved" else "wall functions"
+        layers = f"prism layers sized for y+ {_number(m.target_yplus)} ({mode})"
+    else:
+        layers = f"{m.layers} prism layers relative to the surface cell" if m.layers else "no prism layers"
+    length = "the first inlet's hydraulic diameter" if preset.analysis_type == "internal" else "l_ref"
+    lines.append(f"Mesh: about {m.background_cells_target:,} background cells, surface cells "
+                 f"{_number(m.target_surface_size)} x {length}, {layers}.")
+    return "\n".join(lines)
 
 
 def is_builtin_name(name: str) -> bool:

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from vortexcfd.core import save_rules
-from vortexcfd.core.model import Part, PatchBoundary, RefinementVolume, Simulation, SurfacePrep
+from vortexcfd.core.model import Part, PatchBoundary, RefinementVolume, Simulation, SurfacePrep, SurfaceShape
 from vortexcfd.core.project_io import load_simulation, save_simulation
 
 MAX_OBSERVER_ERRORS = 20
@@ -57,6 +57,15 @@ def check_new_project_folder(parent: Path, name: str) -> Path:
             raise ProjectFolderError(f"The folder {folder} already exists and is not empty: choose another "
                                      "name or parent folder.")
     return folder
+
+
+def volume_base_name(text: str) -> str:
+    """A valid refinement volume name from any text (a part or file name): characters other than letters,
+    digits and _ become _, a leading non-letter gets "region_" in front, at most 48 characters."""
+    name = re.sub(r"\W", "_", text.strip(), flags=re.ASCII).strip("_") or "region"
+    if not name[0].isalpha():
+        name = f"region_{name}"
+    return name[:48]
 
 
 class Project:
@@ -374,6 +383,30 @@ class Project:
         self._edit(label or f"Add refinement volume '{data['name']}'", mutate)
         return data["id"]
 
+    def part_to_refinement_region(self, index: int, target_size: float, mode: str = "inside",
+                                  distance: float = 0.0) -> str:
+        """"Use as refinement region" (D-145): part ``index`` stops being a wall and becomes a refinement volume of
+        its own surface (its file and units), named after it, as ONE undoable step; returns the volume's id."""
+        part = self._part_at(index)
+        if not part.source_file:
+            raise ValueError(f"Part '{part.name}' has no surface file")
+        shape = SurfaceShape(file=part.source_file, units=part.units, mode=mode, distance=distance)
+        volume = RefinementVolume(id="new", name=self.free_volume_name(volume_base_name(part.name)), shape=shape,
+                                  target_size=target_size)
+        data = volume.model_dump()
+        data["id"] = self._free_volume_id()
+        old_name = part.name
+
+        def mutate(sim: dict[str, Any]) -> None:
+            del sim["geometry"]["parts"][index]
+            listed = sim["domain"].get("parts")
+            if listed is not None and old_name in listed:
+                sim["domain"]["parts"] = [n for n in listed if n != old_name] or None
+            sim["refinement_volumes"].append(data)
+
+        self._edit(f"Use part '{old_name}' as refinement region", mutate)
+        return data["id"]
+
     def duplicate_refinement_volume(self, volume_id: str) -> str:
         source = self.volume(volume_id)
         return self.add_refinement_volume(source, f"Duplicate refinement volume '{source.name}'")
@@ -497,13 +530,38 @@ class Project:
         changed = ", ".join(fields) or "no fields"
         self._edit(f"Edit mesh ({changed})", mutate)
 
+    def set_face_type(self, face: str, kind: str) -> None:
+        """A domain face's boundary type (D-147) as one undoable step. ``kind`` "ground" on the bottom face turns the
+        ground plane on (D-116); any other kind on the ground face turns it off and gives the bottom face that kind."""
+        domain = self._sim.domain
+        if face == "ground" or (face == "bottom" and kind == "ground"):
+            on = kind == "ground"
+            ground = domain.ground.model_dump()
+            ground["enabled"] = on
+            types = dict(domain.boundary_types)
+            if not on:
+                types["bottom"] = kind
+            self.update_domain(label="Ground plane on" if on else f"Bottom face: {kind}", ground=ground,
+                               boundary_types=types)
+            return
+        types = dict(domain.boundary_types)
+        types[face] = kind
+        self.update_domain(label=f"Boundary type of {face}: {kind}", boundary_types=types)
+
+    def set_face_layers(self, face: str, on: bool) -> None:
+        """The parts' prism layers on a wall domain face, or not (D-161), as one undoable step."""
+        faces = set(self._sim.domain.wall_layers)
+        faces = faces | {face} if on else faces - {face}
+        self.update_domain(label=f"Prism layers on {face}: {'on' if on else 'off'}", wall_layers=sorted(faces))
+
     def update_physics(self, **fields: Any) -> None:
         """Edit flow physics as one undoable step (validated; no-ops leave no trace)."""
         self._update_section("physics", "physics", fields)
 
     def update_inflow(self, **fields: Any) -> None:
-        """Edit inflow conditions as one undoable step."""
-        self._update_section("inflow", "inflow", fields)
+        """Edit the free-stream conditions (and the angle of attack) as one undoable step."""
+        label = "body attitude" if set(fields) == {"alpha_deg"} else "free stream"
+        self._update_section("inflow", label, fields)
 
     def update_solver(self, **fields: Any) -> None:
         """Edit solver settings as one undoable step."""

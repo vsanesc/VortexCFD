@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 21
+CURRENT_SCHEMA_VERSION: int = 23
 
 
 class StrictModel(BaseModel):
@@ -175,8 +175,9 @@ class SurfacePrep(StrictModel):
         return next((p for p in self.parts if p.part == part_name), None)
 
 
-# Curvature refinement goes at most this many levels above a part's maximum surface level (D-085).
-MAX_CURVATURE_LEVELS = 2
+# Curvature refinement goes at most this many levels above a part's maximum surface level: 2 in D-085, the owner's
+# conservative cap; editable up to 4 since D-148 (the default stays 2). [NUMERICS-REVIEW]
+MAX_CURVATURE_LEVELS = 4
 # A target y+ below this lies in the viscous sublayer, where the robust controls cannot build the stack (D-122):
 # with absolute (y+) sizing the robust controls then give way to the wall-resolved ones (D-123).
 WALL_RESOLVED_AUTO_YPLUS = 5.0
@@ -603,6 +604,26 @@ class Ground(StrictModel):
     wall_start_x: float | None = None
 
 
+# The boundary type of each domain face (schema v22, D-147) [NUMERICS-REVIEW]. The defaults are the conditions every
+# domain had before (D-019, D-078): a velocity inlet, a pressure outlet and slip far-field faces.
+BOUNDARY_KINDS = ("velocity_inlet", "pressure_outlet", "slip", "symmetry", "wall", "moving_wall")
+BOUNDARY_KIND_LABELS = {  # short: the face's conditions are shown beside the choice (D-148)
+    "velocity_inlet": "Velocity inlet",
+    "pressure_outlet": "Pressure outlet",
+    "slip": "Slip (far field)",
+    "symmetry": "Symmetry",
+    "wall": "Wall",
+    "moving_wall": "Moving wall",
+}
+DEFAULT_FACE_KINDS = {"inlet": "velocity_inlet", "outlet": "pressure_outlet", "sides": "slip", "top": "slip",
+                      "bottom": "slip", "farfield": "slip"}
+EDITABLE_FACES = tuple(DEFAULT_FACE_KINDS)
+
+
+DOMAIN_EXTENTS = ("upstream", "downstream", "lateral", "vertical", "radius")
+ABSOLUTE_UNITS = {"m": 1.0, "mm": 1e-3}  # an extent given in metres or millimetres (schema v23, D-157)
+
+
 class Domain(StrictModel):
     """Far-field domain around the parts, in multiples of the reference length L.
 
@@ -626,6 +647,58 @@ class Domain(StrictModel):
     symmetry: Literal["none", "y_min"] = "none"
     parts: list[str] | None = None
     ground: Ground = Field(default_factory=Ground)
+    # A face's boundary type when it is not its default (DEFAULT_FACE_KINDS; schema v22, D-147). Defaults are dropped,
+    # so a domain left as it was has none and writes the dictionaries it always wrote.
+    boundary_types: dict[str, str] = Field(default_factory=dict)
+    # The unit of an extent entered in metres or millimetres (schema v23, D-157): its value is then in that unit and
+    # stays that length when L changes. An extent without an entry is in multiples of L ("L" entries are dropped).
+    units: dict[str, Literal["L", "m", "mm"]] = Field(default_factory=dict)
+    # The wall faces given the parts' prism layers (schema v23, D-161; off by default): only a face whose boundary
+    # type is a wall or a moving wall gets them. [NUMERICS-REVIEW]
+    wall_layers: list[str] = Field(default_factory=list)
+
+    @field_validator("wall_layers")
+    @classmethod
+    def _known_layer_faces(cls, value: list[str]) -> list[str]:
+        for face in value:
+            if face not in DEFAULT_FACE_KINDS:
+                raise ValueError(f"unknown domain face {face!r} (one of {', '.join(EDITABLE_FACES)})")
+        return sorted(set(value))
+
+    @field_validator("units")
+    @classmethod
+    def _known_extents(cls, value: dict[str, str]) -> dict[str, str]:
+        for name in value:
+            if name not in DOMAIN_EXTENTS:
+                raise ValueError(f"unknown domain extent {name!r} (one of {', '.join(DOMAIN_EXTENTS)})")
+        return {name: unit for name, unit in value.items() if unit != "L"}
+
+    def extent_unit(self, name: str) -> str:
+        """"L", "m" or "mm": the unit the extent ``name`` is stored in."""
+        return self.units.get(name, "L")
+
+    def extent_m(self, name: str, length: float) -> float:
+        """The extent ``name`` in metres, with the reference length ``length`` (m) for an extent in L."""
+        value = getattr(self, name)
+        unit = self.units.get(name)
+        return value * length if unit is None else value * ABSOLUTE_UNITS[unit]
+
+    @field_validator("boundary_types")
+    @classmethod
+    def _known_face_kinds(cls, value: dict[str, str]) -> dict[str, str]:
+        out = {}
+        for face, kind in value.items():
+            if face not in DEFAULT_FACE_KINDS:
+                raise ValueError(f"unknown domain face {face!r} (one of {', '.join(EDITABLE_FACES)})")
+            if kind not in BOUNDARY_KINDS:
+                raise ValueError(f"unknown boundary type {kind!r} (one of {', '.join(BOUNDARY_KINDS)})")
+            if kind != DEFAULT_FACE_KINDS[face]:
+                out[face] = kind
+        return out
+
+    def face_kind(self, face: str) -> str:
+        """The boundary type of a domain face (its default unless changed, D-147)."""
+        return self.boundary_types.get(face, DEFAULT_FACE_KINDS.get(face, "slip"))
 
     @model_validator(mode="after")
     def _ground_on_a_box(self) -> "Domain":
@@ -669,6 +742,9 @@ class PolarSweepSettings(StrictModel):
     parts rotated, meshed on the project's meshing cores) and a run from the uniform free stream, one
     angle at a time (schema v18 dropped ``init_from_previous``: the meshes differ)."""
 
+    # Opt-in (schema v22, D-148): off for new projects, the sweep's rows and Run appear once it is enabled; projects
+    # saved before v22 keep it on (it was always offered).
+    enabled: bool = False
     mode: Literal["range", "list"] = "range"
     start: float = Field(default=0.0, ge=-90.0, le=90.0)
     end: float = Field(default=10.0, ge=-90.0, le=90.0)
@@ -803,7 +879,26 @@ class OrientedBoxShape(BoxShape):
         return e1, e2, e3
 
 
-VolumeShape = Annotated[Union[BoxShape, CylinderShape, SphereShape, ConeShape], Field(discriminator="kind")]
+class SurfaceShape(StrictModel):
+    """An imported closed surface as a refinement region (schema v22, D-145): ``file`` (relative to the project
+    folder, in geometry/) in ``units``; "inside" refines every cell inside the surface, "distance" every cell
+    within ``distance`` metres of it (either side). The surface is never meshed as a wall."""
+
+    kind: Literal["surface"] = "surface"
+    file: str = Field(min_length=1)
+    units: Literal["m", "cm", "mm", "in", "ft"] = "m"
+    mode: Literal["inside", "distance"] = "inside"
+    distance: float = Field(default=0.0, ge=0)
+
+    @model_validator(mode="after")
+    def _distance_set(self) -> "SurfaceShape":
+        if self.mode == "distance" and self.distance <= 0:
+            raise ValueError("a distance-mode refinement region needs a distance larger than zero")
+        return self
+
+
+VolumeShape = Annotated[Union[BoxShape, CylinderShape, SphereShape, ConeShape, SurfaceShape],
+                        Field(discriminator="kind")]
 
 
 class RefinementVolume(StrictModel):
@@ -932,9 +1027,10 @@ REPORT_SECTIONS = {
     "mesh": "Mesh report",
     "convergence": "Convergence",
     "reports": "Forces / internal-flow reports",
-    "study": "Mesh study",
+    "study": "Mesh independence study",
     "sweep": "Polar sweep",
     "line_plots": "Line plots",
+    "comparison": "Comparison (the snapshots chosen in the Compare tab)",
     "views": "Saved views",
 }
 

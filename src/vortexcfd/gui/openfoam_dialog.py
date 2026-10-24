@@ -4,7 +4,6 @@ never runs them) and takes the path of an etc/bashrc, checked before it is accep
 
 from pathlib import Path
 
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -19,14 +18,13 @@ from PySide6.QtWidgets import (
 )
 
 from vortexcfd.foam.installation import INSTALL_COMMANDS, VERSION, OpenFOAMCheck, check_openfoam
+from vortexcfd.gui.theme import set_text_role
 
 
 def _mono(text: str, lines: int) -> QPlainTextEdit:
     box = QPlainTextEdit(text)
     box.setReadOnly(True)
-    font = QFont("monospace")
-    font.setStyleHint(QFont.StyleHint.Monospace)
-    box.setFont(font)
+    set_text_role(box, "code")
     box.setFixedHeight(box.fontMetrics().lineSpacing() * (lines + 1) + 12)
     return box
 

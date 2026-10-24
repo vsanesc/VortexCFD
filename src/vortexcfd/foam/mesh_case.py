@@ -50,6 +50,11 @@ CREATE_PATCH_DICT = "system/createPatchDict"
 # The ground plane of a box domain (D-116): the blockMesh z_min face as a wall patch, never a part's
 # (the name is reserved). Forces and the part walls' y+ leave it out.
 GROUND_PATCH = "ground"
+# The OpenFOAM patch type of each resolved domain face kind (D-147) [NUMERICS-REVIEW]: walls are "wall" (wall functions
+# need it), a flat symmetry face "symmetryPlane" (as the y_min symmetry plane), a curved one "symmetry".
+FACE_KIND_PATCH_TYPES = {"velocity_inlet": "patch", "pressure_outlet": "patch", "slip": "patch",
+                         "symmetry_plane": "symmetryPlane", "symmetry": "symmetry", "wall": "wall",
+                         "moving_wall": "wall"}
 # The slip strip of the ground plane upstream of the wall start (D-118): the part of the z_min face
 # ahead of the wall, a slip patch like the far field (the name is reserved).
 GROUND_SLIP_PATCH = "ground_slip"
@@ -168,6 +173,11 @@ class MeshCaseInput:
     internal: bool = False
     open_patches: tuple[tuple[str, str], ...] = ()
     location: tuple[float, float, float] | None = None
+    # The domain faces whose boundary type is not the default (D-147): (patch, kind), kind one of FACE_KIND_PATCH_TYPES.
+    # Empty: the patch types every domain had (BOUNDARY_PATCH_TYPES).
+    patch_kinds: tuple[tuple[str, str], ...] = ()
+    # The wall domain faces given the parts' prism layers (D-161; none by default). [NUMERICS-REVIEW]
+    wall_layer_patches: tuple[str, ...] = ()
 
     @property
     def rounded(self) -> bool:
@@ -207,9 +217,24 @@ class MeshCaseInput:
         """Every part wall patch of the mesh (the lost-part guard checks each one)."""
         return tuple(p for i in range(len(self.parts)) for p in self.patches_of(i))
 
+    def domain_patch_type(self, patch: str) -> str:
+        """The OpenFOAM type of a domain patch: from its boundary type when changed (D-147), else the default."""
+        kind = dict(self.patch_kinds).get(patch)
+        return FACE_KIND_PATCH_TYPES[kind] if kind is not None else BOUNDARY_PATCH_TYPES.get(patch, "patch")
+
     def patch_type(self, patch: str) -> str:
         """The OpenFOAM type of a part patch: "patch" for an internal-flow inlet or outlet (D-129), else "wall"."""
         return "patch" if patch in dict(self.open_patches) else "wall"
+
+
+@dataclass(frozen=True)
+class SurfaceRegionEntry:
+    """An imported surface as a refinement region (D-145): the surface is written to constant/triSurface as
+    ``file`` (metres, by the workflow) and refines "inside" it or within ``distance`` m of it."""
+
+    file: str
+    mode: str = "inside"
+    distance: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -217,8 +242,18 @@ class VolumeEntry:
     """A refinement volume as the meshing dictionaries need it: its name, shape (metres) and level."""
 
     name: str
-    shape: BoxShape | CylinderShape | SphereShape | ConeShape
+    shape: "BoxShape | CylinderShape | SphereShape | ConeShape | SurfaceRegionEntry"
     level: int
+
+    @property
+    def surface_file(self) -> str | None:
+        """The triSurface file of an imported region (None for an analytic shape)."""
+        return self.shape.file if isinstance(self.shape, SurfaceRegionEntry) else None
+
+
+def volume_surface_file(name: str) -> str:
+    """The constant/triSurface file of the imported region volume ``name`` (D-145)."""
+    return f"{VOLUME_PREFIX}{name}.stl"
 
 
 # The snappyHexMesh geometry entry of a refinement volume is named VOLUME_PREFIX + its name, so it can
@@ -235,7 +270,8 @@ def searchable_geometry(shape) -> dict:
     searchableBox (min, max); searchableRotatedBox (span; origin = the box's corner at its local
     (0 0 0); e1, e3 = its local x and z axes after pitch and yaw, BoxShape.axes) when the box is pitched or
     yawed; searchableCylinder (point1, point2, radius); searchableSphere (centre, radius); searchableCone
-    (point1, radius1, innerRadius1, point2, radius2, innerRadius2; solid: inner radii 0). [NUMERICS-REVIEW]"""
+    (point1, radius1, innerRadius1, point2, radius2, innerRadius2; solid: inner radii 0); an imported region
+    (D-145): see ``volume_geometry``. [NUMERICS-REVIEW]"""
     if isinstance(shape, BoxShape):
         half = [s / 2 for s in shape.size]
         c = shape.centre
@@ -531,7 +567,7 @@ def block_mesh_dict(inp: MeshCaseInput) -> FoamFileSpec:
         "blocks": ["hex", [0, 1, 2, 3, 4, 5, 6, 7], list(cells), "simpleGrading", [1, 1, 1]],
         "edges": [],
         "boundary": [
-            (name, {"type": BOUNDARY_PATCH_TYPES.get(name, "patch"), "faces": [faces[f] for f in which]})
+            (name, {"type": inp.domain_patch_type(name), "faces": [faces[f] for f in which]})
             for name, which in patches
         ],
         "mergePatchPairs": [],
@@ -576,7 +612,7 @@ def _split_block_mesh_dict(inp: MeshCaseInput, bounds: Bounds, cells, xs: float)
         "blocks": ["hex", block(0), [n_up, ny, nz], "simpleGrading", [1, 1, 1],
                    "hex", block(1), [nx - n_up, ny, nz], "simpleGrading", [1, 1, 1]],
         "edges": [],
-        "boundary": [(name, {"type": BOUNDARY_PATCH_TYPES[name], "faces": fs}) for name, fs in patches],
+        "boundary": [(name, {"type": inp.domain_patch_type(name), "faces": fs}) for name, fs in patches],
         "mergePatchPairs": [],
     })
 
@@ -752,6 +788,31 @@ def _directional(levels: int) -> dict:
     return {"mode": "inside", "levels": [[INSIDE_DISTANCE, 0]], "levelIncrement": [0, 0, [levels, 0, levels]]}
 
 
+def volume_geometry(v: "VolumeEntry") -> dict:
+    """The snappyHexMesh geometry entry of a refinement volume, named VOLUME_PREFIX + its name: a searchable shape
+    (D-103), or for an imported region (D-145) its surface in constant/triSurface as a triSurfaceMesh, keyed by
+    the file name like the parts' surfaces. [NUMERICS-REVIEW]"""
+    if isinstance(v.shape, SurfaceRegionEntry):
+        return {v.shape.file: {"type": "triSurfaceMesh", "name": f"{VOLUME_PREFIX}{v.name}"}}
+    return {f"{VOLUME_PREFIX}{v.name}": searchable_geometry(v.shape)}
+
+
+def volume_region(v: "VolumeEntry", two_d: bool) -> dict:
+    """The refinementRegions entry of a refinement volume: "inside" at its level (D-103), or for an imported
+    region in distance mode (D-145) "distance" with ((distance level)): every cell within that many metres of the
+    surface, on either side (v2606 shellSurfaces.C). In 2D the level is directional (x and z, D-121).
+    [NUMERICS-REVIEW]"""
+    distance = v.shape.distance if isinstance(v.shape, SurfaceRegionEntry) and v.shape.mode == "distance" else None
+    if two_d:
+        entry = _directional(v.level)
+        if distance is not None:
+            entry = {**entry, "mode": "distance", "levels": [[distance, 0]]}
+        return entry
+    if distance is not None:
+        return {"mode": "distance", "levels": [[distance, v.level]]}
+    return {"mode": "inside", "levels": [[INSIDE_DISTANCE, v.level]]}
+
+
 def section_staircases(inp: MeshCaseInput, est, part_max_levels: list[int]) -> tuple[dict, dict]:
     """(geometry entries, refinementRegions entries) of the 2D directional staircases (see above): per part, a
     searchableBox for every level k from its maximum surface level down to 1, the part's box grown by the
@@ -830,16 +891,15 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
         refinement_surfaces[DOMAIN_SURFACE] = {
             "level": [0, 0],
             "patchInfo": {"type": "patch"},
-            "regions": {p: {"level": [0, 0], "patchInfo": {"type": BOUNDARY_PATCH_TYPES.get(p, "patch")}}
+            "regions": {p: {"level": [0, 0], "patchInfo": {"type": inp.domain_patch_type(p)}}
                         for p in inp.domain_patches},
         }
         features.append({"file": f'"{DOMAIN_SURFACE}.eMesh"', "level": 0})
     features += [{"file": f'"{name}"', "level": 0 if inp.two_d else level} for name, level in inp.extra_features]
     regions = {}
     for v in inp.volumes:  # user refinement volumes (D-103); directional in 2D (D-121)
-        geometry[f"{VOLUME_PREFIX}{v.name}"] = searchable_geometry(v.shape)
-        regions[f"{VOLUME_PREFIX}{v.name}"] = (_directional(v.level) if inp.two_d
-                                                else {"mode": "inside", "levels": [[INSIDE_DISTANCE, v.level]]})
+        geometry.update(volume_geometry(v))
+        regions[f"{VOLUME_PREFIX}{v.name}"] = volume_region(v, inp.two_d)
     if inp.two_d:
         boxes, staircases = section_staircases(inp, est, part_max)
         geometry.update(boxes)
@@ -863,6 +923,8 @@ def _snappy_content(inp: MeshCaseInput, with_seeds: bool) -> dict:
                 layers[key] = {"nSurfaceLayers": n_layers}
         if inp.ground and inp.ground_layers:  # optional on the ground plane (D-116)
             layers[GROUND_PATCH] = {"nSurfaceLayers": n_layers}
+        for patch in inp.wall_layer_patches:  # optional on a wall domain face (D-161) [NUMERICS-REVIEW]
+            layers[patch] = {"nSurfaceLayers": n_layers}
     content = {
         "castellatedMesh": True,
         "snap": True,
@@ -1116,6 +1178,29 @@ def _is_result_time(name: str) -> bool:
 
 
 _PROCESSOR_RE = re.compile(r"^processor\d+$")
+
+
+def clear_mesh(case_dir: Path) -> list[str]:
+    """Delete the generated mesh of a marker-protected case: the solver results (``remove_results``), then
+    constant/polyMesh and the mesh record. The dictionaries, 0/, the surfaces and the logs stay. Returns the removed
+    names.
+
+    Raises:
+        CaseDirectoryNotOursError: the directory has no VortexCFD marker.
+    """
+    case_dir = Path(case_dir)
+    if not case_dir.is_dir():
+        return []
+    removed = remove_results(case_dir)
+    poly_mesh = case_dir / "constant" / "polyMesh"
+    if poly_mesh.is_dir():
+        shutil.rmtree(poly_mesh)
+        removed.append("constant/polyMesh")
+    record = case_dir / MESH_RECORD_FILE
+    if record.is_file():
+        record.unlink()
+        removed.append(MESH_RECORD_FILE)
+    return removed
 
 
 def remove_results(case_dir: Path) -> list[str]:

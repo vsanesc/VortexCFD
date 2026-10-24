@@ -94,15 +94,15 @@ def test_omitted_sections_are_not_in_the_report(tmp_path: Path) -> None:
     assert Project.open(project.path).sim.results.report_omit == ["mesh", "line_plots"]
     with pytest.raises(ValueError):
         project.set_report_omit(["nonsense"])
-    assert list(REPORT_SECTIONS) == ["setup", "geometry", "mesh", "convergence", "reports", "study", "sweep",
-                                     "line_plots", "views"]
+    assert list(REPORT_SECTIONS) == ["setup", "geometry", "mesh", "convergence", "reports", "study", "sweep",  # D-149
+                                     "line_plots", "comparison", "views"]
 
 
 def test_a_v20_project_migrates_to_v21() -> None:
     raw = json.loads((DATA / "project_v19.json").read_text())
     data = migrate(raw)
     sim = Simulation.model_validate(data)
-    assert sim.schema_version == 21 and sim.results.report_omit == []
+    assert sim.schema_version == 23 and sim.results.report_omit == []
 
 
 def test_the_window_asks_for_the_sections_and_remembers_them(results_window, qtbot: QtBot) -> None:

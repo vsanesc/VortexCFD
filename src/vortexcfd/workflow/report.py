@@ -317,7 +317,7 @@ def reports_section(project: Project) -> Section:
     body += _note("Means over the last iterations: the window of a mean-stable criterion on the quantity, else the "
                   "oscillation window of the stopping criteria (D-118, D-119).")
     if balance is not None and balance[2] is not None:
-        body += _pairs([("Mass imbalance at the last iteration", f"{balance[2]:.3g} % of the inflow")])
+        body += _pairs([("Mass imbalance at the last iteration", f"{balance[2]:.3g} % of the inlet flux")])
     return Section(title, body)
 
 
@@ -326,7 +326,7 @@ def study_section(project: Project) -> Section:
     value and the GCI, or why there is no GCI (D-136)."""
     record = mesh_study.read_record(project.folder / mesh_study.STUDY_DIR_NAME) if project.path is not None else None
     if record is None:
-        return Section("Mesh study", None, "No mesh study has been run.")
+        return Section("Mesh independence study", None, "No mesh independence study has been run.")
     levels = [lv.name for lv in record.levels]
     rows = [("Status", record.status), ("Refinement ratio", f"{record.ratio:.4g}"),
             ("Current settings as", record.current_as)]
@@ -347,7 +347,7 @@ def study_section(project: Project) -> Section:
     if record.dimensions == 3:
         body += _note("A 3D study's levels do not refine the near field by the level ratio (D-127, Proposed): its "
                       "GCI covers the wall cells and the background and is indicative.")
-    return Section("Mesh study", body)
+    return Section("Mesh independence study", body)
 
 
 def polar_png(points) -> bytes | None:
@@ -440,19 +440,52 @@ SECTION_BUILDERS = {
     "setup": project_section, "geometry": geometry_section, "mesh": mesh_section, "convergence": convergence_section,
     "reports": reports_section, "study": study_section, "sweep": sweep_section, "line_plots": line_plots_section,
 }
-assert tuple(SECTION_BUILDERS) + ("views",) == tuple(REPORT_SECTIONS)
+assert tuple(SECTION_BUILDERS) + ("comparison", "views") == tuple(REPORT_SECTIONS)
+
+
+def comparison_section(snaps) -> Section:
+    """The runs compared in the Compare tab (D-149): the values with their differences to the first snapshot, the
+    set-up differences and the residual and first report overlays."""
+    from vortexcfd.workflow import snapshots as snapshot_module
+
+    if not snaps or len(snaps) < 2:
+        return Section("Comparison", None, "Choose two or more runs in the Compare tab to compare them here.")
+    labels = [s.label for s in snaps]
+    rows = []
+    for r in snapshot_module.value_rows(snaps):
+        cells = [r.label, r.kind, *(_num(v) for v in r.values)]
+        for i in range(1, len(snaps)):
+            rel = r.relative(i)
+            cells += [_num(r.absolute(i)), "—" if rel is None else f"{100 * rel:+.3g} %"]
+        rows.append(cells)
+    header = ["Quantity", "Value", *labels]
+    for label in labels[1:]:
+        header += [f"{label} − {labels[0]}", "relative"]
+    body = _table(header, rows, numeric_from=2) if rows else _note("No report values to compare.")
+    setup = snapshot_module.setup_rows(snaps)
+    body += "<h3>Set-up differences</h3>" + (_table(["Input", *labels], [[k, *v] for k, v in setup], numeric_from=99)
+                                            if setup else _note("The runs have the same set-up."))
+    for choice, title in snapshot_module.plot_choices(snaps)[:2]:
+        body += f"<figure>{_img(snapshot_module.png_bytes(snaps, choice), title)}<figcaption>{_e(title)}</figcaption></figure>"
+    return Section("Comparison", body)
 
 
 def build_report(project: Project, images: list[ReportImage] | None = None, now: datetime | None = None,
-                 omit: list[str] | None = None) -> str:
-    """The HTML text of the report; ``omit``: the section ids left out (default the project's choice, D-136)."""
+                 omit: list[str] | None = None, comparison=None) -> str:
+    """The HTML text of the report; ``omit``: the section ids left out (default the project's choice, D-136);
+    ``comparison``: the snapshots chosen in the Compare tab (D-149; the section only with two or more)."""
     now = now or datetime.now()
     omit = set(project.sim.results.report_omit if omit is None else omit)
     sections = []
     for key in REPORT_SECTIONS:
         if key in omit:
             continue
-        section = views_section(images or []) if key == "views" else SECTION_BUILDERS[key](project)
+        if key == "comparison":
+            if not comparison or len(comparison) < 2:  # only when runs are chosen in the Compare tab
+                continue
+            section = comparison_section(comparison)
+        else:
+            section = views_section(images or []) if key == "views" else SECTION_BUILDERS[key](project)
         section.key = key
         sections.append(section)
     parts = ["<!DOCTYPE html>", '<html lang="en"><head><meta charset="utf-8">',
@@ -466,7 +499,7 @@ def build_report(project: Project, images: list[ReportImage] | None = None, now:
 
 
 def write_report(project: Project, images: list[ReportImage] | None = None, now: datetime | None = None,
-                 omit: list[str] | None = None) -> Path:
+                 omit: list[str] | None = None, comparison=None) -> Path:
     """Write the report to <project>/reports/<timestamp>.html and return the path.
 
     Raises:
@@ -477,5 +510,5 @@ def write_report(project: Project, images: list[ReportImage] | None = None, now:
     now = now or datetime.now()
     path = project.folder / REPORTS_DIR / f"{now:%Y%m%d_%H%M%S}.html"
     path.parent.mkdir(parents=True, exist_ok=True)
-    write_text_atomic(path, build_report(project, images, now, omit))
+    write_text_atomic(path, build_report(project, images, now, omit, comparison))
     return path

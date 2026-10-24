@@ -1,4 +1,5 @@
-"""Rows of the Mesh Study (D-066) and Polar Sweep (D-067) nodes for the properties panel.
+"""Rows of the Mesh independence study (D-066) and Polar sweep (D-067) nodes for the properties panel (D-148: the
+names, the explanations and the polar sweep's opt-in).
 
 ``StudyRowsMixin`` is mixed into PropertiesPanel and uses its row helpers (_make_row, _ro_row,
 _section, message); the panel owns the signals ``study_run_requested(str)`` and
@@ -13,13 +14,32 @@ from vortexcfd.foam.mesh_study import CURRENT_AS, MIN_RATIO
 from vortexcfd.foam.parallel import physical_cores
 from vortexcfd.workflow import solving
 
+MESH_STUDY_NOTE = (
+    "Meshes and solves the case three times, the cell size changed by the ratio r between levels, and judges the chosen "
+    "reports with the grid convergence index (GCI, Celik et al. 2008): an error band on the finest mesh's value from the "
+    "apparent order of convergence and the Richardson-extrapolated value. It applies when the three values converge "
+    "monotonically; oscillating or diverging values get no GCI. In 3D the refinement buffers keep their size in metres, "
+    "so the levels are not exactly similar and the 3D GCI is indicative.")
+POLAR_NOTE = (
+    "For lifting bodies (wings, airfoils, aerodynamic devices): runs the case at several angles of attack, each with "
+    "its own mesh (the parts turned) and a run from the free stream, and gives CL, CD and CM against the angle. Each "
+    "angle is a full mesh and solve. Off by default: enable it to set it up.")
 STUDY_TOOLTIPS = {
-    "ratio": "Refinement ratio r in linear cell size between levels (at least 1.3; r = sqrt(2) gives "
-             "2.83 times the cells per level)",
-    "current_as": "fine: the current mesh settings are the finest level (two coarser levels are added); "
-                  "medium: one coarser and one finer level",
-    "quantities": "Reports judged with the grid convergence index (Celik et al. 2008)",
-    "cores": "MPI ranks of each level's solver run",
+    "ratio": "Refinement ratio r in linear cell size between levels. Default \u221a2 (1.414): about 2.8 times the "
+             "cells per level in 3D. At least 1.3 (Celik et al.), so the levels differ enough to judge convergence.",
+    "current_as": "fine (default): the current mesh settings are the finest level, two coarser levels are added (the "
+                  "cheapest). medium: one coarser and one finer level (the finest costs about r\u00b3 the cells).",
+    "quantities": "The reports judged with the GCI; default Cd. Each gets the order, the extrapolated value and the "
+                  "GCI, or the reason there is none.",
+    "cores": "MPI ranks of each level's solver run. Default 1.",
+    "levels": "The estimated cells of each level (the base and every target size scaled by its factor).",
+    "layers": "The prism-layer stack every level uses (the same first layer, so y+ stays comparable).",
+    "status": "Whether the study ran, is running or why it cannot start.",
+    "enabled": "Opt in to the angle-of-attack sweep. Off by default for new projects.",
+    "start": "First angle of attack of the range (\u00b0, nose up positive).",
+    "end": "Last angle of attack of the range (\u00b0), included.",
+    "step": "Angle between two points of the range (\u00b0).",
+    "values": "The angles to run in this order (\u00b0), separated by spaces or commas.",
     "mode": "range: start, start + step, ... up to end; list: the angles in the order given",
     "angles": "Every angle gets its own mesh (the parts rotated to it) and a run from the free stream, one angle "
               "after another; a stopped sweep resumes at the first unfinished angle",
@@ -48,18 +68,20 @@ class StudyRowsMixin:
     def _build_study_rows(self, dspin, spin, combo) -> None:
         cores = physical_cores()
         self._study_state: dict[str, dict] = {"mesh": {}, "polar": {}}
-        # Mesh Study
-        self.ms_ratio = dspin(MIN_RATIO, 4.0, 4)
+        # Mesh independence study
+        self._section("ms_title", "Mesh independence study")
+        self.ms_note = self._note(MESH_STUDY_NOTE)
+        self.ms_ratio = dspin(MIN_RATIO, 4.0, 4, " \u00d7")
         self.ms_current = combo(CURRENT_AS)
         self.ms_quantities = QPushButton()
         self.ms_quantities.setObjectName("tbBtn")
         self.ms_menu = QMenu(self.ms_quantities)
         self.ms_quantities.setMenu(self.ms_menu)
-        self.ms_cores = spin(1, cores)
+        self.ms_cores = spin(1, cores, f" / {cores}")
         for key, text, widget in (("ratio", "Refinement ratio r", self.ms_ratio),
                                   ("current_as", "Current settings are", self.ms_current),
                                   ("quantities", "Quantities", self.ms_quantities),
-                                  ("cores", f"Cores ({cores} physical)", self.ms_cores)):
+                                  ("cores", "Cores", self.ms_cores)):
             widget.setToolTip(STUDY_TOOLTIPS[key])
             self._layout.addWidget(self._make_row(f"ms_{key}", text, widget))
         self.ms_ratio.editingFinished.connect(lambda: self._commit_study("mesh", "ratio", self.ms_ratio.value()))
@@ -67,24 +89,37 @@ class StudyRowsMixin:
         self.ms_cores.editingFinished.connect(lambda: self._commit_study("mesh", "cores", self.ms_cores.value()))
         self._section("ms_estimate", "Levels (estimate)")
         self.ms_levels = [self._ro_row(f"ms_level_{i}", name) for i, name in enumerate(("Coarse", "Medium", "Fine"))]
+        for label in self.ms_levels:
+            label.setToolTip(STUDY_TOOLTIPS["levels"])
         self.ms_layers = self._ro_row("ms_layers", "Prism layers (all levels)")
+        self.ms_layers.setToolTip(STUDY_TOOLTIPS["layers"])
         self.ms_current_used = self._ro_row("ms_current_used", "Current settings used as")  # D-128
         self.ms_status = self._ro_row("ms_status", "Status")
-        self.ms_run, self.ms_results, self._ms_buttons = self._study_buttons("mesh", "Run mesh study")
-        # Polar Sweep
+        self.ms_status.setToolTip(STUDY_TOOLTIPS["status"])
+        self.ms_run, self.ms_results, self._ms_buttons = self._study_buttons("mesh", "Run mesh independence study")
+        # Polar sweep (opt-in, D-148)
+        self._section("ps_title", "Polar sweep")
+        self.ps_note = self._note(POLAR_NOTE)
+        self.ps_enabled = QCheckBox("Enable the polar sweep")
+        self.ps_enabled.setToolTip(STUDY_TOOLTIPS["enabled"])
+        self._layout.addWidget(self._make_row("ps_enabled", "Polar sweep", self.ps_enabled))
+        self.ps_enabled.toggled.connect(lambda on: self._commit_study("polar", "enabled", on))
         self.ps_mode = combo(("range", "list"))
         self.ps_start = dspin(-90.0, 90.0, 3, "°")
         self.ps_end = dspin(-90.0, 90.0, 3, "°")
         self.ps_step = dspin(0.001, 180.0, 3, "°")
         self.ps_values = QLineEdit()
         self.ps_values.setPlaceholderText("e.g. 0 2 4 6 8")
-        self.ps_cores = spin(1, cores)
+        self.ps_cores = spin(1, cores, f" / {cores}")
         self.ps_mode.setToolTip(STUDY_TOOLTIPS["mode"])
-        self.ps_cores.setToolTip("MPI ranks of each point's solver run")
+        self.ps_cores.setToolTip("MPI ranks of each point's solver run. Default 1.")
+        for key, w in (("start", self.ps_start), ("end", self.ps_end), ("step", self.ps_step),
+                       ("values", self.ps_values)):
+            w.setToolTip(STUDY_TOOLTIPS[key])
         for key, text, widget in (("mode", "Angles", self.ps_mode), ("start", "Start", self.ps_start),
                                   ("end", "End", self.ps_end), ("step", "Step", self.ps_step),
-                                  ("values", "Values", self.ps_values),
-                                  ("cores", f"Cores ({cores} physical)", self.ps_cores)):
+                                  ("values", "Values (\u00b0)", self.ps_values),
+                                  ("cores", "Cores", self.ps_cores)):
             self._layout.addWidget(self._make_row(f"ps_{key}", text, widget))
         self.ps_mode.currentTextChanged.connect(lambda t: self._commit_study("polar", "mode", t))
         for key, w in (("start", self.ps_start), ("end", self.ps_end), ("step", self.ps_step)):
@@ -153,6 +188,8 @@ class StudyRowsMixin:
         for k in keys:
             self._rows[k].setVisible(show)
         self._sections["ms_estimate"].setVisible(show)
+        self._sections["ms_title"].setVisible(show)
+        self.ms_note.setVisible(show)
         self._ms_buttons[0].setVisible(show)
         if not show:
             return
@@ -181,21 +218,28 @@ class StudyRowsMixin:
         used, note = state.get("current_as"), state.get("current_note")
         self.ms_current_used.setText("—" if used is None else (f"{used} (automatic)" if note else used))
         self.ms_current_used.setToolTip(f"The study chose this itself: {note}." if note else "")
-        self._fill_status(self.ms_status, self.ms_run, self.ms_results, state, "Run mesh study")
+        self._fill_status(self.ms_status, self.ms_run, self.ms_results, state, "Run mesh independence study")
 
     def _refresh_polar(self, show: bool) -> None:
         keys = ["ps_mode", "ps_start", "ps_end", "ps_step", "ps_values", "ps_cores", "ps_alphas",
                 "ps_status"]
         s = self._project.sim.studies.polar
+        self._sections["ps_title"].setVisible(show)
+        self.ps_note.setVisible(show)
+        self._rows["ps_enabled"].setVisible(show)
+        self.ps_enabled.blockSignals(True)
+        self.ps_enabled.setChecked(s.enabled)
+        self.ps_enabled.blockSignals(False)
+        show_rows = show and s.enabled  # the sweep's settings only once it is enabled (D-148)
         for k in keys:
-            visible = show
+            visible = show_rows
             if k in ("ps_start", "ps_end", "ps_step"):
-                visible = show and s.mode == "range"
+                visible = show_rows and s.mode == "range"
             elif k == "ps_values":
-                visible = show and s.mode == "list"
+                visible = show_rows and s.mode == "list"
             self._rows[k].setVisible(visible)
-        self._ps_buttons[0].setVisible(show)
-        if not show:
+        self._ps_buttons[0].setVisible(show_rows)
+        if not show_rows:
             return
         state = self._study_state["polar"]
         widgets = (self.ps_mode, self.ps_start, self.ps_end, self.ps_step, self.ps_cores, self.ps_values)

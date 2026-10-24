@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from PySide6.QtWidgets import QApplication
 from PIL import Image
 from pytestqt.qtbot import QtBot
 
@@ -103,11 +104,13 @@ def test_streamlines_have_their_own_scalar_bar(results_window, qtbot: QtBot) -> 
     rows = panel.sc_fields
     assert not panel._rows["sc_streamlines_range_min"].isVisibleTo(panel)
     rows[("streamlines", "range_mode")].setCurrentIndex(rows[("streamlines", "range_mode")].findData("fixed"))
+    QApplication.processEvents()  # selectors apply once the event loop runs (D-152)
     assert panel._rows["sc_streamlines_range_min"].isVisibleTo(panel)
     w.project.update_scene_object(obj.id, range_min=5.0, range_max=25.0)
     assert view.object_actors[0].mapper.scalar_range == pytest.approx((5.0, 25.0))
     combo = rows[("streamlines", "colormap")]
     combo.setCurrentIndex(combo.findData("turbo"))
+    QApplication.processEvents()  # selectors apply once the event loop runs (D-152)
     assert w.project.sim.results.objects[0].colormap == "turbo"
     lut = view.object_actors[0].mapper.lookup_table
     assert lut.cmap.name == "turbo"

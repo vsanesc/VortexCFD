@@ -8,7 +8,6 @@ workflow/internal.patches; "internal_reports" the planes and pressure drops. Eve
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QApplication,
     QComboBox,
     QDoubleSpinBox,
     QHBoxLayout,
@@ -27,7 +26,8 @@ from vortexcfd.core.model import (
     PATCH_ROLE_LABELS,
     PATCH_ROLES,
 )
-from vortexcfd.gui.theme import metrics, mono_font
+from vortexcfd.gui.theme import metrics, set_text_role
+from vortexcfd.gui.widgets import discard
 from vortexcfd.workflow import internal, meshing, solving
 
 # When to use which inlet (the user-manual notes, docs/USER_MANUAL notes in docs/STATUS.md, repeated as tooltips).
@@ -234,7 +234,7 @@ class InternalRowsMixin:
             field.setMinimumHeight(metrics().field)
             field.setMinimumWidth(1)
             field.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-            field.setFont(mono_font(QApplication.font(), 0.9))
+            set_text_role(field, "value")
         row.setMinimumHeight(self._row_min_height)
         self._ir_titles.append((row, title))
         self._ir_box.addWidget(row)
@@ -255,7 +255,7 @@ class InternalRowsMixin:
         for row in self._ir_rows:
             self._ir_box.removeWidget(row)
             row.hide()
-            row.deleteLater()
+            discard(row)
         self._ir_rows, self._ir_titles = [], []
         self.ir_widgets = {"planes": [], "drops": []}
         self._ir_shape = (n_planes, n_drops, tuple(locations))

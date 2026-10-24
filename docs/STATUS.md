@@ -1,11 +1,91 @@
 # Status
 
-Updated 2026-10-23 (task/release-1.0.0: **v1.0.0 ready to tag**).
+Updated 2026-10-23 (task/gui-polish: **the GUI overhaul before tagging v1.0.0**).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
 
-**task/release-1.0.0** (not yet published; no push, no merge, no tag). **v1.0.0 is ready to tag**
+**task/gui-polish** (not yet published; no push, no merge, no tag). The owner found the GUI hard to use; this branch
+overhauls it and adds three features a user (Carla) asked for. Done on it, one or more commits per part:
+- Part A (D-141): tests and scripts never touch the user's settings (`VORTEXCFD_SETTINGS_DIR`, set by
+  tests/conftest.py and by every script through `isolate_settings()`); Recent never records a temporary folder and is
+  pruned of missing projects at start-up (10 kept).
+- Part B (D-142): the welcome screen (two large buttons; the open panel with the recent projects, Browse, the
+  right-click menu).
+- Part C (D-143): the New simulation dialog (sections, the presets as a described list, the dimension row, "N / 12",
+  inline validation).
+- Part D (D-144): the Zinc & Teal theme (owner palette; every text pair WCAG AA, ratios in D-144).
+- Part E (D-145, [NUMERICS-REVIEW]): a context menu on every tree node, Delete / F2 / double-click; refinement
+  regions from imported closed surfaces or a part (schema v22): triSurfaceMesh refinementRegions, inside or
+  distance, in the estimate and the viewer. One real mesh (sphere + imported box region, 38 s): the cells inside at
+  the region's level.
+- Part F (D-146): one explained Surface Preparation action.
+- Part G (D-147 [NUMERICS-REVIEW], D-148): interface size (Small default), compact collapsible properties with "?"
+  help (manual chapter 9), a detachable panel; Mesh units / Auto boxes / surface size with its length / curvature
+  explained and editable to 4 levels [NUMERICS-REVIEW] / prism layers named and explained; Free stream (renamed) and
+  Body attitude; domain extents in L, m or mm; editable boundary types of every domain face (defaults unchanged,
+  benchmark dictionaries byte-identical); probes and CofR as vector fields; the mesh independence study explained;
+  the polar sweep opt-in; units and tooltips everywhere.
+- Part I (D-149): results snapshots and the Compare tab (overlays, difference tables, PNG / CSV, the report's
+  Comparison section).
+- Part J (D-150): Show in OpenFOAM file (the map found with the writers, the read-only viewer, a preview when the case
+  has none).
+- Part K (D-151): Open in ParaView in the top bar and the Results menu.
+- Part H: the manual (names, the new features, chapter 9, the window pictures and the re-exported result images),
+  CHANGELOG, QUESTIONS 223 to 235.
+- Screenshots for the owner's review: run/gui_review/<part>/{before,after}/ and run/gui_review/final/ (offscreen,
+  `scripts/gui_review.py`).
+- Machine time: one real mesh (38 s, nice 15), the manual's image export (20 s, no OpenFOAM), the fast test run.
+  No OpenFOAM process left running.
+
+Follow-up (the owner's 13 items), one commit each:
+- Item 10 (D-152): the Results selectors apply after their popup has closed (QUESTIONS 236 asks for a check on the
+  real display).
+- Item 2 (D-153): text roles in the theme, the only text sizes (a test fails on any other); a role re-applied after
+  an interface size change and after a state change (text kept its old size until a restart).
+- Item 1 (D-154): New simulation fits its content, only the preset list gives way, a unique default name.
+- Item 11 (D-155): the status badge sized from its font (descenders were cut), a compact top bar, a minimum window
+  size (66 x 36 font heights).
+- Item 9 (D-156): the residual chart and the convergence criteria detach into their own windows (live, remembered,
+  docked when their screen is gone).
+- Item 5 (D-157): domain extents in m or mm stored in that unit (schema v23).
+- Items 3, 4 (D-158): every screen at three window and three interface sizes (scripts/gui_review_sizes.py,
+  run/gui_review/fix/<screen>/<window size>_<interface size>.png); fixes (the monitors column scrolls, elided names,
+  the legend wraps, minimum sizes, rebuilt rows no longer drawn over); tests/test_screen_layouts.py checks overlaps,
+  clipped text and cut widgets at each screen's minimum and each interface size.
+- Item 6 (D-159): open surfaces as refinement regions in the distance mode.
+- Item 7 (D-160): a snapshot samples every line plot itself.
+- Item 8 (D-161, [NUMERICS-REVIEW]): optional prism layers on wall domain faces, off by default; the public
+  benchmarks' dictionaries byte-identical to main's (`diff -r`, 51 files).
+- Item 12 (D-162): the licence statement, CONTRIBUTING.md, issue and pull request templates, the .gitignore audit.
+- Item 13: final screenshots (run/gui_review/final/, run/gui_review/fix/), the manual's window pictures, QUESTIONS
+  226, 227, 230, 231 closed and 224, 225, 228, 229, 232 to 235 accepted by the owner.
+- Machine time: no OpenFOAM run in the follow-up; offscreen screenshots and the fast test run at nice 15.
+
+Owner review (2026-10-24): D-161 accepted ([NUMERICS-REVIEW]: off by default, benchmarks byte-identical), schema v23
+carrying D-157 and D-161 accepted, QUESTIONS 223 accepted; 236 stays open until the colormap is checked on a real
+display. Review follow-up, one commit each:
+- Item 1 (D-163): the flaky polar sweep test. The run's thread set the record to "finished" and called on_done while
+  still alive, so the window handled the end with the run still "running" (status label "Running: n of 3", Run
+  button "Stop", never updated again). The end now reaches the window after the thread has ended; the tests wait
+  for the label's final text. tests/test_study_gui.py passed 20 runs in a row.
+- Item 2 (D-164, QUESTIONS 82 closed): the offscreen teardown crash. Worker threads emitted Qt signals on QObjects
+  being deleted with their window (heap corruption; every plotter was closed at each crash). Every worker emits
+  through a ThreadGate the window closes before it can be deleted, together with the console and the viewer (also
+  after a refused close); scripts dispose of their windows and finish cleanly. The ship.sh test command
+  (`QT_QPA_PLATFORM=offscreen pytest -q -m "not validation and not long and not bench"`, at nice 15) passed 3 runs in
+  a row in one process: 1366 passed each, 18:33, 18:36, 18:36 (1157 s, 1163 s, 1164 s wall); it crashed in run 2
+  of 2 before. The all-screens review script exits 0 in 36 s (81 images).
+- Machine time: the ship.sh command 5 times in one process (with its slow tests' real snappyHexMesh runs, as the
+  owner chose), about 1 h 45 min at nice 15; no OpenFOAM process left running.
+
+Next: QUESTIONS 236 (the colormap on a real display); then scripts/ship.sh and the v1.0.0 tag (docs/RELEASE_v1.md).
+Open: docs/QUESTIONS.md items 30, 67, 69, 70, 72, 73, 75, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167,
+168 (a, c), 174, 214, 236.
+
+### Previous branch (task/release-1.0.0, published in PR #34)
+
+**task/release-1.0.0**. **v1.0.0 is ready to tag**
 (docs/RELEASE_v1.md). Done on it:
 - Owner review recorded: D-138, D-139, D-140 accepted; QUESTIONS 218, 219, 221, 222 accepted as implemented.
 - Item 1, QUESTIONS 220 (D-138 amended): a configured ParaView path that does not exist falls back to automatic

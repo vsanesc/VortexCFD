@@ -67,7 +67,8 @@ def test_domain_properties_show_values_and_read_only_box(make_window) -> None:
     assert [p.domain_fields[k].value() for k in ("upstream", "downstream", "lateral", "vertical")] == [5, 10, 5, 5]
     assert p.domain_fields["upstream"].suffix() == " L"
     assert p.domain_enabled.isChecked() and p.domain_symmetry.currentText() == "none"
-    assert p.domain_length.isReadOnly() and p.domain_length.text() == "2 m"
+    assert p.domain_length.text() == "2 m: the parts' largest extent" and "largest extent" in p.domain_length.toolTip()
+    assert p.domain_fields["upstream"].other.text() == "= 10 m"  # the physical form, live (D-148)
     assert p.domain_size.isReadOnly() and p.domain_size.text() == "32 × 21 × 21 m"
     assert not p.domain_warning.text()
 
@@ -117,7 +118,7 @@ def test_warnings_in_warning_color(make_window) -> None:
     w.tree.setCurrentItem(w._items[("fluid_domain", None)])
     p = w.properties
     assert "No parts" in p.domain_warning.text() and p.domain_warning.property("warn") == "true"
-    assert p.domain_length.text() == "—" and p.domain_size.text() == "—"
+    assert p.domain_length.text() == "— (import a part)" and p.domain_size.text() == "—"
 
 
 def test_viewer_draws_translucent_wireframe_box(make_window) -> None:
@@ -149,7 +150,7 @@ def test_selecting_a_boundary_highlights_its_face(make_window) -> None:
     w.tree.setCurrentItem(w._items[("boundary_inlet", None)])
     actor = w.domain_view.highlight_actor
     assert actor is not None
-    assert pv.Color(actor.prop.color).hex_rgb.lower() == w._theme.accent_secondary.lower()
+    assert pv.Color(actor.prop.color).hex_rgb.lower() == w._theme.accent.lower()  # the selection colour (D-144)
     xmin, xmax, *_ = actor.GetBounds()
     assert xmin == xmax == pytest.approx(-10.0)  # x_min face: 0 - 5 * L
     w.tree.setCurrentItem(w._items[("boundary_sides", None)])
@@ -171,4 +172,5 @@ def test_works_without_viewer(make_window) -> None:
     w = make_window(with_viewer=False)
     assert w.domain_view is None
     w.tree.setCurrentItem(w._items[("boundary_outlet", None)])
-    assert w.properties.info_label.isVisible()
+    assert not w.properties.info_label.isVisible()  # the face has its Boundary type row (D-147)
+    assert w.properties._rows["face_type"].isVisible() and w.properties.face_type.currentData() == "pressure_outlet"

@@ -6,7 +6,7 @@ _set_warn, message). The panel owns the signals ``volume_action(str)`` ("add:<sh
 edited, None to go back to the project's volumes). Every committed edit is one Project step.
 """
 
-from PySide6.QtWidgets import QCheckBox, QDoubleSpinBox, QHBoxLayout, QLineEdit, QPushButton, QWidget
+from PySide6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QHBoxLayout, QLineEdit, QPushButton, QWidget
 from pydantic import ValidationError
 
 from vortexcfd.core.model import VOLUME_SHAPES, RefinementVolume
@@ -21,8 +21,15 @@ SHAPE_FIELDS: dict[str, tuple[tuple[str, str, bool, str], ...]] = {
     "cone": (("point1", "End point 1", True, " m"), ("radius1", "Radius 1", False, " m"),
              ("point2", "End point 2", True, " m"), ("radius2", "Radius 2", False, " m")),
 }
-SHAPE_LABELS = {"box": "Box", "cylinder": "Cylinder", "sphere": "Sphere", "cone": "Cone"}
+SHAPE_LABELS = {"box": "Box", "cylinder": "Cylinder", "sphere": "Sphere", "cone": "Cone",
+                "surface": "Imported surface"}
+# An imported region's modes (D-145).
+REGION_MODES = {"inside": "Inside the surface", "distance": "Within a distance of the surface"}
+REGION_MODE_TIP = ("Inside: every cell inside the surface is refined to the target size (a closed surface only). "
+                   "Within a distance: every cell closer to the surface than the distance (on either side) is "
+                   "refined; the surface may be open.")
 COORD_RANGE = 1e6
+SURFACE_ROWS = ("vol_surface_file", "vol_surface_mode", "vol_surface_distance")
 ANGLE_RANGES = {"pitch_deg": (-90.0, 90.0), "yaw_deg": (-360.0, 360.0)}
 FIELD_TOOLTIPS = {
     ("box", "pitch_deg"): "Positive = the box x axis tilts towards +z, the same sign as the angle of attack. "
@@ -76,10 +83,16 @@ class VolumeRowsMixin:
             button.clicked.connect(lambda _=False, k=kind: self.volume_action.emit(f"add:{k}"))
             add_box.addWidget(button)
             self.vol_add_buttons[kind] = button
+        self.vol_region_button = QPushButton("From file\u2026")
+        self.vol_region_button.setToolTip("A closed surface file (STL, OBJ, PLY, STEP, IGES, BREP) as a refinement "
+                                          "region; it is not meshed as a wall")
+        self.vol_region_button.clicked.connect(lambda: self.volume_action.emit("region_file"))
+        add_box.addWidget(self.vol_region_button)
         self.vol_wake_button = QPushButton("Wake")
         self.vol_wake_button.setToolTip("Add a wake box behind the selected part (or all parts) aligned with the free stream")
         self.vol_wake_button.clicked.connect(lambda: self.volume_action.emit("wake"))
         add_box.addWidget(self.vol_wake_button)
+        adds.setToolTip("Add a refinement volume: a shape over the parts, an imported surface, or a wake box")
         self._make_row_added("vol_add", "Add", adds)
         # one volume
         self._section("vol_edit", "Refinement volume")
@@ -113,6 +126,24 @@ class VolumeRowsMixin:
                 if (kind, field) in FIELD_TOOLTIPS:
                     widget.setToolTip(FIELD_TOOLTIPS[(kind, field)])
                 self._make_row_added(f"vol_{kind}_{field}", label, widget)
+        # an imported surface (D-145): its file and units, the mode and the distance
+        self.vol_surface_file = self._ro_row("vol_surface_file", "Surface file")
+        self.vol_surface_mode = QComboBox()
+        for key, text in REGION_MODES.items():
+            self.vol_surface_mode.addItem(text, key)
+        self.vol_surface_mode.setToolTip(REGION_MODE_TIP)
+        self.vol_surface_mode.currentIndexChanged.connect(lambda _i: self._commit_region_mode())
+        self._make_row_added("vol_surface_mode", "Refine", self.vol_surface_mode)
+        self.vol_surface_distance = QDoubleSpinBox()
+        self.vol_surface_distance.setRange(0.0, COORD_RANGE)
+        self.vol_surface_distance.setDecimals(5)
+        self.vol_surface_distance.setSuffix(" m")
+        self.vol_surface_distance.setKeyboardTracking(False)
+        self.vol_surface_distance.setToolTip("Cells closer to the surface than this (either side) are refined "
+                                             "(snappyHexMesh refinementRegions, mode distance)")
+        self.vol_surface_distance.editingFinished.connect(
+            lambda: self._commit_volume(shape={"distance": self.vol_surface_distance.value()}))
+        self._make_row_added("vol_surface_distance", "Distance", self.vol_surface_distance)
         self.vol_target = QDoubleSpinBox()
         self.vol_target.setRange(1e-6, COORD_RANGE)
         self.vol_target.setDecimals(5)
@@ -142,7 +173,7 @@ class VolumeRowsMixin:
 
     def _volume_keys(self) -> list[str]:
         return ["vol_name", "vol_enabled", "vol_shape", "vol_target", "vol_achieved", "vol_cells", "vol_status",
-                "vol_actions"] + [f"vol_{k}_{f}" for (k, f) in self.vol_shape_fields]
+                "vol_actions", *SURFACE_ROWS] + [f"vol_{k}_{f}" for (k, f) in self.vol_shape_fields]
 
     def _selected_volume(self) -> RefinementVolume | None:
         volumes = self._project.sim.refinement_volumes
@@ -172,20 +203,25 @@ class VolumeRowsMixin:
         self._sections["vol_edit"].setVisible(volume is not None)
         for key in self._volume_keys():
             self._rows[key].setVisible(volume is not None and not key.startswith(
-                tuple(f"vol_{k}_" for k in SHAPE_FIELDS)))
+                tuple(f"vol_{k}_" for k in SHAPE_FIELDS)) and key not in SURFACE_ROWS)
         if volume is not None:
-            for field, *_ in SHAPE_FIELDS[volume.shape.kind]:
+            for field, *_ in SHAPE_FIELDS.get(volume.shape.kind, ()):
                 self._rows[f"vol_{volume.shape.kind}_{field}"].setVisible(True)
+            surface = volume.shape.kind == "surface"
+            for key in SURFACE_ROWS:
+                self._rows[key].setVisible(surface and (key != "vol_surface_distance"
+                                                        or volume.shape.mode == "distance"))
         if not show_list and volume is None:
             return
         infos = self._volume_infos()
         has_parts = bool(self._project.sim.geometry.parts)
-        for button in (*self.vol_add_buttons.values(), self.vol_wake_button):
+        for button in (*self.vol_add_buttons.values(), self.vol_wake_button, self.vol_region_button):
             button.setEnabled(has_parts and self._project.sim.domain.enabled)
         if show_list:
             volumes = self._project.sim.refinement_volumes
             self.vol_summary.setText("\n".join(
-                f"{v.name}: {v.shape.kind}, {v.target_size:.4g} m" + ("" if v.enabled else " (disabled)")
+                f"{v.name}: {SHAPE_LABELS[v.shape.kind].lower()}, {v.target_size:.4g} m"
+                + ("" if v.enabled else " (disabled)")
                 for v in volumes) or "none: add one below")
             total = sum(i.extra_cells for i in infos) if infos is not None else None
             self.vol_total.setText("—" if total is None else f"+{total:,} cells (estimate)")
@@ -193,7 +229,8 @@ class VolumeRowsMixin:
         self._fill_volume(volume, next((i for i in infos or () if i.volume.id == volume.id), None))
 
     def _fill_volume(self, volume: RefinementVolume, info) -> None:
-        widgets = [self.vol_name, self.vol_enabled, self.vol_target, *self.vol_shape_fields.values()]
+        widgets = [self.vol_name, self.vol_enabled, self.vol_target, self.vol_surface_mode, self.vol_surface_distance,
+                   *self.vol_shape_fields.values()]
         spins = [s for w in self.vol_shape_fields.values() for s in getattr(w, "spins", [w])]
         for w in widgets + spins:
             w.blockSignals(True)
@@ -201,8 +238,13 @@ class VolumeRowsMixin:
             self.vol_name.setText(volume.name)
             self.vol_enabled.setChecked(volume.enabled)
             self.vol_target.setValue(volume.target_size)
-            for field, *_ in SHAPE_FIELDS[volume.shape.kind]:
+            for field, *_ in SHAPE_FIELDS.get(volume.shape.kind, ()):
                 self.vol_shape_fields[(volume.shape.kind, field)].setValue(getattr(volume.shape, field))
+            if volume.shape.kind == "surface":
+                shape = volume.shape
+                self.vol_surface_file.setText(f"{shape.file} ({shape.units})")
+                self.vol_surface_mode.setCurrentIndex(self.vol_surface_mode.findData(shape.mode))
+                self.vol_surface_distance.setValue(shape.distance)
         finally:
             for w in widgets + spins:
                 w.blockSignals(False)
@@ -249,6 +291,24 @@ class VolumeRowsMixin:
     def _commit_volume_name(self) -> None:
         if self._selected_volume() is not None:
             self._commit_volume(name=self.vol_name.text())
+
+    def _commit_region_mode(self) -> None:
+        """Inside / within a distance (D-145): switching to the distance mode starts at one target cell."""
+        volume = self._selected_volume()
+        if volume is None or volume.shape.kind != "surface":
+            return
+        mode = self.vol_surface_mode.currentData()
+        if mode == "inside" and self._project.folder is not None:  # only a closed surface has an inside (D-159)
+            try:
+                refinement.load_region(self._project.folder / volume.shape.file, volume.shape.units, "inside")
+            except refinement.RegionFileError as exc:
+                self.message.emit(str(exc))
+                self.refresh()  # back to the distance mode
+                return
+        shape = {"mode": mode}
+        if mode == "distance" and volume.shape.distance <= 0:
+            shape["distance"] = volume.target_size
+        self._commit_volume(shape=shape)
 
     def _commit_volume(self, **fields) -> None:
         volume = self._selected_volume()

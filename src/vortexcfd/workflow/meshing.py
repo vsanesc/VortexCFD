@@ -51,7 +51,15 @@ from vortexcfd.foam.physics_case import LENGTH_AUTO_LABEL, reference_values
 from vortexcfd.geometry import regions, section
 from vortexcfd.geometry.attitude import Attitude
 from vortexcfd.geometry import internal as internal_geometry
-from vortexcfd.geometry.domain import DomainBox, compute_domain, ground_wall_start, internal_box, union_bounds
+from vortexcfd.core.model import EDITABLE_FACES
+from vortexcfd.geometry.domain import (
+    DomainBox,
+    compute_domain,
+    ground_wall_start,
+    internal_box,
+    shape_roles,
+    union_bounds,
+)
 from vortexcfd.geometry.domain_surface import ROLE_ARRAY, meshing_surface
 from vortexcfd.geometry.loader import SurfaceLoadError, load_surface
 from vortexcfd.workflow import internal, refinement, surface_prep
@@ -217,7 +225,8 @@ def write_part_surfaces(case_dir: Path, project: Project, inputs: MeshCaseInput,
     """The part STLs of a meshing case (metres): a part with several patches (or one renamed patch)
     gets one solid per patch, named after it (D-071); other parts are written as loaded. In 2D (D-121) a part
     is its section (cut at its mid y) extruded across the slab and one slab span beyond it on each side, so
-    snappyHexMesh cuts it at the slab's faces."""
+    snappyHexMesh cuts it at the slab's faces. The imported refinement regions' surfaces are written too (D-145)."""
+    refinement.write_region_surfaces(case_dir, TRI_SURFACE, project, inputs.volumes, project_attitude(project))
     if inputs.two_d:
         est = inputs.estimate()
         y0, y1 = est.background_bounds[2], est.background_bounds[3]
@@ -377,6 +386,52 @@ def meshing_settings(project: Project, box: DomainBox, length: float | None = No
     return mesh.model_copy(update={"surface_level_max": level, "surface_level_min": max(0, min(low, level))})
 
 
+def domain_faces(project: Project) -> tuple[str, ...]:
+    """The editable faces (D-147) the project's domain has: its shape's roles that are not the symmetry plane or the
+    ground (D-116), without the box's sides in 2D (they are the empty front and back)."""
+    domain = project.sim.domain
+    roles = shape_roles(domain.shape, domain.symmetry == "y_min", domain.ground.enabled and domain.shape == "box")
+    two_d = project.sim.dimension == "2d"
+    return tuple(r for r in roles if r in EDITABLE_FACES and not (two_d and r == "sides"))
+
+
+def face_kinds(project: Project) -> tuple[tuple[str, str], ...]:
+    """(patch, kind) of the domain faces whose boundary type is not the default (D-147), a symmetry face resolved to
+    "symmetry_plane" on the box (its faces are planes, like the y_min symmetry plane) and "symmetry" on a rounded
+    shape. Empty for internal flow and for a domain left as it was. [NUMERICS-REVIEW]"""
+    domain = project.sim.domain
+    if project.sim.internal or not domain.boundary_types:
+        return ()
+    faces = domain_faces(project)
+    out = []
+    for face, kind in domain.boundary_types.items():
+        if face in faces:
+            out.append((face, "symmetry_plane" if kind == "symmetry" and domain.shape == "box" else kind))
+    return tuple(out)
+
+
+WALL_KINDS = ("wall", "moving_wall")
+
+
+def wall_layer_faces(domain, faces: tuple[str, ...] | None = None) -> tuple[str, ...]:
+    """The domain faces that get the parts' prism layers (D-161): those ticked whose boundary type is a wall or a
+    moving wall (among ``faces``, the faces the domain has, when given). [NUMERICS-REVIEW]"""
+    return tuple(f for f in domain.wall_layers if domain.face_kind(f) in WALL_KINDS and (faces is None or f in faces))
+
+
+def boundary_problem(project: Project) -> str | None:
+    """Why the domain's boundary types cannot make a well-posed external flow (D-147), or None: it needs at least one
+    velocity inlet and one pressure outlet."""
+    if project.sim.internal:
+        return None
+    kinds = [project.sim.domain.face_kind(f) for f in domain_faces(project)]
+    if "velocity_inlet" not in kinds:
+        return "The domain has no inlet: make a face a Velocity inlet (Regions > Fluid Domain)."
+    if "pressure_outlet" not in kinds:
+        return "The domain has no outlet: make a face a Pressure outlet (Regions > Fluid Domain)."
+    return None
+
+
 def domain_fields(box: DomainBox) -> dict:
     """The MeshCaseInput fields of the domain shape (D-078). A rounded shape's surface carries every
     role but the symmetry plane, which is the background box's y_min face."""
@@ -456,6 +511,9 @@ def readiness(project: Project) -> str | None:
         return f"The file of part '{missing[0]}' is missing."
     if surface_prep.state(project) == "stale":
         return surface_prep.STALE_MESSAGE
+    regions_problem = refinement.region_problems(project)  # imported refinement regions (D-145)
+    if regions_problem:
+        return regions_problem[0]
     if project.sim.internal:
         return internal_readiness(project)
     if not project.sim.domain.enabled:
@@ -632,6 +690,9 @@ def mesh_inputs(project: Project) -> tuple[MeshCaseInput, DomainBox, list]:
         ground_layers=box.ground and project.sim.domain.ground.layers,
         ground_wall_start=ground_wall_start(project.sim.domain, box.bounds),
         two_d=box.two_d,
+        patch_kinds=face_kinds(project),
+        wall_layer_patches=() if project.sim.internal else wall_layer_faces(project.sim.domain,
+                                                                             domain_faces(project)),
         **domain_fields(box),
         **internal_fields(project, box),
     )
@@ -764,6 +825,16 @@ def _domain_for_hash(domain) -> dict:
     """The domain as the mesh hash sees it: without the ground plane when it is off (projects saved before
     schema v16 keep their hash) and without the ground's motion, which only the solver reads (D-116)."""
     data = domain.model_dump()
+    types = data.pop("boundary_types")
+    if types:  # only the patch types change the mesh (D-147); none: the hash of the projects saved before v22
+        data["patch_types"] = {f: "wall" if k in ("wall", "moving_wall") else "symmetry" if k == "symmetry" else "patch"
+                               for f, k in sorted(types.items())}
+    if not data.get("units"):  # every extent in L: the hash of the projects saved before v23 (D-157)
+        data.pop("units", None)
+    data.pop("wall_layers", None)  # the faces that get layers are hashed as written (D-161)
+    layered = wall_layer_faces(domain)
+    if layered:
+        data["wall_layer_faces"] = list(layered)
     ground = data.pop("ground")
     if ground["enabled"]:
         ground.pop("motion")
@@ -829,6 +900,11 @@ def inputs_hash(project: Project) -> str:
     if enabled:  # only enabled volumes reach the mesh (D-103); none: the hash of a project without volumes
         skip = {"enabled"} if alpha != 0.0 else {"enabled", "frame"}  # the frame matters only when rotated
         payload["refinement_volumes"] = [v.model_dump(mode="json", exclude=skip) for v in enabled]
+        folder = project.path.parent if project.path else None
+        for entry, v in zip(payload["refinement_volumes"], enabled):  # an imported region's surface (D-145)
+            if v.shape.kind == "surface":
+                path = folder / v.shape.file if folder is not None else None
+                entry["surface_hash"] = _hash_file(path) if path is not None and path.is_file() else None
     if project.sim.mesh.surface_size_reference == "l_ref":  # l_ref sizes the surface (D-085)
         payload["surface_l_ref"] = project.sim.reports.reference_length
     prep = project.sim.surface_prep

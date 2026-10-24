@@ -378,9 +378,9 @@ def test_v11_project_migrates_without_volumes() -> None:
     stored = json.loads((DATA / "project_v11.json").read_text())
     assert stored["schema_version"] == 11 and "refinement_volumes" not in stored
     sim = load_simulation(DATA / "project_v11.json")
-    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 21 and sim.refinement_volumes == []
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 23 and sim.refinement_volumes == []
     assert sim.inflow.alpha_deg == 4.0 and [p.name for p in sim.geometry.parts] == ["Body"]
-    assert migrate({"schema_version": 11, "x": 1}) == {"schema_version": 21, "x": 1, "mesh": {"layer_controls": "legacy", "yplus_at": "cell_height"}}
+    assert migrate({"schema_version": 11, "x": 1}) == {"schema_version": 23, "x": 1, "mesh": {"layer_controls": "legacy", "yplus_at": "cell_height"}}
 
 
 def test_volumes_round_trip_and_are_not_saved_in_presets(tmp_path: Path) -> None:

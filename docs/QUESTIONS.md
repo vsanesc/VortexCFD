@@ -165,7 +165,7 @@ settled the open ones on 2026-10-17.
 79. **[DECIDED (owner, 2026-10-18): Save As duplicates the project: a new <parent>/<name>/ folder with every referenced geometry file copied, case/ not copied, the original untouched (D-079)]** **Save As into another folder leaves the geometry behind.** Part paths are relative to the project folder; Save As to a different folder writes only the .vcfd file, so the parts point to <new folder>/geometry/, which does not exist. With projects always created as folders (D-077) a "Save As" could copy geometry/ (and offer to leave case/ behind), or be replaced by a "Duplicate project" that copies the folder. Not built.
 80. **[DECIDED (owner review, 2026-10-18): accepted as built: farfield slip as for the box sides, the rounded surface resolved at the base size, the 2-cell background margin (D-078, Accepted)]** **[NUMERICS-REVIEW] Rounded domain shapes in snappyHexMesh.** The bullet and C-type domains (D-078) are cut out of a background box by a refinement surface at level (0 0) with its feature edges at level 0; the background patch emptied by snappyHexMesh is removed by createPatch, and a guard checks it. Open points for review: (a) the domain surface is resolved only at the background cell size, so the inlet and far-field faces are castellated-then-snapped hexes (checkMesh OK on the coarse sphere cases, but the snapped faces near the C-type corners and the bullet rim were not inspected for quality beyond checkMesh); (b) farfield takes today's slip conditions, so the bullet's farfield is a slip cylinder and the C-type's top and bottom are slip planes, which matters for blockage exactly as for the box; (c) locationInMesh is placed halfway between the inlet on the axis and the parts' front, which assumes nothing sits there; (d) the background box costs cells that snappyHexMesh removes: in the coarse bullet case (base 0.5 m, 2-cell margin) the background box is 2.32 times the domain volume.
 81. **[DECIDED (owner, 2026-10-18): accepted: the domain is sized around the chosen parts, every part is meshed]** **"On the selected parts" read as "sized around".** Generate domain takes the parts the domain is sized around (L and the centre come from them); every part is still meshed and must lie inside the domain (a part outside gets a warning and would be lost). Excluding parts from the mesh entirely would need a per-part "in the fluid" flag; not built.
-82. **An offscreen xdist worker crashed once more.** In the first of two fast offscreen runs at the end of this task (`-n 8`), the worker running tests/test_domain_operations.py::test_viewer_draws_the_surface_and_highlights_a_role[c_type] crashed ("worker 'gw6' crashed"); the file passed three times alone, together with the other viewer test files, and the second full run passed (749 passed). Same pattern as items 67 and 73 (VTK rendering offscreen under xdist).
+82. **[CLOSED (task gui-polish review follow-up, 2026-10-24): the cause was worker threads emitting Qt signals on QObjects being deleted with their window (heap corruption, a later crash at an unrelated free; glibc reported "malloc_consolidate(): unaligned fastbin chunk detected"), not VTK: every plotter was closed at each crash. Fixed by D-164. Evidence: tests/test_import.py alone crashed 2 times in 9 runs before, 0 in 20 after; the ship.sh test command crashed in run 2 of 2 before (after tests/test_layout.py::test_wireframe_toggle_switches_representation), and passed 3 runs in a row in one process after (1366 passed, 18:33, 18:36, 18:36); the all-screens review script exits cleanly (36 s)]** **An offscreen xdist worker crashed once more.** In the first of two fast offscreen runs at the end of this task (`-n 8`), the worker running tests/test_domain_operations.py::test_viewer_draws_the_surface_and_highlights_a_role[c_type] crashed ("worker 'gw6' crashed"); the file passed three times alone, together with the other viewer test files, and the second full run passed (749 passed). Same pattern as items 67 and 73 (VTK rendering offscreen under xdist).
 
 ## Task 5.0: meshing benchmark (decisions taken while Vic was away)
 
@@ -430,4 +430,48 @@ settled the open ones on 2026-10-17.
      are unaffected and no fix was made. The render with a flat inlet face and a round outflow side looked along -y
      (x mirrored); D-140 makes the app's 2D views look along +y. Note: this case's radius is 100 chords (the domain
      sensitivity case), not the preset's 50.
+
+## Task gui-polish (decisions taken while Vic was away)
+
+223. **[ACCEPTED (owner, 2026-10-24)]** **Recent list: temporary folders are refused and missing projects pruned (D-141).** The Recent list
+     never records a project under the system temporary folder (/tmp, /var/tmp), and at start-up drops entries whose
+     file no longer exists. A user who keeps real projects under /tmp would not see them in Recent. Accept?
+224. **[ACCEPTED (owner, 2026-10-23)]** **Interface size values (D-148): Small 9 pt (default), Medium 10 pt, Large 12 pt.** The previous default
+     was 11 pt. Inputs and tree rows are now 1.6 u high (were 2 u and 1.8 u). Accept the sizes?
+225. **[ACCEPTED (owner, 2026-10-23)] [NUMERICS-REVIEW]** **Curvature refinement: the maximum extra levels is now 4 (was 2, D-085), the default
+     stays 2.** The owner asked for the maximum to be editable; the model cap was the "conservative 2" of D-085. A
+     project at 0 to 2 writes the same dictionaries as before. Accept 4 as the new cap?
+226. **[CLOSED (task gui-polish follow-up, 2026-10-23): the unit is stored with the value (schema v23, D-157); an extent in m or mm stays that length when L changes, one in L follows the parts]** **Domain extents entered in m or mm are stored in multiples of L (D-148).** The L / m / mm toggle is
+     an entry unit: the value is converted with the current L and kept in L, as the domain always was (D-078). If the
+     parts change, an extent typed as "3 m" becomes 3 m x (new L / old L). Storing physical extents as such would need
+     a schema change. Keep the conversion, or store the unit with the value?
+227. **[CLOSED (task gui-polish follow-up, 2026-10-23): a wall or moving-wall face has an optional Prism layers check box, off by default (D-161, [NUMERICS-REVIEW]); the public benchmarks' dictionaries are byte-identical to main's]** [NUMERICS-REVIEW] **Editable domain face types (D-147).** A face set to a wall gets the parts' wall
+     functions (nutUSpaldingWallFunction) and no prism layers; a moving wall moves at the free-stream speed along +x
+     (as the moving ground). There is no y+ layer sizing on domain walls. Run Solver requires at least one velocity
+     inlet and one pressure outlet. Accept, or should a domain wall get the parts' layers (like the ground option)?
+228. **[ACCEPTED (owner, 2026-10-23)]** **The properties panel detaches into a window, not a QDockWidget (D-148).** The left column is part of
+     the central widget under the top bar (D-041); a Qt dock area would sit beside the top bar and change the
+     window's layout. The panel's header button (or closing its window) docks it back. Accept, or move the panel to
+     a real dock (and the top bar to a tool bar)?
+229. **[ACCEPTED (owner, 2026-10-23)]** **Delete in the tree now asks first and also removes refinement volumes, results objects and saved
+     views (D-145).** Before, Delete removed a selected part at once and did nothing on other nodes. Accept?
+230. **[CLOSED (task gui-polish follow-up, 2026-10-23): open surfaces are accepted in the distance mode; the inside mode still needs a closed one (D-159)]** **Imported refinement regions must be closed surfaces (D-145)**, in both modes (inside and distance);
+     a distance-mode region could be an open sheet in snappyHexMesh. Allow open surfaces for the distance mode?
+231. **[CLOSED (task gui-polish follow-up, 2026-10-23): a snapshot samples every line plot itself when it is saved (D-160)]** **Snapshots keep the line plots only once the Results Scene has computed them (D-149).** A snapshot
+     saved before the results were shown has no line plots (computing them would read the results on the GUI
+     thread). Accept, or compute them when the snapshot is saved?
+232. **[ACCEPTED (owner, 2026-10-23)]** **Show in OpenFOAM file writes a preview to <project>/case_preview/ when the case has no such file
+     (D-150)**, never the case itself (writing the case would delete a mesh or results). The folder stays in the
+     project. Accept, or delete it when the viewer closes?
+233. **[ACCEPTED (owner, 2026-10-23)]** **Open in ParaView is enabled once the case has a mesh (D-151)**, not only with results as before,
+     and lives in the top bar (the Results Scene's strip lost its own button). Accept?
+234. **[ACCEPTED (owner, 2026-10-23)]** **The polar sweep is off in new projects and on in every project saved before v22 that has its
+     studies (D-148).** Accept, or turn it off for older projects too (their records stay readable)?
+235. **[ACCEPTED (owner, 2026-10-23)]** **The default properties column stays 18 u** (the D-041 rule keeps the viewer at least half the window);
+     at the Small size the Auto fields' values fit with little room ("0.2685 m"). Widen the default column and
+     relax the viewer rule?
+236. **[OPEN]** **The colormap selector that stopped responding (D-152) could not be reproduced offscreen.** The fix
+     applies every Results selector after its popup has closed (no redraw inside the selector's signal), which removes
+     the only step that differs on the real display. Please confirm on the real display that the colormap, field,
+     range and display selectors and the streamlines' selectors keep responding.
 

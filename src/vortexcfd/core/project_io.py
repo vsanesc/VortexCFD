@@ -65,7 +65,10 @@ def migrate(data: dict[str, Any], notes: list[str] | None = None) -> dict[str, A
     in ``notes`` (its mesh hash now carries the angle, so the mesh is out of date); v18 -> v19 adds the
     internal-flow boundaries, cutting planes and pressure drops (none: nothing to fill, D-129); v19 -> v20 adds the
     results scene objects and saved views (none, D-132); v20 -> v21 adds the line plots, the streamlines' own
-    colour range and the report sections left out (none: every section, D-136).
+    colour range and the report sections left out (none: every section, D-136); v21 -> v22 adds the imported
+    surface as a refinement volume shape (none, D-145), the domain faces' boundary types (none: the defaults, D-147)
+    and the polar sweep's opt-in (on for every older project, which always had it, D-148); v22 -> v23 adds the
+    domain extents' units (none: every extent in L, as every older project stored them, D-157).
     Data already at the current version (or not a dict /
     without a version) is returned unchanged."""
     if not isinstance(data, dict):
@@ -151,6 +154,16 @@ def migrate(data: dict[str, Any], notes: list[str] | None = None) -> dict[str, A
         data["schema_version"] = 20  # no results scene objects or saved views (D-132)
     if data.get("schema_version") == 20:
         data["schema_version"] = 21  # the new fields default: the scene's colormap, auto range, every section (D-136)
+    if data.get("schema_version") == 21:
+        studies = data.get("studies")
+        if isinstance(studies, dict):  # a file saved since v7 has its studies: the sweep stays offered (D-148)
+            polar = studies.get("polar")
+            polar = dict(polar) if isinstance(polar, dict) else {}
+            polar.setdefault("enabled", True)
+            data["studies"] = {**studies, "polar": polar}
+        data["schema_version"] = 22  # no imported refinement regions (D-145), no changed face types (D-147)
+    if data.get("schema_version") == 22:
+        data["schema_version"] = 23  # every extent in L, as before (D-157)
     return data
 
 

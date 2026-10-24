@@ -19,13 +19,24 @@ def isolated_config(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def isolated_settings(tmp_path_factory):
-    path = str(tmp_path_factory.mktemp("qsettings"))
+def isolated_settings(isolated_config, monkeypatch):
+    path = str(isolated_config)  # one folder: QSettings files, presets, the OpenFOAM path
+    # The app's own switch (core/user_dirs.py, D-141): QSettings and the config folder live here, and a
+    # subprocess started by a test inherits it.
+    monkeypatch.setenv("VORTEXCFD_SETTINGS_DIR", path)
     # QSettings(org, app) uses the native format; redirect both formats and both scopes.
     for fmt in (QSettings.Format.NativeFormat, QSettings.Format.IniFormat):
         for scope in (QSettings.Scope.UserScope, QSettings.Scope.SystemScope):
             QSettings.setPath(fmt, scope, path)
     return path
+
+
+@pytest.fixture
+def allow_temporary_recent(monkeypatch):
+    """Tests run in temporary folders, which the Recent list refuses (D-141): this lets a test record them."""
+    from vortexcfd.core import user_dirs
+
+    monkeypatch.setattr(user_dirs, "is_temporary", lambda path: False)
 
 
 def focus_widget(qtbot, window, widget) -> None:
@@ -55,17 +66,14 @@ def flush_deleted_widgets():
     pytest-qt closes widgets and calls deleteLater(), but the deferred deletes are only run by
     an event loop, so every test left its whole MainWindow (menus, VTK widgets) behind and
     each later test got slower (the application stylesheet is re-applied to every live widget).
-    This autouse fixture is set up before qtbot, so it is torn down after qtbot closed them.
+    This autouse fixture is set up before qtbot, so it is torn down after qtbot closed them. A main window ends
+    its worker threads' signals and its viewer before it is deleted (D-164).
     """
     yield
-    from PySide6.QtCore import QEvent
-    from PySide6.QtWidgets import QApplication
+    from vortexcfd.gui.teardown import close_plotters, flush_deletions
 
-    app = QApplication.instance()
-    if app is not None:
-        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-        app.processEvents()
-        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    close_plotters()  # a plotter a test left open is finalized before Qt deletes its widget (D-164)
+    flush_deletions()
 
 
 @pytest.fixture(scope="session")

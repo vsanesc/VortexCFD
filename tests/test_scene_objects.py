@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from PySide6.QtWidgets import QApplication
 import pyvista as pv
 from pytestqt.qtbot import QtBot
 
@@ -97,7 +98,7 @@ def test_a_v19_project_migrates_to_v20_without_objects() -> None:
     stored = json.loads((DATA / "project_v19.json").read_text())
     assert stored["schema_version"] == 19
     sim = load_simulation(DATA / "project_v19.json")
-    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 21
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 23
     assert sim.results.objects == [] and sim.results.views == [] and sim.name == "v19 project"
 
 
@@ -161,6 +162,7 @@ def test_the_results_node_adds_draws_and_edits_objects(results_window, qtbot: Qt
     before = len(w.project._undo)
     keep = panel.sc_fields[("clip", "keep")]
     keep.setCurrentIndex(keep.findData("front"))
+    QApplication.processEvents()  # selectors apply once the event loop runs (D-152)
     assert w.project.sim.results.objects[0].keep == "front" and len(w.project._undo) == before + 1
     assert view.object_actors[0].GetBounds()[0] == pytest.approx(1.0)
     # an isosurface outside the field's range draws nothing and says why
@@ -190,6 +192,7 @@ def test_the_section_values_survive_a_scene_object(results_window, qtbot: QtBot)
     w.results_tab.click()
     qtbot.waitUntil(lambda: w.results_view.has_results, timeout=15000)
     w.display_combo.setCurrentText("Section")
+    QApplication.processEvents()  # selectors apply once the event loop runs (D-152)
     before = w.results_view.shown_values().size
     w.project.add_scene_object("clip", origin=(1.0, 0.0, 0.5))
     assert before > 0 and w.results_view.shown_values().size == before

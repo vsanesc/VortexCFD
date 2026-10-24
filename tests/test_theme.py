@@ -1,4 +1,4 @@
-"""Tests for the Tungsten & Amber theme, zoom, icons, layout and the no-literals rule."""
+"""Tests for the Zinc & Teal theme (D-144), zoom, icons, layout and the no-literals rule."""
 
 import re
 from pathlib import Path
@@ -12,7 +12,8 @@ from pytestqt.qtbot import QtBot
 from tests.fakes import FakeDialogs
 from vortexcfd.core.project import Project
 from vortexcfd.gui.main_window import MainWindow
-from vortexcfd.gui.theme import DARK, DIM_ALPHA, blend, MAX_POINT_SIZE, MIN_POINT_SIZE, metrics
+from vortexcfd.gui.theme import (DARK, DEFAULT_POINT_SIZE, DIM_ALPHA, INTERFACE_SIZES, MAX_POINT_SIZE, MIN_POINT_SIZE,
+                                 blend, metrics)
 
 GUI_DIR = Path(__file__).resolve().parent.parent / "src" / "vortexcfd" / "gui"
 
@@ -31,38 +32,51 @@ def contrast(a: str, b: str) -> float:
 
 
 def test_owner_values_are_exact() -> None:
-    """Fixed by the owner: change only on his request."""
+    """Fixed by the owner (D-144, replacing Tungsten & Amber): change only on his request."""
     t = DARK
-    assert (t.canvas, t.base, t.elevated) == ("#0A0D12", "#12161F", "#1A202C")
-    assert (t.floating, t.border, t.border_active) == ("#232B3A", "#2A3446", "#3B4963")
-    assert (t.accent_secondary, t.accent_secondary_hover) == ("#00B4A2", "#14C8B6")
-    assert (t.accent, t.accent_hover) == ("#FF8800", "#FFA033")
-    assert (t.text, t.muted_text, t.disabled_text, t.accent_text) == (
-        "#F1F5F9", "#94A3B8", "#526077", "#0A0D12",
-    )
-    assert (t.success, t.warning, t.error) == ("#10B981", "#FACC15", "#F43F5E")
-    assert (t.part_surface, t.part_edge) == ("#7F8DA3", "#2A3446")
-    assert t.part_selected == t.accent_secondary == "#00B4A2"
-    # Mesh section: edges in the owner's disabled_text colour, faces in elevated.
-    assert t.mesh_edge == t.disabled_text == "#526077"
-    assert t.mesh_surface == t.elevated == "#1A202C"
-    # The dim tokens are the accents at alpha 0.15 over base; the selection row uses the teal one.
-    assert t.accent_secondary_dim == blend("#00B4A2", t.base, 0.15)
-    assert t.accent_dim == blend("#FF8800", t.base, 0.15)
+    assert (t.canvas, t.base) == ("#18181B", "#27272A")  # background, panel
+    assert (t.accent, t.accent_secondary) == ("#2DD4BF", "#F59E0B")  # teal accent, amber secondary
+    assert t.text == "#FAFAFA"
+    # chosen for AA on the background and the panel (the zinc scale and the accents' lighter steps)
+    assert (t.elevated, t.floating, t.border, t.border_active) == ("#1C1C20", "#303036", "#3F3F46", "#52525B")
+    assert (t.muted_text, t.disabled_text, t.accent_text) == ("#A1A1AA", "#71717A", "#18181B")
+    assert (t.accent_hover, t.accent_secondary_hover) == ("#5EEAD4", "#FBBF24")
+    assert (t.success, t.warning, t.error) == ("#22C55E", "#F59E0B", "#FB7185")
+    assert t.warning == t.accent_secondary  # the secondary colour is for highlights and warnings
+    assert t.part_selected == t.accent  # selection is the accent, never the secondary
+    assert t.mesh_edge == t.disabled_text and t.mesh_surface == t.elevated
+    # the dim tokens are the accents at alpha 0.15 over the panel; the selected row uses the teal one
+    assert t.accent_dim == blend("#2DD4BF", t.base, 0.15)
+    assert t.accent_secondary_dim == blend("#F59E0B", t.base, 0.15)
     assert DIM_ALPHA == 0.15
-    assert t.selection == t.accent_secondary_dim
+    assert t.selection == t.accent_dim
+
+
+# Every text / background pair the GUI draws, with the minimum ratio (WCAG AA: 4.5 for text).
+def contrast_pairs() -> list[tuple[str, str, str, str]]:
+    t = DARK
+    pairs = [(f"text on {n}", t.text, bg) for n, bg in (("canvas", t.canvas), ("base", t.base),
+                                                         ("elevated", t.elevated), ("floating", t.floating),
+                                                         ("selection", t.selection), ("accent_dim", t.accent_dim))]
+    pairs += [(f"muted_text on {n}", t.muted_text, bg) for n, bg in (("canvas", t.canvas), ("base", t.base),
+                                                                     ("elevated", t.elevated), ("floating", t.floating))]
+    pairs += [("accent_text on accent", t.accent_text, t.accent), ("accent_text on accent_hover", t.accent_text,
+                                                                     t.accent_hover)]
+    pairs += [(f"{n} on base", c, t.base) for n, c in (
+        ("success", t.success), ("warning", t.warning), ("error", t.error), ("accent", t.accent),
+        ("accent_hover", t.accent_hover), ("accent_secondary", t.accent_secondary),
+        ("accent_secondary_hover", t.accent_secondary_hover))]
+    pairs += [(f"{n} on canvas", c, t.canvas) for n, c in (
+        ("success", t.success), ("warning", t.warning), ("error", t.error), ("accent", t.accent),
+        ("accent_secondary", t.accent_secondary))]
+    pairs += [("accent on selection", t.accent, t.selection), ("accent on accent_dim", t.accent, t.accent_dim),
+              ("accent on elevated", t.accent, t.elevated), ("error on elevated", t.error, t.elevated)]
+    return [(name, a, b, "") for name, a, b in pairs]
 
 
 def test_contrast() -> None:
-    """disabled_text is exempt (disabled controls and placeholders only); all else >= 4.5."""
-    t = DARK
-    pairs = [(t.text, s) for s in (t.base, t.elevated, t.floating)]
-    pairs += [(t.muted_text, s) for s in (t.base, t.elevated, t.floating)]
-    pairs += [(t.accent_text, t.accent), (t.accent_text, t.accent_hover)]
-    pairs += [(c, t.base) for c in (t.success, t.warning, t.error, t.accent, t.accent_hover,
-                                    t.accent_secondary, t.accent_secondary_hover)]
-    pairs += [(t.text, t.selection)]
-    failures = [(a, b, round(contrast(a, b), 2)) for a, b in pairs if contrast(a, b) < 4.5]
+    """disabled_text is exempt (disabled controls and placeholders only); every other pair >= 4.5 (AA)."""
+    failures = [(name, round(contrast(a, b), 2)) for name, a, b, _ in contrast_pairs() if contrast(a, b) < 4.5]
     assert not failures, failures
 
 
@@ -99,9 +113,9 @@ def make_window(qtbot: QtBot):
 def test_zoom_actions_and_persistence(make_window) -> None:
     window = make_window()
     app = QApplication.instance()
-    assert app.font().pointSize() == 11
+    assert app.font().pointSize() == DEFAULT_POINT_SIZE == INTERFACE_SIZES["Small"] == 9  # compact default (D-148)
     window.act_zoom_in.trigger()
-    assert app.font().pointSize() == 12
+    assert app.font().pointSize() == 10
     window.set_point_size(MAX_POINT_SIZE - 1)
     for _ in range(3):  # one step reaches the maximum, the rest must be ignored
         window.act_zoom_in.trigger()
@@ -113,7 +127,23 @@ def test_zoom_actions_and_persistence(make_window) -> None:
     window.act_zoom_in.trigger()
     assert int(QSettings("VortexCFD", "VortexCFD").value("appearance/point_size")) == 9
     window.act_zoom_reset.trigger()
-    assert app.font().pointSize() == 11
+    assert app.font().pointSize() == DEFAULT_POINT_SIZE
+
+
+def test_interface_size_menu_applies_and_is_remembered(make_window) -> None:
+    window = make_window()
+    assert window.interface_size() == "Small" and window.act_interface_sizes["Small"].isChecked()
+    small_row = metrics().row
+    window.act_interface_sizes["Large"].trigger()
+    assert QApplication.instance().font().pointSize() == INTERFACE_SIZES["Large"]
+    assert metrics().row > small_row and window.tree.iconSize().height() >= metrics().u
+    assert window.act_interface_sizes["Large"].isChecked() and not window.act_interface_sizes["Small"].isChecked()
+    assert make_window().interface_size() == "Large"  # remembered
+    window.act_zoom_in.trigger()  # a zoom step between the sizes: none checked
+    assert window.interface_size() is None
+    assert not any(a.isChecked() for a in window.act_interface_sizes.values())
+    window.set_interface_size("Medium")
+    assert window.interface_size() == "Medium"
 
 
 def test_point_size_restored_by_new_window(make_window) -> None:
@@ -129,7 +159,7 @@ def test_no_theme_menu(make_window) -> None:
     window = make_window()
     assert [a.text() for a in window.menuBar().actions()] == ["&File", "&Edit", "&View", "&Help"]
     view = window.menuBar().actions()[2].menu()
-    assert [a.text() for a in view.actions() if a.menu() is not None] == ["Viewport &Telemetry"]  # no Theme menu
+    assert [a.text() for a in view.actions() if a.menu() is not None] == ["Interface &size", "Viewport &Telemetry"]
 
 
 def test_icons_exist_and_scale_with_font(make_window) -> None:

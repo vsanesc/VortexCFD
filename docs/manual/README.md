@@ -16,8 +16,11 @@ Short and practical; the reasons behind each behaviour are in DECISIONS.md (D-nu
 | [6. Meshing guidance](06_meshing_guidance.md) | y+ and wall treatment, layer warnings, refinement volumes, parallel meshing |
 | [7. Troubleshooting](07_troubleshooting.md) | checkMesh failures, the first-cell drift, oscillating runs, a run that will not converge |
 | [8. Validation and known limitations](08_validation_and_limits.md) | The validated cases and their verdicts, what v1 does not do |
+| [9. Properties reference](09_properties_reference.md) | What every section of the Properties panel does, its defaults and why (the "?" of each section) |
 
-Images: every picture in this manual was exported by the app itself (File > Export Image, the line plot's Export
-PNG, the report's plots) from real results, with `scripts/manual_images.py`.
+Images: every picture of results in this manual was exported by the app itself (File > Export Image, the line plot's
+Export PNG, the report's plots) from real results, with `scripts/manual_images.py`; the pictures of the window
+(welcome screen, New simulation, Compare tab) are the app's own window captures, made offscreen with
+`scripts/gui_review.py`.
 
 The manual is opened from the app with Help > User Manual.

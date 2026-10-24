@@ -121,17 +121,17 @@ def test_tree_structure_and_node_count(make_window) -> None:
     # Geometry, Parts, 3 parts, Continua, Mesh, Physics, Regions, Fluid Domain, 5 boundaries,
     # 3 walls, Inflow, Solvers, Reports = 21
     # + Stopping Criteria, Probes, Mesh Study, Polar Sweep, Fluid Region (D-078)
-    # + Surface Preparation and its "Prepare surfaces..." entry (D-093) + Refinement volumes (D-103) + Results (D-132)
-    assert w.node_count() == 31 and w.node_badge.text() == "31 Nodes"
+    # + Surface Preparation (D-093, its action no longer a tree entry: D-146) + Refinement volumes (D-103) + Results
+    assert w.node_count() == 30 and w.node_badge.text() == "30 Nodes"
     region = w._items[("fluid_region", None)]
     assert region.text(0) == "Fluid Region (domain minus parts)" and region.parent() is w._items[("regions", None)]
     reports = w._items[("reports", None)]
     assert [reports.child(i).text(0) for i in range(reports.childCount())] == [
-        "Reference Values", "Probes", "Mesh Study", "Polar Sweep"]
+        "Reference Values", "Probes", "Mesh independence study", "Polar sweep (off)"]  # D-148
     stopping = w._items[("stopping", None)]
     assert stopping.text(0) == "Stopping Criteria" and stopping.parent() is w._items[("solvers", None)]
     w.add_placeholder_part()
-    assert w.node_badge.text() == "33 Nodes"  # a part and its wall
+    assert w.node_badge.text() == "32 Nodes"  # a part and its wall
 
 
 def test_header_name_selects_root(make_window) -> None:
@@ -189,7 +189,8 @@ def test_properties_header_and_rows(make_window) -> None:
     assert w.props_name.text() == "Part 1"
     w.tree.setCurrentItem(w._items[("geometry", None)])
     assert w.props_name.text() == "Geometry"
-    assert not p._rows["name"].isVisible() and p.info_label.isVisible()
+    assert not p._rows["name"].isVisible() and not p.info_label.isVisible()
+    assert p._rows["geometry_alpha_deg"].isVisible()  # the Body attitude group (D-148)
     w._select_root()
     assert p._rows["name"].isVisible() and not p._rows["source"].isVisible()
 
@@ -234,8 +235,13 @@ def test_no_coefficient_names_in_the_ui(make_window) -> None:
     from PySide6.QtWidgets import QLabel, QPushButton
 
     w = make_window()
-    texts = [x.text() for x in w.findChildren(QLabel)] + [x.text() for x in w.findChildren(QPushButton)]
-    texts += [x.toolTip() for x in w.findChildren(QPushButton)]
+    # The monitors and the top bar of a project without a run (task 2.1c: no placeholder results). The properties
+    # panel explains its settings in words that name the coefficients (the polar sweep "for lifting bodies", the
+    # mesh study's default quantity Cd; D-148), so it is not checked here.
+    roots = (w.monitors, w.top_bar)
+    texts = [x.text() for r in roots for x in r.findChildren(QLabel)]
+    texts += [x.text() for r in roots for x in r.findChildren(QPushButton)]
+    texts += [x.toolTip() for r in roots for x in r.findChildren(QPushButton)]
     import re
 
     banned = re.compile(r"lift|drag|coeff|max wall y\+|\bcl\b|\bcd\b|converged", re.IGNORECASE)
@@ -382,7 +388,7 @@ def test_wireframe_toggle_switches_representation(make_window) -> None:
     assert not w._empty_message.actor.GetVisibility()
     w.top_bar.wireframe_button.click()
     assert actor.prop.style.lower() == "wireframe" and w.wireframe
-    assert w.top_bar.wireframe_button.dot_color() == w._theme.accent_secondary
+    assert w.top_bar.wireframe_button.dot_color() == w._theme.accent
     w.top_bar.wireframe_button.click()
     assert actor.prop.style.lower() == "surface"
     assert w.top_bar.wireframe_button.dot_color() == w._theme.muted_text
