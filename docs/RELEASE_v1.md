@@ -39,10 +39,12 @@ unexplained; one layer specification for all walls; a solution cannot be continu
 - **CHANGELOG.md** for 1.0.0: features by area, everything since 1.0.0rc1 (the release polish, both GUI rounds, the
   branding, the two fixed intermittent failures), the validation table, the known limitations, the requirements.
 - **The manual** (docs/manual/, 9 chapters) up to date with the release.
-- **Licences**: LICENSE (GPL-3.0-or-later) and THIRD_PARTY_LICENSES.md (every dependency, the fonts and artwork,
-  the external programs; its review section lists what was checked); the logo under CC BY-SA 4.0, separately from
-  the code (assets/branding/LICENSE, D-177); the repository housekeeping for a public repository (CONTRIBUTING,
-  issue and PR templates, D-162).
+- **Licences**: LICENSE (GPL-3.0-or-later) and THIRD_PARTY_LICENSES.md (every dependency, the fonts and artwork, the
+  external programs); the licence review signed off by the owner on 2026-10-24 (foamlib GPL-3.0-only: the combined
+  distribution is GPL-3.0; pymeshfix AGPL-3.0: compatible, the network clause does not apply to a desktop app; the
+  MPL-2.0 packages pytetwild and certifi carry no "Incompatible With Secondary Licenses" notice); the logo under CC
+  BY-SA 4.0, separately from the code (assets/branding/LICENSE, Copyright 2026 Víctor Sánchez Escalante, D-177); the
+  repository housekeeping for a public repository (CONTRIBUTING, issue and PR templates, D-162).
 
 Open, not blocking the tag: **QUESTIONS 214**, the WSLg desktop entry in the Windows Start menu not yet seen on a
 real display (agents never use it).

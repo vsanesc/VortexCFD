@@ -67,7 +67,7 @@ D-074; licence review for v1: the section at the end (prepared for the owner, ta
 | Item | Licence | Use |
 |---|---|---|
 | Sora (Bold, from the variable font Sora[wght].ttf, Google Fonts, copyright 2019 The Sora Project Authors) | OFL-1.1 (SIL Open Font License 1.1; assets/branding/fonts/OFL.txt) | the word of the logo's lockups, converted to outlines by scripts/brand/make_logo.py (D-175); Sora-Bold.ttf is the variable font instantiated at weight 700 with fontTools |
-| The VortexCFD logo (assets/branding/ and its copies in the package vortexcfd.brand; copyright 2026 Víctor Sánchez) | CC BY-SA 4.0 (Creative Commons Attribution-ShareAlike 4.0 International; assets/branding/LICENSE), separately from the code's GPL-3.0-or-later; trademark rights not licensed (D-177) | the mark, the lockups, the icons |
+| The VortexCFD logo (assets/branding/ and its copies in the package vortexcfd.brand; copyright 2026 Víctor Sánchez Escalante) | CC BY-SA 4.0 (Creative Commons Attribution-ShareAlike 4.0 International; assets/branding/LICENSE), separately from the code's GPL-3.0-or-later; trademark rights not licensed (D-177) | the mark, the lockups, the icons |
 
 ## External programs (not bundled)
 
@@ -79,24 +79,29 @@ D-074; licence review for v1: the section at the end (prepared for the owner, ta
 To refresh: `.venv/bin/pip freeze --exclude-editable`; the licence fields are in each package's
 `*.dist-info/METADATA`.
 
-## Licence review for v1 (prepared for the owner; not legal advice)
+## Licence review for v1 (signed off by the owner, 2026-10-24; not legal advice)
 
-Against GPL-3.0-or-later, no dependency was found that is **incompatible**. Points to confirm:
+Against GPL-3.0-or-later, no dependency was found that is **incompatible**. The owner signed the review off on
+2026-10-24: points 1 and 2 accepted as stated, point 4 checked (below).
 
 1. **foamlib is GPL-3.0-only.** Compatible, but a distribution of VortexCFD together with foamlib can only be
    offered under GPL-3.0 (version 3 exactly), not under a later GPL version. VortexCFD's own files can stay
-   "or later".
+   "or later". Accepted by the owner: the combined distribution is GPL-3.0.
 2. **pymeshfix is AGPL-3.0.** GPL-3.0 section 13 allows combining it with AGPL-3.0 code; the combination must then
    keep AGPL-3.0's terms for pymeshfix, whose section 13 (offering the source to users interacting over a network)
    does not apply to a desktop application used locally (D-074). If the repository is made public and the app
-   distributed, this stays true; it would matter for a hosted or remote-access version.
+   distributed, this stays true; it would matter for a hosted or remote-access version. Accepted by the owner.
 3. **Qt: PySide6_Essentials only** (D-139, QUESTIONS 213). The PySide6 meta-package (which also installed
    PySide6_Addons, PySide6_Pdf and PySide6_WebEngine with Chromium) is no longer a dependency; the app uses only
    modules of PySide6_Essentials. Qt's LGPL-3.0 libraries are used as shared libraries from the wheel, which LGPL
    allows with GPL-3.0 code.
 4. **MPL-2.0 (pytetwild, fTetWild, certifi).** MPL-2.0 is compatible with GPL-3.0 through its secondary-licence
-   clause unless a file is marked "Incompatible With Secondary Licenses"; no such notice was looked for in their
-   sources (not checked: to confirm).
+   clause unless a file is marked "Incompatible With Secondary Licenses" (MPL-2.0 Exhibit B). Checked on
+   2026-10-24 in the installed wheels (pytetwild 0.4.2: the Python files, PyfTetWildWrapper.abi3.so with fTetWild
+   compiled in, the bundled libraries, the licence file; certifi 2026.7.22: every file, cacert.pem's MPL header
+   included): no such notice. The only occurrence is the template of Exhibit B inside the MPL-2.0 text of
+   pytetwild's licence file, which is part of the licence, not a notice. fTetWild's own source repository was not
+   checked (it is not distributed: only the compiled wrapper is).
 5. **Apache-2.0 (cadquery-ocp, requests, cyclopts, multicollections)** is compatible with GPL-3.0 (not with
    GPL-2.0). OpenCASCADE's LGPL-2.1 with its exception is compatible.
 6. **OpenFOAM** runs as a separate program and is installed by the user; VortexCFD does not distribute it.
