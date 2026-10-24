@@ -98,7 +98,7 @@ from vortexcfd.workflow.refinement import OUTSIDE_IGNORED
 from vortexcfd.geometry.refinement_volumes import domain_fraction
 from vortexcfd.gui.mesh_worker import MeshWorker
 from vortexcfd.foam.logparse import parse_log_text
-from vortexcfd.foam.run_record import RunRecord, read_run_record, write_run_record
+from vortexcfd.foam.run_record import RunRecord, read_run_record, record_stopping, write_run_record
 from vortexcfd.foam.solver_run import CRITERIA_MET, read_stages, stage2_criteria
 from vortexcfd.workflow import solving
 from vortexcfd.gui.solver_worker import SolverWorker
@@ -1004,8 +1004,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self._update_run_button()
         self.monitors.kpis.set_options(available_reports(**solving.report_scope(self._project)))
         self.monitors.set_assignments(list(sim.reports.slots))
-        if not self.solver_worker.is_running():  # a running solver keeps the criteria it started with
-            self.monitors.set_stopping(sim.solvers.stopping)
+        self.monitors.set_project_stopping(sim.solvers.stopping)  # a run keeps its own criteria (D-165)
         self._update_results_tab()
 
     def _node_icon(self, glyph: str, token: str) -> QIcon:
@@ -1822,6 +1821,11 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         if reason is not None:
             self.show_message(reason, "error")
             return
+        if self._project.dirty and self._project.path is not None:  # the results belong to the saved set-up (D-165)
+            if not self.save():
+                self.show_message("The project could not be saved, so the solver was not started", "error")
+                return
+            log.info("Saved the project before the run: its results belong to the saved set-up")
         try:
             case_dir = solving.prepare_solver_case(self._project)
         except (solving.SolvingNotReady, MeshingNotReady) as exc:
@@ -1866,9 +1870,13 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         except OSError:
             text = ""
         record = self.run_record
-        self.monitors.set_stopping(project.sim.solvers.stopping)
+        run_stopping = record_stopping(record)
+        judged = (stage2_criteria(run_stopping, record.switch_iteration)
+                  if run_stopping is not None and run_stopping.criteria and record.switch_iteration else None)
+        self.monitors.set_project_stopping(project.sim.solvers.stopping)
         self.monitors.load_run(case_dir, parse_log_text(text),
-                               (record.state, record.stopped_by, record.met_iteration or record.iterations))
+                               (record.state, record.stopped_by, record.met_iteration or record.iterations),
+                               run_stopping, judged)
         if record.stages:  # a two-stage run (D-126)
             last = record.stages[-1]
             self.monitors.set_stage(stage_text(int(last["stage"]), record.switch_iteration,
@@ -1904,7 +1912,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         """The second turbulence stage began (D-126): the monitors say so and judge the criteria as SolverRun does."""
         self.monitors.set_stage(stage_text(stage, switch, reason))
         if self._solve_stopping is not None and self._solve_stopping.criteria:
-            self.monitors.set_stopping(stage2_criteria(self._solve_stopping, switch))
+            self.monitors.set_run_stopping(stage2_criteria(self._solve_stopping, switch))
 
     def _on_solver_done(self, result) -> None:
         self.top_bar.set_run_state(None)
@@ -1915,7 +1923,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         record = RunRecord(result.state, result.iterations, result.final_residuals,
                            self._solve_hash or "", result.exit_code, criteria, stopped_by, labels,
                            result.met_iteration, round(result.duration_s, 1), result.cores,
-                           tuple(result.stages), result.switch_iteration)
+                           tuple(result.stages), result.switch_iteration, stopping.model_dump())
         if case_dir is None:
             case_dir = case_dir_for(self._project)
         elif not self._is_current_case(case_dir):

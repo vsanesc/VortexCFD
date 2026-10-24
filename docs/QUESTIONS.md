@@ -475,3 +475,16 @@ settled the open ones on 2026-10-17.
      the only step that differs on the real display. Please confirm on the real display that the colormap, field,
      range and display selectors and the streamlines' selectors keep responding.
 
+## Task gui-2 (decisions taken while Vic was away)
+
+237. **[OPEN]** **Run solver now saves the project first (D-165).** Your ~/simulation_2 shows why: its last run (14 m/s,
+     2000 iterations, no stopping criteria, as its snapshots and report say) was made from edits that were never
+     saved; the project file saved later has 20 m/s, 1000 iterations and the four default criteria, so the "removed"
+     criteria were back after reopening. Run solver now saves unsaved changes before it starts (a failed save stops
+     the run). Accept, or ask before saving?
+238. **[OPEN]** **The rows of the previous node (item 7b) were not reproduced offscreen** (every node after every
+     other, a 3,200-action random walk, on a sphere project and a copy of ~/simulation_2). The panel now hides every row
+     before showing the selected node's, and a part that fails can no longer leave the previous node's rows (D-165).
+     Please check on the real display that selecting Physics or Free stream after Stopping Criteria shows only their
+     rows; if it still happens, note what was done just before.
+

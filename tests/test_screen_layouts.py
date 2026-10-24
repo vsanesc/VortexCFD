@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication, QLabel
 from pytestqt.qtbot import QtBot
 
 from tests.fakes import FakeDialogs
-from tests.layout_check import clipped_labels, problems
+from tests.layout_check import clipped_buttons, clipped_labels, problems
 from vortexcfd.gui.theme import DARK, INTERFACE_SIZES, apply_theme
 
 SIZES = list(INTERFACE_SIZES.values())
@@ -96,6 +96,13 @@ def test_the_checks_find_overlaps_and_clipped_text(qtbot: QtBot) -> None:
     b.setGeometry(0, 40, 200, 5)  # too low for its text's descenders
     _settle()
     assert any("px of text in" in p for p in clipped_labels(root))
+    from PySide6.QtWidgets import QPushButton
+
+    button = QPushButton("Add mean stable", root)  # a button narrower than its text (D-165)
+    button.setGeometry(0, 60, 30, 30)
+    button.show()
+    _settle()
+    assert any("px button" in p for p in clipped_buttons(root))
 
 
 @pytest.mark.parametrize("interface_size", SIZES, indirect=True)
@@ -137,7 +144,7 @@ def solved_window(qtbot: QtBot, tmp_path: Path):
 LONG_BANNER = ("Criteria met at iteration 257: Cd: |mean of the last 100 - mean of the 100 before| / max(|mean|, "
                "0.01) <= 0.005")
 LONG_WARNING = "Cd oscillates by 10% - the flow may be unsteady; a steady solution may not exist"
-NODES = [("root", None), ("part", 0), ("mesh", None), ("physics", None), ("fluid_domain", None),
+NODES = [("root", None), ("part", 0), ("mesh", None), ("physics", None), ("inflow", None), ("fluid_domain", None),
          ("boundary_inlet", None), ("solvers", None), ("stopping", None), ("reference_values", None),
          ("results", None)]
 

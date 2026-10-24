@@ -4,7 +4,10 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from vortexcfd.core.atomic_io import write_text_atomic
+from vortexcfd.core.model import StoppingCriteria
 from vortexcfd.foam.solver_run import CRITERIA_MET, STATE_LABELS, state_label
 
 RUN_RECORD_NAME = "vortexcfd_run.json"
@@ -35,6 +38,9 @@ class RunRecord:
     # of stage 1. Absent in single-stage and older records.
     stages: tuple[dict, ...] = ()
     switch_iteration: int | None = None
+    # The run's stopping criteria as it started (a core.model.StoppingCriteria dump, D-165): the monitors show them
+    # as "the last run's" next to the project's current ones. None in older records.
+    stopping: dict | None = None
 
     @property
     def label(self) -> str:
@@ -56,6 +62,7 @@ def _data(record: RunRecord) -> dict:
         "cores": record.cores,
         **({"stages": [dict(s) for s in record.stages], "switch_iteration": record.switch_iteration}
            if record.stages else {}),
+        **({"stopping": record.stopping} if record.stopping is not None else {}),
     }
 
 
@@ -85,7 +92,8 @@ def read_run_record(case_dir: Path) -> RunRecord | None:
                            None if data.get("duration_s") is None else float(data["duration_s"]),
                            int(data.get("cores", 1)),
                            tuple(dict(s) for s in data.get("stages", [])),
-                           None if data.get("switch_iteration") is None else int(data["switch_iteration"]))
+                           None if data.get("switch_iteration") is None else int(data["switch_iteration"]),
+                           dict(data["stopping"]) if isinstance(data.get("stopping"), dict) else None)
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
     if migrated:
@@ -94,6 +102,17 @@ def read_run_record(case_dir: Path) -> RunRecord | None:
         except OSError:
             pass  # read-only case: the record is still shown with the new state
     return record
+
+
+def record_stopping(record: RunRecord | None) -> StoppingCriteria | None:
+    """The stopping criteria a recorded run started with (D-165); None when the record predates them or they no
+    longer validate."""
+    if record is None or record.stopping is None:
+        return None
+    try:
+        return StoppingCriteria.model_validate(record.stopping)
+    except ValidationError:
+        return None
 
 
 def remove_run_record(case_dir: Path) -> None:

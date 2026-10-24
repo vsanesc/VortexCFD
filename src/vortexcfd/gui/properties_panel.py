@@ -1,5 +1,6 @@
 """Properties panel: edits the node selected in the simulation tree through the Project."""
 
+import logging
 from pathlib import Path
 from typing import get_args
 
@@ -88,7 +89,9 @@ from vortexcfd.gui.help_texts import help_target
 from vortexcfd.gui.panel_widgets import AutoField, ChoiceField, ReferenceLengthField, SectionHeader, VectorField
 from vortexcfd.gui.settings_store import settings
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, repolish, set_text_role
-from vortexcfd.gui.widgets import discard
+from vortexcfd.gui.widgets import FlowLayout, discard
+
+log = logging.getLogger(__name__)
 
 # Allowed units are read from the model so the two never drift apart.
 ALLOWED_UNITS: tuple[str, ...] = get_args(Part.model_fields["units"].annotation)
@@ -1022,6 +1025,9 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.run_state = self._ro_row("run_state", "State")
         self.run_iterations = self._ro_row("run_iterations", "Iterations")
         self.run_residuals = self._ro_row("run_residuals", "Final residuals")
+        self.run_criteria = self._ro_row("run_criteria", "Stopping criteria")
+        self.run_criteria.setToolTip("The criteria the last run used (the Stopping Criteria node holds the project's, "
+                                     "for the next run)")
         self.run_status = self._ro_row("run_status", "Status")
         # Reference Values node (under Reports & Monitors): forceCoeffs reference values.
         self._section("ref_values", "Reference values")
@@ -1121,8 +1127,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             self._layout.addWidget(self._make_row(f"stop_{key}", text, widget))
             _connect_commit(widget, lambda k=key: self._commit_stopping_setting(k))
         self._section("stop_criteria", "Criteria")
-        self.stop_add = QWidget()  # full width: two buttons sharing the row
-        self._stop_add_row = QHBoxLayout(self.stop_add)
+        self.stop_add = QWidget()  # full width: the buttons wrap onto more rows in a narrow panel (D-165)
+        self._stop_add_row = FlowLayout(self.stop_add)
         self.stop_add_residual = QPushButton("Add residual")
         self.stop_add_asymptotic = QPushButton("Add asymptotic")
         self.stop_add_mean_stable = QPushButton("Add mean stable")
@@ -1130,9 +1136,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                              (self.stop_add_mean_stable, "mean_stable")):
             button.setObjectName("tbBtn")
             button.setToolTip(STOPPING_TOOLTIPS[kind])
-            button.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
             button.clicked.connect(lambda _=False, k=kind: self._add_criterion(k))
-            self._stop_add_row.addWidget(button, 1)
+            self._stop_add_row.addWidget(button)
         self._layout.addWidget(self.stop_add)
         self._criteria_box = QVBoxLayout()
         self._criteria_box.setContentsMargins(0, 0, 0, 0)
@@ -1411,7 +1416,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             label.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
         if getattr(self, "_probe_count", None) is not None:
             self._probe_count = None  # rebuilt at the next refresh with the new metrics
-        self._stop_add_row.setSpacing(m.s2)
+        self._stop_add_row.set_spacing(m.s2, m.s1)
         for button in (self.stop_add_residual, self.stop_add_asymptotic, self.stop_add_mean_stable):
             button.setMinimumHeight(m.field)
         if getattr(self, "_criteria_kinds", None):
@@ -1432,8 +1437,28 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.refresh()
 
     def refresh(self) -> None:
-        """Repopulate from the project without triggering any commit."""
+        """Repopulate from the project without triggering any commit.
+
+        Every widget of the rows starts hidden and each part shows only the selected node's rows (D-165), so no row of
+        the previous node stays visible, even when one part fails (it is logged and the others still run)."""
         self._restore_collapsed()
+        for widget in self._layout_widgets():
+            widget.setVisible(False)
+        try:
+            self._refresh_rows()
+        except Exception:  # noqa: BLE001 - the node's rows stay hidden rather than the previous node's shown
+            log.exception("Properties panel: could not show the %s node", self._kind)
+        self._apply_collapsed()
+        self._apply_label_column()
+
+    def _safely(self, part, *args) -> None:
+        """One part of ``refresh``: a failure is logged and leaves its rows hidden (D-165)."""
+        try:
+            part(*args)
+        except Exception:  # noqa: BLE001
+            log.exception("Properties panel: %s failed on the %s node", part.__name__, self._kind)
+
+    def _refresh_rows(self) -> None:
         sim = self._project.sim
         part: Part | None = None
         if self._kind == "part" and self._index is not None:
@@ -1472,28 +1497,29 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         if part is not None:
             patches = part_patch_names(sim.geometry.parts, sim.internal)
             self.patch_label.setText(", ".join(patches[self._index]))
-        self._refresh_cad(part)
-        self._refresh_regions(part)
-        self._refresh_file_info(part)
         self._rows["name"].setVisible(show_name)
+        safely = self._safely
+        safely(self._refresh_cad, part)
+        safely(self._refresh_regions, part)
+        safely(self._refresh_file_info, part)
         is_domain = self._kind in ("fluid_domain", "fluid_region") or self._kind.startswith("boundary_")
-        self._refresh_domain(self._kind == "fluid_domain")
-        self._refresh_ground(self._kind in ("fluid_domain", "boundary_ground"))
-        self._refresh_face_type()
-        self._refresh_groups()
-        self._refresh_run(self._kind == "solvers")
-        self._refresh_stopping(self._kind == "stopping")
-        self._refresh_reports(self._kind == "reports")
-        self._refresh_probes(self._kind == "probes")
-        self._refresh_reference(self._kind == "reference_values")
+        safely(self._refresh_domain, self._kind == "fluid_domain")
+        safely(self._refresh_ground, self._kind in ("fluid_domain", "boundary_ground"))
+        safely(self._refresh_face_type)
+        safely(self._refresh_groups)
+        safely(self._refresh_run, self._kind == "solvers")
+        safely(self._refresh_stopping, self._kind == "stopping")
+        safely(self._refresh_reports, self._kind == "reports")
+        safely(self._refresh_probes, self._kind == "probes")
+        safely(self._refresh_reference, self._kind == "reference_values")
         study_patches, study_probes = self._patches_and_probes() if self._kind == "mesh_study" else ([], [])
-        self._refresh_mesh_study(self._kind == "mesh_study", study_patches, study_probes)
-        self._refresh_polar(self._kind == "polar_sweep")
-        self._refresh_mesh_settings(self._kind == "mesh")
-        self._refresh_mesh(self._kind == "mesh")
-        self._refresh_volumes()
-        self._refresh_internal()
-        self._refresh_scene()
+        safely(self._refresh_mesh_study, self._kind == "mesh_study", study_patches, study_probes)
+        safely(self._refresh_polar, self._kind == "polar_sweep")
+        safely(self._refresh_mesh_settings, self._kind == "mesh")
+        safely(self._refresh_mesh, self._kind == "mesh")
+        safely(self._refresh_volumes)
+        safely(self._refresh_internal)
+        safely(self._refresh_scene)
         self.info_label.setVisible(
             not show_name and not is_domain
             and self._kind not in ("mesh", "reference_values", "stopping", "reports", "probes", "surface_prep",
@@ -1501,8 +1527,6 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                                    "internal_reports", "results", "scene_object", "saved_view")
             and not any(self._group_shown(g) for g in GROUPS)
         )
-        self._apply_collapsed()
-        self._apply_label_column()
 
     def _mesh_setting_rows(self) -> list[str]:
         keys = [f"mset_{k}" for k, *_ in MESH_SETTINGS]
@@ -1818,6 +1842,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             self._layer_titles.append((row, title))
             row.setMinimumHeight(self._row_min_height)
             self._layer_box.addWidget(row)
+            row.show()
             self._layer_rows.append(row)
             self.layer_labels.append(label)
 
@@ -1920,6 +1945,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         options = self._quantity_options() if show else []
         if (kinds, options) != self._criteria_kinds:
             self._build_criteria_rows(kinds, options)
+        for row in self._criteria_rows:
+            row.setVisible(show)
         self.stop_empty.setVisible(show and not kinds)
         if not show:
             return
@@ -2216,6 +2243,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.probes_empty.setVisible(show and not probes)
         if len(probes) != self._probe_count or not show:
             self._build_probe_rows(len(probes) if show else 0)
+        for row in self._probe_rows:
+            row.setVisible(show)
         for probe, row in zip(probes, self.probe_widgets):
             for w in row.values():
                 w.blockSignals(True)
@@ -2322,7 +2351,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
     def _refresh_run(self, show: bool) -> None:
         record = self._run_record
         self._sections["run_last"].setVisible(show)
-        for key in ("run_state", "run_iterations", "run_residuals", "run_status"):
+        for key in ("run_state", "run_iterations", "run_residuals", "run_criteria", "run_status"):
             self._rows[key].setVisible(show and record is not None)
         self.run_empty.setVisible(show and record is None)
         if not show or record is None:
@@ -2332,6 +2361,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.run_iterations.setText(str(record.iterations))
         residuals = ", ".join(f"{k} {v:.3g}" for k, v in record.final_residuals.items())
         self.run_residuals.setText(residuals or "\u2014")
+        self.run_criteria.setText("\n".join(record.criteria) or "none")
         self.run_status.setText("Results out of date" if self._results_stale else "Up to date")
         self._set_warn(self.run_status, self._results_stale)
 

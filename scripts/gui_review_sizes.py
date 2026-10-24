@@ -6,7 +6,9 @@ Each screen is shown at its minimum size, its default size and 1920x1080, at eac
 Large), and saved as <out>/<screen>/<window size>_<interface size>.png. Screens: ``new_sim``, ``start``, ``main``
 (the main window: tree, viewer, properties, top bar), ``properties`` (the detached properties window), ``compare``
 (the Compare tab), ``foam_file`` (the Show in OpenFOAM file viewer), ``monitors`` (the detached residual chart and
-convergence criteria windows) and ``all``.
+convergence criteria windows) and ``all``. ``main:<node>[@<setup>]`` is the main window on a tree node (e.g.
+``main:inflow``, ``main:part:0``) after an optional named set-up of SETUPS (e.g. ``main:stopping@criteria_changed``),
+saved as <out>/main_<node>[_<setup>]/.
 """
 
 import logging
@@ -60,6 +62,42 @@ def _main_window(app, vcfd: Path):
     return window
 
 
+def _criteria_changed(window) -> None:
+    """The project's criteria no longer those of the last run (D-165): the review copy's run record gets the run's
+    criteria (as a run of this version records them), then the project's first criterion is removed."""
+    from dataclasses import replace
+
+    from vortexcfd.foam.run_record import read_run_record, write_run_record
+
+    case = window.project.folder / "case"
+    record = read_run_record(case)
+    if record is not None and record.stopping is None:
+        write_run_record(case, replace(record, stopping=window.project.sim.solvers.stopping.model_dump()))
+        window._load_run_record(window.project)
+    stop = window.project.sim.solvers.stopping.model_dump()
+    stop["criteria"] = stop["criteria"][1:]
+    window.project.update_solver(stopping=stop)
+
+
+# Named set-ups of a ``main:<node>@<setup>`` screen: what is changed in the project before the screenshots.
+SETUPS = {"criteria_changed": _criteria_changed}
+
+
+def _node_window(app, vcfd: Path, spec: str):
+    """The main window on the node of ``spec`` ("<kind>[:<index>][@<setup>]"); returns (window, folder name)."""
+    node, _, setup = spec.partition("@")
+    window = gr._window(app, vcfd)
+    if setup:
+        SETUPS[setup](window)
+    item = window._items.get(gr._key(node))
+    if item is None:
+        log.warning("no node %s", node)
+    else:
+        window.tree.setCurrentItem(item)
+    gr._settle(app)
+    return window, "main_" + node.replace(":", "_") + (f"_{setup}" if setup else "")
+
+
 def shoot(out: Path, screens: list[str]) -> None:
     app = QApplication.instance() or QApplication(sys.argv)
     from vortexcfd.gui.theme import DARK, INTERFACE_SIZES, apply_theme, save_appearance
@@ -96,6 +134,10 @@ def shoot(out: Path, screens: list[str]) -> None:
                 dialog.show_open_panel()
                 _shoot_sizes(app, dialog, out, "start_open", interface, (dialog.width(), dialog.height()))
                 dispose(dialog)
+            elif screen.startswith("main:"):
+                window, folder = _node_window(app, vcfd, screen.removeprefix("main:"))
+                _shoot_sizes(app, window, out, folder, interface, gr.SIZE)
+                dispose(window)
             elif screen == "main":
                 window = _main_window(app, vcfd)
                 _shoot_sizes(app, window, out, screen, interface, gr.SIZE)

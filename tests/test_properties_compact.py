@@ -118,7 +118,7 @@ def test_mesh_fields_have_units_tooltips_and_auto_boxes(make_window) -> None:
         assert isinstance(p.mesh_fields[key], AutoField), key
     sizing = p.mesh_fields["layer_sizing"]
     assert isinstance(sizing, ChoiceField)
-    assert [b.text() for b in sizing.buttons.values()] == ["Sized from a target y+",
+    assert [sizing.text_of(v) for v in sizing.buttons] == ["Sized from a target y+",
                                                            "Thickness relative to the surface cell size"]
     assert p._sections["mesh_layers"].text() == "PRISM LAYERS (WALLS)"
     assert "Prism layers are thin cells" in p.mesh_layers_note.text() and p.mesh_layers_note.isVisibleTo(p)

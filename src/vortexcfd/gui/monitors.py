@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 
 from vortexcfd.core.model import REPORT_SLOTS, AsymptoticCriterion, MeanStableCriterion, StoppingCriteria
 from vortexcfd.core.reports import YPLUS, available_reports, report_label
-from vortexcfd.foam.convergence import CriterionStatus, evaluate, oscillation, window_stats
+from vortexcfd.foam.convergence import CriterionStatus, evaluate, oscillation, short_label, window_stats
 from vortexcfd.foam.forces import MASS_WARNING
 from vortexcfd.foam.logparse import TimeStep
 from vortexcfd.foam.postprocessing import ReportMonitor
@@ -471,6 +471,14 @@ def banner_for(state: str | None, stopped_by: tuple[str, ...], iterations: int |
     return BANNER_NO_RUN, None
 
 
+def banner_without_criteria(state: str | None) -> tuple[str, str | None]:
+    """The banner of a run that had no stopping criteria (shown when the project has some now, D-165)."""
+    return {None: ("Solving without stopping criteria: the run ends at the iteration limit", None),
+            "iteration_limit": ("Iteration limit reached; this run had no stopping criteria", "warn"),
+            "stopped": ("Stopped by the user; this run had no stopping criteria", "warn"),
+            "crashed": ("The solver crashed", "error")}.get(state, (BANNER_NO_RUN, None))
+
+
 class ConvergencePanel(QWidget):
     """Convergence banner, per-criterion state and oscillation warnings (D-058, D-059).
 
@@ -500,10 +508,21 @@ class ConvergencePanel(QWidget):
         self.empty_label.setObjectName("muted")
         self.empty_label.setWordWrap(True)
         self.empty_label.setVisible(False)
+        # Whose criteria the table shows ("Criteria of the last run", D-165) and, when the project's differ from the
+        # shown run's, what the project's are now (they apply to the next run).
+        self.caption = QLabel()
+        self.caption.setObjectName("kpiTitle")
+        self.caption.setVisible(False)
+        self.note = QLabel()
+        self.note.setObjectName("muted")
+        self.note.setWordWrap(True)
+        self.note.setVisible(False)
         self._layout = QVBoxLayout(self)
         self._layout.addWidget(self.empty_label)
         self._layout.addWidget(self.banner)
+        self._layout.addWidget(self.caption)
         self._layout.addWidget(self._grid_host)
+        self._layout.addWidget(self.note)
         self._layout.addLayout(self._warning_box)
         for col, text in enumerate(self.HEADERS):
             head = QLabel(text)
@@ -514,13 +533,18 @@ class ConvergencePanel(QWidget):
         self.set_view(False, ("", None), [], [])
 
     def set_view(self, has_criteria: bool, banner: tuple[str, str | None], statuses: list[CriterionStatus],
-                 warnings: list[str]) -> None:
-        """``warnings``: oscillation and mass balance messages (warning colour)."""
+                 warnings: list[str], caption: str = "", note: str = "") -> None:
+        """``warnings``: oscillation and mass balance messages (warning colour); ``caption``: whose criteria the
+        table shows; ``note``: the project's criteria when they differ from the shown run's (D-165)."""
         self._has_criteria = has_criteria
         self.banner.setText(banner[0])
         set_state(self.banner, banner[1])
-        self.banner.setVisible(has_criteria)
+        self.banner.setVisible(has_criteria or bool(note))
         self._grid_host.setVisible(has_criteria and bool(statuses))
+        self.caption.setText(caption)
+        self.caption.setVisible(bool(caption) and has_criteria and bool(statuses))
+        self.note.setText(note)
+        self.note.setVisible(bool(note))
         while len(self.rows) > len(statuses):
             for label in self.rows.pop():
                 self.grid.removeWidget(label)
@@ -553,7 +577,7 @@ class ConvergencePanel(QWidget):
             set_state(label, "warn")
             self._warning_box.addWidget(label)
             self.warnings.append(label)
-        self.has_content = has_criteria or bool(warnings)
+        self.has_content = has_criteria or bool(warnings) or bool(note)
         self._show()
 
     def set_always_visible(self, on: bool) -> None:
@@ -579,9 +603,39 @@ class ConvergencePanel(QWidget):
                 set_text_role(widget, "data_small")
         set_text_role(self.banner, "body")
         set_text_role(self.empty_label, "body")
+        set_text_role(self.caption, "data_small")
+        set_text_role(self.note, "body")
 
 
 NO_CRITERIA = "No stopping criteria and no warnings (set the criteria under Solver > Stopping criteria)."
+# Whose criteria the convergence table shows (D-165).
+CAPTION_RUNNING = "Criteria of this run"
+CAPTION_LAST_RUN = "Criteria of the last run"
+CAPTION_UNRECORDED = "Criteria of the project (the last run's were not recorded)"
+
+
+def criteria_labels(stopping: StoppingCriteria | None) -> str:
+    """The criteria in a few words ("p residual; Cd asymptotic"), or "none"."""
+    if stopping is None or not stopping.criteria:
+        return "none"
+    return "; ".join(short_label(c) for c in stopping.criteria)
+
+
+def same_criteria(a: StoppingCriteria | None, b: StoppingCriteria | None) -> bool:
+    """True when two sets stop a run alike: the criteria, how they combine and the minimum iterations (the
+    oscillation warning's settings are not criteria)."""
+    def key(s):
+        return None if s is None or not s.criteria else (s.model_dump()["criteria"], s.combine, s.min_iterations)
+    return key(a) == key(b)
+
+
+def project_note(run: StoppingCriteria | None, project: StoppingCriteria | None, running: bool) -> str:
+    """The note under a run's criteria when the project's are no longer the same (D-165)."""
+    if same_criteria(run, project):
+        return ""
+    when = "during this run" if running else "since this run"
+    return (f"The project's stopping criteria have changed {when}: now {criteria_labels(project)}. They apply to the "
+            "next run.")
 # The parts of the column that open in their own window (D-156): key -> (window title, detach tip, dock tip).
 DETACHABLE = {
     "residuals": ("Residuals", "Detach the residual chart into its own window (it keeps updating live; close the "
@@ -679,9 +733,14 @@ class MonitorsPanel(QWidget):
         self._sync_criteria_section()
         self.history = ResidualHistory()
         self.reports: ReportMonitor | None = None
-        # The criteria the shown run uses, and its outcome: (state, stopped_by, iterations);
-        # state None = running, outcome None = no run.
+        # The criteria the shown run is judged by (stage 2's in a two-stage run's second stage), the criteria it
+        # started with, the project's current criteria (D-165), and its outcome: (state, stopped_by, iterations);
+        # state None = running, outcome None = no run. ``run_criteria_known`` is False for a run whose record
+        # predates the recorded criteria (the project's are then shown, labelled so).
         self.stopping: StoppingCriteria | None = None
+        self.run_stopping: StoppingCriteria | None = None
+        self.project_stopping: StoppingCriteria | None = None
+        self.run_criteria_known = True
         self.outcome: tuple[str | None, tuple[str, ...], int | None] | None = None
         self._dirty = False
         self._timer = QTimer(self)
@@ -695,23 +754,39 @@ class MonitorsPanel(QWidget):
         self.reports = None
         self.case_dir = None
         self.outcome = None
+        self.stopping = self.run_stopping = None
+        self.run_criteria_known = True
         self.chart.set_series({})
         self.kpis.set_series(None)
         self.set_stage("")
         self._update_convergence()
         self.updated.emit()
 
-    def set_stopping(self, stopping: StoppingCriteria | None) -> None:
-        """The stopping criteria to evaluate (the run's, or the project's when no run is going)."""
+    def set_project_stopping(self, stopping: StoppingCriteria | None) -> None:
+        """The project's current stopping criteria (they apply to the next run; D-165)."""
+        if stopping != self.project_stopping:
+            self.project_stopping = stopping
+            self._dirty = True
+            self.refresh()
+
+    def set_run_stopping(self, stopping: StoppingCriteria | None) -> None:
+        """The criteria the shown run is judged by from now on (stage 2's criteria of a two-stage run, D-126)."""
         if stopping != self.stopping:
             self.stopping = stopping
             self._dirty = True
             self.refresh()
 
+    def judged_criteria(self) -> StoppingCriteria | None:
+        """The criteria the table evaluates: the shown run's, the project's when no run is shown or the run's were
+        not recorded."""
+        if self.outcome is not None and self.run_criteria_known:
+            return self.stopping
+        return self.project_stopping
+
     def start_run(self, case_dir: Path, stopping: StoppingCriteria | None = None) -> None:
         """A solver run starts in ``case_dir``: forget the previous run, poll its files."""
         self.clear()
-        self.stopping = stopping
+        self.stopping = self.run_stopping = stopping
         self.reports = ReportMonitor(case_dir)
         self.case_dir = Path(case_dir)
         self.outcome = (None, (), None)
@@ -741,9 +816,15 @@ class MonitorsPanel(QWidget):
         self._dirty = True
         self.refresh()
 
-    def load_run(self, case_dir: Path, steps, outcome: tuple[str, tuple[str, ...], int | None] | None = None) -> None:
-        """Show a finished run (project open): its log's steps and its postProcessing files."""
+    def load_run(self, case_dir: Path, steps, outcome: tuple[str, tuple[str, ...], int | None] | None = None,
+                 stopping: StoppingCriteria | None = None, judged: StoppingCriteria | None = None) -> None:
+        """Show a finished run (project open): its log's steps and its postProcessing files. ``stopping``: the
+        criteria the run started with (its record's; None: not recorded), ``judged``: those it ended judged by
+        (stage 2's), default ``stopping``."""
         self.clear()
+        self.run_stopping = stopping
+        self.stopping = judged if judged is not None else stopping
+        self.run_criteria_known = stopping is not None
         self.history.extend(steps)
         self.reports = ReportMonitor(case_dir)
         self.case_dir = Path(case_dir)
@@ -773,7 +854,7 @@ class MonitorsPanel(QWidget):
     def mean_window(self, quantity: str) -> int:
         """The iterations a report's mean is taken over: the window of a mean-stable criterion watching
         it, else the oscillation window (D-059, D-118)."""
-        stop = self.stopping
+        stop = self.judged_criteria()
         if stop is None:
             return 100
         for c in stop.criteria:
@@ -785,14 +866,15 @@ class MonitorsPanel(QWidget):
         """Quantities checked for oscillation: the asymptotic criteria's and the assigned report
         slots' (y+ is written only at write times and is left out)."""
         names: list[str] = []
-        if self.stopping is not None:
-            names += [c.quantity for c in self.stopping.criteria if isinstance(c, AsymptoticCriterion)]
+        stop = self.judged_criteria()
+        if stop is not None:
+            names += [c.quantity for c in stop.criteria if isinstance(c, AsymptoticCriterion)]
         names += [r for r in self.kpis.assignments
                   if r and not r.startswith("yplus") and r != "mass_imbalance" and not r.startswith("x_cp")]
         return list(dict.fromkeys(names))
 
     def _update_convergence(self) -> None:
-        stop = self.stopping
+        stop = self.judged_criteria()
         has = stop is not None and bool(stop.criteria)
         series_of = self.reports.series if self.reports is not None else (lambda _q: [])
         statuses = evaluate(stop, self.history.series, series_of) if has and self.outcome is not None else []
@@ -813,7 +895,18 @@ class MonitorsPanel(QWidget):
             balance = self.reports.mass_balance()
             if balance is not None and balance[2] is not None and abs(balance[2]) > MASS_WARNING:
                 warnings.append(mass_warning(balance[2]))
-        self.convergence.set_view(has, banner, statuses, warnings)
+        caption, note = "", ""
+        if self.outcome is None and has:
+            note = f"The project's stopping criteria (they apply to the next run): {criteria_labels(stop)}."
+        elif self.outcome is not None and self.run_criteria_known and not has:  # a run without criteria
+            banner = banner_without_criteria(self.outcome[0])
+        if self.outcome is not None and not self.run_criteria_known:
+            caption = CAPTION_UNRECORDED
+        elif self.outcome is not None:
+            running = self.outcome[0] is None
+            caption = CAPTION_RUNNING if running else CAPTION_LAST_RUN
+            note = project_note(self.run_stopping, self.project_stopping, running)
+        self.convergence.set_view(has, banner, statuses, warnings, caption, note)
         self._sync_criteria_section()
 
     # -- the residual chart and the criteria in their own windows (D-156) -----------------------------------------

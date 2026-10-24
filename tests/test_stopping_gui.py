@@ -177,8 +177,16 @@ def test_banner_iteration_limit_stopped_and_no_criteria(make_window, qtbot: QtBo
     w.run_solver()  # Stop
     wait_done(qtbot, w)
     assert runner.stop_requested and box.banner.text() == BANNER_STOPPED
+    # The project's criteria removed after the run: the run's stay, labelled as the last run's, with the project's
+    # (none now) said apart (D-165)
     w.project.update_solver(stopping=StoppingCriteria(criteria=[]).model_dump())
-    assert not box.banner.isVisible() and not box.isVisible()  # no criteria: no banner
+    assert box.isVisible() and box.banner.text() == BANNER_STOPPED
+    assert box.caption.text() == "Criteria of the last run"
+    assert [row[0] for row in box.statuses_text] == ["p residual", "U residual", "k residual", "omega residual"]
+    assert box.note.text() == ("The project's stopping criteria have changed since this run: now none. They apply to "
+                               "the next run.")
+    w.monitors.clear()  # no run shown and no criteria: nothing to show
+    assert not box.banner.isVisible() and not box.isVisible()
 
 
 def test_oscillation_warning_from_a_real_series(make_window) -> None:

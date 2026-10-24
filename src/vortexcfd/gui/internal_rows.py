@@ -308,6 +308,8 @@ class InternalRowsMixin:
         locations = self._locations() if show else []
         if (len(planes), len(drops), tuple(locations)) != self._ir_shape:
             self._build_internal_report_rows(len(planes), len(drops), locations)
+        for row in self._ir_rows:
+            row.setVisible(show)
         from vortexcfd.gui.properties_panel import format_vector
 
         for plane, w in zip(planes, self.ir_widgets["planes"]):
