@@ -41,6 +41,7 @@ REPORTS_DIR = "reports"
 SOLVER_LOG = "log.simpleFoam"
 STYLE = """
 body { font-family: Helvetica, Arial, sans-serif; margin: 2em auto; max-width: 960px; color: #1d2330; line-height: 1.45; }
+header.brand { display: flex; align-items: center; gap: 0.6em; } header.brand h1 { margin: 0; }
 h1 { font-size: 1.6em; margin-bottom: 0.2em; } h2 { font-size: 1.2em; border-bottom: 1px solid #ccd; padding-bottom: 0.2em; margin-top: 1.8em; }
 table { border-collapse: collapse; margin: 0.6em 0; font-size: 0.92em; }
 th, td { border: 1px solid #d5d9e2; padding: 0.25em 0.6em; text-align: left; } th { background: #f0f2f6; }
@@ -478,6 +479,14 @@ def comparison_section(snaps) -> Section:
     return Section("Comparison", body)
 
 
+def _brand_mark() -> str:
+    """The logo inline (D-175): the report stays one self-contained file."""
+    from vortexcfd import brand
+
+    svg = brand.svg(brand.MARK).strip()
+    return svg.replace("<svg ", '<svg class="mark" width="48" height="48" ', 1)
+
+
 def build_report(project: Project, images: list[ReportImage] | None = None, now: datetime | None = None,
                  omit: list[str] | None = None, comparison=None) -> str:
     """The HTML text of the report; ``omit``: the section ids left out (default the project's choice, D-136);
@@ -498,7 +507,8 @@ def build_report(project: Project, images: list[ReportImage] | None = None, now:
         sections.append(section)
     parts = ["<!DOCTYPE html>", '<html lang="en"><head><meta charset="utf-8">',
              f"<title>{_e(project.sim.name)}: report</title><style>{STYLE}</style></head><body>",
-             f"<h1>{_e(project.sim.name)}</h1>", _note(f"VortexCFD report, {now:%Y-%m-%d %H:%M}")]
+             f'<header class="brand">{_brand_mark()}<h1>{_e(project.sim.name)}</h1></header>',
+             _note(f"VortexCFD report, {now:%Y-%m-%d %H:%M}")]
     for section in sections:
         parts.append(f"<h2>{_e(section.title)}</h2>")
         parts.append(section.body if section.body is not None else _note(section.note))

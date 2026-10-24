@@ -4079,6 +4079,11 @@ def main() -> int:
     """Application entry point: ``vortexcfd [path]``."""
     logging.basicConfig(level=logging.INFO)
     app = QApplication.instance() or QApplication(sys.argv)
+    from vortexcfd.gui.icons import logo_icon
+    from vortexcfd.gui.theme import DARK
+
+    app.setWindowIcon(logo_icon(DARK, WINDOW_ICON_SIZES + (256,)))  # every window and the taskbar (D-175)
+    app.setDesktopFileName("vortexcfd")  # the desktop entry of scripts/install.sh (its icon on Wayland)
     window = start_window(app.arguments()[1:])  # noqa: F841 (kept alive by this frame)
     return app.exec()
 

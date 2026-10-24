@@ -88,3 +88,12 @@ def test_paraview_is_reported_as_optional(tmp_path: Path) -> None:
     linux.chmod(0o755)
     result = _run(tmp_path, "--check-only", **{**no_paraview, "VORTEXCFD_PARAVIEW_COMMAND": str(linux)})
     assert result.returncode == 0 and f"ok: found {linux} (Open in ParaView uses it)" in result.stdout
+
+
+def test_the_desktop_entry_has_the_logo() -> None:
+    """The launcher's desktop entry shows the logo (D-175): the PNGs are copied next to the manual."""
+    text = SCRIPT.read_text()
+    assert 'cp "$REPO/assets/branding/png/"vortexcfd-*.png "$ICON_DIR/"' in text
+    assert "Icon=$ICON_DIR/vortexcfd-256.png" in text and "StartupWMClass=vortexcfd" in text
+    assert (Path(__file__).parent.parent / "assets" / "branding" / "png" / "vortexcfd-256.png").is_file()
+

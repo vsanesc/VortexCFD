@@ -35,6 +35,7 @@ LAYER_RULES: dict[str, tuple[str, ...]] = {
     "geometry": GEOMETRY_FORBIDDEN,
     "workflow": WORKFLOW_FORBIDDEN,
     "bench": BENCH_FORBIDDEN,
+    "brand": CORE_FORBIDDEN,  # the logo's data (D-175)
     "gui": (),
 }
 

@@ -188,6 +188,12 @@ if [ -d "$REPO/docs/manual" ]; then
     cp -r "$REPO/docs/manual" "$MANUAL_DIR"
     ok "user manual in $MANUAL_DIR"
 fi
+ICON_DIR="$VENV/share/vortexcfd/icons"  # the logo (D-175): the desktop entry's icon
+if [ -d "$REPO/assets/branding/png" ]; then
+    mkdir -p "$ICON_DIR"
+    cp "$REPO/assets/branding/png/"vortexcfd-*.png "$ICON_DIR/"
+    ok "icons in $ICON_DIR"
+fi
 
 # -- 6. the launcher -------------------------------------------------------------------------------------------------
 
@@ -209,6 +215,8 @@ Type=Application
 Name=VortexCFD
 Comment=CFD workflow on OpenFOAM ESI v2606
 Exec=$LAUNCH %f
+Icon=$ICON_DIR/vortexcfd-256.png
+StartupWMClass=vortexcfd
 Terminal=false
 Categories=Science;Engineering;
 EOF

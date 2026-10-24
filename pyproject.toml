@@ -38,6 +38,9 @@ version = {attr = "vortexcfd.__version__"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"vortexcfd.brand" = ["*.svg"]  # the logo (D-175)
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [

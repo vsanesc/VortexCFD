@@ -487,4 +487,11 @@ settled the open ones on 2026-10-17.
      before showing the selected node's, and a part that fails can no longer leave the previous node's rows (D-165).
      Please check on the real display that selecting Physics or Free stream after Stopping Criteria shows only their
      rows; if it still happens, note what was done just before.
+239. **[OPEN]** **Which licence should the logo carry?** (assets/branding/: the mark, the lockups, the icons; D-175.)
+     For example the code's GPL-3.0-or-later, or CC BY-SA 4.0 (common for artwork), or all rights reserved with a
+     trademark note. Not decided: THIRD_PARTY_LICENSES.md says "to be chosen by the owner". The word's font, Sora, is
+     OFL-1.1 (recorded).
+240. **[OPEN]** **The 16 px icon (D-175).** At 16 px the four arms are still told apart, but the centre is soft
+     (run/gui_review/gui2/item11/icon_16px_x10.png). Keep it, or should the generator draw a simplified small variant
+     (fewer, thicker arms) for 16 and 24 px?
 

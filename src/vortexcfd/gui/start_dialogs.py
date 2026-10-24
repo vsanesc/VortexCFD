@@ -51,6 +51,7 @@ from vortexcfd.core.presets import (
 from vortexcfd.core.project import check_new_project_folder, validate_project_name
 from vortexcfd.core.model import DIMENSION_LABELS, DIMENSIONS
 from vortexcfd.foam.parallel import physical_cores, recommended_cores
+from vortexcfd.gui.icons import lockup_pixmap
 from vortexcfd.gui.recent import RecentProjects
 from vortexcfd.gui.settings_store import settings
 from vortexcfd.gui.theme import load_appearance, metrics, role_font
@@ -148,6 +149,8 @@ class StartDialog(QDialog):
         w_layout.setSpacing(u)
         title = QLabel("VortexCFD")
         title.setObjectName("welcomeTitle")
+        title.setPixmap(lockup_pixmap(4 * u, self.devicePixelRatioF()))  # the logo (D-175)
+        title.setAccessibleName("VortexCFD")
         subtitle = QLabel(f"CFD workflow on OpenFOAM v2606  \u00b7  version {__version__}")
         subtitle.setObjectName("muted")
         w_layout.addStretch(1)
