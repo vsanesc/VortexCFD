@@ -325,7 +325,7 @@ def test_a_v14_project_meshes_with_automatic_cores() -> None:
     from vortexcfd.core.model import Simulation
 
     sim = Simulation.model_validate(migrate({"schema_version": 14, "name": "x", "mesh": {}}))
-    assert sim.schema_version == 23 and sim.mesh.cores is None
+    assert sim.schema_version == 24 and sim.mesh.cores is None
 
 
 def test_a_preset_never_carries_the_mesh_cores() -> None:

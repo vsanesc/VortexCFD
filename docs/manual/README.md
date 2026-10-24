@@ -1,3 +1,5 @@
+<p align="center"><img src="images/vortexcfd-lockup.svg" alt="VortexCFD" width="420"></p>
+
 # VortexCFD user manual
 
 VortexCFD 1.0 (1.0.0) is a desktop workflow for steady, incompressible RANS flow on top of

@@ -28,13 +28,14 @@ from vortexcfd.core.model import (
 )
 from vortexcfd.gui.theme import metrics, set_text_role
 from vortexcfd.gui.widgets import discard
-from vortexcfd.workflow import internal, meshing, solving
+from vortexcfd.workflow import flow_numbers, internal, meshing, solving
 
 # When to use which inlet (the user-manual notes, docs/USER_MANUAL notes in docs/STATUS.md, repeated as tooltips).
 KIND_TIPS = {
     "velocity": "A uniform velocity normal to the patch, into the domain. Use it when the inlet speed is known.",
-    "mass_flow": "A mass flow rate (kg/s) imposed as a uniform velocity normal to the patch (Q = m / rho_ref). Use "
-                 "it when the flow rate is known, e.g. a pump or a duct with a metered flow.",
+    "mass_flow": "A mass flow rate (kg/s) imposed as a uniform velocity normal to the patch (Q = \u1e41 / \u03c1, "
+                 "\u03c1 the reference density of Physics). Use it when the flow rate is known, e.g. a pump or a "
+                 "duct with a metered flow.",
     "total_pressure": "A total pressure (Pa, gauge) at the inlet; the flow rate follows from the losses. Use it for a "
                       "plenum or a reservoir at a known pressure; the inflow is normal to the patch.",
 }
@@ -75,7 +76,8 @@ class InternalRowsMixin:
         self.ip_speed.editingFinished.connect(lambda: self._commit_boundary(inlet={"speed": self.ip_speed.value()}))
         self._layout.addWidget(self._make_row("ip_speed", "Velocity", self.ip_speed))
         self.ip_mass = _spin(1e-12, 1e9, 6, " kg/s")
-        self.ip_mass.setToolTip("Mass flow rate into the domain; the solver imposes Q = m / rho_ref (Physics)")
+        self.ip_mass.setToolTip("Mass flow rate into the domain; the solver imposes Q = \u1e41 / \u03c1 (\u03c1: Physics > "
+                                "Reference density)")
         self.ip_mass.editingFinished.connect(lambda: self._commit_boundary(inlet={"mass_flow": self.ip_mass.value()}))
         self._layout.addWidget(self._make_row("ip_mass", "Mass flow", self.ip_mass))
         self.ip_p0 = _spin(-PRESSURE_RANGE, PRESSURE_RANGE, 3, " Pa")
@@ -95,6 +97,10 @@ class InternalRowsMixin:
         self._layout.addWidget(self._make_row("ip_length", "Length scale", self.ip_length))
         self.ip_dh = self._ro_row("ip_dh", "Hydraulic diameter")
         self.ip_dh.setToolTip("D_h = 4 A / P of the patch (2D: twice its width)")
+        self.ip_re = self._ro_row("ip_re", "Reynolds, Mach")  # this inlet's numbers (D-168)
+        self.ip_re.setToolTip("Re = U_bulk D_h / \u03bd and Ma = U_bulk / a on this inlet: its hydraulic diameter and "
+                              "its bulk velocity (the speed of a velocity inlet, \u1e41 / (\u03c1 A) for a mass flow; "
+                              "a total-pressure inlet's from the run's mass-flow report)")
         self.ip_pout = _spin(-PRESSURE_RANGE, PRESSURE_RANGE, 3, " Pa")
         self.ip_pout.setToolTip("Static pressure, gauge; the velocity and turbulence are zero-gradient out and safe on "
                                 "backflow (zero velocity, the inlet turbulence)")
@@ -130,7 +136,7 @@ class InternalRowsMixin:
 
     def _internal_keys(self) -> list[str]:
         return ["ip_patch", "ip_role", "ip_kind", "ip_speed", "ip_mass", "ip_p0", "ip_intensity", "ip_length", "ip_dh",
-                "ip_pout", "ip_note"]
+                "ip_re", "ip_pout", "ip_note"]
 
     def _selected_patch(self):
         if self._kind != "internal_patch" or self._index is None:
@@ -168,9 +174,16 @@ class InternalRowsMixin:
         visible = ["ip_patch", "ip_role"]
         if entry.role == "inlet":
             visible += ["ip_kind", {"velocity": "ip_speed", "mass_flow": "ip_mass", "total_pressure": "ip_p0"}[entry.inlet.kind],
-                        "ip_intensity", "ip_length", "ip_dh", "ip_note"]
+                        "ip_intensity", "ip_length", "ip_dh", "ip_re", "ip_note"]
             self.ip_note.setText(KIND_TIPS[entry.inlet.kind])
             self.ip_dh.setText(self._dh_text(patch.safe, entry.inlet))
+            numbers = flow_numbers.inlet_numbers(self._project, self._last_report_value).get(patch.safe)
+            warning = numbers.warning if numbers is not None else None
+            self.ip_re.setText("\u2014" if numbers is None else
+                               "\n".join(dict.fromkeys((numbers.reynolds_text(),
+                                                         numbers.mach_text(self._project.sim.physics.speed_of_sound))))
+                               + (f"\n{warning}" if warning else ""))
+            self._set_warn(self.ip_re, bool(warning))
         elif entry.role == "outlet":
             visible += ["ip_pout", "ip_note"]
             self.ip_note.setText("Static-pressure outlet: p fixed; velocity and turbulence zero-gradient, safe on backflow.")
@@ -308,6 +321,8 @@ class InternalRowsMixin:
         locations = self._locations() if show else []
         if (len(planes), len(drops), tuple(locations)) != self._ir_shape:
             self._build_internal_report_rows(len(planes), len(drops), locations)
+        for row in self._ir_rows:
+            row.setVisible(show)
         from vortexcfd.gui.properties_panel import format_vector
 
         for plane, w in zip(planes, self.ir_widgets["planes"]):

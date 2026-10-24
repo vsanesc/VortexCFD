@@ -54,11 +54,18 @@ layers.*
 
 ## 2.4 Physics and stopping
 
-Physics: steady incompressible RANS with k-omega SST; the kinematic viscosity (default air, 1.5e-5 m²/s) and the
-reference density. Physics > Free stream: the free-stream speed (20 m/s), the turbulence intensity (in %) and the
-viscosity ratio. The angle of attack is the attitude of the parts, not of the stream: it is in Geometry > Body
-attitude (here 0). Reports & Monitors > Reference Values: the reference length, area and centre of rotation for the
-coefficients (by default from the parts' box).
+Physics: steady incompressible RANS with k-omega SST; the kinematic viscosity (default air, 1.5e-5 m²/s), the
+reference density and the speed of sound (343 m/s, air at 20 °C; it only gives the Mach number). Physics > Free
+stream: the free-stream speed (20 m/s), the turbulence intensity (in %) and the viscosity ratio. Its Computed group
+shows the **Reynolds number** and the **Mach number** with what they are taken on ("Re = 1.3·10⁶ on U∞ = 20 m/s,
+l_ref = 1 m"; "Ma = 0.058 ... a = 343 m/s"), following the speed as you type it. Above Mach 0.3 a warning (also in the
+Run Solver tooltip) reminds you that the app solves incompressible flow, so the results lose accuracy.
+
+The **angle of attack** is the attitude of the parts, not of the stream: it is in **Geometry > Body attitude** (here
+0). The Free stream says so with a link to it ("α = 0° (set in Geometry → Body attitude)"), and the tree's Geometry
+node shows a non-zero angle ("Geometry · α 4°"). All the parts rotate together about the centre of rotation.
+Reports & Monitors > Reference Values: the reference length, area and centre of rotation for the coefficients (by
+default from the parts' box).
 
 Solvers: the iteration limit, the cores, and the Stopping Criteria. A sphere at this Reynolds number sheds a wake
 that a steady solver cannot settle, so this case stops on a **mean-stable** criterion on Cd (window 100 iterations,
@@ -70,7 +77,36 @@ Press **Run Solver**. The right column shows the convergence banner, the residua
 slot to assign a quantity: Cd, Cl, Cm, y+, a probe ...). Stop ends the run cleanly (the last time step is written).
 The ↗ button in the residuals' header, and the one in the convergence criteria's header, opens each in its own
 window (on a second screen, for instance); they keep updating during the run, closing the window puts it back, and
-VortexCFD reopens them where you left them.
+VortexCFD reopens them where you left them. A report slot's ↗ (or a double click on its sparkline) opens that
+report's **chart** in a window of its own: the whole history, its windowed mean as a dashed line and the
+oscillation's half range as a band, Export PNG and CSV; several can be open at once. Every chart's iteration axis
+zooms with the wheel and pans with a drag; a double click shows it all again (and the residual chart then follows
+the run again). The convergence criteria box shows the criteria of the run it judges ("Criteria of the last run")
+and says when the project's criteria have changed since. Its **Satisfied now** column says whether each criterion
+holds at the last iteration: "yes", "no", "not yet: 40 of 50 iterations" while a window is not complete, or "yes
+(stops from 3,502)" when it holds before it may stop the run (the minimum iterations; in a two-stage run counted from
+the switch). When every residual criterion holds but a monitored force coefficient is still changing, a warning
+says so ("Residuals met, but Cl is still changing"): add an asymptotic or mean-stable criterion on it. A mass
+imbalance below what the postProcessing files resolve (their writePrecision) shows as "< 4.7e-05" (%), not 0.
+
+Run Solver saves the project first, so the results always belong to the saved set-up.
+
+**While it runs**, the Results Scene shows the walls and its section plane (and the planes of the clips) as the solver
+samples them, every 50 iterations by default (Solvers > Live view every; the badge reads "Live · iteration N"; the
+Live box stops or resumes following). **Solution > Write Fields Now** writes the full fields at the next iteration
+without stopping the run: the Results Scene shows that iteration (in a parallel run it reads the decomposed case;
+the time is reconstructed when the run ends, so ParaView opens it too).
+
+**Continue Solver.** When a run was stopped, reached the iteration limit or met its stopping criteria, Run Solver
+becomes **Continue Solver** (F5): it goes on from the latest written time; the iteration numbers, the residual and
+report histories and the stopping criteria's windows continue (the Solvers node lists each run: "80 in 2 runs: 1-32 (Stopped), 33-80
+(Iteration limit)"). The iteration limit is the total: at the limit Continue asks how many more iterations to run.
+After "Criteria met" the same question comes with the criteria's values (each threshold or tolerance editable) to
+tighten them; the changes are saved in the project, and a criterion that is still met stops the run again at once.
+A two-stage (wall-resolved) run resumes in its stage; a parallel run keeps its decomposition on the same cores. If
+you changed the physics, the boundary conditions or the solver settings (not the mesh), Continue asks whether to
+continue from the current solution (it is the starting point of the new set-up) or start over; after a mesh change
+it cannot continue and offers Clear Solution. Solution > Clear Solution starts over by hand.
 
 This run met its criterion at iteration 259: Cd 0.188 as the mean of the last 100 iterations, oscillating by
 about ±5 % about it; the walls' average y+ 48 (target 50). The residuals stalled near 1e-2, as expected for this
@@ -98,6 +134,11 @@ depends strongly on transition, which RANS does not model.
 
 ## 2.7 Working in the window
 
+- **The Solution menu** (after View) gathers the runs: Generate Mesh (**F6**), Clear Mesh, Run Solver / Continue
+  Solver (**F5**), Stop Solver (**Shift+F5**), Clear Solution, Write Fields Now, the mesh independence study, the
+  polar sweep and Open in ParaView. They are the same commands as the top bar's buttons and the tree's right-click
+  menus; a disabled entry says why when you point at it. Clear Solution and Clear Mesh ask first (clearing the mesh
+  also clears the solution computed on it).
 - **Right-click any tree node** for what applies to it: import, show / hide / isolate a part, use a part as a
   refinement region, generate or clear the mesh and read its report, add refinement volumes (also from an imported
   surface), change a domain face's boundary type, add results objects, open the case in ParaView. **Delete** removes
@@ -110,4 +151,9 @@ depends strongly on transition, which RANS does not model.
 - **Show in OpenFOAM file**: right-click a property written to the case to see the case file and the line it is
   written to (read-only; the app writes these files again on Generate Mesh and Run Solver, so do not edit them).
 - **Compare**: the fourth tab next to the scenes compares runs (chapter 5.6).
+- **Save As** (File) duplicates the project into a new folder; "Copy mesh and results" (ticked by default, with the
+  size it will copy) copies the mesh, the written times, postProcessing, the records and logs, the studies, the
+  snapshots and the reports, so the duplicate opens with its results and can continue the solver. Cancel removes the
+  partial copy; the original is never changed. The processor folders, case_preview/ and the live-view samples are
+  not copied.
 

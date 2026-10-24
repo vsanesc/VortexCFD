@@ -39,16 +39,17 @@ It:
 2. creates a virtual environment in `~/.local/share/vortexcfd/venv` (another place: `--prefix DIR`);
 3. installs the pinned dependencies (`scripts/requirements-v1.txt`) and VortexCFD;
 4. checks that everything imports and prints `vortexcfd 1.0.0`;
-5. writes the command `~/.local/bin/vortexcfd` and a desktop entry, so WSLg lists VortexCFD in the Windows Start
-   menu (under your Ubuntu distribution);
+5. writes the command `~/.local/bin/vortexcfd` and the desktop entry `~/.local/share/applications/vortexcfd.desktop`
+   (the logo as its icon), so WSLg lists VortexCFD in the Windows Start menu (under your Ubuntu distribution) and
+   shows the logo on the taskbar (1.5);
 6. runs `vortexcfd --check-openfoam`.
 
 It never uses sudo itself. When a system package is missing (for example `python3.12-venv`) it stops and prints
 the command for you to run. Running it again is safe: it reuses the environment and refreshes the app (this is
 also how you update after pulling a new version).
 
-Other options: `--check-only` (the system checks, nothing installed), `--no-launcher`, `--ignore-os` (try another
-Ubuntu version). Start the app with `vortexcfd`, or `vortexcfd path/to/project.vcfd`.
+Other options: `--check-only` (the system checks, nothing installed), `--no-launcher`, `--desktop-only` (only the
+launcher and the desktop entry, e.g. to restore the taskbar icon), `--ignore-os` (try another Ubuntu version). Start the app with `vortexcfd`, or `vortexcfd path/to/project.vcfd`.
 
 ## 1.3 The start-up check
 
@@ -96,7 +97,27 @@ file `case.foam` in the project's `case` folder (ParaView's OpenFOAM reader need
 empty file with that name). The install script reports which ParaView it found, or that there is none; a missing ParaView
 never stops the installation.
 
-## 1.5 Notes
+## 1.5 The taskbar icon and a Windows shortcut
+
+Under WSLg the Windows taskbar takes the app's icon from its Linux desktop entry: the window says it is
+"vortexcfd" (its Wayland app id, or its WM_CLASS under XWayland) and WSLg looks for `vortexcfd.desktop`. When none
+matches, the taskbar shows the distribution's icon (Ubuntu's) instead of the logo; `scripts/install.sh
+--desktop-only` writes the entry again. WSLg may still add a small Linux badge to the icon, which the app cannot
+remove.
+
+For a shortcut of your own (the Start menu and the desktop, to pin to the taskbar), run this from **Windows
+PowerShell** (not from Ubuntu), with your distribution's name (`wsl.exe -l -v` lists them):
+
+```
+powershell -ExecutionPolicy Bypass -File \\wsl.localhost\Ubuntu-24.04\home\<you>\<checkout>\scripts\windows\make_shortcut.ps1 -Distro Ubuntu-24.04
+```
+
+It makes `VortexCFD.lnk` shortcuts that run `wsl.exe -d <distro> -- <venv>/bin/vortexcfd` (minimised, so the
+console stays out of the way), with the logo's `vortexcfd.ico` copied to `%LOCALAPPDATA%\VortexCFD\` (an icon on
+`\\wsl$` is shown only while the distribution runs). Options: `-InstallPath` (the venv, if you used `--prefix`),
+`-IconSource`, `-NoDesktop`. Running it again replaces the shortcuts.
+
+## 1.6 Notes
 
 - The install script has been tested by the owner in a clean WSL2 Ubuntu 24.04 distribution. That the WSLg
   desktop entry shows in the Windows Start menu is still to be seen (docs/RELEASE_v1.md).

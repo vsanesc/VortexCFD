@@ -67,29 +67,40 @@ def make_glyph(name: str, color: QColor, size: int, dpr: float = 1.0) -> QIcon:
     return QIcon(pm)
 
 
-def logo_pixmap(theme, side: int, dpr: float = 1.0) -> QPixmap:
-    """VortexCFD logo placeholder: tinted rounded square with a bold mono "V"."""
-    from vortexcfd.gui.theme import LOGO_FILL_ALPHA, LOGO_RADIUS_FRACTION, blend, glyph_font
+def _render_svg(name: str, width: int, height: int, dpr: float) -> QPixmap:
+    """A logo file of vortexcfd/brand rendered at ``width`` x ``height`` device-independent pixels (QtSvg)."""
+    from PySide6.QtCore import QByteArray
+    from PySide6.QtSvg import QSvgRenderer
 
-    px = max(1, round(side * dpr))
-    pm = QPixmap(px, px)
-    pm.setDevicePixelRatio(dpr)
+    from vortexcfd import brand
+
+    renderer = QSvgRenderer(QByteArray(brand.svg(name).encode()))
+    pm = QPixmap(max(1, round(width * dpr)), max(1, round(height * dpr)))
     pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-    line = 1.0
-    accent = QColor(theme.accent)
-    p.setPen(QPen(accent, line))
-    p.setBrush(QColor(blend(theme.accent, theme.base, LOGO_FILL_ALPHA)))
-    box = QRectF(line / 2, line / 2, side - line, side - line)
-    radius = side * LOGO_RADIUS_FRACTION
-    p.drawRoundedRect(box, radius, radius)
-    p.setFont(glyph_font(round(side * 0.62)))
-    p.setPen(accent)
-    p.drawText(box, int(Qt.AlignmentFlag.AlignCenter), "V")
+    p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+    renderer.render(p, QRectF(0, 0, pm.width(), pm.height()))
     p.end()
+    pm.setDevicePixelRatio(dpr)
     return pm
+
+
+def logo_pixmap(theme, side: int, dpr: float = 1.0) -> QPixmap:
+    """The VortexCFD mark (D-175: the owner's logo on its tile) at ``side`` pixels; ``theme`` is kept for the callers
+    (the mark has its own colours)."""
+    return _render_svg("mark.svg", side, side, dpr)
+
+
+def lockup_pixmap(height: int, dpr: float = 1.0) -> QPixmap:
+    """The horizontal lockup (the mark and the word) ``height`` pixels high (the start screen)."""
+    from PySide6.QtCore import QByteArray
+    from PySide6.QtSvg import QSvgRenderer
+
+    from vortexcfd import brand
+
+    box = QSvgRenderer(QByteArray(brand.svg(brand.LOCKUP_H).encode())).viewBoxF()
+    return _render_svg(brand.LOCKUP_H, round(height * box.width() / box.height()), height, dpr)
 
 
 def logo_icon(theme, sizes: tuple[int, ...], dpr: float = 1.0) -> QIcon:

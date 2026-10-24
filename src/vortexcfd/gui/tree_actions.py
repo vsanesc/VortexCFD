@@ -82,10 +82,8 @@ class TreeActionsMixin:
             add("Remove preparation", self.remove_surface_prep, sim.surface_prep is not None)
             menu.addSeparator()
             add("Properties", props)
-        elif kind == "mesh":
-            add("Generate mesh", self.generate_mesh, self.top_bar.mesh_button.isEnabled(),
-                self.top_bar.mesh_button.toolTip())
-            add("Clear mesh", self.clear_mesh, self.mesh_report is not None and not self.mesh_worker.is_running())
+        elif kind == "mesh":  # the Solution menu's actions (D-173): their state is the menu's and the top bar's
+            menu.addActions([self.act_generate_mesh, self.act_clear_mesh])
             add("Mesh report", self.show_mesh_report, self.mesh_report is not None)
             menu.addSeparator()
             self._add_volume_items(menu)
@@ -111,13 +109,19 @@ class TreeActionsMixin:
             add("Properties", props)
         elif kind in ("results", "scene_object", "saved_view"):
             self._add_results_items(menu, kind, index)
+        elif kind in ("solvers", "stopping"):
+            menu.addActions([self.act_run_solver, self.act_stop_solver, self.act_write_now, self.act_clear_solution])
+            menu.addSeparator()
+            add("Properties", props)
         elif kind == "mesh_study":
-            add("Run mesh independence study", lambda: self.properties.study_run_requested.emit("mesh"))
+            self._update_study_actions()
+            menu.addAction(self.act_mesh_study)
             add("Properties", props)
         elif kind == "polar_sweep":
             on = sim.studies.polar.enabled
+            self._update_study_actions()
             if on:
-                add("Run polar sweep", lambda: self.properties.study_run_requested.emit("polar"))
+                menu.addAction(self.act_polar_sweep)
             add("Disable polar sweep" if on else "Enable polar sweep",
                 lambda: self._run_edit(lambda: self._project.update_study("polar", enabled=not on)))
             add("Properties", props)
@@ -424,8 +428,11 @@ class TreeActionsMixin:
             self.show_message("Stop the running mesh or solver first.", "warning")
             return
         case = case_dir_for(self._project)
-        if case is None or not self.dialogs.confirm(
-                "Clear mesh", "Delete the mesh and the solver results of this project? The settings are kept."):
+        has_solution = case is not None and (self.run_record is not None or self.results_time() is not None)
+        text = ("Delete the mesh of this project? The solution computed on it is deleted too (its written times, "
+                "postProcessing, the run record): a solution belongs to its mesh. The settings are kept."
+                if has_solution else "Delete the mesh of this project? The settings are kept.")
+        if case is None or not self.dialogs.confirm("Clear mesh", text):
             return
         try:
             removed = clear_mesh(case)
@@ -445,6 +452,8 @@ class TreeActionsMixin:
         self._update_results_stale(force=True)
         self._update_results_tab()
         self._set_scene_mode("geometry")
+        self._update_mesh_button()  # the Solution menu's actions follow (D-173)
+        self._update_run_button()
         self.show_message("Mesh cleared", "success", log_it=False)
 
     def show_mesh_report(self) -> None:

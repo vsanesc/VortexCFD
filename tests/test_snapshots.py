@@ -94,7 +94,10 @@ def test_the_difference_tables(tmp_path: Path) -> None:
     assert cd.kind == "windowed mean" and cd.relative(1) == pytest.approx(0.1)
     assert cd.absolute(1) == pytest.approx(0.1 * first.reports["Cd"].mean)
     setup = dict(sm.setup_rows([first, second]))
-    assert setup == {"free stream: speed": ("20", "30"), "mesh: background_cells_target": ("100000", "200000")}
+    assert setup == {"Free stream: Free-stream speed (m/s)": ("20", "30"), "Mesh: Background cells": ("100000", "200000"),
+                     "Flow: Reynolds number Re": ("1.3\u00b710\u2076 (U\u221e 20 m/s, l_ref 1 m)",
+                                                  "2.0\u00b710\u2076 (U\u221e 30 m/s, l_ref 1 m)"),
+                     "Flow: Mach number Ma": ("0.0583", "0.0875")}
 
 
 def test_overlays_and_exports(tmp_path: Path) -> None:
@@ -124,7 +127,7 @@ def test_overlays_and_exports(tmp_path: Path) -> None:
     assert float(cd[5]) == pytest.approx(0.1)
     sm.write_setup_csv(snaps, tmp_path / "setup.csv")
     setup = list(csv.reader(open(tmp_path / "setup.csv", encoding="utf-8")))
-    assert setup[0] == ["input", "baseline", "faster"] and ["free stream: speed", "20", "30"] in setup
+    assert setup[0] == ["input", "baseline", "faster"] and ["Free stream: Free-stream speed (m/s)", "20", "30"] in setup
 
 
 def test_the_report_has_a_comparison_only_with_two_runs(tmp_path: Path) -> None:
@@ -134,7 +137,7 @@ def test_the_report_has_a_comparison_only_with_two_runs(tmp_path: Path) -> None:
     text = report.build_report(project, comparison=[first, second])
     checker = _check(text)
     assert checker.h2[-2:] == ["Comparison", "Saved views"]
-    assert "Set-up differences" in text and "+10 %" in text and "free stream: speed" in text
+    assert "Set-up differences" in text and "+10 %" in text and "Free stream: Free-stream speed (m/s)" in text
     assert "Comparison" not in _check(report.build_report(project, omit=["comparison"],
                                                           comparison=[first, second])).h2
 

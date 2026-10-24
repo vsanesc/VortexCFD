@@ -35,7 +35,8 @@ def test_the_sources_import_only_essentials_modules() -> None:
     found = set()
     for path in SRC.rglob("*.py"):
         found |= set(re.findall(r"\bPySide6\.(Qt\w+)", path.read_text()))
-    assert found == {"QtCore", "QtGui", "QtWidgets"}
+    assert found == {"QtCore", "QtGui", "QtWidgets", "QtSvg"}  # QtSvg: the logo (D-175), an Essentials module
+    assert found <= ESSENTIALS
 
 
 def test_the_running_app_loads_only_essentials_modules(results_window, qtbot: QtBot, tmp_path: Path) -> None:

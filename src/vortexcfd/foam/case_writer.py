@@ -40,6 +40,24 @@ def enable_clean_stop(files: dict[str, FoamFileSpec]) -> dict[str, FoamFileSpec]
     return result
 
 
+# The signal of "Write fields now" (D-172): OpenFOAM writes the fields at the end of the next iteration and goes on.
+# SIGUSR2: the clean stop's SIGUSR1 must differ (v2606 refuses the same number for both, sigStopAtWriteNow::set).
+WRITE_NOW_SIGNAL = int(signal.SIGUSR2)
+
+
+def enable_write_now(files: dict[str, FoamFileSpec]) -> dict[str, FoamFileSpec]:
+    """A copy of ``files`` with OptimisationSwitches { writeNowSignal 12 } in system/controlDict (runs started from the
+    app only, D-172: the benchmark's and the validation drivers' dictionaries do not change)."""
+    result = dict(files)
+    spec = files["system/controlDict"]
+    content = dict(spec.content)
+    switches = dict(content.get("OptimisationSwitches", {}))
+    switches["writeNowSignal"] = WRITE_NOW_SIGNAL
+    content["OptimisationSwitches"] = switches
+    result["system/controlDict"] = FoamFileSpec(content=content, class_name=spec.class_name)
+    return result
+
+
 class CaseDirectoryNotEmptyError(FileExistsError):
     """Raised when attempting to write a case into a non-empty directory."""
 

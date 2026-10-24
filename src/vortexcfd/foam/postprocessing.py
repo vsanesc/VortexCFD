@@ -34,6 +34,7 @@ from vortexcfd.foam.forces import (
     ForceRow,
     ForceSample,
     breakdown,
+    imbalance_resolution,
     mass_imbalance,
     parse_vector_row,
     read_coeff_axes,
@@ -716,6 +717,27 @@ class ReportMonitor:
             if computed:
                 rows.append(replace(computed[-1][1], name="All walls" if key is None else key))
         return rows
+
+    def write_precision(self) -> int:
+        """controlDict's writePrecision (the digits of the postProcessing files; OpenFOAM's default 6)."""
+        try:
+            return int(read_foam_file(self.case_dir / "system" / "controlDict").get("writePrecision", 6))
+        except Exception:  # no or an unreadable controlDict: the default
+            return 6
+
+    def mass_resolution(self) -> float | None:
+        """The smallest mass imbalance (%) the files can show at the latest iteration (forces.imbalance_resolution,
+        D-178); None: no balance."""
+        balance = self.mass_balance()
+        if balance is None:
+            return None
+        if self.internal_definitions() is not None:
+            flows = [_last_per_time(tail.values) for tail in self._mass.values()]
+            t = sorted(set(flows[0]).intersection(*flows[1:]))[-1]
+            fluxes = [f[t] for f in flows]
+        else:
+            fluxes = [balance[0], balance[1]]
+        return imbalance_resolution(fluxes, balance[0], self.write_precision())
 
     def mass_balance(self) -> tuple[float, float, float | None] | None:
         """(inlet flux, outlet flux, imbalance %) at the latest iteration (None: not written); in internal flow

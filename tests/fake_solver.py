@@ -50,6 +50,8 @@ class FakeRunner:
         self.command = self.case_dir = self.log_file = None
         self.clean_stop = None
         self.stop_requested = False
+        self.write_now_requests = 0
+        self.on_write_now = None  # a test's hook: what "writing the fields" leaves on disk
         self._stop = threading.Event()
         self._release = threading.Event()
         self._release_lines: list[str] = []
@@ -97,6 +99,15 @@ class FakeRunner:
     def release(self, lines: list[str] | None = None) -> None:
         self._release_lines = list(lines or [])
         self._release.set()
+
+    def request_write_now(self) -> bool:
+        """"Write fields now" (D-172): counted, and ``on_write_now`` (a test's) called, as OpenFOAM writing a time."""
+        if self._thread is None or self._done.is_set():
+            return False
+        self.write_now_requests += 1
+        if self.on_write_now is not None:
+            self.on_write_now()
+        return True
 
     def request_stop(self, grace_s: float = 10.0) -> bool:
         self.stop_requested = True

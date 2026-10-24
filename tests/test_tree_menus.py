@@ -68,7 +68,8 @@ def test_menus_offer_the_actions_that_apply(window: MainWindow) -> None:
     assert "&Generate Domain..." in domain and "Edit" in domain
     assert "Boundary type" in texts(w.tree_menu_for(("boundary_inlet", None)))
     mesh = w.tree_menu_for(("mesh", None))
-    assert {"Generate mesh", "Clear mesh", "Mesh report"} <= set(texts(mesh))
+    assert {"&Generate Mesh", "C&lear Mesh...", "Mesh report"} <= set(texts(mesh))
+    assert w.act_generate_mesh in mesh.actions() and w.act_clear_mesh in mesh.actions()  # the same actions (D-173)
     volumes = w.tree_menu_for(("refinement_volumes", None))
     assert submenu(volumes, "Add refinement volume") == ["Box", "Cylinder", "Sphere", "Cone"]
     assert "Add from imported geometry…" in texts(volumes)

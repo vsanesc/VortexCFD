@@ -35,8 +35,6 @@ class TopBar(QWidget):
     name_clicked = Signal()
     view_requested = Signal(str)  # plotter method name
     wireframe_toggled = Signal(bool)
-    mesh_clicked = Signal()
-    run_clicked = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -109,11 +107,9 @@ class TopBar(QWidget):
         row.addWidget(self.paraview_button)
         row.addStretch(1)
         self.mesh_button = self._future_button("Generate Mesh", "meshBtn", "Save the project first.")
-        self.mesh_button.clicked.connect(self.mesh_clicked)
         self._run_state: str | None = None
         self._dirty = False
         self.run_button = self._future_button("Run Solver", "runBtn", "Save the project first.")
-        self.run_button.clicked.connect(self.run_clicked)
         row.addWidget(self.mesh_button)
         row.addWidget(self.run_button)
 
@@ -200,25 +196,36 @@ class TopBar(QWidget):
         self.results_badge.setHidden(not stale)
         self._fit_width()
 
-    def set_solver_state(self, reason: str | None, running: bool, warning: str | None = None,
-                         first_cell: str | None = None) -> None:
-        """Run Solver: "Stop" while running, enabled when ``reason`` is None, else disabled with
-        the reason as tooltip; ``warning`` (checkMesh quality warnings, D-100) and ``first_cell`` (the y+
-        drift of collapsed layers, D-109; a warning, not a block) are added to the tooltip of an enabled
-        button."""
-        button = self.run_button
-        if running:
-            button.setText("Stop")
-            button.setEnabled(True)
-            button.setToolTip("Stop the solver (writes the current iteration)")
-        else:
-            button.setText("Run Solver")
-            button.setEnabled(reason is None)
-            button.setToolTip(reason if reason is not None else "Run simpleFoam on the mesh"
-                              + (f"\nThe mesh has warnings ({warning}); the solver can run." if warning else "")
-                              + (f"\nWarning: {first_cell}" if first_cell else ""))
-        button.setCursor(Qt.CursorShape.PointingHandCursor if running or reason is None
-                         else Qt.CursorShape.ForbiddenCursor)
+    # -- the buttons show the Solution menu's actions (D-173): one action, one place for its state -----------------
+
+    def bind_mesh(self, action) -> None:
+        """Generate Mesh shows ``action`` (its icon text, "Generate Mesh" or "Stop", its state and tooltip) and
+        triggers it."""
+        self._bind(self.mesh_button, lambda: action)
+
+    def bind_run(self, run_action, stop_action) -> None:
+        """Run Solver shows the stop action while the solver runs (it is enabled then), else the run action ("Run
+        Solver" or "Continue Solver")."""
+        self._bind(self.run_button, lambda: stop_action if stop_action.isEnabled() else run_action,
+                   (run_action, stop_action))
+
+    def bind_paraview(self, action) -> None:
+        self._bind(self.paraview_button, lambda: action, text=False)
+
+    def _bind(self, button: QPushButton, current, actions=None, text: bool = True) -> None:
+        def sync() -> None:
+            action = current()
+            if text:
+                button.setText(action.iconText())
+            button.setEnabled(action.isEnabled())
+            button.setToolTip(action.toolTip())
+            button.setCursor(Qt.CursorShape.PointingHandCursor if action.isEnabled()
+                             else Qt.CursorShape.ForbiddenCursor)
+
+        for action in actions or (current(),):
+            action.changed.connect(sync)
+        button.clicked.connect(lambda: current().trigger())
+        sync()
 
     def set_run_state(self, text: str | None) -> None:
         """Show a run state (e.g. "Meshing") in the badge instead of Saved/Modified."""
@@ -232,26 +239,6 @@ class TopBar(QWidget):
         else:
             self.state_badge.setText("Modified" if self._dirty else "Saved")
             self.state_badge.set_state("warning" if self._dirty else "success")
-
-    def set_mesh_state(self, reason: str | None, running: bool, warning: str | None = None) -> None:
-        """Generate Mesh: "Stop" while running, enabled when ``reason`` is None, else disabled
-        with the reason as tooltip."""
-        button = self.mesh_button
-        if running:
-            button.setText("Stop")
-            button.setEnabled(True)
-            button.setToolTip("Stop meshing")
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-        else:
-            button.setText("Generate Mesh")
-            button.setEnabled(reason is None)
-            tip = "Generate the mesh with snappyHexMesh"
-            if warning:
-                tip += f"\nWarning: {warning}"
-            button.setToolTip(tip if reason is None else reason)
-            button.setCursor(
-                Qt.CursorShape.PointingHandCursor if reason is None else Qt.CursorShape.ForbiddenCursor
-            )
 
     def set_active_view(self, name: str | None) -> None:
         """Mark the segment called ``name`` active (None or "Custom": none is active)."""

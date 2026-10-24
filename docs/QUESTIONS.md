@@ -470,8 +470,51 @@ settled the open ones on 2026-10-17.
 235. **[ACCEPTED (owner, 2026-10-23)]** **The default properties column stays 18 u** (the D-041 rule keeps the viewer at least half the window);
      at the Small size the Auto fields' values fit with little room ("0.2685 m"). Widen the default column and
      relax the viewer rule?
-236. **[OPEN]** **The colormap selector that stopped responding (D-152) could not be reproduced offscreen.** The fix
+236. **[CLOSED (owner, 2026-10-24): checked on the real display]** **The colormap selector that stopped responding (D-152) could not be reproduced offscreen.** The fix
      applies every Results selector after its popup has closed (no redraw inside the selector's signal), which removes
      the only step that differs on the real display. Please confirm on the real display that the colormap, field,
      range and display selectors and the streamlines' selectors keep responding.
 
+## Task gui-2 (decisions taken while Vic was away)
+
+237. **[ACCEPTED (owner, 2026-10-24)]** **Run solver now saves the project first (D-165).** Your ~/simulation_2 shows why: its last run (14 m/s,
+     2000 iterations, no stopping criteria, as its snapshots and report say) was made from edits that were never
+     saved; the project file saved later has 20 m/s, 1000 iterations and the four default criteria, so the "removed"
+     criteria were back after reopening. Run solver now saves unsaved changes before it starts (a failed save stops
+     the run). Accept, or ask before saving?
+238. **[CLOSED (owner, 2026-10-24): checked on the real display]** **The rows of the previous node (item 7b) were not reproduced offscreen** (every node after every
+     other, a 3,200-action random walk, on a sphere project and a copy of ~/simulation_2). The panel now hides every row
+     before showing the selected node's, and a part that fails can no longer leave the previous node's rows (D-165).
+     Please check on the real display that selecting Physics or Free stream after Stopping Criteria shows only their
+     rows; if it still happens, note what was done just before.
+239. **[CLOSED (owner, 2026-10-24): CC BY-SA 4.0, separately from the code; assets/branding/LICENSE, THIRD_PARTY_LICENSES.md, the README (D-177)]** **Which licence should the logo carry?** (assets/branding/: the mark, the lockups, the icons; D-175.)
+     For example the code's GPL-3.0-or-later, or CC BY-SA 4.0 (common for artwork), or all rights reserved with a
+     trademark note. Not decided: THIRD_PARTY_LICENSES.md says "to be chosen by the owner". The word's font, Sora, is
+     OFL-1.1 (recorded).
+240. **[CLOSED (owner, 2026-10-24): checked on the real display]** **The 16 px icon (D-175).** At 16 px the four arms are still told apart, but the centre is soft
+     (run/gui_review/gui2/item11/icon_16px_x10.png). Keep it, or should the generator draw a simplified small variant
+     (fewer, thicker arms) for 16 and 24 px?
+241. **[CLOSED (task gui-2 owner review, 2026-10-24): Continue is offered after "Criteria met" too, with the more iterations and the criteria's values in one dialog (D-176)]** **Continue Solver is offered after a stop or at the iteration limit only (D-171).** A run whose criteria
+     were met runs from the start again (Solution > Clear Solution is not needed). Continuing a converged run with
+     tighter criteria would also be possible. Offer Continue after "Criteria met" too?
+242. **[ACCEPTED (owner, 2026-10-24)]** **Shortcuts (D-173): F5 Run / Continue, Shift+F5 Stop, F6 Generate Mesh.** F6 was free and sits next to F5.
+     Accept, or another key for Generate Mesh?
+243. **[ACCEPTED (owner, 2026-10-24)]** **Choices with a single option in v1 are read-only values (D-166):** the flow ("Incompressible,
+     steady"), the turbulence model ("k-ω SST") and the relaxation preset ("Robust (p 0.3, U 0.7)") no longer look
+     like drop-down lists. Accept?
+244. **[ACCEPTED (owner, 2026-10-24)]** **Write Fields Now in a parallel run (D-172)** writes the time into the processor directories; the
+     Results Scene reads the decomposed case while the run goes on (no reconstructPar beside the solver), and the
+     time is reconstructed with `reconstructPar -newTimes` when the run ends (that also reconstructs the run's
+     periodic write times). Accept, or reconstruct only the requested times (`-time`)?
+
+## Task gui-2 owner review 2
+
+245. **[OPEN]** [NUMERICS-REVIEW] **The stage-2 criteria's minimum (D-126, found in D-178).** `stage2_criteria` adds
+     the run's minimum iterations to the switch: your ~/simulation_4 (minimum 2000, switch at 1502, limit 3000) could
+     stop on its criteria in stage 2 only from iteration 3502, after its limit. The panel now says "yes (stops from
+     3,502)". Keep it, or count stage 2's minimum as max(switch + the criteria's own window, the run's minimum)?
+     Not changed.
+246. **[OPEN]** **The taskbar icon (D-179).** Please check on the real display that the Windows taskbar shows the
+     VortexCFD logo: start the app from the WSLg Start-menu entry (after `scripts/install.sh --desktop-only`) and from
+     the shortcut scripts/windows/make_shortcut.ps1 makes (run it from Windows PowerShell). WSLg may still draw a
+     small Linux badge over the icon; the app cannot remove it.

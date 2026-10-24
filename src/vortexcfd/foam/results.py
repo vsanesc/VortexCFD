@@ -40,7 +40,7 @@ FIELD_SPECS = (
     FieldSpec("omega", "omega", "1/s", "omega"),
     FieldSpec("nut", "nut", "m²/s", "nut"),
     FieldSpec("yPlus", "y+", "", "yPlus"),
-    FieldSpec("wallShearStress_mag", "|wallShearStress| (kinematic)", "m²/s²", "wallShearStress",
+    FieldSpec("wallShearStress_mag", "|\u03c4w| wall shear stress (kinematic)", "m²/s²", "wallShearStress",
               magnitude=True),
     # Skin friction on the walls (foam/wall_fields.py, D-061): |tau| / (0.5 U_ref^2) and its signed
     # component along the free stream (negative where the near-wall flow runs back).

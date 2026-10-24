@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
+from vortexcfd.core.labels import choices
 from vortexcfd.core.model import DOMAIN_SHAPES, Domain
 from vortexcfd.geometry.domain import SHAPE_LABELS
 
@@ -65,8 +66,9 @@ class GenerateDomainDialog(QDialog):
             self._labels[key] = QLabel(label)
             form.addRow(self._labels[key], spin)
         self.symmetry = QComboBox()
-        self.symmetry.addItems(["none", "y_min"])
-        self.symmetry.setCurrentText(domain.symmetry)
+        for value, label in choices("symmetry"):
+            self.symmetry.addItem(label, value)
+        self.symmetry.setCurrentIndex(self.symmetry.findData(domain.symmetry))
         form.addRow("Symmetry", self.symmetry)
         layout.addLayout(form)
         self.note = QLabel("L is the largest extent of the checked parts' bounding box.")
@@ -106,7 +108,7 @@ class GenerateDomainDialog(QDialog):
         if not checked:
             return None
         shape = self.shape.currentData()
-        out = {"enabled": True, "shape": shape, "symmetry": self.symmetry.currentText(),
+        out = {"enabled": True, "shape": shape, "symmetry": self.symmetry.currentData(),
                "parts": None if len(checked) == self.parts.count() else checked}
         out.update({key: self.spins[key].value() for key in SHAPE_FIELDS[shape]})
         return out

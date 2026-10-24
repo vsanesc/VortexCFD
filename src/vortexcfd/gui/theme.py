@@ -144,8 +144,6 @@ MIN_WINDOW_U = (66, 36)
 
 # Derived-color alphas and drawing constants (the only place for these numbers).
 DISABLED_ALPHA = 0.5  # muted text/borders of disabled actions, blended over `base`
-LOGO_FILL_ALPHA = 0.15  # logo fill: accent over base
-LOGO_RADIUS_FRACTION = 0.25 / 1.6  # logo corner radius / side (radius_s at the 1.6u logo)
 WINDOW_ICON_SIZES = (16, 24, 32, 48, 64, 128)  # px
 TELEMETRY_OPACITY = 0.92  # telemetry card background opacity
 TELEMETRY_OFFSET_U = 1  # card offset from the viewport's top-left corner, in u
@@ -467,6 +465,7 @@ QLabel#checkValue[error="true"] {{ color: {t.error}; }}
 QLabel#checkValue[ok="true"] {{ color: {t.success}; }}
 QWidget#convergenceBox {{ background: {t.base}; border-top: {ln}px solid {t.border}; }}
 QLabel#statusWarn {{ color: {t.warning}; }}
+QLabel#statusOk {{ color: {t.success}; }}
 QLabel#kpiValue {{ color: {t.text}; background: transparent; }}
 QWidget#propRow {{ background: transparent; border-bottom: {ln}px solid {t.border}; }}
 QTreeView {{ background: {t.base}; border: none; outline: 0; }}

@@ -76,6 +76,41 @@ class Dialogs:
                                       QMessageBox.StandardButton.No)
         return answer == QMessageBox.StandardButton.Yes
 
+    def choose(self, title: str, text: str, choices: list[tuple[str, str]], default: str | None = None) -> str | None:
+        """A question with its own answers: ``choices`` (key, button text) in order; None when cancelled (Escape or
+        the window closed). ``default``: the key of the default button."""
+        box = QMessageBox(self.parent)
+        box.setWindowTitle(title)
+        box.setText(text)
+        box.setIcon(QMessageBox.Icon.Question)
+        buttons = {}
+        for key, label in choices:
+            buttons[box.addButton(label, QMessageBox.ButtonRole.AcceptRole)] = key
+        cancel = box.addButton(QMessageBox.StandardButton.Cancel)
+        for button, key in buttons.items():
+            if key == default:
+                box.setDefaultButton(button)
+        box.setEscapeButton(cancel)
+        box.exec()
+        return buttons.get(box.clickedButton())
+
+    def ask_more_iterations(self, latest: int, limit: int) -> int | None:
+        """How many more iterations a solution at its iteration limit runs (D-171); None: cancelled."""
+        value, ok = QInputDialog.getInt(
+            self.parent, "Continue solver",
+            f"The solution has reached the iteration limit ({limit:,} iterations).\n"
+            f"Run how many more iterations from iteration {latest:,}? The limit becomes the new total.",
+            max(100, limit // 2), 1, 10_000_000, 100)
+        return value if ok else None
+
+    def ask_continue_met(self, latest: int, limit: int, stopping, met_iteration: int | None):
+        """Continue after "Criteria met" (D-176): (more iterations, {criterion index: new value}) or None
+        (cancelled)."""
+        from vortexcfd.gui.continue_dialog import ContinueMetDialog
+
+        dialog = ContinueMetDialog(latest, limit, stopping, met_iteration, self.parent)
+        return dialog.answer() if dialog.exec() else None
+
     def show_text(self, title: str, text: str) -> None:
         """A read-only text, selectable (e.g. the mesh report)."""
         box = QMessageBox(self.parent)
@@ -107,6 +142,13 @@ class Dialogs:
         """Where to export a line plot (D-136): ``kind`` "png" (the chart) or "csv" (the samples)."""
         name, _ = QFileDialog.getSaveFileName(
             self.parent, "Export line plot", str(suggested),
+            "PNG images (*.png)" if kind == "png" else "CSV files (*.csv)")
+        return Path(name) if name else None
+
+    def ask_chart_export(self, suggested: Path, kind: str) -> Path | None:
+        """Where to export a report chart (D-170): ``kind`` "png" (the chart) or "csv" (its history)."""
+        name, _ = QFileDialog.getSaveFileName(
+            self.parent, "Export report chart", str(suggested),
             "PNG images (*.png)" if kind == "png" else "CSV files (*.csv)")
         return Path(name) if name else None
 
@@ -203,11 +245,12 @@ class Dialogs:
         dialog.exec()
         return dialog.result_spec
 
-    def ask_duplicate(self, current_name: str, current_parent: Path):
-        """Save As (duplicate project, D-079): (name, parent folder) or None (cancelled)."""
+    def ask_duplicate(self, current_name: str, current_parent: Path, copy_size: int | None = None):
+        """Save As (duplicate project, D-079, D-174): (name, parent folder, copy the mesh and results) or None
+        (cancelled); ``copy_size``: the bytes the copy would take (None: nothing to copy)."""
         from vortexcfd.gui.start_dialogs import DuplicateProjectDialog
 
-        dialog = DuplicateProjectDialog(current_name, current_parent, self.parent)
+        dialog = DuplicateProjectDialog(current_name, current_parent, self.parent, copy_size)
         dialog.exec()
         return dialog.result_target
 
@@ -245,9 +288,10 @@ class Dialogs:
     def show_about(self) -> None:
         from vortexcfd import __version__
 
+        # QMessageBox.about shows the window's icon: the logo (D-175)
         QMessageBox.about(self.parent, "About VortexCFD",
                           f"VortexCFD {__version__}\n\nAn integrated CFD workflow on top of OpenFOAM ESI v2606.\n"
-                          "Licence: GPL-3.0-or-later.")
+                          "Licence: GPL-3.0-or-later. The logo's font, Sora: SIL Open Font License 1.1.")
 
     def show_openfoam(self, check):
         """The OpenFOAM dialog (D-137): (the new check, the bashrc to remember or None) when the user chose a usable

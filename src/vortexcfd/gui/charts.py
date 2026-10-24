@@ -7,26 +7,14 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
+from vortexcfd.core import ticks as tk
 from vortexcfd.foam.wall_fields import YPLUS_LABELS, YPlusHistogram
 from vortexcfd.gui.theme import DARK, Theme, role_font
 
 
-def _nice_step(span: float, count: int) -> float:
-    raw = max(span, 1e-12) / count
-    mag = 10 ** math.floor(math.log10(raw))
-    return next(m * mag for m in (1, 2, 2.5, 5, 10) if m * mag >= raw)
-
-
 def ticks(lo: float, hi: float, count: int = 5) -> list[float]:
-    """Round tick values covering [lo, hi]."""
-    step = _nice_step(hi - lo, count)
-    first = math.floor(lo / step) * step
-    out, v = [], first
-    while v <= hi + 1e-9 * step:
-        if v >= lo - 1e-9 * step:
-            out.append(round(v, 10))
-        v += step
-    return out
+    """Round tick values covering [lo, hi] (core/ticks: the 1-2-5 rule, D-169)."""
+    return list(tk.ticks(lo, hi, count).major)
 
 
 class YPlusHistogramChart(QWidget):
@@ -137,12 +125,15 @@ class LineChart(QWidget):
         legend_rows = max(1, math.ceil(len(self.series) / 2)) if self.series else 0
         top = pad + legend_rows * fm.height() + pad / 2
         (x0, x1), (y0, y1) = self.ranges()
-        xt, yt = ticks(x0, x1), ticks(y0, y1)
-        label_w = max((fm.horizontalAdvance(f"{v:g}") for v in yt), default=fm.horizontalAdvance("0"))
+        y_ticks = tk.ticks(y0, y1, 5)
+        yt, y_labels = y_ticks.major, y_ticks.labels()
+        label_w = max((fm.horizontalAdvance(text) for text in y_labels), default=fm.horizontalAdvance("0"))
         left = pad + fm.height() + pad / 2 + label_w + pad / 2
         right = self.width() - pad
         bottom = self.height() - pad - 2 * fm.height()
         area = QRectF(left, top, right - left, bottom - top)
+        x_ticks = tk.fitted_ticks(x0, x1, area.width(), fm.horizontalAdvance, max_target=8)
+        xt, x_labels = x_ticks.major, x_ticks.labels()
 
         def px(x: float, y: float) -> QPointF:
             fx = (x - x0) / (x1 - x0)
@@ -151,21 +142,21 @@ class LineChart(QWidget):
                            area.top() + (fy if self.invert_y else 1 - fy) * area.height())
 
         grid = QPen(QColor(t.border), 1)
-        for v in yt:
+        for v, text in zip(yt, y_labels):
             p = px(x0, v)
             painter.setPen(grid)
             painter.drawLine(QPointF(area.left(), p.y()), QPointF(area.right(), p.y()))
             painter.setPen(QColor(t.muted_text))
             painter.drawText(QRectF(area.left() - label_w - pad / 2, p.y() - fm.height() / 2, label_w, fm.height()),
-                             int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter), f"{v:g}")
-        for v in xt:
+                             int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter), text)
+        for v, text in zip(xt, x_labels):
             p = px(v, y0)
             painter.setPen(grid)
             painter.drawLine(QPointF(p.x(), area.top()), QPointF(p.x(), area.bottom()))
             painter.setPen(QColor(t.muted_text))
-            w = fm.horizontalAdvance(f"{v:g}")
+            w = fm.horizontalAdvance(text)
             painter.drawText(QRectF(p.x() - w / 2, area.bottom() + fm.height() / 4, w, fm.height()),
-                             int(Qt.AlignmentFlag.AlignCenter), f"{v:g}")
+                             int(Qt.AlignmentFlag.AlignCenter), text)
         painter.setPen(QColor(t.muted_text))
         painter.drawText(QRectF(area.left(), area.bottom() + fm.height(), area.width(), fm.height()),
                          int(Qt.AlignmentFlag.AlignCenter), self.x_caption)

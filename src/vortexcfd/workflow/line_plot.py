@@ -88,6 +88,8 @@ def case_points(case_dir: Path) -> pv.UnstructuredGrid | None:
 def draw(figure, samples: LineSamples, title: str = "") -> None:
     """The chart of ``samples`` in a matplotlib ``figure`` (cleared first): one axes per field, against the distance
     along the line."""
+    from vortexcfd.workflow import plot_axes
+
     figure.clear()
     keys = list(samples.values)
     axes = figure.subplots(len(keys), 1, sharex=True, squeeze=False)[:, 0]
@@ -95,7 +97,7 @@ def draw(figure, samples: LineSamples, title: str = "") -> None:
         spec = FIELDS_BY_KEY[key]
         ax.plot(samples.distance, samples.values[key], lw=1.4, color="#2f6fdb")
         ax.set_ylabel(spec.title, fontsize=8)
-        ax.grid(alpha=0.3)
+        plot_axes.apply(ax, target=5)  # the distance and the field's ticks, a light grid (D-169)
         ax.tick_params(labelsize=8)
     axes[-1].set_xlabel("Distance along the line [m]", fontsize=8)
     if title:

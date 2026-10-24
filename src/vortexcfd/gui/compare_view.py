@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from vortexcfd.gui.plot_interaction import ZoomPan
 from vortexcfd.gui.theme import role_point_size
 from vortexcfd.workflow import snapshots as snapshot_module
 from vortexcfd.workflow.snapshots import Snapshot
@@ -100,6 +101,7 @@ class CompareView(QWidget):
         self.figure = Figure(figsize=(6, 3.5), dpi=90)
         self.canvas = FigureCanvasQTAgg(self.figure)
         self.canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.zoom_pan = ZoomPan(self.canvas)  # wheel zoom, drag pan, double-click: all (D-169)
         pbox.addWidget(self.canvas, 1)
         self.tabs.addTab(plots, "Plots")
         # values

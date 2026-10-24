@@ -17,6 +17,7 @@ from PySide6.QtGui import (
     QCloseEvent,
     QColor,
     QDesktopServices,
+    QGuiApplication,
     QIcon,
     QKeySequence,
     QPainter,
@@ -26,12 +27,14 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
     QButtonGroup,
     QMainWindow,
+    QProgressDialog,
     QPushButton,
     QSlider,
     QSizePolicy,
@@ -98,9 +101,10 @@ from vortexcfd.workflow.refinement import OUTSIDE_IGNORED
 from vortexcfd.geometry.refinement_volumes import domain_fraction
 from vortexcfd.gui.mesh_worker import MeshWorker
 from vortexcfd.foam.logparse import parse_log_text
-from vortexcfd.foam.run_record import RunRecord, read_run_record, write_run_record
+from vortexcfd.foam.run_record import RunRecord, read_run_record, record_stopping, write_run_record
 from vortexcfd.foam.solver_run import CRITERIA_MET, read_stages, stage2_criteria
-from vortexcfd.workflow import solving
+from vortexcfd.workflow import duplicate as duplicate_files
+from vortexcfd.workflow import flow_numbers, solving
 from vortexcfd.gui.solver_worker import SolverWorker
 from vortexcfd.gui.study_control import StudyControlMixin
 from vortexcfd.gui.tree_actions import TreeActionsMixin
@@ -110,6 +114,7 @@ from vortexcfd.gui.panel_widgets import FloatingPanel
 from vortexcfd.foam.results import latest_result_time
 from vortexcfd.gui import paraview
 from vortexcfd.gui.colormaps import COLORMAPS, DEFAULT_COLORMAP
+from vortexcfd.gui.copy_worker import CopyWorker
 from vortexcfd.gui.results_scene import DISPLAY_MODES, RANGE_MODES, ResultsLoader, ResultsView, apply_view
 from vortexcfd.gui.section_tool import SectionTool
 from vortexcfd.foam.mesh_record import MeshRecord, read_mesh_record, write_mesh_record
@@ -179,6 +184,27 @@ _LOGGED_LEVELS = {"warning": logging.WARNING, "error": logging.ERROR}
 MESSAGE_TIMEOUT_MS = 8000
 EMPTY = "\u2014"
 NO_PROJECT = "No project open"
+# The live view and Write fields now (D-172).
+LIVE_BADGE_TIP = ("The solver is running: the walls and the Results Scene's planes are sampled every N iterations "
+                  "(Solvers > Live view) and shown as they come. Only the latest sample is kept on disk.")
+WRITE_NOW_TIP = ("Write the full fields at the current iteration without stopping the run (OpenFOAM writes them at the "
+                 "end of the next iteration); the written time opens in the Results Scene, and in ParaView (a "
+                 "parallel run writes it decomposed: the Results Scene reads the decomposed case, and the time is "
+                 "reconstructed when the run ends).")
+LIVE_POLL_MS = 1000  # the live view and the written times are looked for this often while the solver runs
+# Continuing a solution (D-171).
+MESH_CHANGED_TEXT = ("The mesh settings changed since this solution was computed, so it cannot be continued: a "
+                     "solution belongs to the mesh it was computed on and cannot go on on another one. Generate the "
+                     "mesh again (that clears the solution), or clear the solution now and run the solver once the "
+                     "mesh is generated.")
+SETTINGS_CHANGED_TEXT = ("The physics, the boundary conditions or the solver settings changed since this solution "
+                         "was computed (the mesh did not).\n\nContinue from the current solution: it is the "
+                         "starting point of the new set-up (its fields are kept, the new conditions apply from the "
+                         "next iteration, the histories go on).\nStart over: the solution is cleared and the solver "
+                         "starts from the free stream.")
+CLEAR_SOLUTION_TEXT = ("Delete the solution of this project: its written times, the postProcessing files, the "
+                       "processor directories, the run record and the solver logs? The mesh and the settings are "
+                       "kept.")
 ADD_PART_NOT_BUILT = "Not built yet: an empty part without a surface. Add parts with File > Import Geometry."
 
 
@@ -462,6 +488,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.properties_window: FloatingPanel | None = None
         self.properties.help_requested.connect(lambda target: self.open_manual(section=target))
         self.properties.face_type_changed.connect(lambda face: self._select_node(f"boundary_{face}", None))
+        self.properties.node_requested.connect(lambda kind: self._select_node(kind, None))
         self.properties.show_in_file_requested.connect(lambda key: self.show_in_openfoam_file(key))
 
         self._left_split = _Splitter(Qt.Orientation.Vertical)
@@ -570,6 +597,10 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.viewer = None
         self.results_view: ResultsView | None = None
         self.results_loader = ResultsLoader(self)
+        self.copy_worker = CopyWorker(self)  # Save As with the mesh and results (D-174)
+        self.copy_worker.progress.connect(self._on_copy_progress)
+        self.copy_worker.finished.connect(self._on_copy_finished)
+        self.copy_progress = None
         self.results_loader.loaded.connect(self._on_results_loaded)
         self.results_loader.failed.connect(self._on_results_failed)
         self._results_shown_time: str | None = None  # time of the data in results_view
@@ -619,6 +650,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         # -- right: monitors, bottom: console ----------------------------------------
         self.monitors = MonitorsPanel()
         self.monitors.slot_assigned.connect(self._assign_report)
+        self.monitors.ask_export = lambda suggested, kind: self.dialogs.ask_chart_export(suggested, kind)  # D-170
         self.monitors.updated.connect(
             lambda: self.properties.set_report_monitor(self.monitors.reports, self.monitors.case_dir))
         self.console = ConsolePanel()
@@ -653,10 +685,11 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.top_bar.name_clicked.connect(self._select_root)
         self.top_bar.view_requested.connect(self._view)
         self.top_bar.wireframe_toggled.connect(self._set_wireframe)
-        self.top_bar.mesh_clicked.connect(self.generate_mesh)
-        self.top_bar.run_clicked.connect(self.run_solver)
+        # The top bar's buttons show and trigger the Solution menu's actions (D-173)
+        self.top_bar.bind_mesh(self.act_generate_mesh)
+        self.top_bar.bind_run(self.act_run_solver, self.act_stop_solver)
+        self.top_bar.bind_paraview(self.act_paraview)
         self.paraview_button = self.top_bar.paraview_button  # Open in ParaView (D-151)
-        self.paraview_button.clicked.connect(lambda: self.open_in_paraview())
         self.top_bar.set_viewer_enabled(self.viewer is not None)
         central = QWidget()
         central_layout = QVBoxLayout(central)
@@ -984,6 +1017,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             if self.viewer is not None:
                 self._style_viewer()  # axes viewport depends on the real viewer size
             self.monitors.restore_windows()  # the residual chart and criteria windows as the user left them
+            self.monitors.restore_charts()  # and the report charts (D-170)
 
     # -- refresh -------------------------------------------------------------
 
@@ -1004,8 +1038,8 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self._update_run_button()
         self.monitors.kpis.set_options(available_reports(**solving.report_scope(self._project)))
         self.monitors.set_assignments(list(sim.reports.slots))
-        if not self.solver_worker.is_running():  # a running solver keeps the criteria it started with
-            self.monitors.set_stopping(sim.solvers.stopping)
+        self.monitors.set_project_stopping(sim.solvers.stopping)  # a run keeps its own criteria (D-165)
+        self.monitors.export_folder = self._project.folder  # the report charts' exports (D-170)
         self._update_results_tab()
 
     def _node_icon(self, glyph: str, token: str) -> QIcon:
@@ -1040,7 +1074,10 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
                 return item
 
             root = add(self.tree, "root", None, name, "dot", "text")
-            geometry = add(root, "geometry", None, "Geometry", "folder", "text")
+            alpha = self._project.sim.inflow.alpha_deg
+            geometry_text = (f"Geometry \u00b7 \u03b1 {alpha:g}\u00b0" if alpha and not self._project.sim.internal
+                             else "Geometry")  # the angle of attack shown where it is set (D-167)
+            geometry = add(root, "geometry", None, geometry_text, "folder", "text")
             parts_item = add(geometry, "parts", None, "Parts", "folder", "text")
             prep_state = surface_prep.state(self._project)
             prep = self._project.sim.surface_prep
@@ -1608,7 +1645,18 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         if not running and reason is None:
             warnings = [w for w in (layer_warning(self._project), *thin_part_warnings(self._project)) if w]
             warning = "\n".join(warnings) or None
-        self.top_bar.set_mesh_state(reason, running, warning)
+        act = self.act_generate_mesh  # the top bar's button shows it (D-173)
+        act.setText("&Stop Meshing" if running else "&Generate Mesh")
+        act.setIconText("Stop" if running else "Generate Mesh")
+        act.setEnabled(running or reason is None)
+        act.setToolTip("Stop meshing" if running else reason if reason is not None else
+                       "Generate the mesh with snappyHexMesh" + (f"\nWarning: {warning}" if warning else ""))
+        clear_why = (NO_PROJECT if not self.has_project else "Meshing is running." if running
+                     else "The solver is running: stop it first." if self.solver_worker.is_running()
+                     else "No mesh to clear." if self.mesh_report is None else None)
+        self.act_clear_mesh.setEnabled(clear_why is None)
+        self.act_clear_mesh.setToolTip(clear_why or "Delete the generated mesh and the solution computed on it (the "
+                                                    "settings are kept); asks first")
         self._update_paraview_button()  # a new or cleared mesh
 
     def generate_mesh(self) -> None:
@@ -1807,36 +1855,234 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         current = report is not None and not self.mesh_stale
         warning = report.warnings_message() if current else None
         drift = report.first_cell_warning() if current else None  # the y+ drift of collapsed layers (D-109)
-        self.top_bar.set_solver_state(None if running else self.solve_readiness(), running, warning, drift)
+        mode = self.solver_mode()
+        reason = None if running else self.solve_readiness()
+        continue_tip = None
+        if mode == "continue":
+            record = self.run_record
+            if self.mesh_stale:  # the button stays enabled: it explains and offers Clear solution (D-171)
+                reason, continue_tip = None, MESH_CHANGED_TEXT
+            elif reason is None:
+                limit = self._project.sim.solvers.iterations
+                continue_tip = (f"Continue the solution from iteration {record.iterations:,}: its stopping criteria "
+                                "were met, so you choose how many more iterations to run and may tighten the "
+                                "criteria." if record.state == CRITERIA_MET else
+                                f"Continue the solution from iteration {record.iterations:,} (its latest written "
+                                f"time) to the iteration limit ({limit:,}); the histories and the stopping criteria "
+                                "go on. Solution > Clear solution starts over." if record.iterations < limit else
+                                f"Continue the solution from iteration {record.iterations:,}: it has reached the "
+                                f"iteration limit ({limit:,}), so you choose how many more iterations to run.")
+        compressibility = self._compressibility_warning()
+        act = self.act_run_solver  # the top bar's button shows it, or the stop action while running (D-173)
+        act.setText("&Continue Solver" if mode == "continue" else "&Run Solver")
+        act.setIconText("Continue Solver" if mode == "continue" else "Run Solver")
+        act.setEnabled(not running and reason is None)
+        act.setToolTip("The solver is running (Solution > Stop Solver)" if running else reason if reason is not None
+                       else (continue_tip or "Run simpleFoam on the mesh")
+                       + (f"\nThe mesh has warnings ({warning}); the solver can run." if warning else "")
+                       + (f"\nWarning: {drift}" if drift else "")
+                       + (f"\nWarning: {compressibility}" if compressibility else ""))
+        self.act_stop_solver.setIconText("Stop")
+        self.act_stop_solver.setEnabled(running)
+        self.act_stop_solver.setToolTip("Stop the solver (writes the current iteration)" if running
+                                        else "The solver is not running")
+        self.act_write_now.setEnabled(running)
+        self.act_write_now.setToolTip(WRITE_NOW_TIP if running else "Only while the solver runs: " + WRITE_NOW_TIP)
+        case = case_dir_for(self._project) if self.has_project else None
+        has_solution = case is not None and (self.run_record is not None or self.results_time() is not None
+                                             or (case / "log.simpleFoam").is_file())
+        clear_why = ("The solver is running: stop it first." if running else "Meshing is running."
+                     if self.mesh_worker.is_running() else None if has_solution else "No solution to clear.")
+        self.act_clear_solution.setEnabled(clear_why is None)
+        self.act_clear_solution.setToolTip(clear_why or "Delete the solution (the written times, postProcessing, "
+                                                        "the run record and the solver logs); the mesh and the "
+                                                        "settings stay; asks first")
         self._update_study_state()
 
+    def _compressibility_warning(self) -> str | None:
+        """The Mach warning of the project's flow (D-168), for the Run solver tooltip."""
+        if not self.has_project:
+            return None
+        reports = self.monitors.reports
+
+        def last(report_id: str):
+            series = reports.series(report_id) if reports is not None else []
+            return float(series[-1][1]) if series else None
+
+        numbers = flow_numbers.project_numbers(self._project, last)
+        return numbers.warning if numbers is not None else None
+
+    def solver_mode(self) -> str:
+        """"running" while the solver runs, "continue" when the shown solution can be continued (stopped, at its
+        iteration limit or with its criteria met, with a written time; D-171, D-176), else "run"."""
+        if self.solver_worker.is_running():
+            return "running"
+        if not self.has_project:
+            return "run"
+        return "continue" if solving.can_continue(case_dir_for(self._project), self.run_record) else "run"
+
     def run_solver(self) -> None:
-        """Run Solver / Stop: write the solver files into the meshed case and run simpleFoam."""
+        """Run Solver / Continue Solver / Stop: start simpleFoam on the meshed case, or continue the stopped
+        solution from its latest written time (D-171), or stop the running solver."""
         if self.solver_worker.is_running():
             self.show_message("Stopping the solver...", "warning", log_it=False)
             log.warning("Stopping the solver at the user's request")
             self.solver_worker.request_stop()
             return
+        if self.solver_mode() == "continue":
+            self.continue_solver()
+            return
+        self._start_solver()
+
+    def _run_or_continue(self) -> None:
+        """Solution > Run Solver / Continue Solver (F5): never a stop (Shift+F5 is)."""
+        if not self.solver_worker.is_running():
+            self.run_solver()
+
+    def stop_solver(self) -> None:
+        """Solution > Stop Solver (Shift+F5): the clean stop (the current iteration is written)."""
+        if self.solver_worker.is_running():
+            self.run_solver()
+
+    def _update_study_actions(self) -> None:
+        """The studies' actions (D-173): Run / Stop and why they cannot run (read when the menu opens: a study's
+        readiness reads the surfaces)."""
+        from vortexcfd.workflow import mesh_study, polar_sweep
+
+        for act, kind, worker, label in ((self.act_mesh_study, "mesh", self.study_worker, "Mesh Independence Study"),
+                                         (self.act_polar_sweep, "polar", self.sweep_worker, "Polar Sweep")):
+            if worker.is_running():
+                act.setText(f"Stop {label}")
+                act.setEnabled(True)
+                act.setToolTip(f"Stop the running {label.lower()}")
+                continue
+            act.setText(f"Run {label}")
+            try:
+                reason = self._busy_for_study(kind) or (mesh_study.study_readiness(self._project) if kind == "mesh"
+                                                        else polar_sweep.sweep_readiness(self._project))
+            except (MeshingNotReady, ValueError, OSError, TypeError) as exc:
+                reason = str(exc)
+            if not self.has_project:
+                reason = NO_PROJECT
+            elif kind == "polar" and not self._project.sim.studies.polar.enabled:
+                reason = "The polar sweep is off: enable it on its node (Reports & Monitors > Polar sweep)."
+            act.setEnabled(reason is None)
+            act.setToolTip(reason or (f"Run the {label.lower()} (its node holds the settings and the results)"))
+
+    def _saved_for_run(self) -> bool:
+        """Save unsaved changes before a run (D-165); False (with a message) when the save fails."""
+        if self._project.dirty and self._project.path is not None:  # the results belong to the saved set-up
+            if not self.save():
+                self.show_message("The project could not be saved, so the solver was not started", "error")
+                return False
+            log.info("Saved the project before the run: its results belong to the saved set-up")
+        return True
+
+    def _start_solver(self) -> None:
+        """A run from the start: the solver files written into the meshed case (the previous results cleared)."""
         self._flush_edits()
         reason = self.solve_readiness()
         if reason is not None:
             self.show_message(reason, "error")
             return
+        if not self._saved_for_run():
+            return
         try:
-            case_dir = solving.prepare_solver_case(self._project)
+            case_dir = solving.prepare_solver_case(self._project, interactive=True, planes=self._live_planes())
         except (solving.SolvingNotReady, MeshingNotReady) as exc:
             self.show_message(str(exc), "error")
             return
         except OSError as exc:
             self.show_message(f"Could not write the solver case: {exc}", "error")
             return
+        self._continued = None
+        self._begin_run(case_dir, None)
+
+    def continue_solver(self) -> None:
+        """Continue Solver (D-171): the stopped solution goes on from its latest written time, its iteration count,
+        histories and criteria windows continuing. At the iteration limit it asks how many more iterations, after
+        "Criteria met" also whether to tighten the criteria (D-176); with a
+        changed set-up (the mesh unchanged) it offers to continue from the current solution or to start over; with a
+        changed mesh it cannot continue and offers Clear solution."""
+        self._flush_edits()
+        record = self.run_record
+        if record is None or self.solver_mode() != "continue":
+            self._start_solver()
+            return
+        if self.mesh_stale:
+            if self.dialogs.choose("Continue solver", MESH_CHANGED_TEXT, [("clear", "Clear solution")]) == "clear":
+                self.clear_solution(confirm=False)
+            return
+        reason = self.solve_readiness()
+        if reason is not None:
+            self.show_message(reason, "error")
+            return
+        limit = self._project.sim.solvers.iterations
+        if record.state == CRITERIA_MET:  # more iterations and, if wanted, tighter criteria in one edit (D-176)
+            stopping = self._project.sim.solvers.stopping
+            answer = self.dialogs.ask_continue_met(record.iterations, limit, stopping, record.met_iteration)
+            if answer is None:
+                return
+            more, values = answer
+            try:
+                tightened = convergence.with_values(stopping, values)
+            except (ValueError, IndexError) as exc:
+                self.show_message(f"Invalid stopping criterion value: {exc}", "error")
+                return
+            for i, value in sorted(values.items()):
+                log.info("Stopping criterion %s: %s %.6g -> %.6g", convergence.short_label(stopping.criteria[i]),
+                         convergence.value_field(stopping.criteria[i]),
+                         getattr(stopping.criteria[i], convergence.value_field(stopping.criteria[i])), value)
+            self._run_edit(lambda: self._project.update_solver(iterations=record.iterations + int(more),
+                                                               stopping=tightened.model_dump()))
+        elif record.iterations >= limit:
+            more = self.dialogs.ask_more_iterations(record.iterations, limit)
+            if more is None:
+                return
+            self._run_edit(lambda: self._project.update_solver(iterations=record.iterations + int(more)))
+        rewrite = False
+        if solving.settings_changed(self._project, record):
+            choice = self.dialogs.choose("Continue solver", SETTINGS_CHANGED_TEXT,
+                                         [("continue", "Continue from the current solution"),
+                                          ("start_over", "Start over")], default="continue")
+            if choice is None:
+                return
+            if choice == "start_over":
+                self._start_solver()
+                return
+            rewrite = True
+        if not self._saved_for_run():
+            return
+        try:
+            case_dir, resume = solving.prepare_continue(self._project, record, rewrite, interactive=True,
+                                                        planes=self._live_planes())
+        except (solving.SolvingNotReady, MeshingNotReady) as exc:
+            self.show_message(str(exc), "error")
+            return
+        except OSError as exc:
+            self.show_message(f"Could not write the solver case: {exc}", "error")
+            return
+        self._continued = (record, rewrite)
+        log.info("Continuing simpleFoam from iteration %d%s", resume.iteration,
+                 " with the changed set-up (the current solution is the starting point)" if rewrite else "")
+        self._begin_run(case_dir, resume)
+
+    def _begin_run(self, case_dir: Path, resume) -> None:
+        """Start the solver worker on ``case_dir`` (``resume``: a continued solution) and show it running."""
         self._solve_hash = solving.results_hash(self._project)
+        self._solve_settings_hash = solving.solution_hash(self._project)
         self._solve_stopping = self._project.sim.solvers.stopping.model_copy(deep=True)
         self.run_record = None
         self.properties.set_run_record(None)
-        self.monitors.start_run(case_dir, self._solve_stopping)
+        self.monitors.start_run(case_dir, self._solve_stopping, keep_history=resume is not None)
         if read_stages(case_dir) is not None:  # the wall-resolved mode's two stages (D-126)
-            self.monitors.set_stage(stage_text(1))
+            if resume is not None and resume.stage == 2:
+                stage1 = resume.stage1 or {}
+                self.monitors.set_stage(stage_text(2, resume.switch_iteration, str(stage1.get("switch") or "")))
+                if self._solve_stopping.criteria:
+                    self.monitors.set_run_stopping(stage2_criteria(self._solve_stopping, resume.switch_iteration))
+            else:
+                self.monitors.set_stage(stage_text(1))
         self.top_bar.set_run_state("Solving")
         log.info("Running simpleFoam in %s", case_dir)
         cores = self._project.sim.solvers.cores
@@ -1844,10 +2090,192 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             log.info("Running simpleFoam on %d cores (decomposePar, mpirun, reconstructPar)", cores)
         self._solve_case_dir = case_dir
         self.solver_worker.start(case_dir, timeout_s=self.solver_timeout_s, stopping=self._solve_stopping,
-                                 cores=cores)
+                                 cores=cores, resume=resume)
+        self._start_live(case_dir)
         self._update_results_stale()
         self._update_run_button()
         self._update_mesh_button()
+
+    # -- the live view and Write fields now (D-172) -----------------------------------------------------------------
+
+    def _live_planes(self) -> tuple:
+        """The live view's planes: the Results Scene's section plane (its axis and position, else y through the parts'
+        centre) and the results scene's clips."""
+        from vortexcfd.foam.live_view import LivePlane
+
+        try:
+            bounds = meshing.body_bounds(self._project)
+        except (MeshingNotReady, ValueError, TypeError, OSError):
+            bounds = None
+        section = None
+        if bounds is not None:
+            view = self.results_view
+            axis = view.section_axis if view is not None else 1
+            centre = [(bounds[2 * i] + bounds[2 * i + 1]) / 2 for i in range(3)]
+            if view is not None and view.section_position is not None:
+                centre[axis] = view.section_position
+            normal = [0.0, 0.0, 0.0]
+            normal[axis] = 1.0
+            section = LivePlane(f"section_{'xyz'[axis]}", tuple(centre), tuple(normal))
+        return solving.live_view_planes(self._project, section)
+
+    def _start_live(self, case_dir: Path) -> None:
+        """While the solver runs: look for the live samples and the written times every second."""
+        from vortexcfd.foam.live_view import prune
+
+        prune(case_dir, 1 << 30)  # an earlier run's samples
+        self._live_case = case_dir
+        self._live_settled: dict = {}
+        self._live_shown: int | None = None
+        self._live_data = None
+        self._written_now: list[int] = []
+        self._write_now_after: int | None = None
+        self._written_known = self._written_times(case_dir)
+        self.live_toggle.blockSignals(True)
+        self.live_toggle.setChecked(True)
+        self.live_toggle.blockSignals(False)
+        if not hasattr(self, "_live_timer"):
+            self._live_timer = QTimer(self)
+            self._live_timer.setInterval(LIVE_POLL_MS)
+            self._live_timer.timeout.connect(self.poll_live)
+        self._live_timer.start()
+
+    def _stop_live(self) -> None:
+        if hasattr(self, "_live_timer"):
+            self._live_timer.stop()
+        self._live_data = None
+        self.live_badge.setVisible(False)
+        self.live_toggle.setVisible(False)
+
+    @staticmethod
+    def _written_times(case_dir: Path) -> set[int]:
+        """The written times of the case and of processor0 (as iterations)."""
+        out = set()
+        for folder in (Path(case_dir), Path(case_dir) / "processor0"):
+            if folder.is_dir():
+                for child in folder.iterdir():
+                    try:
+                        value = float(child.name)
+                    except ValueError:
+                        continue
+                    if value > 0 and child.is_dir() and any(f.is_file() for f in child.iterdir()):
+                        out.add(int(round(value)))
+        return out
+
+    def poll_live(self) -> None:
+        """One look at the running case: a new live sample (shown when the scene follows them; the older removed)
+        and a time written on request (shown in the scene)."""
+        from vortexcfd.foam.live_view import latest_sample, prune
+        from vortexcfd.gui.results_scene import read_live_sample
+
+        case = getattr(self, "_live_case", None)
+        if case is None or not self.solver_worker.is_running():
+            return
+        if self._write_now_after is not None:
+            new = sorted(t for t in self._written_times(case) - self._written_known if t > self._write_now_after)
+            if new:
+                self._written_known |= set(new)
+                self._write_now_after = None
+                self._written_now += new
+                log.info("Fields written at iteration %d (the solver goes on)", new[-1])
+                self.show_message(f"Fields written at iteration {new[-1]}: shown in the Results Scene", "success",
+                                  log_it=False)
+                self._show_written_time(case, new[-1])
+        if not self._project.sim.solvers.live_view:
+            return
+        sample = latest_sample(case, settled=self._live_settled)
+        if sample is None or sample.iteration == self._live_shown:
+            return
+        try:
+            data = read_live_sample(case, sample)
+        except Exception as exc:  # noqa: BLE001 - a sample being replaced; the next poll tries again
+            log.debug("Live sample %s not read: %s", sample.iteration, exc)
+            return
+        self._live_shown = sample.iteration
+        prune(case, sample.iteration)  # only the latest sample stays on disk
+        if not data.patches and not data.planes:
+            return
+        self._live_data = data
+        self.live_badge.setText(f"Live \u00b7 iteration {sample.iteration:,}")
+        self.live_badge.setVisible(True)
+        self.live_toggle.setVisible(True)
+        self.results_tab.setVisible(True)
+        if self.live_toggle.isChecked():
+            self._show_results_data(data)
+
+    def _show_results_data(self, data) -> None:
+        """Show ``data`` (a live sample or a written time) in the Results Scene."""
+        self._fill_field_combo_from(data.fields)
+        self._results_shown_time = data.time
+        if self.results_view is None:
+            return
+        self._on_results_loaded_objects()
+        self._apply_results_controls(data)
+        self._sync_scene_objects()
+        if self._scene_mode == "results":
+            self.viewer.render()
+
+    def _show_written_time(self, case: Path, iteration: int) -> None:
+        """A time written on request during the run: the scene stops following the live samples and reads it (the
+        decomposed case when it is only in the processor directories)."""
+        self.live_toggle.setChecked(False)
+        self.live_badge.setText(f"Iteration {iteration:,} (written while running)")
+        self.live_badge.setVisible(True)
+        self.live_toggle.setVisible(True)
+        self.results_tab.setVisible(True)
+        decomposed = not any(abs(float(c.name) - iteration) < 1e-9 for c in Path(case).iterdir()
+                             if c.is_dir() and c.name.replace(".", "", 1).isdigit())
+        self._written_decomposed = decomposed
+        if self.results_view is not None and not self.results_loader.is_running():
+            time = _time_name(case / "processor0" if decomposed else case, iteration)
+            self._results_loading_time = time
+            self.results_loader.start(case, time, self._mesh_patches, decomposed=decomposed)
+
+    def _on_live_toggled(self, on: bool) -> None:
+        if on and getattr(self, "_live_data", None) is not None:
+            self.live_badge.setText(f"Live \u00b7 iteration {self._live_data.live:,}")
+            self._show_results_data(self._live_data)
+
+    def write_fields_now(self) -> None:
+        """Solution > Write fields now (D-172): the full fields at the current iteration, without stopping the run."""
+        if not self.solver_worker.is_running():
+            self.show_message("Write fields now: the solver is not running", "warning")
+            return
+        steps = self.monitors.history.series.get("p") or []
+        now = int(steps[-1][0]) if steps else 0
+        if not self.solver_worker.request_write_now():
+            self.show_message("Write fields now: the solver cannot take it yet (its iterations have not started)",
+                              "warning")
+            return
+        self._write_now_after = now
+        log.info("Write fields now requested at iteration %d: OpenFOAM writes them at the end of the next iteration",
+                 now)
+        self.show_message("Writing the fields at the end of the next iteration...", log_it=False)
+
+    def clear_solution(self, confirm: bool = True) -> None:
+        """Solution > Clear solution: delete the solver results (the written times, postProcessing, the processor
+        directories, the run record and the solver logs), after a confirmation; the mesh and the settings stay."""
+        if self.solver_worker.is_running() or self.mesh_worker.is_running():
+            self.show_message("Stop the running solver or mesh first.", "warning")
+            return
+        case = case_dir_for(self._project) if self.has_project else None
+        if case is None:
+            return
+        if confirm and not self.dialogs.confirm("Clear solution", CLEAR_SOLUTION_TEXT):
+            return
+        try:
+            removed = solving.clear_solution(case)
+        except (OSError, CaseDirectoryNotOursError) as exc:
+            self.show_message(f"Could not clear the solution: {exc}", "error")
+            return
+        log.info("Cleared the solution: %s", ", ".join(removed) or "nothing to remove")
+        self.run_record = None
+        self.properties.set_run_record(None)
+        self.monitors.clear()
+        self._update_results_stale(force=True)
+        self._update_results_tab()
+        self._update_run_button()
+        self.show_message("Solution cleared", "success", log_it=False)
 
     def _load_run_record(self, project: Project) -> None:
         """Show the last saved run of ``project`` (case/vortexcfd_run.json), if there is one."""
@@ -1866,9 +2294,13 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         except OSError:
             text = ""
         record = self.run_record
-        self.monitors.set_stopping(project.sim.solvers.stopping)
+        run_stopping = record_stopping(record)
+        judged = (stage2_criteria(run_stopping, record.switch_iteration)
+                  if run_stopping is not None and run_stopping.criteria and record.switch_iteration else None)
+        self.monitors.set_project_stopping(project.sim.solvers.stopping)
         self.monitors.load_run(case_dir, parse_log_text(text),
-                               (record.state, record.stopped_by, record.met_iteration or record.iterations))
+                               (record.state, record.stopped_by, record.met_iteration or record.iterations),
+                               run_stopping, judged)
         if record.stages:  # a two-stage run (D-126)
             last = record.stages[-1]
             self.monitors.set_stage(stage_text(int(last["stage"]), record.switch_iteration,
@@ -1904,18 +2336,35 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         """The second turbulence stage began (D-126): the monitors say so and judge the criteria as SolverRun does."""
         self.monitors.set_stage(stage_text(stage, switch, reason))
         if self._solve_stopping is not None and self._solve_stopping.criteria:
-            self.monitors.set_stopping(stage2_criteria(self._solve_stopping, switch))
+            self.monitors.set_run_stopping(stage2_criteria(self._solve_stopping, switch))
+
+    def _run_record_of(self, result, criteria, stopped_by, labels, stopping) -> RunRecord:
+        """The record of a finished run; a continued one keeps the solution's earlier segments (D-171)."""
+        previous, rewrite = getattr(self, "_continued", None) or (None, False)
+        segment = {"first": previous.iterations + 1 if previous is not None else 1, "last": result.iterations,
+                   "state": result.state, "cores": result.cores, "duration_s": round(result.duration_s, 1)}
+        earlier: tuple[dict, ...] = ()
+        residuals = dict(result.final_residuals)
+        duration = result.duration_s
+        if previous is not None:
+            segment.update(continued_from=previous.iterations, settings_changed=rewrite)
+            earlier = previous.segments or ({"first": 1, "last": previous.iterations, "state": previous.state,
+                                             "cores": previous.cores, "duration_s": previous.duration_s},)
+            duration += sum(float(seg.get("duration_s") or 0.0) for seg in earlier)
+            residuals = residuals or dict(previous.final_residuals)  # a stop before any new iteration
+        return RunRecord(result.state, result.iterations, residuals, self._solve_hash or "", result.exit_code,
+                         criteria, stopped_by, labels, result.met_iteration, round(duration, 1), result.cores,
+                         tuple(result.stages), result.switch_iteration, stopping.model_dump(),
+                         (*earlier, segment), getattr(self, "_solve_settings_hash", ""))
 
     def _on_solver_done(self, result) -> None:
         self.top_bar.set_run_state(None)
+        self._stop_live()
         case_dir, self._solve_case_dir = self._solve_case_dir, None
         stopping = self._solve_stopping or StoppingCriteria(criteria=[])
         criteria, stopped_by = convergence.criteria_outcome(stopping, result.criteria_met)
         labels = convergence.met_labels(stopping, result.criteria_met)
-        record = RunRecord(result.state, result.iterations, result.final_residuals,
-                           self._solve_hash or "", result.exit_code, criteria, stopped_by, labels,
-                           result.met_iteration, round(result.duration_s, 1), result.cores,
-                           tuple(result.stages), result.switch_iteration)
+        record = self._run_record_of(result, criteria, stopped_by, labels, stopping)
         if case_dir is None:
             case_dir = case_dir_for(self._project)
         elif not self._is_current_case(case_dir):
@@ -2076,8 +2525,20 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.results_stale_label = QLabel("Results out of date: run the solver again")
         self.results_stale_label.setObjectName("statusWarn")
         self.results_stale_label.setVisible(False)
+        # The live view (D-172): what the scene shows while the solver runs, and whether it follows the samples.
+        self.live_badge = QLabel()
+        self.live_badge.setObjectName("statusOk")
+        self.live_badge.setToolTip(LIVE_BADGE_TIP)
+        self.live_badge.setVisible(False)
+        self.live_toggle = QCheckBox("Live")
+        self.live_toggle.setChecked(True)
+        self.live_toggle.setToolTip("Follow the live samples of the running solver (unchecked: the scene keeps what it "
+                                    "shows, e.g. the fields written with Write fields now)")
+        self.live_toggle.setVisible(False)
+        self.live_toggle.toggled.connect(self._on_live_toggled)
         for widget in (self.field_combo, self.colormap_combo, self.range_combo, self.range_min,
-                       self.range_max, self.display_combo, self.separation_toggle, self.sections_button):
+                       self.range_max, self.display_combo, self.separation_toggle, self.sections_button,
+                       self.live_toggle, self.live_badge):
             row.addWidget(widget)
         row.addWidget(self.results_stale_label)
         # A selector's choice is applied once its popup has closed and the event loop is back (D-152): the redraw
@@ -2104,6 +2565,8 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
 
     def _update_results_tab(self) -> None:
         """Show the Results Scene tab only when the case has results; refresh its controls."""
+        if getattr(self, "_live_data", None) is not None and self.solver_worker.is_running():
+            return  # the live view (D-172) holds the scene until the run ends
         time = self.results_time()
         self.results_tab.setVisible(time is not None)
         if time is None:
@@ -2135,6 +2598,20 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             self.field_combo.setCurrentText(current)
         elif "Cp" in labels:
             self.field_combo.setCurrentText("Cp")
+        self.field_combo.blockSignals(False)
+
+    def _fill_field_combo_from(self, fields) -> None:
+        """The field selector from a field list (a live sample's, D-172)."""
+        labels = [f.label for f in fields]
+        self._field_keys = {f.label: f.key for f in fields}
+        if [self.field_combo.itemText(i) for i in range(self.field_combo.count())] == labels:
+            return
+        current = self.field_combo.currentText()
+        self.field_combo.blockSignals(True)
+        self.field_combo.clear()
+        self.field_combo.addItems(labels)
+        self.field_combo.setCurrentText(current if current in labels else "Cp" if "Cp" in labels else labels[0]
+                                        if labels else "")
         self.field_combo.blockSignals(False)
 
     def field_list(self) -> list[str]:
@@ -2268,9 +2745,8 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             tip = f"{tip}\n{paraview.missing_note(missing)} Using the detected one."
         if exe is not None and not has:
             tip = "Generate the mesh first: ParaView opens the case's mesh and results."
-        for widget in (self.paraview_button, self.act_paraview):
-            widget.setEnabled(exe is not None and has)
-            widget.setToolTip(tip)
+        self.act_paraview.setEnabled(exe is not None and has)  # the top bar's button shows it (D-173)
+        self.act_paraview.setToolTip(tip)
 
     def open_in_paraview(self) -> None:
         """Write case.foam and launch ParaView (Linux or Windows) on it, detached."""
@@ -2599,6 +3075,17 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.act_prepare_surfaces.setToolTip(surface_prep.EXPLANATION)
         self.act_prepare_surfaces.setStatusTip("Prepare crossing or unsewn parts so they mesh as one surface")
         self.act_paraview = action("Open in &ParaView", lambda: self.open_in_paraview())
+        # The Solution menu (D-173): the same actions as the top bar and the tree's context menus.
+        self.act_generate_mesh = action("&Generate Mesh", self.generate_mesh, "F6")
+        self.act_clear_mesh = action("C&lear Mesh...", self.clear_mesh)
+        self.act_run_solver = action("&Run Solver", self._run_or_continue, "F5")
+        self.act_stop_solver = action("S&top Solver", self.stop_solver, "Shift+F5")
+        self.act_clear_solution = action("Clear &Solution...", lambda: self.clear_solution())
+        self.act_write_now = action("&Write Fields Now", self.write_fields_now)
+        self.act_mesh_study = action("Mesh &Independence Study", lambda: self.toggle_study("mesh"))
+        self.act_polar_sweep = action("&Polar Sweep", lambda: self.toggle_study("polar"))
+        for act in (self.act_generate_mesh, self.act_run_solver, self.act_stop_solver):
+            act.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
         self.act_add_wake = action("Add &Wake Volume", self.add_wake_volume)
         self.act_add_wake.setToolTip("A refinement box behind the selected part (all parts when none is selected), "
                                      "aligned with the free stream")
@@ -2678,6 +3165,18 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             act.setChecked(self._telemetry_fields[key])
             self.act_tel_fields[key] = act
             tel_menu.addAction(act)
+        solution_menu = self.menuBar().addMenu("&Solution")  # after View (D-173)
+        self.solution_menu = solution_menu
+        solution_menu.setToolTipsVisible(True)  # a disabled entry says why
+        solution_menu.addActions([self.act_generate_mesh, self.act_clear_mesh])
+        solution_menu.addSeparator()
+        solution_menu.addActions([self.act_run_solver, self.act_stop_solver, self.act_clear_solution,
+                                  self.act_write_now])
+        solution_menu.addSeparator()
+        solution_menu.addActions([self.act_mesh_study, self.act_polar_sweep])
+        solution_menu.addSeparator()
+        solution_menu.addAction(self.act_paraview)
+        solution_menu.aboutToShow.connect(self._update_study_actions)
         help_menu = self.menuBar().addMenu("&Help")
         help_menu.addAction(self.act_manual)
         help_menu.addAction(self.act_openfoam)
@@ -2687,7 +3186,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
     def _update_actions(self) -> None:
         p = self._project
         loaded = self.has_project
-        for menu in (self.edit_menu, self.view_menu):  # only File and Help without a project (D-077)
+        for menu in (self.edit_menu, self.view_menu, self.solution_menu):  # only File and Help without a project
             menu.menuAction().setEnabled(loaded)
         for act in (self.act_save, self.act_save_as, self.act_save_preset):
             act.setEnabled(loaded)
@@ -3075,29 +3574,84 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         return self._save_to(None)
 
     def save_as(self) -> bool:
-        """File > Save As (duplicate project, D-079): a new project folder <parent>/<name>/ with the
-        current state and a copy of every referenced geometry file; case/ is not copied, so the
-        duplicate opens without mesh and results. The original project and folder are not changed.
-        An in-memory project without a folder (scripts, tests) gets the save-file flow instead."""
+        """File > Save As (duplicate project, D-079, D-174): a new project folder <parent>/<name>/ with the current
+        state and a copy of every referenced geometry file and, when "Copy mesh and results" is ticked (the default),
+        of the mesh and results (workflow/duplicate: copied on a background worker with progress and Cancel; a
+        cancelled or failed copy removes the new folder and the window stays on the original). The original project
+        and folder are not changed. An in-memory project without a folder (scripts, tests) gets the save-file flow
+        instead. True when the window shows the duplicate (or will, once its copy has finished)."""
         self._flush_edits()
         if self._project.path is None:
             return self._save_file_as()
-        target = self.dialogs.ask_duplicate(self._project.sim.name, self._project.folder.parent)
+        plan = duplicate_files.copy_plan(self._project.folder)
+        target = self.dialogs.ask_duplicate(self._project.sim.name, self._project.folder.parent,
+                                            duplicate_files.plan_size(plan) if plan else None)
         if target is None:
             return False
-        name, parent = target
+        name, parent = target[0], target[1]
+        copy_case = bool(target[2]) if len(target) > 2 else False
+        if copy_case and (self.solver_worker.is_running() or self.mesh_worker.is_running() or self.study_running()):
+            self.show_message("A run is writing into the case: stop it before copying the mesh and results.", "error")
+            return False
         if self.geometry_worker.is_running():
             self.geometry_worker.wait(30)  # a job may still write into the geometry folder
+        existed = (Path(parent) / name).exists()
         try:
             duplicate, missing = self._project.duplicate(parent, name)
         except (ProjectFolderError, ValueError, OSError) as exc:  # SaveTargetError included
             return self._refuse_save(exc)
+        if not copy_case or not plan:
+            self._finish_save_as(duplicate, missing, False)
+            return True
+        self._copy_target = (duplicate, missing, existed)
+        self.copy_progress = QProgressDialog(f"Copying the mesh and results to {duplicate.folder} ...", "Cancel", 0,
+                                             1000, self)
+        self.copy_progress.setWindowTitle("Save As")
+        self.copy_progress.setWindowModality(Qt.WindowModality.WindowModal)
+        self.copy_progress.setMinimumDuration(0)
+        self.copy_progress.setAutoClose(False)
+        self.copy_progress.setAutoReset(False)
+        self.copy_progress.canceled.connect(self.copy_worker.cancel)
+        self.copy_progress.show()
+        log.info("Save As: copying %s of mesh and results to %s", duplicate_files.format_size(
+            duplicate_files.plan_size(plan)), duplicate.folder)
+        self.copy_worker.start(plan, duplicate.folder)
+        return True
+
+    def _on_copy_progress(self, done: int, total: int) -> None:
+        progress = getattr(self, "copy_progress", None)
+        if progress is not None:
+            progress.setValue(int(1000 * done / total) if total else 1000)
+            progress.setLabelText(f"Copying the mesh and results: {duplicate_files.format_size(done)} of "
+                                  f"{duplicate_files.format_size(total)}")
+
+    def _on_copy_finished(self, outcome: str) -> None:
+        duplicate, missing, existed = self._copy_target
+        progress, self.copy_progress = getattr(self, "copy_progress", None), None
+        if progress is not None:
+            progress.close()
+            progress.deleteLater()
+        if outcome == "done":
+            self._finish_save_as(duplicate, missing, True)
+            return
+        try:  # nothing half-copied stays behind; the original was only read
+            duplicate_files.remove_partial(duplicate.folder, existed)
+        except OSError as exc:
+            log.warning("Save As: could not remove the partial copy %s: %s", duplicate.folder, exc)
+        if outcome == "cancelled":
+            log.warning("Save As cancelled: the partial copy %s was removed", duplicate.folder)
+            self.show_message("Save As cancelled: the partial copy was removed", "warning", log_it=False)
+        else:
+            log.error("Save As failed while copying the mesh and results: %s", outcome)
+            self.show_message(f"Save As failed: {outcome}; the partial copy was removed", "error", log_it=False)
+
+    def _finish_save_as(self, duplicate, missing: list[str], copied: bool) -> None:
         original = self._project.path
         for rel in missing:
             log.warning("Save As: %s is missing in %s and was not copied", rel, original.parent)
         self.set_project(duplicate)
-        log.info("Saved %s as the new project %s (geometry copied; mesh and results not copied)", original,
-                 duplicate.path)
+        log.info("Saved %s as the new project %s (geometry copied; %s)", original, duplicate.path,
+                 "mesh and results copied" if copied else "mesh and results not copied")
         self.show_message(f"Saved as {duplicate.path}", "warning" if missing else "success", log_it=False)
         if missing:
             listed = "\n".join(f"  {rel}" for rel in missing)
@@ -3105,7 +3659,6 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
                 "Save As",
                 f"These geometry files are missing in {original.parent} and were not copied:\n{listed}\n\n"
                 "The parts that use them have no surface in the duplicate.")
-        return True
 
     def _save_file_as(self) -> bool:
         """The save-file flow of an in-memory project: the dialog's file gets the .vcfd extension when
@@ -3463,7 +4016,13 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             event.ignore()
             return
         self.geometry_worker.wait(30)  # a job may still write into the project folder
+        if self.copy_worker.is_running():  # a Save As copy (D-174): cancelled, its partial folder removed
+            self.copy_worker.cancel()
+            self.copy_worker.wait(30)
+            duplicate, _missing, existed = self._copy_target
+            duplicate_files.remove_partial(duplicate.folder, existed)
         self.monitors.save_windows()  # remembered for the next start, then docked (D-156)
+        self.monitors.save_charts()  # the report charts too (D-170)
         self.dock_properties()  # a window of its own would keep the application open
         self._release_background()
         super().closeEvent(event)
@@ -3477,7 +4036,8 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             return
         self._released = True
         for worker in (self.mesh_worker, self.solver_worker, self.study_worker, self.sweep_worker,
-                       self.geometry_worker, self.intersections, self.overlaps, self.results_loader):
+                       self.geometry_worker, self.intersections, self.overlaps, self.results_loader,
+                       self.copy_worker):
             worker.shutdown()
         console_log.detach(self._console_handler)
         if self.viewer is not None:
@@ -3487,6 +4047,17 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         if event.type() == QEvent.Type.DeferredDelete:  # deleted without an accepted close (tests, scripts)
             self._release_background()
         return super().event(event)
+
+
+def _time_name(folder: Path, iteration: int) -> str:
+    """The name of the time directory of ``iteration`` in ``folder`` ("120" or "120.0")."""
+    for child in Path(folder).iterdir():
+        try:
+            if child.is_dir() and abs(float(child.name) - iteration) < 1e-9:
+                return child.name
+        except ValueError:
+            continue
+    return str(iteration)
 
 
 def manual_path() -> Path | None:
@@ -3526,10 +4097,28 @@ def start_window(args: list[str], dialogs: Dialogs | None = None, openfoam=None)
     return window
 
 
+# The application's identity for the desktop (D-179): the desktop entry scripts/install.sh writes (vortexcfd.desktop),
+# the Wayland app id and the X11 WM_CLASS (XWayland) all say "vortexcfd", so WSLg's taskbar finds the entry's icon.
+APP_ID = "vortexcfd"
+
+
+def set_app_identity() -> None:
+    """Before the QApplication exists: the desktop file name (Qt's Wayland app id), the application name (the class of
+    WM_CLASS under xcb) and RESOURCE_NAME (its instance name; else argv[0]'s name, "__main__.py" under python -m)."""
+    os.environ.setdefault("RESOURCE_NAME", APP_ID)
+    QGuiApplication.setDesktopFileName(APP_ID)
+    QGuiApplication.setApplicationName(APP_ID)
+
+
 def main() -> int:
     """Application entry point: ``vortexcfd [path]``."""
     logging.basicConfig(level=logging.INFO)
+    set_app_identity()
     app = QApplication.instance() or QApplication(sys.argv)
+    from vortexcfd.gui.icons import logo_icon
+    from vortexcfd.gui.theme import DARK
+
+    app.setWindowIcon(logo_icon(DARK, WINDOW_ICON_SIZES + (256,)))  # every window (X11: _NET_WM_ICON; D-175)
     window = start_window(app.arguments()[1:])  # noqa: F841 (kept alive by this frame)
     return app.exec()
 

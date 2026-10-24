@@ -38,10 +38,19 @@ class FakeDialogs:
         self.domain_asked: list = []
         self.duplicate_target = None  # ask_duplicate's answer: (name, parent folder) or None
         self.duplicate_asked: list = []
+        self.duplicate_sizes: list = []
         self.export_spec = None  # ask_export_image's answer (an ExportSpec or None)
         self.export_asked: list = []
         self.line_export_path = None  # ask_line_export's answer (a Path or None)
         self.line_export_asked: list = []
+        self.chart_export_path = None  # ask_chart_export's answer (a Path or None)
+        self.choices: list = []  # choose's answers in order (a choice key, or None: cancelled)
+        self.choices_asked: list = []  # (title, text, the choice keys)
+        self.more_iterations = None  # ask_more_iterations' answer
+        self.more_iterations_asked: list = []
+        self.continue_met = None  # ask_continue_met's answer: (more iterations, {index: value}) or None
+        self.continue_met_asked: list = []
+        self.chart_export_asked: list = []
         self.report_omit = None  # ask_report_sections' answer; None keeps the project's choice
         self.report_sections_asked: list = []
         self.openfoam_answer = None  # show_openfoam's answer: (check, bashrc to remember) or None
@@ -94,6 +103,22 @@ class FakeDialogs:
     def ask_line_export(self, suggested, kind):
         self.line_export_asked.append((suggested, kind))
         return self.line_export_path
+
+    def choose(self, title, text, choices, default=None):
+        self.choices_asked.append((title, text, [key for key, _label in choices]))
+        return self.choices.pop(0) if self.choices else None
+
+    def ask_more_iterations(self, latest, limit):
+        self.more_iterations_asked.append((latest, limit))
+        return self.more_iterations
+
+    def ask_continue_met(self, latest, limit, stopping, met_iteration):
+        self.continue_met_asked.append((latest, limit, stopping.model_copy(deep=True), met_iteration))
+        return self.continue_met
+
+    def ask_chart_export(self, suggested, kind):
+        self.chart_export_asked.append((suggested, kind))
+        return self.chart_export_path
 
     def ask_report_sections(self, omit):
         self.report_sections_asked.append(list(omit))
@@ -155,6 +180,7 @@ class FakeDialogs:
         self.domain_asked.append((list(part_names), list(checked)))
         return self.domain_fields
 
-    def ask_duplicate(self, current_name, current_parent):
+    def ask_duplicate(self, current_name, current_parent, copy_size=None):
         self.duplicate_asked.append((current_name, current_parent))
+        self.duplicate_sizes.append(copy_size)  # the size the dialog shows (D-174)
         return self.duplicate_target

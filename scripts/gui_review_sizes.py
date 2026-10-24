@@ -6,7 +6,10 @@ Each screen is shown at its minimum size, its default size and 1920x1080, at eac
 Large), and saved as <out>/<screen>/<window size>_<interface size>.png. Screens: ``new_sim``, ``start``, ``main``
 (the main window: tree, viewer, properties, top bar), ``properties`` (the detached properties window), ``compare``
 (the Compare tab), ``foam_file`` (the Show in OpenFOAM file viewer), ``monitors`` (the detached residual chart and
-convergence criteria windows) and ``all``.
+convergence criteria windows), ``report_chart`` (a report's chart window, D-170), ``solution_menu`` (D-173),
+``save_as`` (D-174) and ``all``. ``main:<node>[@<setup>]`` is the main window on a tree node (e.g.
+``main:inflow``, ``main:part:0``) after an optional named set-up of SETUPS (e.g. ``main:stopping@criteria_changed``),
+saved as <out>/main_<node>[_<setup>]/.
 """
 
 import logging
@@ -32,8 +35,15 @@ sys.path.insert(0, str(REPO / "scripts"))
 import gui_review as gr  # noqa: E402
 
 LARGE = (1920, 1080)
-SCREENS = ["new_sim", "start", "main", "properties", "compare", "foam_file", "monitors"]
+SCREENS = ["new_sim", "start", "main", "properties", "compare", "foam_file", "monitors", "report_chart",
+           "solution_menu", "save_as"]
 log = logging.getLogger("gui_review_sizes")
+
+
+def metrics_u() -> int:
+    from vortexcfd.gui.theme import metrics
+
+    return metrics().u
 
 
 def _sizes(widget: QWidget, default: tuple[int, int]) -> dict[str, tuple[int, int]]:
@@ -58,6 +68,71 @@ def _main_window(app, vcfd: Path):
         window.tree.setCurrentItem(item)
     gr._settle(app)
     return window
+
+
+def _criteria_changed(window) -> None:
+    """The project's criteria no longer those of the last run (D-165): the review copy's run record gets the run's
+    criteria (as a run of this version records them), then the project's first criterion is removed."""
+    from dataclasses import replace
+
+    from vortexcfd.foam.run_record import read_run_record, write_run_record
+
+    case = window.project.folder / "case"
+    record = read_run_record(case)
+    if record is not None and record.stopping is None:
+        write_run_record(case, replace(record, stopping=window.project.sim.solvers.stopping.model_dump()))
+        window._load_run_record(window.project)
+    stop = window.project.sim.solvers.stopping.model_dump()
+    stop["criteria"] = stop["criteria"][1:]
+    window.project.update_solver(stopping=stop)
+
+
+def _live(window) -> None:
+    """The Results Scene during a run (D-172): a live sample made from the review copy's results (its walls and a y
+    plane), shown as the running solver's; the scene on the Results tab."""
+    from vortexcfd.foam.live_view import LIVE_VIEW, WALLS
+    from vortexcfd.gui.results_scene import read_results
+
+    case = window.project.folder / "case"
+    time = window.results_time()
+    data = read_results(case, time, window._mesh_patches)
+    folder = case / "postProcessing" / LIVE_VIEW / "150"
+    folder.mkdir(parents=True, exist_ok=True)
+    import pyvista as pv
+
+    walls = pv.merge(list(data.patches.values())).extract_surface()
+    walls.save(str(folder / f"{WALLS}.vtp"))
+    data.internal.slice(normal=(0, 1, 0)).extract_surface().save(str(folder / "section_y.vtp"))
+    window.solver_worker.is_running = lambda: True  # shown as during a run
+    window._live_case = case
+    window._live_settled, window._live_shown, window._live_data = {}, None, None
+    window._write_now_after, window._written_now, window._written_known = None, [], set()
+    window.display_combo.setCurrentText("Both")
+    window.poll_live()
+    window.poll_live()
+    window.results_tab.click()
+
+
+# Named set-ups of a ``main:<node>@<setup>`` screen: what is changed in the project before the screenshots.
+SETUPS = {"criteria_changed": _criteria_changed,
+          "alpha4": lambda window: window.project.update_inflow(alpha_deg=4.0),
+          "mach_high": lambda window: window.project.update_inflow(speed=150.0),
+          "live": _live}
+
+
+def _node_window(app, vcfd: Path, spec: str):
+    """The main window on the node of ``spec`` ("<kind>[:<index>][@<setup>]"); returns (window, folder name)."""
+    node, _, setup = spec.partition("@")
+    window = gr._window(app, vcfd)
+    if setup:
+        SETUPS[setup](window)
+    item = window._items.get(gr._key(node))
+    if item is None:
+        log.warning("no node %s", node)
+    else:
+        window.tree.setCurrentItem(item)
+    gr._settle(app)
+    return window, "main_" + node.replace(":", "_") + (f"_{setup}" if setup else "")
 
 
 def shoot(out: Path, screens: list[str]) -> None:
@@ -96,6 +171,10 @@ def shoot(out: Path, screens: list[str]) -> None:
                 dialog.show_open_panel()
                 _shoot_sizes(app, dialog, out, "start_open", interface, (dialog.width(), dialog.height()))
                 dispose(dialog)
+            elif screen.startswith("main:"):
+                window, folder = _node_window(app, vcfd, screen.removeprefix("main:"))
+                _shoot_sizes(app, window, out, folder, interface, gr.SIZE)
+                dispose(window)
             elif screen == "main":
                 window = _main_window(app, vcfd)
                 _shoot_sizes(app, window, out, screen, interface, gr.SIZE)
@@ -134,6 +213,37 @@ def shoot(out: Path, screens: list[str]) -> None:
                 gr._settle(app)
                 _shoot_sizes(app, viewer, out, screen, interface, (viewer.width(), viewer.height()))
                 dispose(viewer)
+                dispose(window)
+            elif screen == "save_as":  # the Save As dialog with "Copy mesh and results" (D-174)
+                from vortexcfd.gui.start_dialogs import DuplicateProjectDialog
+                from vortexcfd.workflow import duplicate as dup
+
+                size = dup.plan_size(dup.copy_plan(vcfd.parent))
+                dialog = DuplicateProjectDialog("sphere", gr.WORK, None, size)
+                dialog.show()
+                gr._settle(app)
+                _shoot_sizes(app, dialog, out, screen, interface, (dialog.width(), dialog.height()))
+                dispose(dialog)
+            elif screen == "solution_menu":  # the Solution menu (D-173), open, with its tooltips on
+                window = _main_window(app, vcfd)
+                menu = window.solution_menu
+                menu.aboutToShow.emit()
+                menu.popup(window.mapToGlobal(window.rect().center()))
+                gr._settle(app)
+                gr._grab(app, menu, out / screen / f"menu_{interface.lower()}.png")
+                menu.hide()
+                _shoot_sizes(app, window, out, "main_solution", interface, gr.SIZE)
+                dispose(window)
+            elif screen == "report_chart":  # a report chart's window (D-170) and the slots with their buttons
+                window = _main_window(app, vcfd)
+                window.project.update_reports(slots=["Cd", "Cl", "yplus_avg"])
+                gr._settle(app)
+                _shoot_sizes(app, window, out, "main_slots", interface, gr.SIZE)
+                chart = window.monitors.open_chart("Cd")
+                chart.resize(48 * metrics_u(), 30 * metrics_u())
+                gr._settle(app)
+                _shoot_sizes(app, chart, out, screen, interface, (chart.width(), chart.height()))
+                window.monitors.close_chart("Cd")
                 dispose(window)
             elif screen == "monitors":
                 window = _main_window(app, vcfd)

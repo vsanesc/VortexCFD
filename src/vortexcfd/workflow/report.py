@@ -25,9 +25,12 @@ from vortexcfd.core.model import (
     REPORT_SECTIONS,
     MeanStableCriterion,
 )
+from vortexcfd.core.labels import value_label
 from vortexcfd.core.project import Project
 from vortexcfd.core.reports import FLOW_QUANTITIES, FLOW_QUANTITY_LABELS, report_label
+from vortexcfd.workflow import flow_numbers, plot_axes
 from vortexcfd.foam.convergence import window_stats
+from vortexcfd.foam.forces import imbalance_text
 from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam import mesh_study, polar_sweep
 from vortexcfd.foam.mesh_record import read_mesh_record
@@ -39,6 +42,7 @@ REPORTS_DIR = "reports"
 SOLVER_LOG = "log.simpleFoam"
 STYLE = """
 body { font-family: Helvetica, Arial, sans-serif; margin: 2em auto; max-width: 960px; color: #1d2330; line-height: 1.45; }
+header.brand { display: flex; align-items: center; gap: 0.6em; } header.brand h1 { margin: 0; }
 h1 { font-size: 1.6em; margin-bottom: 0.2em; } h2 { font-size: 1.2em; border-bottom: 1px solid #ccd; padding-bottom: 0.2em; margin-top: 1.8em; }
 table { border-collapse: collapse; margin: 0.6em 0; font-size: 0.92em; }
 th, td { border: 1px solid #d5d9e2; padding: 0.25em 0.6em; text-align: left; } th { background: #f0f2f6; }
@@ -106,7 +110,8 @@ def project_section(project: Project) -> Section:
     rows = [("Project", sim.name), ("File", str(project.path) if project.path else "not saved"),
             ("Analysis", f"{ANALYSIS_TYPE_LABELS[sim.analysis_type]}, {DIMENSION_LABELS[sim.dimension]}"),
             ("Preset", sim.preset_name or "none"),
-            ("Flow", f"steady incompressible RANS, {sim.physics.turbulence_model}"),
+            ("Flow", f"{value_label('flow', sim.physics.flow)} RANS, "
+                     f"{value_label('turbulence_model', sim.physics.turbulence_model)}"),
             ("Kinematic viscosity", f"{sim.physics.nu:.6g} m²/s"),
             ("Reference density", f"{sim.physics.rho_ref:.6g} kg/m³")]
     if sim.internal:
@@ -117,11 +122,16 @@ def project_section(project: Project) -> Section:
                  ("Turbulence intensity", f"{100 * sim.inflow.turbulence_intensity:.4g} %"),
                  ("Reference length", f"{sim.reports.reference_length:.6g} m" if sim.reports.reference_length else "auto"),
                  ("Reference area", f"{sim.reports.reference_area:.6g} m²" if sim.reports.reference_area
-                  else f"auto ({sim.reports.reference_area_basis})")]
+                  else f"auto ({value_label('reference_area_basis', sim.reports.reference_area_basis).lower()})")]
+    numbers = flow_numbers.project_numbers(project, flow_numbers.run_report_values(project))  # D-168
+    if numbers is not None:
+        rows += [("Reynolds number", numbers.reynolds_text()),
+                 ("Mach number", numbers.mach_text(sim.physics.speed_of_sound)
+                  + (f". {numbers.warning}" if numbers.warning else ""))]
     stop = sim.solvers.stopping
     rows += [("Iteration limit", str(sim.solvers.iterations)), ("Solver cores", str(sim.solvers.cores)),
              ("Stopping criteria", "; ".join(_criterion_text(c) for c in stop.criteria) or "none"),
-             ("Criteria combined", stop.combine)]
+             ("Criteria combined", value_label("combine", stop.combine))]
     body = _pairs(rows)
     if sim.internal and sim.boundaries:
         brows = []
@@ -233,7 +243,7 @@ def residual_png(text: str) -> bytes | None:
         ax.semilogy([p[0] for p in points], [p[1] for p in points], lw=1.0, label=name)
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Initial residual")
-    ax.grid(alpha=0.3, which="both")
+    plot_axes.apply(ax, x_integer=True)  # 1-2-5 iteration ticks, minor ticks, a light grid (D-169)
     ax.legend(fontsize=8, ncol=4)
     fig.tight_layout()
     buffer = io.BytesIO()
@@ -317,7 +327,8 @@ def reports_section(project: Project) -> Section:
     body += _note("Means over the last iterations: the window of a mean-stable criterion on the quantity, else the "
                   "oscillation window of the stopping criteria (D-118, D-119).")
     if balance is not None and balance[2] is not None:
-        body += _pairs([("Mass imbalance at the last iteration", f"{balance[2]:.3g} % of the inlet flux")])
+        text = imbalance_text(balance[2], monitor.mass_resolution())
+        body += _pairs([("Mass imbalance at the last iteration", f"{text} % of the inlet flux")])
     return Section(title, body)
 
 
@@ -369,7 +380,7 @@ def polar_png(points) -> bytes | None:
         ax.set_xlabel("Angle of attack [deg]", fontsize=8)
         ax.set_ylabel(label, fontsize=8)
         ax.tick_params(labelsize=8)
-        ax.grid(alpha=0.3)
+        plot_axes.apply(ax, target=4)
     fig.tight_layout()
     buffer = io.BytesIO()
     fig.savefig(buffer, format="png")
@@ -470,6 +481,14 @@ def comparison_section(snaps) -> Section:
     return Section("Comparison", body)
 
 
+def _brand_mark() -> str:
+    """The logo inline (D-175): the report stays one self-contained file."""
+    from vortexcfd import brand
+
+    svg = brand.svg(brand.MARK).strip()
+    return svg.replace("<svg ", '<svg class="mark" width="48" height="48" ', 1)
+
+
 def build_report(project: Project, images: list[ReportImage] | None = None, now: datetime | None = None,
                  omit: list[str] | None = None, comparison=None) -> str:
     """The HTML text of the report; ``omit``: the section ids left out (default the project's choice, D-136);
@@ -490,7 +509,8 @@ def build_report(project: Project, images: list[ReportImage] | None = None, now:
         sections.append(section)
     parts = ["<!DOCTYPE html>", '<html lang="en"><head><meta charset="utf-8">',
              f"<title>{_e(project.sim.name)}: report</title><style>{STYLE}</style></head><body>",
-             f"<h1>{_e(project.sim.name)}</h1>", _note(f"VortexCFD report, {now:%Y-%m-%d %H:%M}")]
+             f'<header class="brand">{_brand_mark()}<h1>{_e(project.sim.name)}</h1></header>',
+             _note(f"VortexCFD report, {now:%Y-%m-%d %H:%M}")]
     for section in sections:
         parts.append(f"<h2>{_e(section.title)}</h2>")
         parts.append(section.body if section.body is not None else _note(section.note))

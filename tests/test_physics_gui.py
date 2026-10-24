@@ -36,8 +36,9 @@ def test_physics_editor_shows_and_commits(window: MainWindow) -> None:
     p = window.properties
     f = p.group_fields["physics"]
     assert p._rows["physics_nu"].isVisible() and not p._rows["inflow_speed"].isVisible()
-    assert f["flow"].currentText() == "incompressible_steady"
-    assert f["turbulence_model"].currentText() == "kOmegaSST"
+    # the single options of v1 are read-only labels, never the model's identifiers (D-166)
+    assert f["flow"].value() == "incompressible_steady" and f["flow"].text() == "Incompressible, steady"
+    assert f["turbulence_model"].value() == "kOmegaSST" and f["turbulence_model"].text() == "k-\u03c9 SST"
     assert f["nu"].value() == pytest.approx(1.5e-5) and f["nu"].text() == "1.5e-05"
     assert f["rho_ref"].value() == pytest.approx(1.225)
     f["nu"].setText("2e-5")
@@ -99,13 +100,18 @@ def test_solvers_editor(window: MainWindow) -> None:
     _select(window, "solvers")
     p = window.properties
     f = p.group_fields["solvers"]
-    assert (f["iterations"].value(), f["write_interval"].value(), f["relaxation"].currentText()) == (1000, 200, "robust")
+    assert (f["iterations"].value(), f["write_interval"].value(), f["relaxation"].value()) == (1000, 200, "robust")
     assert not p.info_label.isVisible()
     f["iterations"].setValue(250)
     f["iterations"].editingFinished.emit()
     assert window.project.sim.solvers.iterations == 250
     assert window.project.undo_label == "Edit solver (iterations)"
-    assert set(f) == {"iterations", "write_interval", "cores", "relaxation"}  # residual targets: Stopping Criteria node
+    assert set(f) == {"iterations", "write_interval", "cores", "relaxation", "live_view", "live_view_interval"}
+    assert f["live_view"].isChecked() and f["live_view_interval"].value() == 50  # the live view (D-172)
+    f["live_view_interval"].setValue(20)
+    f["live_view_interval"].editingFinished.emit()
+    f["live_view"].setChecked(False)
+    assert not window.project.sim.solvers.live_view and window.project.sim.solvers.live_view_interval == 20
 
 
 def test_cores_field_is_limited_to_the_physical_cores(window: MainWindow) -> None:

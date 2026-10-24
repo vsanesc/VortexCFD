@@ -436,6 +436,22 @@ class FloatingPanel(QWidget):
         super().closeEvent(event)
 
 
+class _OptionLabel(QLabel):
+    """The wrapped text of a ChoiceField option; a click on it chooses the option."""
+
+    def __init__(self, text: str, button: QRadioButton) -> None:
+        super().__init__(text)
+        self._button = button
+        self.setWordWrap(True)
+        self.setMinimumWidth(1)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        if self._button.isEnabled():
+            self._button.setChecked(True)
+        super().mousePressEvent(event)
+
+
 class ChoiceField(QWidget):
     """A choice between a few long, self-explaining options as radio buttons stacked vertically (D-148); ``value()``
     is the chosen option's model value."""
@@ -451,13 +467,22 @@ class ChoiceField(QWidget):
         box.setSpacing(2)
         self.group = QButtonGroup(self)
         self.buttons: dict[str, QRadioButton] = {}
+        self.labels: dict[str, QLabel] = {}
         for value, label in pairs:
-            button = QRadioButton(label)
-            button.setMinimumWidth(1)
-            button.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            # The option's text is a label beside its radio button, so a long option wraps in a narrow panel instead
+            # of being cut (a radio button's own text cannot wrap; D-165); clicking the text chooses the option.
+            button = QRadioButton()
+            button.setAccessibleName(label)
+            text = _OptionLabel(label, button)
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(4)
+            row.addWidget(button, 0, Qt.AlignmentFlag.AlignTop)
+            row.addWidget(text, 1)
             self.group.addButton(button)
             self.buttons[value] = button
-            box.addWidget(button)
+            self.labels[value] = text
+            box.addLayout(row)
             button.toggled.connect(lambda on: on and self.edited.emit())
 
     def value(self):
@@ -475,8 +500,12 @@ class ChoiceField(QWidget):
 
     def setToolTip(self, text: str) -> None:
         super().setToolTip(text)
-        for b in self.buttons.values():
+        for b in (*self.buttons.values(), *self.labels.values()):
             b.setToolTip(text)
+
+    def text_of(self, value) -> str:
+        """The shown text of an option."""
+        return self.labels[value].text()
 
     def setEnabled(self, on: bool) -> None:
         super().setEnabled(on)

@@ -9,7 +9,7 @@ import math
 from PySide6.QtCore import QRect, Qt
 from PySide6 import QtGui
 from PySide6.QtGui import QTextDocument
-from PySide6.QtWidgets import QAbstractScrollArea, QLabel, QWidget
+from PySide6.QtWidgets import QAbstractButton, QAbstractScrollArea, QLabel, QWidget
 
 
 def _visible_children(widget: QWidget) -> list[QWidget]:
@@ -144,5 +144,20 @@ def cut_off(root: QWidget) -> list[str]:
     return out
 
 
+def clipped_buttons(root: QWidget) -> list[str]:
+    """Visible buttons whose text is wider than the button itself (its padding not counted, so only a text that
+    cannot fit at all is reported; D-165)."""
+    out = []
+    for button in root.findChildren(QAbstractButton):
+        text = button.text().replace("&&", "\0").replace("&", "").replace("\0", "&")
+        if not button.isVisible() or not text or "\n" in text:
+            continue
+        need = button.fontMetrics().horizontalAdvance(text)
+        room = button.width() - (button.iconSize().width() if not button.icon().isNull() else 0)
+        if need > room:
+            out.append(f"{describe(button)}: {need} px wide text in a {button.width()} px button")
+    return out
+
+
 def problems(root: QWidget) -> list[str]:
-    return overlaps(root) + clipped_labels(root) + cut_off(root)
+    return overlaps(root) + clipped_labels(root) + clipped_buttons(root) + cut_off(root)

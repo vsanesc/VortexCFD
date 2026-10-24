@@ -26,6 +26,8 @@ import math
 from dataclasses import dataclass, field
 
 from vortexcfd.core.model import Inflow, Physics, Reports, Solvers
+from vortexcfd.foam.live_view import LIVE_VIEW, LiveViewSpec
+from vortexcfd.foam.live_view import function_object as live_function_object
 from vortexcfd.foam.case_writer import FoamFileSpec
 from vortexcfd.foam.convergence import FUNCTION_NAME as RUN_TIME_CONTROL
 from vortexcfd.foam.convergence import force_coeffs_name, probe_function_name, run_time_control
@@ -72,6 +74,9 @@ class SolverCaseInput:
     # The domain faces whose boundary type is not the default (D-147): (patch, kind), kind one of velocity_inlet,
     # pressure_outlet, slip, symmetry_plane, symmetry, wall, moving_wall. Empty: the conditions of initial_fields.
     patch_kinds: tuple[tuple[str, str], ...] = ()
+    # The live view of a run started from the app (D-172): its surfaces function object; None for every other writer
+    # (the benchmark, the validation drivers, the studies), whose dictionaries do not change.
+    live_view: "LiveViewSpec | None" = None
 
 
 @dataclass(frozen=True)
@@ -357,6 +362,8 @@ def control_dict(inp: SolverCaseInput) -> FoamFileSpec:
     functions["wallShearStress1"] = _wall_shear_stress(inp)
     for probe in inp.reports.probes:
         functions[probe_function_name(probe.name)] = _probe(probe.location)
+    if inp.live_view is not None:  # the live view (D-172) [NUMERICS-REVIEW]: it samples, never changes the solution
+        functions[LIVE_VIEW] = live_function_object(inp.live_view)
     stop = None if inp.two_stage else run_time_control(inp.solvers.stopping)  # two stages: app-side (D-126)
     if stop is not None:
         functions[RUN_TIME_CONTROL] = stop

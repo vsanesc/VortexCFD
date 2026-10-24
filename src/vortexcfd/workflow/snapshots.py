@@ -20,10 +20,12 @@ from datetime import datetime
 from pathlib import Path
 
 from vortexcfd.core.atomic_io import write_text_atomic
+from vortexcfd.core.labels import setup_label, setup_value
 from vortexcfd.core.model import DOMAIN_EXTENTS, MeanStableCriterion, Simulation
 from vortexcfd.core.project import Project
 from vortexcfd.core.project_io import load_simulation
 from vortexcfd.core.reports import available_reports, report_label
+from vortexcfd.workflow import flow_numbers, plot_axes
 from vortexcfd.foam.convergence import window_stats
 from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam.mesh_record import read_mesh_record
@@ -104,14 +106,16 @@ def _text(value) -> str:
     return str(value)
 
 
-def setup_summary(sim: Simulation) -> dict[str, str]:
-    """The key inputs of a run, flattened to "group: field" -> text (the set-up differences compare these)."""
+def setup_summary(sim: Simulation, numbers=None) -> dict[str, str]:
+    """The key inputs of a run, flattened to "group: field" -> text (the set-up differences compare these), with
+    the run's Reynolds and Mach numbers (``numbers``: workflow/flow_numbers.FlowNumbers, D-168)."""
     out: dict[str, str] = {
         "analysis": f"{sim.analysis_type}, {sim.dimension}",
         "parts": ", ".join(f"{p.name} ({p.source_file}, {p.units})" for p in sim.geometry.parts) or "none",
     }
-    for key, value in sim.physics.model_dump().items():
+    for key, value in sim.physics.model_dump(exclude={"speed_of_sound"}).items():  # a: in the Mach number
         out[f"physics: {key}"] = _text(value)
+    out.update(flow_numbers.summary(numbers))
     if not sim.internal:
         for key, value in sim.inflow.model_dump().items():
             out[f"free stream: {key}"] = _text(value)
@@ -202,7 +206,9 @@ def capture(project: Project, name: str, now: datetime | None = None, points=Non
     sim = project.sim
     snap = Snapshot(name=name, created=(now or datetime.now()).isoformat(timespec="seconds"), project=sim.name,
                     source=str(project.path), state=record.label if record is not None else "",
-                    iterations=record.iterations if record is not None else 0, setup=setup_summary(sim))
+                    iterations=record.iterations if record is not None else 0,
+                    setup=setup_summary(sim, flow_numbers.project_numbers(project,
+                                                                          flow_numbers.run_report_values(project))))
     if log.is_file():
         history = ResidualHistory()
         history.extend(parse_log_text(log.read_text(encoding="utf-8", errors="replace")).time_steps)
@@ -367,7 +373,8 @@ def _float(v) -> float | None:
 
 
 def setup_rows(snaps: list[Snapshot]) -> list[tuple[str, tuple[str, ...]]]:
-    """The inputs whose values differ between the snapshots: (key, the value in each; "—" where missing)."""
+    """The inputs whose values differ between the snapshots: (the input's label, the value in each; "—" where
+    missing). The snapshots keep the model's identifiers; the rows show their labels (D-166)."""
     keys: list[str] = []
     for s in snaps:
         keys += [k for k in s.setup if k not in keys]
@@ -375,7 +382,7 @@ def setup_rows(snaps: list[Snapshot]) -> list[tuple[str, tuple[str, ...]]]:
     for key in keys:
         values = tuple(s.setup.get(key, "—") for s in snaps)
         if len(set(values)) > 1:
-            out.append((key, values))
+            out.append((setup_label(key), tuple(v if v == "—" else setup_value(key, v) for v in values)))
     return out
 
 
@@ -467,7 +474,7 @@ def draw(figure, snaps: list[Snapshot], choice: str, colors: list[str] | None = 
                 ax.plot(line.distance, ys, lw=1.2, color=colors[i % len(colors)], label=s.label)
         ax.set_xlabel("Distance along the line [m]")
         ax.set_ylabel(key)
-    ax.grid(alpha=0.3, which="both")
+    plot_axes.apply(ax, x_integer=not choice.startswith("line:"))  # iterations or a distance (D-169)
     if ax.get_legend_handles_labels()[0]:
         ax.legend(fontsize=7, ncol=2)
     with warnings.catch_warnings():  # a canvas too small for the margins keeps matplotlib's default layout

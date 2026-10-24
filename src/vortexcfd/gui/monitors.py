@@ -20,8 +20,9 @@ from PySide6.QtWidgets import (
 
 from vortexcfd.core.model import REPORT_SLOTS, AsymptoticCriterion, MeanStableCriterion, StoppingCriteria
 from vortexcfd.core.reports import YPLUS, available_reports, report_label
-from vortexcfd.foam.convergence import CriterionStatus, evaluate, oscillation, window_stats
-from vortexcfd.foam.forces import MASS_WARNING
+from vortexcfd.foam.convergence import (CriterionStatus, evaluate, oscillation, quantity_label, short_label,
+                                       still_changing, window_stats)
+from vortexcfd.foam.forces import MASS_WARNING, imbalance_text
 from vortexcfd.foam.logparse import TimeStep
 from vortexcfd.foam.postprocessing import ReportMonitor
 from vortexcfd.foam.residuals import ResidualHistory
@@ -29,6 +30,8 @@ from vortexcfd.gui.icons import make_glyph
 from vortexcfd.gui.panel_widgets import FloatingPanel
 from vortexcfd.gui.settings_store import settings
 from vortexcfd.gui.theme import DARK, Metrics, Theme, metrics, repolish, residual_style, role_font, set_text_role
+from vortexcfd.gui.chart_axis import ZoomPanMixin, draw_x_axis
+from vortexcfd.gui.report_charts import ReportChartWindow
 from vortexcfd.gui.widgets import ElidedLabel, SectionHeader, discard
 
 EMPTY = "—"
@@ -51,23 +54,10 @@ def _pen_style(name: str) -> Qt.PenStyle:
     return getattr(Qt.PenStyle, name)
 
 
-def nice_ticks(lo: float, hi: float, count: int = 4) -> list[float]:
-    """About ``count`` round tick values covering [lo, hi]."""
-    span = max(hi - lo, 1e-12)
-    raw = span / count
-    mag = 10 ** math.floor(math.log10(raw))
-    step = next(m * mag for m in (1, 2, 5, 10) if m * mag >= raw)
-    first = math.ceil(lo / step) * step
-    ticks, v = [], first
-    while v <= hi + 1e-9 * span:
-        ticks.append(round(v, 10))
-        v += step
-    return ticks
-
-
-class ResidualChart(QWidget):
+class ResidualChart(ZoomPanMixin, QWidget):
     """Initial residual per iteration on a log10 axis (one line per field, legend), drawn with
-    QPainter. The x axis always ends at the latest iteration (autoscroll)."""
+    QPainter. The x axis ends at the latest iteration (autoscroll) until it is zoomed or panned (the wheel, a
+    drag); a double click shows the whole history and follows the run again (D-169)."""
 
     EMPTY_MESSAGE = "No solver run yet"
     X_CAPTION = "Iteration"
@@ -83,6 +73,8 @@ class ResidualChart(QWidget):
         self.series: dict[str, list[tuple[float, float]]] = {}
         self._legend: list[tuple[str, str, str, float, int]] = []
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        self._init_zoom_pan()
+        self.x_ticks = None  # the iteration ticks of the last paint (core/ticks.Ticks)
 
     def configure(self, m: Metrics, t: Theme) -> None:
         self._theme, self._margin, self._line = t, m.s3, m.line
@@ -105,10 +97,18 @@ class ResidualChart(QWidget):
     def axis_labels(self) -> list[str]:
         return [f"1e{d}" for d in self.decades()]
 
-    def x_range(self) -> tuple[float, float]:
+    def data_x_range(self) -> tuple[float, float] | None:
+        """The iterations of the whole history (None: no data)."""
         xs = [x for s in self.series.values() for x, _ in s]
+        if not xs:
+            return None
         lo, hi = min(xs), max(xs)
         return (lo, hi) if hi > lo else (lo, lo + 1)
+
+    def x_range(self) -> tuple[float, float]:
+        """The iterations shown: the whole history, or the zoomed or panned view."""
+        data = self.data_x_range() or (0.0, 1.0)
+        return self.x_view.range(*data)
 
     def legend_entries(self) -> list[tuple[str, str, str]]:
         """(field, colour, pen style name) in the order the fields appeared."""
@@ -185,14 +185,10 @@ class ResidualChart(QWidget):
             py = area.top() + (hi - math.log10(v)) / max(hi - lo, 1) * area.height()
             return QPointF(px, py)
 
-        # x tick labels under the plot area
-        painter.setPen(QColor(t.muted_text))
-        for tick in nice_ticks(x0, x1):
-            p = to_px(tick, 10.0 ** hi)
-            text = f"{tick:g}"
-            w = fm.horizontalAdvance(text)
-            painter.drawText(QRectF(p.x() - w / 2, area.bottom() + fm.height() / 4, w, fm.height()),
-                             int(Qt.AlignmentFlag.AlignCenter), text)
+        # the iteration axis: 1-2-5 ticks for the shown range, minor marks, a light grid (D-169)
+        self._plot_area = QRectF(area)
+        grid = QColor(t.border)
+        self.x_ticks = draw_x_axis(painter, area, x0, x1, fm, grid, QColor(t.muted_text), integer=True)
         painter.save()
         painter.setClipRect(area.adjusted(-2, -2, 2, 2))
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -237,13 +233,20 @@ class ResidualChart(QWidget):
 
 
 class Sparkline(QWidget):
-    """A tiny line of the last values of a report (no axes)."""
+    """A tiny line of the last values of a report (no axes); a double click opens the report's chart (D-170)."""
+
+    double_clicked = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.values: list[float] = []
         self._color = QColor(DARK.accent)
         self._line = 1
+        self.setToolTip("Double-click: open this report's chart in a window (the whole history, zoom, export)")
+
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        self.double_clicked.emit()
+        super().mouseDoubleClickEvent(event)
 
     def configure(self, m: Metrics, t: Theme) -> None:
         self._color, self._line = QColor(t.accent), m.line
@@ -279,6 +282,8 @@ class ReportSlots(QWidget):
                       "and viscous parts and the centre of pressure), the mass imbalance, y+ min / avg / max on "
                       "the walls (written at each write interval) or a probe's p and U")
     assigned = Signal(int, object)  # slot (0-based), report id or None
+    chart_requested = Signal(int)  # slot (0-based): open its report's chart (D-170)
+    CHART_TOOLTIP = "Open chart: this report's whole history in a window of its own (zoom, mean, export)"
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -288,9 +293,11 @@ class ReportSlots(QWidget):
         self.values: dict[int, QLabel] = {}
         self.means: dict[int, QLabel] = {}  # windowed mean and oscillation (D-118)
         self.window_of = lambda _report_id: 100  # iterations averaged for a report (set by the panel)
+        self.mass_resolution: float | None = None  # the smallest imbalance the files show (%, set by the panel)
         self.subtitles: dict[int, QLabel] = {}
         self.sparks: dict[int, Sparkline] = {}
         self.assign_buttons: dict[int, QToolButton] = {}
+        self.chart_buttons: dict[int, QToolButton] = {}
         self.menus: dict[int, QMenu] = {}
         self.assignments: list[str | None] = [None] * REPORT_SLOTS
         self.options: list[str] = available_reports([], [])
@@ -315,7 +322,15 @@ class ReportSlots(QWidget):
             menu = QMenu(self)
             self._fill_menu(menu, slot - 1)
             button.setMenu(menu)
+            chart = QToolButton()
+            chart.setObjectName("helpBtn")
+            chart.setText("\u2197")
+            chart.setAccessibleName("Open chart")
+            chart.setToolTip(self.CHART_TOOLTIP)
+            chart.setCursor(Qt.CursorShape.PointingHandCursor)
+            chart.clicked.connect(lambda _=False, i=slot - 1: self.chart_requested.emit(i))
             head.addWidget(title, 1)
+            head.addWidget(chart)
             head.addWidget(button)
             value = QLabel(EMPTY)
             value.setObjectName("kpiValue")
@@ -324,6 +339,7 @@ class ReportSlots(QWidget):
             mean.setToolTip("Mean over the last iterations and the half range of the oscillation (max - min) / 2 "
                             "as a share of |mean| (the oscillation check's scale, D-059)")
             spark = Sparkline()
+            spark.double_clicked.connect(lambda i=slot - 1: self.chart_requested.emit(i))
             sub = ElidedLabel(self.NOT_ASSIGNED, Qt.TextElideMode.ElideRight)
             sub.setObjectName("kpiSub")
             box.addLayout(head)
@@ -333,6 +349,7 @@ class ReportSlots(QWidget):
             box.addWidget(sub)
             self.titles[slot], self.values[slot], self.means[slot] = title, value, mean
             self.subtitles[slot], self.assign_buttons[slot] = sub, button
+            self.chart_buttons[slot] = chart
             self.sparks[slot], self.menus[slot] = spark, menu
             self._layouts.append(box)
             row.addWidget(cell, 1)
@@ -403,6 +420,9 @@ class ReportSlots(QWidget):
             report_id = self.assignments[slot - 1]
             self.subtitles[slot].setText(report_label(report_id) if report_id else self.NOT_ASSIGNED)
             self.subtitles[slot].setToolTip(self.subtitles[slot].text())
+            self.chart_buttons[slot].setEnabled(bool(report_id))
+            self.chart_buttons[slot].setToolTip(self.CHART_TOOLTIP if report_id else "Assign a report first (the "
+                                                "chevron), then open its chart")
             self._fill_menu(self.menus[slot], slot - 1)
 
     def set_series(self, series_of) -> None:
@@ -410,11 +430,16 @@ class ReportSlots(QWidget):
         for slot in range(1, REPORT_SLOTS + 1):
             report_id = self.assignments[slot - 1]
             points = series_of(report_id) if (report_id and series_of is not None) else []
-            self.values[slot].setText(f"{points[-1][1]:.4g}" if points else EMPTY)
+            mass = report_id == "mass_imbalance"  # below the files' resolution: "< 4.7e-05", not 0 (D-178)
+            resolution = self.mass_resolution if mass else None
+            self.values[slot].setText(imbalance_text(points[-1][1], resolution, 4) if points else EMPTY)
             stats = None
             if points and not report_id.startswith("yplus"):
                 stats = window_stats(points, self.window_of(report_id), quantity=report_id)
-            self.means[slot].setText(stats.text() if stats is not None else "")
+            text = stats.text() if stats is not None else ""
+            if stats is not None and resolution is not None and abs(stats.mean) < resolution:
+                text = f"mean {imbalance_text(stats.mean, resolution)} ({stats.n} it.)"
+            self.means[slot].setText(text)
             self.sparks[slot].set_values([v for _, v in points])
 
     def configure(self, m: Metrics, t: Theme) -> None:
@@ -431,6 +456,8 @@ class ReportSlots(QWidget):
         for button in self.assign_buttons.values():
             button.setIcon(icon)
             button.setIconSize(QSize(m.u, m.u))
+        for button in self.chart_buttons.values():
+            button.setFixedSize(m.u, m.u)
 
 
 def set_state(label: QLabel, state: str | None) -> None:
@@ -453,6 +480,37 @@ BANNER_CRASHED = "The solver crashed before the criteria were met"
 BANNER_NO_RUN = "No solver run yet"
 
 
+SATISFIED_TIP = ("Whether the criterion holds at the last iteration: a residual below its threshold, a windowed "
+                 "value (asymptotic, mean stable) at most its tolerance over its window. It stops the run only from "
+                 "its earliest iteration (the minimum iterations, its window) and, with \"all\", when every "
+                 "criterion holds at the same iteration.")
+
+
+def satisfied_text(status) -> tuple[str, str]:
+    """(text, tooltip) of a criterion's "Satisfied now" cell (D-178): whether it holds at the last iteration; a window
+    not yet complete says how far it is; one that holds before it may stop the run says from when it may."""
+    if status.value is None:
+        if status.progress is not None:
+            have, need = status.progress
+            return (f"not yet: {have:,} of {need:,} iterations",
+                    f"Its window needs {need:,} iterations; {have:,} so far")
+        return "not yet", "No value yet"
+    if not status.holds:
+        return "no", "Not below its threshold at the last iteration" + (f"; it may stop the run {status.note}"
+                                                                       if status.note else "")
+    if not status.satisfied and status.earliest > 1:
+        return (f"yes (stops from {status.earliest:,})",
+                f"It holds at the last iteration, but may stop the run only from iteration {status.earliest:,} "
+                "(the minimum iterations, its window; in the second turbulence stage counted from the switch)")
+    return "yes", "It holds at the last iteration"
+
+
+def drift_warning(quantity: str) -> str:
+    """The soft warning of a force coefficient still changing while the residual criteria hold (D-178)."""
+    label = quantity_label(quantity)
+    return f"Residuals met, but {label} is still changing: add an asymptotic or mean-stable criterion on it"
+
+
 def banner_for(state: str | None, stopped_by: tuple[str, ...], iterations: int | None) -> tuple[str, str | None]:
     """(text, colour state) of the convergence banner for a run state (None: running)."""
     if state is None:
@@ -471,6 +529,14 @@ def banner_for(state: str | None, stopped_by: tuple[str, ...], iterations: int |
     return BANNER_NO_RUN, None
 
 
+def banner_without_criteria(state: str | None) -> tuple[str, str | None]:
+    """The banner of a run that had no stopping criteria (shown when the project has some now, D-165)."""
+    return {None: ("Solving without stopping criteria: the run ends at the iteration limit", None),
+            "iteration_limit": ("Iteration limit reached; this run had no stopping criteria", "warn"),
+            "stopped": ("Stopped by the user; this run had no stopping criteria", "warn"),
+            "crashed": ("The solver crashed", "error")}.get(state, (BANNER_NO_RUN, None))
+
+
 class ConvergencePanel(QWidget):
     """Convergence banner, per-criterion state and oscillation warnings (D-058, D-059).
 
@@ -478,7 +544,7 @@ class ConvergencePanel(QWidget):
     warnings whenever a monitored quantity oscillates.
     """
 
-    HEADERS = ("Criterion", "Value", "Threshold", "Satisfied")
+    HEADERS = ("Criterion", "Value", "Threshold", "Satisfied now")
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -500,27 +566,45 @@ class ConvergencePanel(QWidget):
         self.empty_label.setObjectName("muted")
         self.empty_label.setWordWrap(True)
         self.empty_label.setVisible(False)
+        # Whose criteria the table shows ("Criteria of the last run", D-165) and, when the project's differ from the
+        # shown run's, what the project's are now (they apply to the next run).
+        self.caption = QLabel()
+        self.caption.setObjectName("kpiTitle")
+        self.caption.setVisible(False)
+        self.note = QLabel()
+        self.note.setObjectName("muted")
+        self.note.setWordWrap(True)
+        self.note.setVisible(False)
         self._layout = QVBoxLayout(self)
         self._layout.addWidget(self.empty_label)
         self._layout.addWidget(self.banner)
+        self._layout.addWidget(self.caption)
         self._layout.addWidget(self._grid_host)
+        self._layout.addWidget(self.note)
         self._layout.addLayout(self._warning_box)
         for col, text in enumerate(self.HEADERS):
             head = QLabel(text)
             head.setObjectName("kpiTitle")
+            if col == len(self.HEADERS) - 1:
+                head.setToolTip(SATISFIED_TIP)
             self.grid.addWidget(head, 0, col)
         self.grid.setColumnStretch(0, 1)
         self._has_criteria = False
         self.set_view(False, ("", None), [], [])
 
     def set_view(self, has_criteria: bool, banner: tuple[str, str | None], statuses: list[CriterionStatus],
-                 warnings: list[str]) -> None:
-        """``warnings``: oscillation and mass balance messages (warning colour)."""
+                 warnings: list[str], caption: str = "", note: str = "") -> None:
+        """``warnings``: oscillation and mass balance messages (warning colour); ``caption``: whose criteria the
+        table shows; ``note``: the project's criteria when they differ from the shown run's (D-165)."""
         self._has_criteria = has_criteria
         self.banner.setText(banner[0])
         set_state(self.banner, banner[1])
-        self.banner.setVisible(has_criteria)
+        self.banner.setVisible(has_criteria or bool(note))
         self._grid_host.setVisible(has_criteria and bool(statuses))
+        self.caption.setText(caption)
+        self.caption.setVisible(bool(caption) and has_criteria and bool(statuses))
+        self.note.setText(note)
+        self.note.setVisible(bool(note))
         while len(self.rows) > len(statuses):
             for label in self.rows.pop():
                 self.grid.removeWidget(label)
@@ -528,6 +612,7 @@ class ConvergencePanel(QWidget):
         while len(self.rows) < len(statuses):
             r = len(self.rows) + 1
             labels = (ElidedLabel("", Qt.TextElideMode.ElideRight), *(QLabel() for _ in self.HEADERS[1:]))
+            labels[-1].setWordWrap(True)  # "not yet: 40 of 50 iterations" wraps instead of squeezing the names
             for col, label in enumerate(labels):  # the name column elides instead of widening the column
                 label.setObjectName("checkValue")
                 set_text_role(label, "data_small")
@@ -536,12 +621,15 @@ class ConvergencePanel(QWidget):
         for labels, status in zip(self.rows, statuses):
             name, value, threshold, met = labels
             name.setText(status.label or status.description)
+            # the short name stays whole (up to 8 u); the "Satisfied now" cell wraps instead
+            name.setMinimumWidth(min(name.fontMetrics().horizontalAdvance(name.text()) + 2, 8 * metrics().u))
             name.setToolTip(status.description + (f" ({status.note})" if status.note else ""))
             value.setText(EMPTY if status.value is None else f"{status.value:.3g}")
             threshold.setText(f"{status.threshold:.3g}")
-            met.setText("yes" if status.satisfied else "no")
-            met.setToolTip(status.note)
-            set_state(met, "ok" if status.satisfied else None)
+            text, tip = satisfied_text(status)
+            met.setText(text)
+            met.setToolTip(tip)
+            set_state(met, "ok" if status.holds else None)
         for label in self.warnings:
             self._warning_box.removeWidget(label)
             discard(label)
@@ -553,7 +641,7 @@ class ConvergencePanel(QWidget):
             set_state(label, "warn")
             self._warning_box.addWidget(label)
             self.warnings.append(label)
-        self.has_content = has_criteria or bool(warnings)
+        self.has_content = has_criteria or bool(warnings) or bool(note)
         self._show()
 
     def set_always_visible(self, on: bool) -> None:
@@ -579,9 +667,39 @@ class ConvergencePanel(QWidget):
                 set_text_role(widget, "data_small")
         set_text_role(self.banner, "body")
         set_text_role(self.empty_label, "body")
+        set_text_role(self.caption, "data_small")
+        set_text_role(self.note, "body")
 
 
 NO_CRITERIA = "No stopping criteria and no warnings (set the criteria under Solver > Stopping criteria)."
+# Whose criteria the convergence table shows (D-165).
+CAPTION_RUNNING = "Criteria of this run"
+CAPTION_LAST_RUN = "Criteria of the last run"
+CAPTION_UNRECORDED = "Criteria of the project (the last run's were not recorded)"
+
+
+def criteria_labels(stopping: StoppingCriteria | None) -> str:
+    """The criteria in a few words ("p residual; Cd asymptotic"), or "none"."""
+    if stopping is None or not stopping.criteria:
+        return "none"
+    return "; ".join(short_label(c) for c in stopping.criteria)
+
+
+def same_criteria(a: StoppingCriteria | None, b: StoppingCriteria | None) -> bool:
+    """True when two sets stop a run alike: the criteria, how they combine and the minimum iterations (the
+    oscillation warning's settings are not criteria)."""
+    def key(s):
+        return None if s is None or not s.criteria else (s.model_dump()["criteria"], s.combine, s.min_iterations)
+    return key(a) == key(b)
+
+
+def project_note(run: StoppingCriteria | None, project: StoppingCriteria | None, running: bool) -> str:
+    """The note under a run's criteria when the project's are no longer the same (D-165)."""
+    if same_criteria(run, project):
+        return ""
+    when = "during this run" if running else "since this run"
+    return (f"The project's stopping criteria have changed {when}: now {criteria_labels(project)}. They apply to the "
+            "next run.")
 # The parts of the column that open in their own window (D-156): key -> (window title, detach tip, dock tip).
 DETACHABLE = {
     "residuals": ("Residuals", "Detach the residual chart into its own window (it keeps updating live; close the "
@@ -591,6 +709,12 @@ DETACHABLE = {
                  "Dock the convergence criteria back into the main window"),
 }
 WINDOWS_KEY = "monitors/windows"  # per user: <key>/detached, <key>/geometry
+CHARTS_KEY = "monitors/charts"  # per user (D-170): open (the report ids), <report key>/geometry and frame
+
+
+def _chart_key(report_id: str) -> str:
+    """A report id as a settings key (no "/" or ":")."""
+    return "".join(c if c.isalnum() or c in "_-" else "_" for c in report_id)
 
 
 def stage_text(stage: int, switch: int | None = None, reason: str = "") -> str:
@@ -622,6 +746,13 @@ class MonitorsPanel(QWidget):
         self.convergence = ConvergencePanel()
         self.kpis = ReportSlots()
         self.kpis.assigned.connect(self.slot_assigned)
+        self.kpis.chart_requested.connect(self._open_slot_chart)
+        # The report charts in their own windows (D-170), by report id; ``ask_export(suggested, kind)`` gives the
+        # export path (the window's dialogs), ``export_folder`` the suggested folder.
+        self.chart_windows: dict[str, ReportChartWindow] = {}
+        self.ask_export = lambda _suggested, _kind: None
+        self.export_folder: Path | None = None
+        self._theme: Theme = DARK
         # The turbulence stage of a two-stage run (D-126): "" (hidden) for a single-stage run.
         self.stage_label = QLabel()
         self.stage_label.setObjectName("muted")
@@ -679,9 +810,14 @@ class MonitorsPanel(QWidget):
         self._sync_criteria_section()
         self.history = ResidualHistory()
         self.reports: ReportMonitor | None = None
-        # The criteria the shown run uses, and its outcome: (state, stopped_by, iterations);
-        # state None = running, outcome None = no run.
+        # The criteria the shown run is judged by (stage 2's in a two-stage run's second stage), the criteria it
+        # started with, the project's current criteria (D-165), and its outcome: (state, stopped_by, iterations);
+        # state None = running, outcome None = no run. ``run_criteria_known`` is False for a run whose record
+        # predates the recorded criteria (the project's are then shown, labelled so).
         self.stopping: StoppingCriteria | None = None
+        self.run_stopping: StoppingCriteria | None = None
+        self.project_stopping: StoppingCriteria | None = None
+        self.run_criteria_known = True
         self.outcome: tuple[str | None, tuple[str, ...], int | None] | None = None
         self._dirty = False
         self._timer = QTimer(self)
@@ -695,23 +831,46 @@ class MonitorsPanel(QWidget):
         self.reports = None
         self.case_dir = None
         self.outcome = None
+        self.stopping = self.run_stopping = None
+        self.run_criteria_known = True
         self.chart.set_series({})
         self.kpis.set_series(None)
         self.set_stage("")
         self._update_convergence()
         self.updated.emit()
 
-    def set_stopping(self, stopping: StoppingCriteria | None) -> None:
-        """The stopping criteria to evaluate (the run's, or the project's when no run is going)."""
+    def set_project_stopping(self, stopping: StoppingCriteria | None) -> None:
+        """The project's current stopping criteria (they apply to the next run; D-165)."""
+        if stopping != self.project_stopping:
+            self.project_stopping = stopping
+            self._dirty = True
+            self.refresh()
+
+    def set_run_stopping(self, stopping: StoppingCriteria | None) -> None:
+        """The criteria the shown run is judged by from now on (stage 2's criteria of a two-stage run, D-126)."""
         if stopping != self.stopping:
             self.stopping = stopping
             self._dirty = True
             self.refresh()
 
-    def start_run(self, case_dir: Path, stopping: StoppingCriteria | None = None) -> None:
-        """A solver run starts in ``case_dir``: forget the previous run, poll its files."""
-        self.clear()
-        self.stopping = stopping
+    def judged_criteria(self) -> StoppingCriteria | None:
+        """The criteria the table evaluates: the shown run's, the project's when no run is shown or the run's were
+        not recorded."""
+        if self.outcome is not None and self.run_criteria_known:
+            return self.stopping
+        return self.project_stopping
+
+    def start_run(self, case_dir: Path, stopping: StoppingCriteria | None = None, keep_history: bool = False) -> None:
+        """A solver run starts in ``case_dir``: forget the previous run, poll its files. ``keep_history``: the run
+        continues the shown solution (D-171): its residual history stays and goes on."""
+        if keep_history:
+            self._timer.stop()
+            self.outcome = None
+            self.set_stage("")
+        else:
+            self.clear()
+        self.stopping = self.run_stopping = stopping
+        self.run_criteria_known = True
         self.reports = ReportMonitor(case_dir)
         self.case_dir = Path(case_dir)
         self.outcome = (None, (), None)
@@ -741,9 +900,15 @@ class MonitorsPanel(QWidget):
         self._dirty = True
         self.refresh()
 
-    def load_run(self, case_dir: Path, steps, outcome: tuple[str, tuple[str, ...], int | None] | None = None) -> None:
-        """Show a finished run (project open): its log's steps and its postProcessing files."""
+    def load_run(self, case_dir: Path, steps, outcome: tuple[str, tuple[str, ...], int | None] | None = None,
+                 stopping: StoppingCriteria | None = None, judged: StoppingCriteria | None = None) -> None:
+        """Show a finished run (project open): its log's steps and its postProcessing files. ``stopping``: the
+        criteria the run started with (its record's; None: not recorded), ``judged``: those it ended judged by
+        (stage 2's), default ``stopping``."""
         self.clear()
+        self.run_stopping = stopping
+        self.stopping = judged if judged is not None else stopping
+        self.run_criteria_known = stopping is not None
         self.history.extend(steps)
         self.reports = ReportMonitor(case_dir)
         self.case_dir = Path(case_dir)
@@ -766,14 +931,16 @@ class MonitorsPanel(QWidget):
         self._dirty = False
         self.chart.set_series(self.history.decimated())
         self.kpis.window_of = self.mean_window
+        self.kpis.mass_resolution = self.reports.mass_resolution() if self.reports is not None else None
         self.kpis.set_series(self.reports.series if self.reports is not None else None)
         self._update_convergence()
+        self._update_charts()
         self.updated.emit()
 
     def mean_window(self, quantity: str) -> int:
         """The iterations a report's mean is taken over: the window of a mean-stable criterion watching
         it, else the oscillation window (D-059, D-118)."""
-        stop = self.stopping
+        stop = self.judged_criteria()
         if stop is None:
             return 100
         for c in stop.criteria:
@@ -785,14 +952,15 @@ class MonitorsPanel(QWidget):
         """Quantities checked for oscillation: the asymptotic criteria's and the assigned report
         slots' (y+ is written only at write times and is left out)."""
         names: list[str] = []
-        if self.stopping is not None:
-            names += [c.quantity for c in self.stopping.criteria if isinstance(c, AsymptoticCriterion)]
+        stop = self.judged_criteria()
+        if stop is not None:
+            names += [c.quantity for c in stop.criteria if isinstance(c, AsymptoticCriterion)]
         names += [r for r in self.kpis.assignments
                   if r and not r.startswith("yplus") and r != "mass_imbalance" and not r.startswith("x_cp")]
         return list(dict.fromkeys(names))
 
     def _update_convergence(self) -> None:
-        stop = self.stopping
+        stop = self.judged_criteria()
         has = stop is not None and bool(stop.criteria)
         series_of = self.reports.series if self.reports is not None else (lambda _q: [])
         statuses = evaluate(stop, self.history.series, series_of) if has and self.outcome is not None else []
@@ -801,6 +969,7 @@ class MonitorsPanel(QWidget):
         else:
             banner = banner_for(*self.outcome)
         warnings = []
+        oscillating: set[str] = set()
         if stop is not None and self.reports is not None:
             floors = {c.quantity: c.effective_floor for c in stop.criteria if isinstance(c, AsymptoticCriterion)}
             for name in self.monitored_quantities():
@@ -809,11 +978,27 @@ class MonitorsPanel(QWidget):
                 if osc is not None:
                     stable = any(isinstance(c, MeanStableCriterion) and c.quantity == name for c in stop.criteria)
                     warnings.append(osc.message(suggest_mean_stable=not stable))
+                    oscillating.add(name)
+            if statuses:  # the residual criteria hold, a force coefficient still changes (D-178)
+                warnings += [drift_warning(name) for name in
+                             still_changing(stop, statuses, self.monitored_quantities(), series_of)
+                             if name not in oscillating]
         if self.reports is not None:
             balance = self.reports.mass_balance()
             if balance is not None and balance[2] is not None and abs(balance[2]) > MASS_WARNING:
                 warnings.append(mass_warning(balance[2]))
-        self.convergence.set_view(has, banner, statuses, warnings)
+        caption, note = "", ""
+        if self.outcome is None and has:
+            note = f"The project's stopping criteria (they apply to the next run): {criteria_labels(stop)}."
+        elif self.outcome is not None and self.run_criteria_known and not has:  # a run without criteria
+            banner = banner_without_criteria(self.outcome[0])
+        if self.outcome is not None and not self.run_criteria_known:
+            caption = CAPTION_UNRECORDED
+        elif self.outcome is not None:
+            running = self.outcome[0] is None
+            caption = CAPTION_RUNNING if running else CAPTION_LAST_RUN
+            note = project_note(self.run_stopping, self.project_stopping, running)
+        self.convergence.set_view(has, banner, statuses, warnings, caption, note)
         self._sync_criteria_section()
 
     # -- the residual chart and the criteria in their own windows (D-156) -----------------------------------------
@@ -909,7 +1094,110 @@ class MonitorsPanel(QWidget):
             self.detach(key, geometry)
 
     def floating_windows(self) -> list[FloatingPanel]:
-        return list(self.windows.values())
+        return [*self.windows.values(), *self.chart_windows.values()]
+
+    # -- the report charts in their own windows (D-170) ----------------------------------------------------------
+
+    def _open_slot_chart(self, index: int) -> None:
+        report_id = self.kpis.assignments[index]
+        if report_id:
+            self.open_chart(report_id)
+
+    def open_chart(self, report_id: str, geometry: QByteArray | None = None) -> ReportChartWindow:
+        """The chart window of ``report_id`` (raised when it is open); at its remembered place unless that is on no
+        screen now."""
+        window = self.chart_windows.get(report_id)
+        if window is not None:
+            window.raise_()
+            window.activateWindow()
+            return window
+        window = ReportChartWindow(report_id, lambda r=report_id: self._chart_closed(r))
+        window.setWindowIcon(self.window().windowIcon())
+        window.configure(self._theme)
+        window.export_requested.connect(self._export_chart)
+        u = metrics().u
+        window.resize(48 * u, 30 * u)
+        s = settings()
+        key = _chart_key(report_id)
+        geometry = geometry if geometry is not None else s.value(f"{CHARTS_KEY}/{key}/geometry")
+        frame = s.value(f"{CHARTS_KEY}/{key}/frame")
+        if isinstance(geometry, QByteArray) and isinstance(frame, QRect) and on_a_screen(frame):
+            window.restoreGeometry(geometry)
+        self.chart_windows[report_id] = window
+        self._fill_chart(report_id)
+        window.show()
+        self._save_charts()
+        return window
+
+    def close_chart(self, report_id: str, remember: bool = True) -> None:
+        window = self.chart_windows.get(report_id)
+        if window is not None:
+            if not remember:
+                self.chart_windows.pop(report_id, None)
+            window.close()
+
+    def _chart_closed(self, report_id: str) -> None:
+        """A chart window closed (by the user or at exit): its place remembered, the list of open charts saved."""
+        window = self.chart_windows.pop(report_id, None)
+        if window is not None:
+            self._save_chart_geometry(report_id, window)
+            window.release()
+            window.deleteLater()
+            self._save_charts()
+
+    def _save_chart_geometry(self, report_id: str, window) -> None:
+        s = settings()
+        key = _chart_key(report_id)
+        s.setValue(f"{CHARTS_KEY}/{key}/geometry", window.saveGeometry())
+        s.setValue(f"{CHARTS_KEY}/{key}/frame", window.frameGeometry())
+        s.sync()
+
+    def _save_charts(self) -> None:
+        s = settings()
+        s.setValue(f"{CHARTS_KEY}/open", list(self.chart_windows))
+        s.sync()
+
+    def _fill_chart(self, report_id: str) -> None:
+        window = self.chart_windows[report_id]
+        points = self.reports.series(report_id) if self.reports is not None else []
+        window.set_data(points, self.mean_window(report_id))
+
+    def _update_charts(self) -> None:
+        for report_id in list(self.chart_windows):
+            self._fill_chart(report_id)
+
+    def _export_chart(self, report_id: str, kind: str) -> None:
+        window = self.chart_windows.get(report_id)
+        if window is None:
+            return
+        name = report_id.replace(":", "_").replace("@", "_") + f"_chart.{kind}"
+        path = self.ask_export((self.export_folder or Path.home()) / name, kind)
+        if path is None:
+            return
+        (window.write_png if kind == "png" else window.write_csv)(Path(path))
+
+    def save_charts(self) -> None:
+        """At exit: the open charts and their places remembered, then the windows closed."""
+        s = settings()
+        s.setValue(f"{CHARTS_KEY}/open", list(self.chart_windows))
+        for report_id, window in list(self.chart_windows.items()):
+            self._save_chart_geometry(report_id, window)
+        open_ids = list(self.chart_windows)
+        for report_id in open_ids:
+            window = self.chart_windows.pop(report_id)
+            window.release()
+            window.close()
+            window.deleteLater()
+        s.setValue(f"{CHARTS_KEY}/open", open_ids)
+        s.sync()
+
+    def restore_charts(self) -> None:
+        """The charts open at the last exit, each where it was (or placed anew when that is on no screen now)."""
+        value = settings().value(f"{CHARTS_KEY}/open", [])
+        ids = [value] if isinstance(value, str) else list(value or [])
+        for report_id in ids:
+            if isinstance(report_id, str) and report_id:
+                self.open_chart(report_id)
 
     def configure(self, m: Metrics, t: Theme) -> None:
         self.header.configure(m)
@@ -919,3 +1207,6 @@ class MonitorsPanel(QWidget):
         self.chart.configure(m, t)
         self.convergence.configure(m, t)
         self.kpis.configure(m, t)
+        self._theme = t
+        for window in self.chart_windows.values():
+            window.configure(t)

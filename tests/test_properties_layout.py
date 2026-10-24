@@ -209,7 +209,7 @@ def test_every_domain_field_shows_its_value(make_window, font: int) -> None:
         spin = field.spin  # in L, m or mm with the other form beside it (D-148)
         assert spin.text() and field.value() == pytest.approx(getattr(domain, key)), key
         assert spin.fontMetrics().horizontalAdvance(spin.text()) <= spin.width(), (key, spin.text(), spin.width())
-    assert _displayed(p.domain_symmetry) == domain.symmetry
+    assert p.domain_symmetry.currentData() == domain.symmetry and _displayed(p.domain_symmetry).startswith("None")
     assert p.domain_length.text()
     assert p.domain_size.text() and p.domain_size.fontMetrics().horizontalAdvance(p.domain_size.text()) <= \
         p.domain_size.width()

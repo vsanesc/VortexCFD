@@ -35,7 +35,7 @@ def test_node_shows_the_default_criteria_and_edits_commit_and_revert(make_window
     _select(w, "stopping")
     p = w.properties
     assert p._rows["stop_combine"].isVisible() and not p.info_label.isVisible()
-    assert p.stop_combine.currentText() == "all" and p.stop_min.value() == 0 and p.stop_max.value() == 1000
+    assert p.stop_combine.currentData() == "all" and p.stop_min.value() == 0 and p.stop_max.value() == 1000
     assert p.stop_osc_threshold.value() == pytest.approx(1.0) and p.stop_osc_window.value() == 100
     rows = p.criterion_widgets
     assert [r["field"].currentText() for r in rows] == ["p", "U", "k", "omega"]
@@ -52,7 +52,7 @@ def test_node_shows_the_default_criteria_and_edits_commit_and_revert(make_window
     p.stop_max.setValue(400)
     p.stop_max.editingFinished.emit()
     assert w.project.sim.solvers.iterations == 400  # the iteration limit is Solvers.iterations
-    p.stop_combine.setCurrentText("any")
+    p.stop_combine.setCurrentIndex(p.stop_combine.findData("any"))
     assert w.project.sim.solvers.stopping.combine == "any"
     p.stop_min.setValue(60)
     p.stop_min.editingFinished.emit()
@@ -120,10 +120,12 @@ def test_banner_states_which_criterion_stopped_the_run(make_window, qtbot: QtBot
     w.monitors.refresh()
     assert box.banner.text() == BANNER_RUNNING
     # p residual 0.1 against 1e-3; Cd not written: no value yet
-    assert box.statuses_text == [("p residual", "0.1", "0.001", "no"), ("Cd asymptotic", "—", "0.001", "no")]
+    assert box.statuses_text == [("p residual", "0.1", "0.001", "no"),
+                                 ("Cd asymptotic", "—", "0.001", "not yet: 0 of 20 iterations")]
     assert box.rows[1][0].toolTip() == ("Cd: (max - min) / max(|mean|, 0.01) over the last 20 <= 0.001 "
                                         "(from iteration 20)")
-    assert box.rows[0][3].toolTip() == "from iteration 3"
+    assert box.rows[0][3].toolTip() == ("Not below its threshold at the last iteration; it may stop the run from "
+                                        "iteration 3")
     assert not runner.stop_requested
     runner.push(iteration(3, p=1e-4) + ["Time = 4\n"])  # step 3 completes with the next Time line
     wait_done(qtbot, w)
@@ -177,8 +179,16 @@ def test_banner_iteration_limit_stopped_and_no_criteria(make_window, qtbot: QtBo
     w.run_solver()  # Stop
     wait_done(qtbot, w)
     assert runner.stop_requested and box.banner.text() == BANNER_STOPPED
+    # The project's criteria removed after the run: the run's stay, labelled as the last run's, with the project's
+    # (none now) said apart (D-165)
     w.project.update_solver(stopping=StoppingCriteria(criteria=[]).model_dump())
-    assert not box.banner.isVisible() and not box.isVisible()  # no criteria: no banner
+    assert box.isVisible() and box.banner.text() == BANNER_STOPPED
+    assert box.caption.text() == "Criteria of the last run"
+    assert [row[0] for row in box.statuses_text] == ["p residual", "U residual", "k residual", "omega residual"]
+    assert box.note.text() == ("The project's stopping criteria have changed since this run: now none. They apply to "
+                               "the next run.")
+    w.monitors.clear()  # no run shown and no criteria: nothing to show
+    assert not box.banner.isVisible() and not box.isVisible()
 
 
 def test_oscillation_warning_from_a_real_series(make_window) -> None:

@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from vortexcfd.core.model import COLOR_RANGE_MODES, SCENE_OBJECT_KINDS, SCENE_OBJECT_LABELS
-from vortexcfd.foam.results import FIELD_SPECS
+from vortexcfd.foam.results import FIELD_SPECS, FIELDS_BY_KEY
 from vortexcfd.gui.colormaps import COLORMAPS
 from vortexcfd.gui.volume_rows import COORD_RANGE, VectorEdit
 from vortexcfd.gui.widgets import FlowLayout
@@ -46,6 +46,12 @@ OBJECT_FIELDS = {
     "line_plot": (("point1", "Start point", "vector"), ("point2", "End point", "vector"),
                   ("n_samples", "Samples", "int"), ("fields", "Fields", "fields")),
 }
+
+
+# Units of the count fields, and the values given in a field's unit: (value, the field it is in) per object kind.
+COUNT_SUFFIXES = {"n_seeds": " seeds", "n_samples": " points"}
+FIELD_VALUES = {"isosurface": (("value", "field"),),
+                "streamlines": (("range_min", "color_field"), ("range_max", "color_field"))}
 
 
 class FieldChecks(QWidget):
@@ -125,6 +131,8 @@ class SceneRowsMixin:
         for kind, fields in OBJECT_FIELDS.items():
             for name, label, widget_kind in fields:
                 widget = self._scene_widget(widget_kind)
+                if name in COUNT_SUFFIXES:
+                    widget.setSuffix(COUNT_SUFFIXES[name])
                 self.sc_fields[(kind, name)] = widget
                 self._connect_scene_widget(widget, name)
                 self._layout.addWidget(self._make_row(f"sc_{kind}_{name}", label, widget))
@@ -280,6 +288,9 @@ class SceneRowsMixin:
         finally:
             for w in widgets + spins:
                 w.blockSignals(False)
+        for name, field in FIELD_VALUES.get(obj.kind, ()):  # a value in its field's unit (D-166)
+            spec = FIELDS_BY_KEY.get(getattr(obj, field))
+            self.sc_fields[(obj.kind, name)].setSuffix(f" {spec.units}" if spec is not None and spec.units else "")
         if obj.kind == "line_plot":
             samples = getattr(self, "_line_samples", {}).get(obj.id)
             self._rows["sc_chart"].setVisible(True)

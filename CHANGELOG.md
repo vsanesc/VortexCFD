@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 (2026-10-23)
+## 1.0.0 (2026-10-24)
 
 The first release of VortexCFD: a desktop workflow for steady, incompressible RANS flow on top of OpenFOAM ESI
 v2606, from geometry to report in one simulation tree, without editing OpenFOAM dictionaries by hand. Every case it
@@ -77,7 +77,19 @@ user manual is docs/manual/.
   D-136).
 - Open in ParaView (D-055, D-138).
 
-**Interface (the overhaul before the tag, task gui-polish)**
+### Since 1.0.0rc1
+
+What changed between 1.0.0rc1 (task w4-w5) and the tag.
+
+#### Release polish (tasks rc1-polish and release-1.0.0)
+
+- ParaView is optional: found on PATH, from Preferences or as ParaView for Windows, with an install tip on the
+  disabled button; a configured path that does not exist falls back to detection (D-138, QUESTIONS 220).
+- Qt from PySide6-Essentials only (pinned): the install 1870 MB -> 1442 MB (D-139).
+- 2D cases shown and exported looking along +y, the flow left to right (D-140, [NUMERICS-REVIEW]).
+
+#### The first interface round (task gui-polish)
+
 - A welcome screen with two large buttons and an open panel listing the recent projects (name, folder, last
   opened; right-click to remove one); a New simulation dialog with the presets as a described list, inline
   validation and the cores as "N / physical" (D-142, D-143). Recent projects never record temporary folders and
@@ -103,6 +115,69 @@ user manual is docs/manual/.
   regions (D-159); snapshots sample every line plot (D-160); optional prism layers on wall domain faces, off by
   default (D-161).
 
+#### The second interface round (task gui-2)
+
+**Running and continuing**
+- Continue Solver: a stopped run, or one at its iteration limit, goes on from its latest written time; the iteration
+  count, the residual and report histories and the stopping criteria's windows continue; the run record keeps each
+  run; the limit is the total (asked for more at the limit); two stages resume in their stage; a parallel case keeps
+  its decomposition on the same cores; a changed set-up asks to continue from the current solution or start over; a
+  changed mesh offers Clear Solution (D-171, [NUMERICS-REVIEW]).
+- Continue Solver after "Criteria met" too: more iterations and, in the same dialog, tighter criteria (each threshold
+  or tolerance editable, saved in the project) (D-176).
+- Results while the solver runs: the live view of the walls and the Results Scene's planes every N iterations
+  ("Live · iteration N"; Solvers > Live view, default 50), and Write Fields Now (SIGUSR2, the run goes on; parallel:
+  read decomposed, reconstructed at the end) (D-172, [NUMERICS-REVIEW]; the benchmark and validation dictionaries are
+  unchanged).
+- The Solution menu (Generate Mesh F6, Clear Mesh, Run / Continue F5, Stop Shift+F5, Clear Solution, Write Fields Now,
+  the studies, ParaView): the same actions as the top bar and the tree; disabled entries say why (D-173).
+- Run Solver saves the project first (D-165).
+
+**Reading the results**
+- The Reynolds and Mach numbers, live, with what they are taken on; the speed of sound (schema v24); a warning above
+  Mach 0.3; internal flow on each inlet's hydraulic diameter; in the report and the snapshots (D-168).
+- A readable iteration axis on every chart: 1-2-5 ticks, minor ticks, a light grid, thousands separators, zoom and pan
+  (D-169).
+- Report charts in their own windows: the whole history, the windowed mean and the oscillation band, PNG and CSV,
+  live (D-170).
+
+**Clarity**
+- The monitors show the criteria of the run they judge, apart from the project's; the properties panel shows only the
+  selected node's rows (D-165).
+- Readable values everywhere ("Incompressible, steady", "k-ω SST") and every number with its unit (D-166).
+- The angle of attack said where users look for it: the Free stream's link, "Geometry · α 4°", the Body attitude
+  explained (D-167).
+
+**Convergence panel**
+- "Satisfied now" says whether each criterion holds at the last iteration ("yes", "no", "not yet: 40 of 50
+  iterations", "yes (stops from 3,502)" before it may stop the run); it said "no" for every criterion of a two-stage
+  run stopped before stage 2's minimum, although all held (D-178).
+- "Residuals met, but Cl is still changing": a warning when every residual criterion holds while a monitored force
+  coefficient still drifts (D-178).
+- A mass imbalance below what the postProcessing files resolve shows as "< 4.7e-05" (%), not 0 (D-178).
+
+**Projects**
+- Save As copies the mesh and results by default (with the size, progress and Cancel); the duplicate opens with its
+  results and can continue (D-174, amending D-079).
+
+#### Branding
+
+- The logo: the generator ported (scripts/brand/make_logo.py, matching the saved mark), the icons (PNG, .ico), the
+  lockups with the word as paths (Sora, OFL-1.1), in the window icon, the top bar, the start screen, About, the
+  desktop entry, the README, the manual and the report (D-175).
+- The logo is licensed under CC BY-SA 4.0, separately from the code's GPL-3.0-or-later (assets/branding/LICENSE,
+  Copyright 2026 Víctor Sánchez Escalante); please do not use it in a way that suggests a fork is the official project
+  (D-177).
+- The taskbar shows the logo under WSLg: the window's app id and WM_CLASS are "vortexcfd", the name of the desktop
+  entry install.sh writes (its icon by absolute path; `--desktop-only` writes it again); scripts/windows/make_shortcut.ps1
+  makes a Start-menu and desktop shortcut with the logo for Windows (D-179).
+
+#### Fixed
+
+- Two intermittent test failures, both races at the end of a worker thread: a study's or sweep's end now reaches
+  the window after its thread has ended (the flaky sweep test, D-163), and worker threads stop emitting before their
+  window is deleted, viewers closed first (the offscreen teardown crash, D-164).
+
 ### Validation
 
 Each case was run through the app's own pipeline; the records are in docs/validation/ (manual chapter 8).
@@ -127,7 +202,6 @@ Each case was run through the app's own pipeline; the records are in docs/valida
 - **Flat plate skin friction** 3.3 % below the TMR reference, unexplained.
 - **NACA 0012 at 0 degrees**: CD 6.9 % below TMR SST (inside PASS; likely SST-2003 against TMR's SSTm).
 - **One layer specification for all walls**; one boundary type per domain role in external flow.
-- **No restart**: every run starts from the initial fields.
 - **One platform**: WSL2 Ubuntu 24.04 with Python 3.12; the WSLg Start menu entry has not been seen yet.
 
 Images and reports made with versions before 1.0.0rc1 used PyVista's default camera (D-133 note): make them again.

@@ -43,7 +43,7 @@ def test_reports_node_shows_forces_mass_balance_and_yplus(make_window) -> None:
     assert [r.name for r in t.rows] == ["All walls"]
     assert t.text("cd", "All walls") == "0.1721" and t.text("cd_pressure", "All walls") == "0.1604"
     assert t.text("cd_viscous", "All walls") == "0.01165" and t.text("x_cp", "All walls") == "-0.004023 m"
-    assert p.mass_imbalance.text() == "0 % of the inlet flux" and p.mass_imbalance.property("warn") == "false"
+    assert p.mass_imbalance.text() == "< 4.1e-05 % of the inlet flux" and p.mass_imbalance.property("warn") == "false"
     assert p.mass_inlet.text() == "-2419.49 m³/s"
     assert not p.reports_empty.isVisible() and p._forces_host.isVisible()
 
@@ -117,7 +117,7 @@ def test_probe_values_reach_a_slot(make_window) -> None:
                              slots=["probe:wake:p", "probe:wake:Ux", "mass_imbalance"])
     _load(w, DATA / "breakdown_run")
     values = w.monitors.kpis.values
-    assert (values[1].text(), values[2].text(), values[3].text()) == ("21.78", "14.27", "0")
+    assert (values[1].text(), values[2].text(), values[3].text()) == ("21.78", "14.27", "< 4.1e-05")
 
 
 def test_mass_imbalance_warning_in_the_monitors(make_window) -> None:

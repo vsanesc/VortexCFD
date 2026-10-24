@@ -117,6 +117,20 @@ def default_floor(quantity: str) -> float | None:
     return COEFFICIENT_FLOOR if base in FORCE_COEFFS + BREAKDOWN else None
 
 
+def report_unit(report_id: str) -> str:
+    """The unit of a report's values ("" for a coefficient or y+; D-166): probes in the solver's kinematic units."""
+    flow = split_flow(report_id)
+    if flow is not None:
+        return "kg/s" if flow[0] == "mdot" else "Pa"
+    if split_drop(report_id) is not None:
+        return "Pa"
+    probe = split_probe(report_id)
+    if probe is not None:
+        return "m\u00b2/s\u00b2" if probe[1] == "p" else "m/s"
+    base, _patch = split_part(report_id)
+    return {"x_cp": "m", MASS: "%"}.get(base, "")
+
+
 def report_label(report_id: str) -> str:
     flow = split_flow(report_id)
     if flow is not None:
