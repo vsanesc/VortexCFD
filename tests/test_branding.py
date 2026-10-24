@@ -95,3 +95,15 @@ def test_the_report_carries_the_mark(tmp_path: Path) -> None:
     header = text[text.index("<header"):text.index("</header>")]
     assert '<svg class="mark" width="48" height="48"' in header and "<h1>demo</h1>" in header
     assert "src=" not in header  # inline: the report stays one file
+
+
+def test_the_logo_licence() -> None:
+    """The logo is CC BY-SA 4.0, apart from the code (D-177): the licence text, THIRD_PARTY_LICENSES.md, the README."""
+    text = (BRANDING / "LICENSE").read_text(encoding="utf-8")
+    assert "Attribution-ShareAlike 4.0 International" in text and "Section 8 -- Interpretation." in text
+    assert "assets/branding/" in text and "src/vortexcfd/brand/" in text and "fonts/OFL.txt" in text
+    third = (REPO / "THIRD_PARTY_LICENSES.md").read_text(encoding="utf-8")
+    assert "CC BY-SA 4.0" in third and "to be chosen" not in third
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    assert "CC BY-SA 4.0" in readme and "assets/branding/LICENSE" in readme
+    assert "suggests your fork is the official VortexCFD project" in readme.replace("\n", " ")

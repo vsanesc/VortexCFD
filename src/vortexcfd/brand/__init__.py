@@ -1,6 +1,9 @@
 """The VortexCFD logo as package data (D-175), Qt-free: the mark and the lockups written by
 scripts/brand/make_logo.py from assets/branding/vortexcfd-logo-params.json. The GUI renders them (the window icon, the
-top bar, the start screen, About), the HTML report embeds the mark."""
+top bar, the start screen, About), the HTML report embeds the mark.
+
+The logo is licensed under CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/; the full text in
+assets/branding/LICENSE), separately from the code's GPL-3.0-or-later (D-177)."""
 
 from pathlib import Path
 

@@ -67,7 +67,7 @@ D-074; licence review for v1: the section at the end (prepared for the owner, ta
 | Item | Licence | Use |
 |---|---|---|
 | Sora (Bold, from the variable font Sora[wght].ttf, Google Fonts, copyright 2019 The Sora Project Authors) | OFL-1.1 (SIL Open Font License 1.1; assets/branding/fonts/OFL.txt) | the word of the logo's lockups, converted to outlines by scripts/brand/make_logo.py (D-175); Sora-Bold.ttf is the variable font instantiated at weight 700 with fontTools |
-| The VortexCFD logo (assets/branding/) | to be chosen by the owner (docs/QUESTIONS.md) | the mark, the lockups, the icons |
+| The VortexCFD logo (assets/branding/ and its copies in the package vortexcfd.brand; copyright 2026 Víctor Sánchez) | CC BY-SA 4.0 (Creative Commons Attribution-ShareAlike 4.0 International; assets/branding/LICENSE), separately from the code's GPL-3.0-or-later; trademark rights not licensed (D-177) | the mark, the lockups, the icons |
 
 ## External programs (not bundled)
 

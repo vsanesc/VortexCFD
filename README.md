@@ -47,4 +47,9 @@ GPL-3.0-only, so VortexCFD as distributed together with its dependencies (the co
 licences of every dependency and of the external programs it runs (OpenFOAM, ParaView) are listed in
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md). The logo's word is set in the Sora font
 (assets/branding/fonts/), licensed under the SIL Open Font License 1.1 (OFL-1.1; its text in
-assets/branding/fonts/OFL.txt); the licence of the logo itself is still to be chosen by the owner.
+assets/branding/fonts/OFL.txt). The logo itself (assets/branding/ and its copies in src/vortexcfd/brand/) is licensed
+separately from the code, under the Creative Commons Attribution-ShareAlike 4.0 International licence (CC BY-SA 4.0;
+its text in [assets/branding/LICENSE](assets/branding/LICENSE)).
+
+Forks are welcome under these licences, but please do not use the logo in a way that suggests your fork is the
+official VortexCFD project.

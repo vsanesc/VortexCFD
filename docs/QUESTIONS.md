@@ -487,7 +487,7 @@ settled the open ones on 2026-10-17.
      before showing the selected node's, and a part that fails can no longer leave the previous node's rows (D-165).
      Please check on the real display that selecting Physics or Free stream after Stopping Criteria shows only their
      rows; if it still happens, note what was done just before.
-239. **[OPEN]** **Which licence should the logo carry?** (assets/branding/: the mark, the lockups, the icons; D-175.)
+239. **[CLOSED (owner, 2026-10-24): CC BY-SA 4.0, separately from the code; assets/branding/LICENSE, THIRD_PARTY_LICENSES.md, the README (D-177)]** **Which licence should the logo carry?** (assets/branding/: the mark, the lockups, the icons; D-175.)
      For example the code's GPL-3.0-or-later, or CC BY-SA 4.0 (common for artwork), or all rights reserved with a
      trademark note. Not decided: THIRD_PARTY_LICENSES.md says "to be chosen by the owner". The word's font, Sora, is
      OFL-1.1 (recorded).
