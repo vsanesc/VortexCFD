@@ -90,10 +90,50 @@ def test_paraview_is_reported_as_optional(tmp_path: Path) -> None:
     assert result.returncode == 0 and f"ok: found {linux} (Open in ParaView uses it)" in result.stdout
 
 
-def test_the_desktop_entry_has_the_logo() -> None:
-    """The launcher's desktop entry shows the logo (D-175): the PNGs are copied next to the manual."""
-    text = SCRIPT.read_text()
-    assert 'cp "$REPO/assets/branding/png/"vortexcfd-*.png "$ICON_DIR/"' in text
-    assert "Icon=$ICON_DIR/vortexcfd-256.png" in text and "StartupWMClass=vortexcfd" in text
-    assert (Path(__file__).parent.parent / "assets" / "branding" / "png" / "vortexcfd-256.png").is_file()
+def test_the_desktop_entry_has_the_logo(tmp_path: Path) -> None:
+    """--desktop-only writes the icons, the launcher and the desktop entry (D-175, D-179): Name, the absolute path of
+    the 256 px PNG, StartupWMClass=vortexcfd; update-desktop-database runs when installed; a second run gives the
+    same files."""
+    home, data, bin_dir = tmp_path / "home", tmp_path / "data", tmp_path / "fakebin"
+    bin_dir.mkdir()
+    calls = tmp_path / "udd.log"
+    tool = bin_dir / "update-desktop-database"
+    tool.write_text(f'#!/bin/sh\necho "$@" >> {calls}\n')
+    tool.chmod(0o755)
+    env = {"XDG_DATA_HOME": str(data), "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+    given = f"{tmp_path}/x/../prefix"  # made absolute and normal: the entry names its files by path
+    result = _run(tmp_path, "--desktop-only", "--prefix", given, **env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    entry = data / "applications" / "vortexcfd.desktop"
+    prefix = tmp_path / "prefix"
+    icons = prefix / "venv" / "share" / "vortexcfd" / "icons"
+    lines = entry.read_text().splitlines()
+    assert lines[0] == "[Desktop Entry]" and "Name=VortexCFD" in lines and "StartupWMClass=vortexcfd" in lines
+    assert f"Icon={icons / 'vortexcfd-256.png'}" in lines and (icons / "vortexcfd-256.png").is_file()
+    assert (icons / "vortexcfd.ico").is_file()  # for scripts/windows/make_shortcut.ps1
+    assert f"Exec={prefix / 'vortexcfd-launch'} %f" in lines
+    assert (home / ".local" / "bin" / "vortexcfd").resolve() == prefix / "vortexcfd-launch"
+    assert calls.read_text().split() == [str(data / "applications")]
+    first = {f: f.read_bytes() for f in (entry, prefix / "vortexcfd-launch")}
+    again = _run(tmp_path, "--desktop-only", "--prefix", given, **env)
+    assert again.returncode == 0, again.stdout + again.stderr
+    assert {f: f.read_bytes() for f in first} == first  # idempotent
+    assert sorted(p.name for p in (data / "applications").iterdir()) == ["vortexcfd.desktop"]
+    assert calls.read_text().split() == [str(data / "applications")] * 2
 
+
+def test_without_update_desktop_database(tmp_path: Path) -> None:
+    result = _run(tmp_path, "--desktop-only", "--prefix", str(tmp_path / "prefix"), XDG_DATA_HOME=str(tmp_path / "d"),
+                  PATH="/usr/bin:/bin")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (tmp_path / "d" / "applications" / "vortexcfd.desktop").is_file()
+    assert "update-desktop-database" not in result.stdout
+
+
+def test_the_windows_shortcut_script() -> None:
+    """scripts/windows/make_shortcut.ps1 (run by the owner, never here): wsl.exe -d <distro> -- <venv>/bin/vortexcfd,
+    the .ico copied to a Windows folder, the Start menu and the desktop."""
+    text = (SCRIPT.parent / "windows" / "make_shortcut.ps1").read_text()
+    assert '$link.Arguments = "-d `"$Distro`" -- `"$exe`""' in text and '$exe = "$InstallPath/bin/vortexcfd"' in text
+    assert 'Join-Path $env:LOCALAPPDATA "VortexCFD"' in text and '$link.IconLocation = "$icon,0"' in text
+    assert 'GetFolderPath("Programs")' in text and 'GetFolderPath("Desktop")' in text

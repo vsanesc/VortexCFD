@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # VortexCFD installer for a fresh WSL2 Ubuntu 24.04 (D-137).
 #
-#   scripts/install.sh [--prefix DIR] [--check-only] [--no-launcher] [--ignore-os]
+#   scripts/install.sh [--prefix DIR] [--check-only] [--no-launcher] [--desktop-only] [--ignore-os]
 #
 # What it does, in order (safe to run again: every step is idempotent):
 #   1. checks the system: Ubuntu 24.04 (WSL2 expected), Python 3.12 with venv, OpenFOAM ESI v2606;
@@ -10,8 +10,12 @@
 #   3. creates (or reuses) a virtual environment in DIR/venv (default ~/.local/share/vortexcfd/venv);
 #   4. installs the pinned dependencies (scripts/requirements-v1.txt) and VortexCFD from this checkout;
 #   5. checks the import and `vortexcfd --version`, copies the user manual next to the venv;
-#   6. creates the launcher ~/.local/bin/vortexcfd and a desktop entry for WSLg;
+#   6. creates the launcher ~/.local/bin/vortexcfd and the desktop entry ~/.local/share/applications/vortexcfd.desktop
+#      (its Icon the logo's 256 px PNG by absolute path, StartupWMClass=vortexcfd: WSLg's Start menu and taskbar use
+#      it, D-179), then runs update-desktop-database when it is installed;
 #   7. runs `vortexcfd --check-openfoam`.
+#
+# --desktop-only writes only step 6 (the icons, the launcher and the desktop entry) for an existing install.
 #
 # It never uses sudo and never changes anything outside DIR, ~/.local/bin and ~/.local/share/applications.
 # When a step needs a system package it stops and prints the command for you to run (with sudo).
@@ -29,9 +33,10 @@ PYTHON="${PYTHON:-python3}"
 OS_RELEASE="${VORTEXCFD_OS_RELEASE:-/etc/os-release}"
 CHECK_ONLY=0
 LAUNCHER=1
+DESKTOP_ONLY=0
 IGNORE_OS=0
 
-usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -39,12 +44,14 @@ while [ $# -gt 0 ]; do
         --prefix=*) PREFIX="${1#--prefix=}"; shift ;;
         --check-only) CHECK_ONLY=1; shift ;;
         --no-launcher) LAUNCHER=0; shift ;;
+        --desktop-only) DESKTOP_ONLY=1; shift ;;
         --ignore-os) IGNORE_OS=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage >&2; exit 64 ;;
     esac
 done
 
+PREFIX="$(realpath -m "$PREFIX")"  # absolute: the desktop entry names its files by absolute path
 VENV="$PREFIX/venv"
 BIN_DIR="$HOME/.local/bin"
 APPS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
@@ -66,6 +73,51 @@ needs_root() {  # a command the USER runs; this script only prints it
     printf '   Run this yourself (it needs sudo), then run this script again:\n'
     printf '       %s\n' "$@"
 }
+
+desktop_entry() {  # step 6: the icons, the launcher and the desktop entry (D-175, D-179); idempotent
+    ICON_DIR="$VENV/share/vortexcfd/icons"
+    mkdir -p "$ICON_DIR" "$BIN_DIR" "$APPS_DIR"
+    cp "$REPO/assets/branding/png/"vortexcfd-*.png "$REPO/assets/branding/vortexcfd.ico" "$ICON_DIR/"
+    ok "icons in $ICON_DIR"
+    LAUNCH="$PREFIX/vortexcfd-launch"
+    cat > "$LAUNCH" <<EOF
+#!/bin/sh
+# VortexCFD launcher (written by scripts/install.sh)
+exec "$VENV/bin/vortexcfd" "\$@"
+EOF
+    chmod +x "$LAUNCH"
+    ln -sfn "$LAUNCH" "$BIN_DIR/vortexcfd"
+    ok "$BIN_DIR/vortexcfd"
+    cat > "$APPS_DIR/vortexcfd.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=VortexCFD
+Comment=CFD workflow on OpenFOAM ESI v2606
+Exec=$LAUNCH %f
+Icon=$ICON_DIR/vortexcfd-256.png
+StartupWMClass=vortexcfd
+Terminal=false
+Categories=Science;Engineering;
+EOF
+    ok "$APPS_DIR/vortexcfd.desktop (WSLg lists it in the Windows Start menu; its icon is the taskbar's)"
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        if update-desktop-database "$APPS_DIR" >/dev/null 2>&1; then
+            ok "update-desktop-database $APPS_DIR"
+        else
+            warn "update-desktop-database $APPS_DIR failed (the entry works without it)"
+        fi
+    fi
+    case ":$PATH:" in
+        *":$BIN_DIR:"*) ;;
+        *) warn "$BIN_DIR is not on PATH: open a new terminal (Ubuntu's ~/.profile adds it) or run $LAUNCH" ;;
+    esac
+}
+
+if [ "$DESKTOP_ONLY" = 1 ]; then
+    step "Desktop entry only (--desktop-only)"
+    desktop_entry
+    exit 0
+fi
 
 # -- 1. the system ---------------------------------------------------------------------------------------------------
 
@@ -188,43 +240,12 @@ if [ -d "$REPO/docs/manual" ]; then
     cp -r "$REPO/docs/manual" "$MANUAL_DIR"
     ok "user manual in $MANUAL_DIR"
 fi
-ICON_DIR="$VENV/share/vortexcfd/icons"  # the logo (D-175): the desktop entry's icon
-if [ -d "$REPO/assets/branding/png" ]; then
-    mkdir -p "$ICON_DIR"
-    cp "$REPO/assets/branding/png/"vortexcfd-*.png "$ICON_DIR/"
-    ok "icons in $ICON_DIR"
-fi
 
 # -- 6. the launcher -------------------------------------------------------------------------------------------------
 
 if [ "$LAUNCHER" = 1 ]; then
     step "Launcher"
-    LAUNCH="$PREFIX/vortexcfd-launch"
-    cat > "$LAUNCH" <<EOF
-#!/bin/sh
-# VortexCFD launcher (written by scripts/install.sh)
-exec "$VENV/bin/vortexcfd" "\$@"
-EOF
-    chmod +x "$LAUNCH"
-    mkdir -p "$BIN_DIR" "$APPS_DIR"
-    ln -sfn "$LAUNCH" "$BIN_DIR/vortexcfd"
-    ok "$BIN_DIR/vortexcfd"
-    cat > "$APPS_DIR/vortexcfd.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=VortexCFD
-Comment=CFD workflow on OpenFOAM ESI v2606
-Exec=$LAUNCH %f
-Icon=$ICON_DIR/vortexcfd-256.png
-StartupWMClass=vortexcfd
-Terminal=false
-Categories=Science;Engineering;
-EOF
-    ok "$APPS_DIR/vortexcfd.desktop (WSLg lists it in the Windows Start menu)"
-    case ":$PATH:" in
-        *":$BIN_DIR:"*) ;;
-        *) warn "$BIN_DIR is not on PATH: open a new terminal (Ubuntu's ~/.profile adds it) or run $LAUNCH" ;;
-    esac
+    desktop_entry
 fi
 
 # -- 7. OpenFOAM through the app -------------------------------------------------------------------------------------

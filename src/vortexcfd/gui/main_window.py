@@ -17,6 +17,7 @@ from PySide6.QtGui import (
     QCloseEvent,
     QColor,
     QDesktopServices,
+    QGuiApplication,
     QIcon,
     QKeySequence,
     QPainter,
@@ -4096,15 +4097,28 @@ def start_window(args: list[str], dialogs: Dialogs | None = None, openfoam=None)
     return window
 
 
+# The application's identity for the desktop (D-179): the desktop entry scripts/install.sh writes (vortexcfd.desktop),
+# the Wayland app id and the X11 WM_CLASS (XWayland) all say "vortexcfd", so WSLg's taskbar finds the entry's icon.
+APP_ID = "vortexcfd"
+
+
+def set_app_identity() -> None:
+    """Before the QApplication exists: the desktop file name (Qt's Wayland app id), the application name (the class of
+    WM_CLASS under xcb) and RESOURCE_NAME (its instance name; else argv[0]'s name, "__main__.py" under python -m)."""
+    os.environ.setdefault("RESOURCE_NAME", APP_ID)
+    QGuiApplication.setDesktopFileName(APP_ID)
+    QGuiApplication.setApplicationName(APP_ID)
+
+
 def main() -> int:
     """Application entry point: ``vortexcfd [path]``."""
     logging.basicConfig(level=logging.INFO)
+    set_app_identity()
     app = QApplication.instance() or QApplication(sys.argv)
     from vortexcfd.gui.icons import logo_icon
     from vortexcfd.gui.theme import DARK
 
-    app.setWindowIcon(logo_icon(DARK, WINDOW_ICON_SIZES + (256,)))  # every window and the taskbar (D-175)
-    app.setDesktopFileName("vortexcfd")  # the desktop entry of scripts/install.sh (its icon on Wayland)
+    app.setWindowIcon(logo_icon(DARK, WINDOW_ICON_SIZES + (256,)))  # every window (X11: _NET_WM_ICON; D-175)
     window = start_window(app.arguments()[1:])  # noqa: F841 (kept alive by this frame)
     return app.exec()
 

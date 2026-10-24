@@ -107,3 +107,30 @@ def test_the_logo_licence() -> None:
     readme = (REPO / "README.md").read_text(encoding="utf-8")
     assert "CC BY-SA 4.0" in readme and "assets/branding/LICENSE" in readme
     assert "suggests your fork is the official VortexCFD project" in readme.replace("\n", " ")
+
+
+def test_the_app_identity_matches_the_desktop_entry(qtbot: QtBot, monkeypatch) -> None:
+    """D-179: the desktop file name (the Wayland app id), the application name (WM_CLASS's class under XWayland) and
+    RESOURCE_NAME (its instance) are "vortexcfd", the name of the desktop entry install.sh writes, set before the
+    QApplication is made."""
+    import inspect
+    import os
+
+    from PySide6.QtGui import QGuiApplication
+
+    from vortexcfd.gui import main_window
+
+    old = QGuiApplication.desktopFileName(), QGuiApplication.applicationName()
+    monkeypatch.delenv("RESOURCE_NAME", raising=False)
+    try:
+        main_window.set_app_identity()
+        assert QGuiApplication.desktopFileName() == "vortexcfd" == main_window.APP_ID
+        assert QGuiApplication.applicationName() == "vortexcfd"
+        assert os.environ["RESOURCE_NAME"] == "vortexcfd"
+    finally:
+        QGuiApplication.setDesktopFileName(old[0])
+        QGuiApplication.setApplicationName(old[1])
+    source = inspect.getsource(main_window.main)
+    assert source.index("set_app_identity()") < source.index("QApplication(sys.argv)")
+    script = (REPO / "scripts" / "install.sh").read_text()
+    assert "StartupWMClass=vortexcfd" in script and '"$APPS_DIR/vortexcfd.desktop"' in script

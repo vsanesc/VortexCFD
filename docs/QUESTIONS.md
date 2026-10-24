@@ -514,3 +514,7 @@ settled the open ones on 2026-10-17.
      stop on its criteria in stage 2 only from iteration 3502, after its limit. The panel now says "yes (stops from
      3,502)". Keep it, or count stage 2's minimum as max(switch + the criteria's own window, the run's minimum)?
      Not changed.
+246. **[OPEN]** **The taskbar icon (D-179).** Please check on the real display that the Windows taskbar shows the
+     VortexCFD logo: start the app from the WSLg Start-menu entry (after `scripts/install.sh --desktop-only`) and from
+     the shortcut scripts/windows/make_shortcut.ps1 makes (run it from Windows PowerShell). WSLg may still draw a
+     small Linux badge over the icon; the app cannot remove it.
