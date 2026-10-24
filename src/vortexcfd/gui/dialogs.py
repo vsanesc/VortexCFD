@@ -280,15 +280,10 @@ class Dialogs:
     def show_about(self) -> None:
         from vortexcfd import __version__
 
-        from vortexcfd.gui.icons import logo_pixmap
-        from vortexcfd.gui.theme import DARK
-
-        box = QMessageBox(self.parent)
-        box.setWindowTitle("About VortexCFD")
-        box.setIconPixmap(logo_pixmap(DARK, 96, box.devicePixelRatioF()))  # the logo (D-175)
-        box.setText(f"VortexCFD {__version__}\n\nAn integrated CFD workflow on top of OpenFOAM ESI v2606.\n"
-                    "Licence: GPL-3.0-or-later. The Sora font of the logo: SIL Open Font License 1.1.")
-        box.exec()
+        # QMessageBox.about shows the window's icon: the logo (D-175)
+        QMessageBox.about(self.parent, "About VortexCFD",
+                          f"VortexCFD {__version__}\n\nAn integrated CFD workflow on top of OpenFOAM ESI v2606.\n"
+                          "Licence: GPL-3.0-or-later. The logo's font, Sora: SIL Open Font License 1.1.")
 
     def show_openfoam(self, check):
         """The OpenFOAM dialog (D-137): (the new check, the bashrc to remember or None) when the user chose a usable

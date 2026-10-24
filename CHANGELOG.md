@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased (task gui-2)
+
+**Running and continuing**
+- Continue Solver: a stopped run, or one at its iteration limit, goes on from its latest written time; the iteration
+  count, the residual and report histories and the stopping criteria's windows continue; the run record keeps each
+  run; the limit is the total (asked for more at the limit); two stages resume in their stage; a parallel case keeps
+  its decomposition on the same cores; a changed set-up asks to continue from the current solution or start over; a
+  changed mesh offers Clear Solution (D-171, [NUMERICS-REVIEW]).
+- Results while the solver runs: the live view of the walls and the Results Scene's planes every N iterations
+  ("Live · iteration N"; Solvers > Live view, default 50), and Write Fields Now (SIGUSR2, the run goes on; parallel:
+  read decomposed, reconstructed at the end) (D-172, [NUMERICS-REVIEW]; the benchmark and validation dictionaries are
+  unchanged).
+- The Solution menu (Generate Mesh F6, Clear Mesh, Run / Continue F5, Stop Shift+F5, Clear Solution, Write Fields Now,
+  the studies, ParaView): the same actions as the top bar and the tree; disabled entries say why (D-173).
+- Run Solver saves the project first (D-165).
+
+**Reading the results**
+- The Reynolds and Mach numbers, live, with what they are taken on; the speed of sound (schema v24); a warning above
+  Mach 0.3; internal flow on each inlet's hydraulic diameter; in the report and the snapshots (D-168).
+- A readable iteration axis on every chart: 1-2-5 ticks, minor ticks, a light grid, thousands separators, zoom and pan
+  (D-169).
+- Report charts in their own windows: the whole history, the windowed mean and the oscillation band, PNG and CSV,
+  live (D-170).
+
+**Clarity**
+- The monitors show the criteria of the run they judge, apart from the project's; the properties panel shows only the
+  selected node's rows (D-165).
+- Readable values everywhere ("Incompressible, steady", "k-ω SST") and every number with its unit (D-166).
+- The angle of attack said where users look for it: the Free stream's link, "Geometry · α 4°", the Body attitude
+  explained (D-167).
+
+**Projects and branding**
+- Save As copies the mesh and results by default (with the size, progress and Cancel); the duplicate opens with its
+  results and can continue (D-174, amending D-079).
+- The logo: the generator ported (scripts/brand/make_logo.py, matching the saved mark), the icons (PNG, .ico), the
+  lockups with the word as paths (Sora, OFL-1.1), in the window icon, the top bar, the start screen, About, the
+  desktop entry, the README, the manual and the report (D-175).
+
 ## 1.0.0 (2026-10-23)
 
 The first release of VortexCFD: a desktop workflow for steady, incompressible RANS flow on top of OpenFOAM ESI

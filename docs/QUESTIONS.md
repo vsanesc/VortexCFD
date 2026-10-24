@@ -494,4 +494,16 @@ settled the open ones on 2026-10-17.
 240. **[OPEN]** **The 16 px icon (D-175).** At 16 px the four arms are still told apart, but the centre is soft
      (run/gui_review/gui2/item11/icon_16px_x10.png). Keep it, or should the generator draw a simplified small variant
      (fewer, thicker arms) for 16 and 24 px?
+241. **[OPEN]** **Continue Solver is offered after a stop or at the iteration limit only (D-171).** A run whose criteria
+     were met runs from the start again (Solution > Clear Solution is not needed). Continuing a converged run with
+     tighter criteria would also be possible. Offer Continue after "Criteria met" too?
+242. **[OPEN]** **Shortcuts (D-173): F5 Run / Continue, Shift+F5 Stop, F6 Generate Mesh.** F6 was free and sits next to F5.
+     Accept, or another key for Generate Mesh?
+243. **[OPEN]** **Choices with a single option in v1 are read-only values (D-166):** the flow ("Incompressible,
+     steady"), the turbulence model ("k-ω SST") and the relaxation preset ("Robust (p 0.3, U 0.7)") no longer look
+     like drop-down lists. Accept?
+244. **[OPEN]** **Write Fields Now in a parallel run (D-172)** writes the time into the processor directories; the
+     Results Scene reads the decomposed case while the run goes on (no reconstructPar beside the solver), and the
+     time is reconstructed with `reconstructPar -newTimes` when the run ends (that also reconstructs the run's
+     periodic write times). Accept, or reconstruct only the requested times (`-time`)?
 

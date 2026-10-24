@@ -266,7 +266,8 @@ def main() -> int:
     print(out / "vortexcfd.ico")
     if out == BRANDING:  # the app's package data and the manual's header (D-175)
         package = REPO / "src" / "vortexcfd" / "brand"
-        for source, name in ((SAVED_MARK.read_text(), "mark.svg"), (files["vortexcfd-lockup-h-paths.svg"], "lockup-h.svg"),
+        for source, name in ((SAVED_MARK.read_text(), "mark.svg"),
+                             (files["vortexcfd-lockup-h-paths.svg"], "lockup-h.svg"),
                              (files["vortexcfd-lockup-v.svg"], "lockup-v.svg")):
             (package / name).write_text(source.rstrip("\n") + "\n")
             print(package / name)

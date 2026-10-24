@@ -58,10 +58,16 @@ beyond it.
 - **Turbulence intensity** (default 1 %): the inlet's velocity fluctuations, k = 1.5 (I U)². A wind tunnel is about
   0.1-1 %, open air 1-5 %.
 - **Viscosity ratio** (default 10): the inlet's turbulent to molecular viscosity, which sets ω.
-- **Computed**: the inlet k and ω these give.
+- **Angle of attack**: read-only here; it is set in Geometry > Body attitude (the link selects it).
+- **Computed**: the Reynolds number Re = U∞ l_ref / ν and the Mach number Ma = U∞ / a, each with the speed and the
+  length it uses (a warning above Ma 0.3: the app is incompressible), and the inlet k and ω. Internal flow has no
+  Free stream: each inlet shows its Re on its hydraulic diameter with its bulk velocity (a velocity inlet's speed,
+  ṁ / (ρ A) for a mass flow; a total-pressure inlet's is known after the run, from its mass-flow report), and the
+  Physics node the first inlet's. The **speed of sound** a (Physics, default 343 m/s) only gives the Mach number.
 
 ## Body attitude
 
+All the parts rotate together, as one rigid body, about the centre of rotation.
 **Angle of attack α** (Geometry or Parts node; external flow only): the rotation of the parts about the y axis,
 nose up positive, relative to the free stream, which always blows along +x (lift is +z, drag +x). The **rotation
 centre** is shown below it: Reference Values > Centre of rotation, Auto the centre of the parts' box. A change puts
@@ -116,7 +122,11 @@ Set l_ref and the area for a wing (the mean chord and the wing area).
 ## Stopping criteria
 
 Residual, asymptotic and mean-stable criteria, combined with all or any, after the minimum iterations and up to the
-maximum (in iterations). The oscillation check warns when a monitored quantity oscillates (chapter 7).
+maximum (in iterations). The oscillation check warns when a monitored quantity oscillates (chapter 7). They apply to
+the next run; the monitors show the criteria of the run they judge ("Criteria of the last run").
+
+Solvers also has the **Live view** (on by default) and its interval (**Live view every**, default 50 iterations): what
+the Results Scene shows while the solver runs; it only samples and never changes the solution.
 
 ## Probes
 

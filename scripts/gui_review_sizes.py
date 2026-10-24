@@ -6,7 +6,8 @@ Each screen is shown at its minimum size, its default size and 1920x1080, at eac
 Large), and saved as <out>/<screen>/<window size>_<interface size>.png. Screens: ``new_sim``, ``start``, ``main``
 (the main window: tree, viewer, properties, top bar), ``properties`` (the detached properties window), ``compare``
 (the Compare tab), ``foam_file`` (the Show in OpenFOAM file viewer), ``monitors`` (the detached residual chart and
-convergence criteria windows), ``report_chart`` (a report's chart window, D-170) and ``all``. ``main:<node>[@<setup>]`` is the main window on a tree node (e.g.
+convergence criteria windows), ``report_chart`` (a report's chart window, D-170), ``solution_menu`` (D-173),
+``save_as`` (D-174) and ``all``. ``main:<node>[@<setup>]`` is the main window on a tree node (e.g.
 ``main:inflow``, ``main:part:0``) after an optional named set-up of SETUPS (e.g. ``main:stopping@criteria_changed``),
 saved as <out>/main_<node>[_<setup>]/.
 """

@@ -10,6 +10,11 @@ the top bar.
 
 "Results out of date" means the set-up changed after the run: run the solver again before you trust the numbers.
 
+During a run the Results Scene shows the live samples of the walls and the planes ("Live · iteration N"), and a time
+written with Solution > Write Fields Now (chapter 2.5); when the run ends it shows the final results. The line plots
+and the Compare plots zoom with the wheel (Ctrl + wheel for a line plot in the properties) and pan with a drag; a
+double click shows everything.
+
 ## 5.2 Monitors and windowed means
 
 The report slots in the right column show each quantity's last value, its mean over the last iterations and the

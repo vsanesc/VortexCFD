@@ -1,9 +1,42 @@
 # Status
 
-Updated 2026-10-23 (task/gui-polish: **the GUI overhaul before tagging v1.0.0**).
+Updated 2026-10-24 (task/gui-2: **a second round of GUI work after the owner used the app**).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
+
+**task/gui-2** (not yet published; no push, no merge). A second round of GUI work the owner asked for after using the
+app; one commit per item:
+- Item 7 (D-165): stopping criteria the user removes no longer "come back": the monitors show the run's own criteria
+  ("Criteria of the last run", kept in the run record) apart from the project's; Run Solver saves the project first
+  (the owner's ~/simulation_2 showed a run from edits that were never saved); the properties panel hides every row
+  before showing the selected node's (the leftover rows were not reproduced offscreen: QUESTIONS 238).
+- Item 9 (D-166): readable values (labels, not identifiers) and every number with its unit; a test walks every node.
+- Item 8 (D-167): the angle of attack in the Free stream (with a link), on the Geometry node, the Body attitude
+  explained.
+- Item 1 (D-168): the Reynolds and Mach numbers, live; the speed of sound (schema v24); the warning above Mach 0.3.
+- Item 3 (D-169): 1-2-5 ticks, minor ticks, a light grid and zoom and pan on every chart.
+- Item 4 (D-170): report charts in their own windows (history, windowed mean and band, PNG / CSV, live).
+- Item 5 (D-171, [NUMERICS-REVIEW]): Continue Solver from the latest written time.
+- Item 2 (D-172, [NUMERICS-REVIEW]): the live view of walls and planes during a run, and Write Fields Now.
+- Item 6 (D-173): the Solution menu (F5, Shift+F5, F6), one action shared with the top bar and the tree.
+- Item 10 (D-174, D-079 amended): Save As copies the mesh and results (progress, Cancel).
+- Item 11 (D-175): the logo: the generator ported (byte-identical to the saved mark), icons, lockups, used in the app,
+  the installer, the README, the manual and the report.
+- Item 12: the manual (2.4, 2.5, 2.7, 5.1, 9), CHANGELOG, ARCHITECTURE, QUESTIONS 237 to 244.
+- The public benchmarks' meshing and solver dictionaries (scripts/validation/public_dicts.py): byte-identical to main's
+  (`diff -r`, 51 files, exit status 0).
+- Screenshots: run/gui_review/gui2/<item>/ (scripts/gui_review_sizes.py, its new `main:<node>[@<setup>]`,
+  `report_chart`, `solution_menu` and `save_as` screens).
+- Machine time: two real runs through the app, nice 15, under 2 minutes each: the coarse sphere on 4 cores stopped at
+  iteration 32 and continued to 80 (43,299 cells; 13.5 s mesh, 4.7 s + 5.9 s solve), and 100 iterations with the
+  live view every 10 and one Write Fields Now (8.6 s solve); no OpenFOAM process left running.
+
+Next: the owner's review (QUESTIONS 237 to 244, the [NUMERICS-REVIEW] items D-171 and D-172); then scripts/ship.sh.
+Open: docs/QUESTIONS.md items 30, 67, 69, 70, 72, 73, 75, 89 to 94, 96, 97, 122, 124, 125 to 128, 130, 131, 147, 167,
+168 (a, c), 174, 214, 236 to 244.
+
+### Previous branch (task/gui-polish, published in PR #35)
 
 **task/gui-polish** (not yet published; no push, no merge, no tag). The owner found the GUI hard to use; this branch
 overhauls it and adds three features a user (Carla) asked for. Done on it, one or more commits per part:

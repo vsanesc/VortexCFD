@@ -113,8 +113,9 @@ class ReportChart(ZoomPanMixin, QWidget):
         painter.save()
         painter.translate(pad / 2 + fm.height() / 2, area.center().y())
         painter.rotate(-90)
+        caption = report_label(self.report_id) + (f" [{unit}]" if unit else "")
         painter.drawText(QRectF(-area.height() / 2, -fm.height() / 2, area.height(), fm.height()),
-                         int(Qt.AlignmentFlag.AlignCenter), report_label(self.report_id) + (f" [{unit}]" if unit else ""))
+                         int(Qt.AlignmentFlag.AlignCenter), caption)
         painter.restore()
         if not self.points:
             painter.drawText(area, int(Qt.AlignmentFlag.AlignCenter), EMPTY_MESSAGE)

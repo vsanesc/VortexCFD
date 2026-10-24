@@ -113,7 +113,8 @@ def inlet_numbers(project: Project, mass_flow_of=None) -> dict[str, FlowNumbers]
         spec = sim.boundary(patch.name).inlet
         length_name = f"D_h ({patch.name})"
         if m is None:
-            out[patch.safe] = _numbers(None, None, project, "U_bulk", length_name, "the inlet's geometry cannot be read")
+            out[patch.safe] = _numbers(None, None, project, "U_bulk", length_name,
+                                       "the inlet's geometry cannot be read")
             continue
         if spec.kind == "velocity":
             out[patch.safe] = _numbers(spec.speed, m.hydraulic_diameter, project, "U_bulk", length_name,
