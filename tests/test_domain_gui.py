@@ -66,7 +66,7 @@ def test_domain_properties_show_values_and_read_only_box(make_window) -> None:
     assert p._rows["dom_upstream"].isVisible() and not p._rows["name"].isVisible()
     assert [p.domain_fields[k].value() for k in ("upstream", "downstream", "lateral", "vertical")] == [5, 10, 5, 5]
     assert p.domain_fields["upstream"].suffix() == " L"
-    assert p.domain_enabled.isChecked() and p.domain_symmetry.currentText() == "none"
+    assert p.domain_enabled.isChecked() and p.domain_symmetry.currentData() == "none"
     assert p.domain_length.text() == "2 m: the parts' largest extent" and "largest extent" in p.domain_length.toolTip()
     assert p.domain_fields["upstream"].other.text() == "= 10 m"  # the physical form, live (D-148)
     assert p.domain_size.isReadOnly() and p.domain_size.text() == "32 × 21 × 21 m"
@@ -91,7 +91,7 @@ def test_symmetry_and_enabled_go_through_update_domain(make_window) -> None:
     w = make_window()
     w.tree.setCurrentItem(w._items[("fluid_domain", None)])
     p = w.properties
-    p.domain_symmetry.setCurrentText("y_min")
+    p.domain_symmetry.setCurrentIndex(p.domain_symmetry.findData("y_min"))
     assert w.project.sim.domain.symmetry == "y_min"
     p.domain_enabled.setChecked(False)
     assert w.project.sim.domain.enabled is False

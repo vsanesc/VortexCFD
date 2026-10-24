@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 from vortexcfd.core.atomic_io import write_text_atomic
+from vortexcfd.core.labels import setup_label, setup_value
 from vortexcfd.core.model import DOMAIN_EXTENTS, MeanStableCriterion, Simulation
 from vortexcfd.core.project import Project
 from vortexcfd.core.project_io import load_simulation
@@ -367,7 +368,8 @@ def _float(v) -> float | None:
 
 
 def setup_rows(snaps: list[Snapshot]) -> list[tuple[str, tuple[str, ...]]]:
-    """The inputs whose values differ between the snapshots: (key, the value in each; "—" where missing)."""
+    """The inputs whose values differ between the snapshots: (the input's label, the value in each; "—" where
+    missing). The snapshots keep the model's identifiers; the rows show their labels (D-166)."""
     keys: list[str] = []
     for s in snaps:
         keys += [k for k in s.setup if k not in keys]
@@ -375,7 +377,7 @@ def setup_rows(snaps: list[Snapshot]) -> list[tuple[str, tuple[str, ...]]]:
     for key in keys:
         values = tuple(s.setup.get(key, "—") for s in snaps)
         if len(set(values)) > 1:
-            out.append((key, values))
+            out.append((setup_label(key), tuple(v if v == "—" else setup_value(key, v) for v in values)))
     return out
 
 

@@ -35,7 +35,7 @@ def test_node_shows_the_default_criteria_and_edits_commit_and_revert(make_window
     _select(w, "stopping")
     p = w.properties
     assert p._rows["stop_combine"].isVisible() and not p.info_label.isVisible()
-    assert p.stop_combine.currentText() == "all" and p.stop_min.value() == 0 and p.stop_max.value() == 1000
+    assert p.stop_combine.currentData() == "all" and p.stop_min.value() == 0 and p.stop_max.value() == 1000
     assert p.stop_osc_threshold.value() == pytest.approx(1.0) and p.stop_osc_window.value() == 100
     rows = p.criterion_widgets
     assert [r["field"].currentText() for r in rows] == ["p", "U", "k", "omega"]
@@ -52,7 +52,7 @@ def test_node_shows_the_default_criteria_and_edits_commit_and_revert(make_window
     p.stop_max.setValue(400)
     p.stop_max.editingFinished.emit()
     assert w.project.sim.solvers.iterations == 400  # the iteration limit is Solvers.iterations
-    p.stop_combine.setCurrentText("any")
+    p.stop_combine.setCurrentIndex(p.stop_combine.findData("any"))
     assert w.project.sim.solvers.stopping.combine == "any"
     p.stop_min.setValue(60)
     p.stop_min.editingFinished.emit()

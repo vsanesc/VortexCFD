@@ -25,6 +25,7 @@ from vortexcfd.core.model import (
     REPORT_SECTIONS,
     MeanStableCriterion,
 )
+from vortexcfd.core.labels import value_label
 from vortexcfd.core.project import Project
 from vortexcfd.core.reports import FLOW_QUANTITIES, FLOW_QUANTITY_LABELS, report_label
 from vortexcfd.foam.convergence import window_stats
@@ -106,7 +107,8 @@ def project_section(project: Project) -> Section:
     rows = [("Project", sim.name), ("File", str(project.path) if project.path else "not saved"),
             ("Analysis", f"{ANALYSIS_TYPE_LABELS[sim.analysis_type]}, {DIMENSION_LABELS[sim.dimension]}"),
             ("Preset", sim.preset_name or "none"),
-            ("Flow", f"steady incompressible RANS, {sim.physics.turbulence_model}"),
+            ("Flow", f"{value_label('flow', sim.physics.flow)} RANS, "
+                     f"{value_label('turbulence_model', sim.physics.turbulence_model)}"),
             ("Kinematic viscosity", f"{sim.physics.nu:.6g} m²/s"),
             ("Reference density", f"{sim.physics.rho_ref:.6g} kg/m³")]
     if sim.internal:
@@ -117,11 +119,11 @@ def project_section(project: Project) -> Section:
                  ("Turbulence intensity", f"{100 * sim.inflow.turbulence_intensity:.4g} %"),
                  ("Reference length", f"{sim.reports.reference_length:.6g} m" if sim.reports.reference_length else "auto"),
                  ("Reference area", f"{sim.reports.reference_area:.6g} m²" if sim.reports.reference_area
-                  else f"auto ({sim.reports.reference_area_basis})")]
+                  else f"auto ({value_label('reference_area_basis', sim.reports.reference_area_basis).lower()})")]
     stop = sim.solvers.stopping
     rows += [("Iteration limit", str(sim.solvers.iterations)), ("Solver cores", str(sim.solvers.cores)),
              ("Stopping criteria", "; ".join(_criterion_text(c) for c in stop.criteria) or "none"),
-             ("Criteria combined", stop.combine)]
+             ("Criteria combined", value_label("combine", stop.combine))]
     body = _pairs(rows)
     if sim.internal and sim.boundaries:
         brows = []

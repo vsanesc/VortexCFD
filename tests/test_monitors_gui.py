@@ -165,7 +165,7 @@ def test_reference_values_node_defaults_are_auto(make_window) -> None:
     assert p.ref_rho.value() == pytest.approx(1.225)
     assert p.ref_u.text() == "20 m/s (free-stream speed)"
     # Auto: the values in use are shown in the fields, greyed (D-148); the tooltips say where they come from
-    assert p.ref_basis.currentText() == "planform" and not p.ref_area.spin.isEnabled()
+    assert p.ref_basis.currentData() == "planform" and not p.ref_area.spin.isEnabled()
     assert p.ref_area.value() is None and p.ref_length.auto.isChecked() and p.ref_cofr.auto.isChecked()
     assert p.ref_area.spin.value() > 0 and p.ref_length.spin.value() > 0 and p.ref_cofr.text().startswith("(")
     assert p.ref_area.toolTip().endswith("In use: auto: bounding-box planform, x * y")
@@ -186,7 +186,7 @@ def test_area_basis_frontal_and_custom(make_window) -> None:
     planform, frontal = bounding_box_area(bounds, "planform"), bounding_box_area(bounds, "frontal")
     _select(w, "reference_values")
     p = w.properties
-    p.ref_basis.setCurrentText("frontal")
+    p.ref_basis.setCurrentIndex(p.ref_basis.findData("frontal"))
     reports = w.project.sim.reports
     assert reports.reference_area_basis == "frontal" and reports.reference_area is None
     assert p.ref_area.spin.value() == pytest.approx(frontal, rel=1e-5)
@@ -195,23 +195,23 @@ def test_area_basis_frontal_and_custom(make_window) -> None:
     fc = read_foam_file(case / "system" / "controlDict")["functions"]["forceCoeffs1"]
     assert fc["Aref"] == pytest.approx(frontal) and frontal != pytest.approx(planform, rel=1e-6)
     # custom starts from the area in use and makes the field editable
-    p.ref_basis.setCurrentText("custom")
+    p.ref_basis.setCurrentIndex(p.ref_basis.findData("custom"))
     assert w.project.sim.reports.reference_area == pytest.approx(frontal) and p.ref_area.spin.isEnabled()
     p.ref_area.spin.setValue(0.785)
     p.ref_area.spin.editingFinished.emit()
     assert w.project.sim.reports == Reports(reference_area_basis="custom", reference_area=0.785)
     assert p.ref_area.toolTip().endswith("In use: the value set")
-    p.ref_basis.setCurrentText("planform")
+    p.ref_basis.setCurrentIndex(p.ref_basis.findData("planform"))
     assert w.project.sim.reports == Reports()
     w.act_undo.trigger()
-    assert w.project.sim.reports.reference_area == 0.785 and p.ref_basis.currentText() == "custom"
+    assert w.project.sim.reports.reference_area == 0.785 and p.ref_basis.currentData() == "custom"
 
 
 def test_reference_overrides_are_stored_and_used_by_force_coeffs(make_window) -> None:
     w = make_window()
     _select(w, "reference_values")
     p = w.properties
-    p.ref_basis.setCurrentText("custom")
+    p.ref_basis.setCurrentIndex(p.ref_basis.findData("custom"))
     p.ref_area.spin.setValue(0.785)
     p.ref_area.spin.editingFinished.emit()
     p.ref_length.auto.setChecked(False)

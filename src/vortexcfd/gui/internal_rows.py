@@ -33,8 +33,9 @@ from vortexcfd.workflow import internal, meshing, solving
 # When to use which inlet (the user-manual notes, docs/USER_MANUAL notes in docs/STATUS.md, repeated as tooltips).
 KIND_TIPS = {
     "velocity": "A uniform velocity normal to the patch, into the domain. Use it when the inlet speed is known.",
-    "mass_flow": "A mass flow rate (kg/s) imposed as a uniform velocity normal to the patch (Q = m / rho_ref). Use "
-                 "it when the flow rate is known, e.g. a pump or a duct with a metered flow.",
+    "mass_flow": "A mass flow rate (kg/s) imposed as a uniform velocity normal to the patch (Q = \u1e41 / \u03c1, "
+                 "\u03c1 the reference density of Physics). Use it when the flow rate is known, e.g. a pump or a "
+                 "duct with a metered flow.",
     "total_pressure": "A total pressure (Pa, gauge) at the inlet; the flow rate follows from the losses. Use it for a "
                       "plenum or a reservoir at a known pressure; the inflow is normal to the patch.",
 }
@@ -75,7 +76,8 @@ class InternalRowsMixin:
         self.ip_speed.editingFinished.connect(lambda: self._commit_boundary(inlet={"speed": self.ip_speed.value()}))
         self._layout.addWidget(self._make_row("ip_speed", "Velocity", self.ip_speed))
         self.ip_mass = _spin(1e-12, 1e9, 6, " kg/s")
-        self.ip_mass.setToolTip("Mass flow rate into the domain; the solver imposes Q = m / rho_ref (Physics)")
+        self.ip_mass.setToolTip("Mass flow rate into the domain; the solver imposes Q = \u1e41 / \u03c1 (\u03c1: Physics > "
+                                "Reference density)")
         self.ip_mass.editingFinished.connect(lambda: self._commit_boundary(inlet={"mass_flow": self.ip_mass.value()}))
         self._layout.addWidget(self._make_row("ip_mass", "Mass flow", self.ip_mass))
         self.ip_p0 = _spin(-PRESSURE_RANGE, PRESSURE_RANGE, 3, " Pa")

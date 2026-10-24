@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from typing import get_args
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -41,7 +41,7 @@ from vortexcfd.core.model import BOUNDARY_KIND_LABELS, BOUNDARY_KINDS
 from vortexcfd.core.model import (DIMENSION_LABELS, DIMENSIONS, MAX_CURVATURE_LEVELS, WALL_RESOLVED_AUTO_YPLUS, Probe,
                                    SurfaceRegion)
 from vortexcfd.core.reports import (PROBE_NAME_RE, criterion_quantities, default_floor, missing_reference,
-                                    report_label)
+                                    report_label, report_unit)
 from vortexcfd.foam.forces import MASS_WARNING
 from vortexcfd.foam.parallel import CELLS_PER_CORE, EFFICIENT_CORES, physical_cores, recommended_cores
 from vortexcfd.foam.wall_fields import case_yplus_histogram
@@ -49,6 +49,7 @@ from vortexcfd.foam.yplus import MAX_LAYERS
 from vortexcfd.gui.charts import YPlusHistogramChart
 from vortexcfd.gui.report_views import ForcesTable, InternalFlowTable
 from vortexcfd.foam.convergence import earliest_iteration, window_stats
+from vortexcfd.core.labels import choices, value_label
 from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.foam.run_record import RunRecord
@@ -97,7 +98,6 @@ log = logging.getLogger(__name__)
 ALLOWED_UNITS: tuple[str, ...] = get_args(Part.model_fields["units"].annotation)
 
 
-DOMAIN_SYMMETRY = get_args(Domain.model_fields["symmetry"].annotation)
 # The domain fields each shape uses (D-078) and their labels.
 DOMAIN_SHAPE_FIELDS = {
     "box": ("upstream", "downstream", "lateral", "vertical"),
@@ -200,18 +200,50 @@ def _dspin(low: float, high: float, decimals: int, suffix: str = "", special: st
 
 
 class SciEdit(QLineEdit):
-    """Line edit for a positive number shown in scientific notation (e.g. 1.5e-05)."""
+    """Line edit for a positive number shown in scientific notation (e.g. 1.5e-05), with its unit shown at its right
+    end, inside the field (D-166; a line edit has no suffix of its own)."""
 
     def __init__(self, suffix: str = "") -> None:
         super().__init__()
         self._suffix = suffix
         self.setValidator(QDoubleValidator(self))
+        self._unit = QLabel(suffix.strip(), self)
+        self._unit.setObjectName("muted")
+        self._unit.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._unit.setVisible(bool(suffix.strip()))
+
+    def unit(self) -> str:
+        return self._unit.text()
+
+    def set_unit(self, unit: str) -> None:
+        """The unit shown (e.g. a scale floor in its quantity's units)."""
+        self._unit.setText(unit)
+        self._unit.setVisible(bool(unit))
+        self._place_unit()
 
     def value(self) -> float:
         return float(self.text().replace(",", ".").strip() or "nan")
 
     def setValue(self, value: float) -> None:
         self.setText(f"{value:.6g}")
+
+    def _place_unit(self) -> None:
+        if not self._unit.text():
+            self.setTextMargins(0, 0, 0, 0)
+            return
+        self._unit.setFont(self.font())
+        width = self.fontMetrics().horizontalAdvance(self._unit.text()) + 6
+        self._unit.setGeometry(self.width() - width - 4, 0, width, self.height())
+        self.setTextMargins(0, 0, width, 0)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        super().resizeEvent(event)
+        self._place_unit()
+
+    def changeEvent(self, event) -> None:  # noqa: N802
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.FontChange:
+            self._place_unit()
 
 
 def _combo(items) -> QComboBox:
@@ -224,6 +256,28 @@ def _sci(suffix: str = "") -> SciEdit:
     return SciEdit(suffix)
 
 
+class FixedValue(QLabel):
+    """A model choice with a single option in v1 (the flow, the turbulence model, the relaxation preset): its label,
+    read-only, wrapped (D-166); ``value()`` is the model value."""
+
+    def __init__(self, field: str) -> None:
+        super().__init__()
+        self.setObjectName("checkValue")
+        self._field = field
+        self._value = None
+
+    def value(self):
+        return self._value
+
+    def setValue(self, value) -> None:  # noqa: N802 (the Qt spelling of the other fields)
+        self._value = value
+        self.setText(value_label(self._field, value))
+
+
+def _fixed_value(field: str) -> FixedValue:
+    return FixedValue(field)
+
+
 def _widget_get(widget):
     if isinstance(widget, QComboBox):
         data = widget.currentData()
@@ -232,7 +286,9 @@ def _widget_get(widget):
 
 
 def _widget_set(widget, value) -> None:
-    if isinstance(widget, AutoField):
+    if isinstance(widget, FixedValue):
+        widget.setValue(value)
+    elif isinstance(widget, AutoField):
         widget.set_state(value, widget._computed)
     elif isinstance(widget, ChoiceField):
         widget.setValue(value)
@@ -251,7 +307,9 @@ def _widget_set(widget, value) -> None:
 
 
 def _connect_commit(widget, slot) -> None:
-    """Commit when a field is edited: combos on change, everything else on editing finished."""
+    """Commit when a field is edited: combos on change, everything else on editing finished (a fixed value never)."""
+    if isinstance(widget, FixedValue):
+        return
     if isinstance(widget, QComboBox):
         widget.currentIndexChanged.connect(lambda _index: slot())
     elif isinstance(widget, (AutoField, ChoiceField)):
@@ -273,7 +331,7 @@ def _auto(spin, tip: str = "") -> AutoField:
 
 
 # The labels of the Mesh choices (D-148): the model values stay as they are.
-SURFACE_REFERENCES = (("l_ref", "l_ref"), ("largest_extent", "L (largest extent)"))
+SURFACE_REFERENCES = tuple(choices("surface_size_reference"))
 LAYER_SIZINGS = (("absolute_yplus", "Sized from a target y+"),
                  ("relative", "Thickness relative to the surface cell size"))
 LAYER_CONTROL_LABELS = (("robust", "Robust"), ("wall_resolved", "Wall-resolved"), ("legacy", "Legacy"))
@@ -339,7 +397,6 @@ LAYERS_NOTE = ("Prism layers are thin cells stacked on the part walls to resolve
                "with the surface cells.")
 # Reference Values node (D-047): the note under the auto (bounding box) values.
 REFERENCE_NOTE = "set the wing area and mean chord for aircraft"
-AREA_BASES = ("planform", "frontal", "custom")
 REFERENCE_ROWS = ("ref_rho", "ref_u", "ref_basis", "ref_area", "ref_length", "ref_cofr")
 REF_AREA_TIP = ("A_ref, the area the force coefficients are divided by. Auto (planform or frontal basis): the parts' "
                 "bounding-box area, shown greyed. Custom: set it (e.g. the wing area).")
@@ -441,14 +498,14 @@ GROUPS: dict[str, dict] = {
     "physics": {
         "model": lambda sim: sim.physics, "update": "update_physics", "section": ("physics_fluid", "Fluid"),
         "fields": (
-            ("flow", "Flow", lambda: _combo(("incompressible_steady",)),
+            ("flow", "Flow", lambda: _fixed_value("flow"),
              "Steady incompressible flow (simpleFoam), the only flow type of v1."),
             ("nu", "Kinematic viscosity", lambda: _sci(" m\u00b2/s"),
              "\u03bd of the fluid in m\u00b2/s. Default 1.5e-05: air at about 20 \u00b0C."),
             ("rho_ref", "Reference density", lambda: _dspin(0.001, 100000.0, 4, " kg/m\u00b3"),
              "Only scales the forces (the solver is incompressible and works with p / \u03c1). Default 1.225 kg/m\u00b3: "
              "air at sea level."),
-            ("turbulence_model", "Turbulence model", lambda: _combo(("kOmegaSST",)),
+            ("turbulence_model", "Turbulence model", lambda: _fixed_value("turbulence_model"),
              "RANS turbulence model: k-\u03c9 SST, the only model of v1 (robust for attached and separated flow)."),
         ),
     },
@@ -485,7 +542,7 @@ GROUPS: dict[str, dict] = {
             ("cores", "Cores", lambda: _spin(1, PHYSICAL_CORES, f" / {PHYSICAL_CORES}"),
              f"MPI ranks of the solver run; at most the {PHYSICAL_CORES} physical cores of this machine. 1 runs in "
              "serial. The recommendation for the current mesh is shown below."),
-            ("relaxation", "Relaxation preset", lambda: _combo(("robust",)),
+            ("relaxation", "Relaxation preset", lambda: _fixed_value("relaxation"),
              "SIMPLE under-relaxation factors: the robust set (p 0.3, U 0.7), the only preset of v1."),
         ),
     },
@@ -806,10 +863,9 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             self._layout.addWidget(self._make_row(f"dom_{key}", DOMAIN_FIELD_LABELS[key], field))
             field.editingFinished.connect(lambda k=key: self._commit_domain(k))
         self._section("dom_symmetry", "Symmetry")
-        self.domain_symmetry = QComboBox()
-        self.domain_symmetry.addItems(list(DOMAIN_SYMMETRY))
-        self.domain_symmetry.setToolTip("none: the whole model. y_min: half a symmetric model; the plane y = the parts' "
-                                        "lowest y is a symmetry plane (half the cells; forces of the half).")
+        self.domain_symmetry = _combo_data(choices("symmetry"))
+        self.domain_symmetry.setToolTip("None: the whole model. Symmetry plane: half a symmetric model; the plane y = "
+                                        "the parts' lowest y is a symmetry plane (half the cells; forces of the half).")
         self._layout.addWidget(self._make_row("dom_symmetry", "Symmetry", self.domain_symmetry))
         self._section("dom_computed", "Computed")
         self.domain_size = QLineEdit()
@@ -880,7 +936,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.ground_start.editingFinished.connect(lambda: self._commit_ground("wall_start_x"))
         self.ground_layers.toggled.connect(lambda _: self._commit_ground("layers"))
         self.domain_enabled.toggled.connect(lambda _: self._commit_domain("enabled"))
-        self.domain_symmetry.currentTextChanged.connect(lambda _: self._commit_domain("symmetry"))
+        self.domain_symmetry.currentIndexChanged.connect(lambda _: self._commit_domain("symmetry"))
         # Surface Preparation node (D-093): its result and report; run / remove.
         self._section("sp_title", "Surface preparation")
         self.sp_about = QLabel(surface_prep.EXPLANATION)  # what it does and when it is needed (D-146)
@@ -1037,11 +1093,11 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self._layout.addWidget(self._make_row("ref_rho", "Reference density", self.ref_rho))
         self.ref_rho.editingFinished.connect(self._commit_rho)
         self.ref_u = self._ro_row("ref_u", "Reference speed U_ref")
-        self.ref_basis = _combo(AREA_BASES)
+        self.ref_basis = _combo_data(choices("reference_area_basis"))
         self.ref_basis.setToolTip("A_ref: bounding-box planform (x * y), bounding-box frontal (y * z) "
                                   "or a custom value")
         self._layout.addWidget(self._make_row("ref_basis", "A_ref basis", self.ref_basis))
-        self.ref_basis.currentTextChanged.connect(lambda _t: self._commit_basis())
+        self.ref_basis.currentIndexChanged.connect(lambda _i: self._commit_basis())
         # A_ref follows its basis: computed (greyed) unless the basis is custom (D-148)
         self.ref_area = AutoField(_dspin(1e-9, 1e6, 6, " m\u00b2"))
         self.ref_area.auto.hide()
@@ -1113,7 +1169,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         _wrap(self.probes_empty)
         self._layout.addWidget(self.probes_empty)
         # Stopping Criteria node (under Solvers): combination, limits, oscillation check, criteria.
-        self.stop_combine = _combo(("all", "any"))
+        self.stop_combine = _combo_data(choices("combine"))
         self.stop_min = _spin(0, 10_000_000, " it.")
         self.stop_max = _spin(1, 10_000_000, " it.")
         self.stop_osc_threshold = _dspin(0.01, 1000.0, 2, " %")
@@ -1864,7 +1920,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.ref_basis.blockSignals(True)
         try:
             self.ref_rho.setValue(sim.physics.rho_ref)
-            self.ref_basis.setCurrentText(rep.reference_area_basis)
+            self.ref_basis.setCurrentIndex(self.ref_basis.findData(rep.reference_area_basis))
         finally:
             self.ref_rho.blockSignals(False)
             self.ref_basis.blockSignals(False)
@@ -1901,7 +1957,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         """A_ref basis: "custom" starts from the area in use, the others clear the custom value."""
         if self._kind != "reference_values":
             return
-        basis = self.ref_basis.currentText()
+        basis = self.ref_basis.currentData()
         area = None
         if basis == "custom":
             try:
@@ -1955,7 +2011,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         for w in widgets:
             w.blockSignals(True)
         try:
-            self.stop_combine.setCurrentText(stop.combine)
+            self.stop_combine.setCurrentIndex(self.stop_combine.findData(stop.combine))
             self.stop_min.setValue(stop.min_iterations)
             self.stop_max.setValue(self._project.sim.solvers.iterations)
             self.stop_osc_threshold.setValue(100 * stop.oscillation_threshold)
@@ -1973,6 +2029,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                     row["window"].setValue(c.window)
                     row["tolerance"].setValue(c.tolerance)
                     row["floor"].setValue(c.effective_floor)
+                    row["floor"].set_unit(report_unit(c.quantity))  # the quantity's unit (D-166)
                 row["earliest"].setText(f"iteration {earliest_iteration(c, stop.min_iterations)}")
         finally:
             for w in widgets:
@@ -2085,7 +2142,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                 self.message.emit(str(exc))
             self.refresh()
             return
-        values = {"combine": lambda: self.stop_combine.currentText(),
+        values = {"combine": lambda: self.stop_combine.currentData(),
                   "min": lambda: self.stop_min.value(),
                   "osc_threshold": lambda: self.stop_osc_threshold.value() / 100,
                   "osc_window": lambda: self.stop_osc_window.value()}
@@ -2394,7 +2451,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             w.blockSignals(True)
         try:
             self.domain_enabled.setChecked(domain.enabled)
-            self.domain_symmetry.setCurrentText(domain.symmetry)
+            self.domain_symmetry.setCurrentIndex(self.domain_symmetry.findData(domain.symmetry))
             self.domain_shape.setCurrentIndex(DOMAIN_SHAPES.index(domain.shape))
             for key, field in self.domain_fields.items():
                 field.setValue(getattr(domain, key), domain.extent_unit(key))  # in its own unit (D-157)
@@ -2590,7 +2647,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         if key == "enabled":
             value = self.domain_enabled.isChecked()
         elif key == "symmetry":
-            value = self.domain_symmetry.currentText()
+            value = self.domain_symmetry.currentData()
         elif key == "shape":
             value = self.domain_shape.currentData()
         else:
