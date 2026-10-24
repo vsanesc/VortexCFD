@@ -76,6 +76,33 @@ class Dialogs:
                                       QMessageBox.StandardButton.No)
         return answer == QMessageBox.StandardButton.Yes
 
+    def choose(self, title: str, text: str, choices: list[tuple[str, str]], default: str | None = None) -> str | None:
+        """A question with its own answers: ``choices`` (key, button text) in order; None when cancelled (Escape or
+        the window closed). ``default``: the key of the default button."""
+        box = QMessageBox(self.parent)
+        box.setWindowTitle(title)
+        box.setText(text)
+        box.setIcon(QMessageBox.Icon.Question)
+        buttons = {}
+        for key, label in choices:
+            buttons[box.addButton(label, QMessageBox.ButtonRole.AcceptRole)] = key
+        cancel = box.addButton(QMessageBox.StandardButton.Cancel)
+        for button, key in buttons.items():
+            if key == default:
+                box.setDefaultButton(button)
+        box.setEscapeButton(cancel)
+        box.exec()
+        return buttons.get(box.clickedButton())
+
+    def ask_more_iterations(self, latest: int, limit: int) -> int | None:
+        """How many more iterations a solution at its iteration limit runs (D-171); None: cancelled."""
+        value, ok = QInputDialog.getInt(
+            self.parent, "Continue solver",
+            f"The solution has reached the iteration limit ({limit:,} iterations).\n"
+            f"Run how many more iterations from iteration {latest:,}? The limit becomes the new total.",
+            max(100, limit // 2), 1, 10_000_000, 100)
+        return value if ok else None
+
     def show_text(self, title: str, text: str) -> None:
         """A read-only text, selectable (e.g. the mesh report)."""
         box = QMessageBox(self.parent)

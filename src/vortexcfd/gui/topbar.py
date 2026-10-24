@@ -201,7 +201,8 @@ class TopBar(QWidget):
         self._fit_width()
 
     def set_solver_state(self, reason: str | None, running: bool, warning: str | None = None,
-                         first_cell: str | None = None, compressibility: str | None = None) -> None:
+                         first_cell: str | None = None, compressibility: str | None = None,
+                         continue_tip: str | None = None) -> None:
         """Run Solver: "Stop" while running, enabled when ``reason`` is None, else disabled with
         the reason as tooltip; ``warning`` (checkMesh quality warnings, D-100), ``first_cell`` (the y+
         drift of collapsed layers, D-109) and ``compressibility`` (a Mach number above 0.3, D-168) are warnings, not
@@ -211,10 +212,10 @@ class TopBar(QWidget):
             button.setText("Stop")
             button.setEnabled(True)
             button.setToolTip("Stop the solver (writes the current iteration)")
-        else:
-            button.setText("Run Solver")
+        else:  # ``continue_tip``: the solution can be continued (D-171): "Continue Solver" and what it does
+            button.setText("Continue Solver" if continue_tip is not None else "Run Solver")
             button.setEnabled(reason is None)
-            button.setToolTip(reason if reason is not None else "Run simpleFoam on the mesh"
+            button.setToolTip(reason if reason is not None else (continue_tip or "Run simpleFoam on the mesh")
                               + (f"\nThe mesh has warnings ({warning}); the solver can run." if warning else "")
                               + (f"\nWarning: {first_cell}" if first_cell else "")
                               + (f"\nWarning: {compressibility}" if compressibility else ""))

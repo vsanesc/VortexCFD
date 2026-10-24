@@ -25,15 +25,16 @@ class SolverWorker(QObject):
         self._run: SolverRun | None = None
         self.gate = ThreadGate()  # the run's threads emit through it (D-164)
 
-    def start(self, case_dir: Path, timeout_s: float | None = None, stopping=None, cores: int = 1) -> None:
+    def start(self, case_dir: Path, timeout_s: float | None = None, stopping=None, cores: int = 1,
+              resume=None) -> None:
         """``stopping``: the run's StoppingCriteria (evaluated by SolverRun when OpenFOAM cannot);
-        ``cores``: MPI ranks (1: serial)."""
+        ``cores``: MPI ranks (1: serial); ``resume``: a continued solution (solver_run.ContinueFrom, D-171)."""
         if self.is_running():
             raise RuntimeError("the solver is already running")
         self._run = SolverRun(
             case_dir, on_line=self.gate.emitter(self.line), on_step=self.gate.emitter(self.step),
             on_done=self.gate.emitter(self.finished), on_stage=self.gate.emitter(self.stage),
-            timeout_s=timeout_s, runner_factory=self.runner_factory, stopping=stopping, cores=cores,
+            timeout_s=timeout_s, runner_factory=self.runner_factory, stopping=stopping, cores=cores, resume=resume,
         )
         self._run.start()
 

@@ -53,6 +53,7 @@ from vortexcfd.core.labels import choices, value_label
 from vortexcfd.core.project import Project
 from vortexcfd.foam.mesh_report import MeshReport
 from vortexcfd.foam.run_record import RunRecord
+from vortexcfd.foam.solver_run import STATE_LABELS
 from vortexcfd.foam.mesh_case import force_report_keys, part_level_range, part_patch_names, wall_patch_names
 from vortexcfd.geometry.cad import CadImportError
 from vortexcfd.geometry.loader import SurfaceLoadError
@@ -2529,7 +2530,12 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             return
         self.run_state.setText(record.label)
         self._set_warn(self.run_state, record.state != "criteria_met")
-        self.run_iterations.setText(str(record.iterations))
+        runs = record.segments
+        self.run_iterations.setText(
+            str(record.iterations) if len(runs) < 2 else  # a continued solution: each of its runs (D-171)
+            f"{record.iterations} in {len(runs)} runs: "
+            + ", ".join(f"{seg.get('first')}-{seg.get('last')} ({STATE_LABELS.get(seg.get('state'), seg.get('state'))})"
+                        for seg in runs))
         residuals = ", ".join(f"{k} {v:.3g}" for k, v in record.final_residuals.items())
         self.run_residuals.setText(residuals or "\u2014")
         self.run_criteria.setText("\n".join(record.criteria) or "none")

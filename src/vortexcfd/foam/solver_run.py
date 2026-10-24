@@ -168,6 +168,27 @@ def apply_stage2(case_dir: Path, stage2: dict) -> None:
     set_foam_entry(case_dir / "system" / "controlDict", "startFrom", "latestTime")
 
 
+@dataclass(frozen=True)
+class ContinueFrom:
+    """A run that continues a solution from its latest written time (D-171): the case starts from latestTime, the
+    log is appended, the postProcessing files go on in a new start-time directory (followed by the readers, D-126).
+
+    ``iteration``: the latest written time (the run starts after it); ``history``: the solution's earlier iterations
+    (its log), so the app-side criteria's windows reach back into them; ``reuse_decomposition``: a parallel case whose
+    processor directories hold the latest time on the same core count runs on them (no decomposePar); otherwise a
+    parallel run decomposes the latest time again; ``reconstruct_first``: the latest time is only in the processor
+    directories (reconstructPar first); ``stage``, ``switch_iteration`` and ``stage1``: a two-stage run resumes in the
+    stage it was in (stage 1's summary of the record: its switch and when its condition was met)."""
+
+    iteration: int
+    history: tuple[TimeStep, ...] = ()
+    reuse_decomposition: bool = False
+    reconstruct_first: bool = False
+    stage: int = 1
+    switch_iteration: int | None = None
+    stage1: dict | None = None
+
+
 def _end_time(case_dir: Path) -> int | None:
     try:
         return int(read_foam_file(Path(case_dir) / "system" / "controlDict")["endTime"])
@@ -198,6 +219,7 @@ class SolverRun:
         stopping: StoppingCriteria | None = None,
         cores: int = 1,
         binding: str = DEFAULT_BINDING,
+        resume: ContinueFrom | None = None,
     ) -> None:
         self.case_dir = Path(case_dir)
         self._on_line, self._on_step, self._on_done = on_line, on_step, on_done
@@ -228,6 +250,16 @@ class SolverRun:
         self._met: tuple[str, ...] = ()
         self._met_iteration: int | None = None
         self._pending: TimeStep | None = None  # completed iteration whose criteria are not checked yet
+        self.resume = resume  # a continued solution (D-171), None for a run from the start
+        if resume is not None:
+            self._history.extend(resume.history)  # the criteria's windows go on over the earlier iterations
+            if resume.stage == 2 and self._stage2 is not None and resume.switch_iteration is not None:
+                self._stage = 2  # a two-stage run resumes in stage 2 (D-126)
+                self._stage1_end = resume.switch_iteration
+                self._switch_reason = (resume.stage1 or {}).get("switch")
+                self._switch_met_at = (resume.stage1 or {}).get("condition_met_at")
+                if self._run_stopping is not None:
+                    self._stopping = stage2_criteria(self._run_stopping, resume.switch_iteration)
 
     def start(self) -> None:
         if self._thread is not None:
@@ -337,9 +369,10 @@ class SolverRun:
         if self._on_line is not None:
             self._on_line(text)
 
-    def _decompose(self) -> tuple[str | None, str | None]:
-        """(summary, error) of decomposePar."""
-        res = self._step(DECOMPOSE_COMMAND, "log.decomposePar", self._forward_line)
+    def _decompose(self, latest_time: bool = False) -> tuple[str | None, str | None]:
+        """(summary, error) of decomposePar (``latest_time``: only the latest time, the start of a continued run)."""
+        command = DECOMPOSE_COMMAND + (["-latestTime"] if latest_time else [])
+        res = self._step(command, "log.decomposePar", self._forward_line)
         if res.timed_out or res.stop_requested:  # stopped before the solver started
             with self._lock:
                 self._stop = True
@@ -379,14 +412,21 @@ class SolverRun:
         error: str | None = None
         decomposition: str | None = None
         reconstructed: bool | None = None
+        resume = self.resume
+        stopped_early = False
         try:
-            if self.cores > 1:
-                decomposition, error = self._decompose()
+            if resume is not None and resume.reconstruct_first and not resume.reuse_decomposition:
+                if not self._reconstruct():  # the latest time was only in the processor directories
+                    error = "reconstructPar failed: the latest time cannot be continued (see log.reconstructPar)"
+            if error is None and self.cores > 1 and not (resume is not None and resume.reuse_decomposition):
+                decomposition, error = self._decompose(latest_time=resume is not None)
                 with self._lock:
                     stopped_early = self._stop
-            if error is None and not (self.cores > 1 and stopped_early):
+            elif error is None and self.cores > 1:
+                self._forward_line(f"Continuing on the existing decomposition ({self.cores} subdomains)\n")
+            if error is None and not stopped_early:
                 command = solver_command(SOLVER, self.cores, self.binding)
-                res = self._step(command, LOG_NAME, self._line, clean_stop=True)
+                res = self._step(command, LOG_NAME, self._line, clean_stop=True, append=resume is not None)
                 if self._switch_ready(res):
                     self._stage1_duration = res.duration_s
                     res = self._second_stage(command)
@@ -404,9 +444,10 @@ class SolverRun:
             after = self.parser.criteria_met.after
             met_iteration = int(after) if after is not None else _iterations(self.parser)
         stages, switch_iteration = self._stages_summary()
+        iterations = self._last_iteration()
         if res is None:
             state = STOPPED if stop and error is None else CRASHED
-            result = SolverRunResult(state, None, _iterations(self.parser), final_residuals(self.parser),
+            result = SolverRunResult(state, None, iterations, final_residuals(self.parser),
                                      error, log_file, cores=self.cores, decomposition=decomposition,
                                      stages=stages, switch_iteration=switch_iteration)
         else:
@@ -418,11 +459,15 @@ class SolverRun:
             if state != CRITERIA_MET:
                 met, met_iteration = (), None
             result = SolverRunResult(
-                state, res.exit_code, _iterations(self.parser), final_residuals(self.parser),
+                state, res.exit_code, iterations, final_residuals(self.parser),
                 self.parser.crash or self.parser.fatal_error, res.log_file, self._stage1_duration + res.duration_s,
                 met, met_iteration, self.cores, decomposition, reconstructed, stages, switch_iteration,
             )
         return result
+
+    def _last_iteration(self) -> int:
+        """The last iteration of the solution: this run's, or the one it continued from when it ran none."""
+        return max(_iterations(self.parser), self.resume.iteration if self.resume is not None else 0)
 
     def _switch_ready(self, res: RunResult) -> bool:
         """Stage 1 ended at the switch (the app's clean stop, exit code 0, no user stop or timeout)."""
@@ -434,7 +479,7 @@ class SolverRun:
 
     def _second_stage(self, command: list[str]) -> RunResult:
         """The switch (D-126): stage-2 schemes into the case, then the solver again from the latest time."""
-        switch = _iterations(self.parser)
+        switch = self._last_iteration()
         self._stage1_end = switch
         apply_stage2(self.case_dir, self._stage2)
         with self._lock:
@@ -451,7 +496,7 @@ class SolverRun:
     def _stages_summary(self) -> tuple[tuple[dict, ...], int | None]:
         if self._stage2 is None:
             return (), None
-        last = _iterations(self.parser)
+        last = self._last_iteration()
         if self._stage == 1:
             return ({"stage": 1, "k_omega": STAGE1_SCHEME, "first": 1, "last": last, "switch": None,
                      "condition_met_at": None},), None

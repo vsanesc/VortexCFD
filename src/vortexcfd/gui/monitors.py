@@ -816,10 +816,17 @@ class MonitorsPanel(QWidget):
             return self.stopping
         return self.project_stopping
 
-    def start_run(self, case_dir: Path, stopping: StoppingCriteria | None = None) -> None:
-        """A solver run starts in ``case_dir``: forget the previous run, poll its files."""
-        self.clear()
+    def start_run(self, case_dir: Path, stopping: StoppingCriteria | None = None, keep_history: bool = False) -> None:
+        """A solver run starts in ``case_dir``: forget the previous run, poll its files. ``keep_history``: the run
+        continues the shown solution (D-171): its residual history stays and goes on."""
+        if keep_history:
+            self._timer.stop()
+            self.outcome = None
+            self.set_stage("")
+        else:
+            self.clear()
         self.stopping = self.run_stopping = stopping
+        self.run_criteria_known = True
         self.reports = ReportMonitor(case_dir)
         self.case_dir = Path(case_dir)
         self.outcome = (None, (), None)

@@ -41,6 +41,13 @@ class RunRecord:
     # The run's stopping criteria as it started (a core.model.StoppingCriteria dump, D-165): the monitors show them
     # as "the last run's" next to the project's current ones. None in older records.
     stopping: dict | None = None
+    # The run's segments (D-171): one dict per solver run that wrote into this solution, in order: first and last
+    # iteration, state, cores, solver time (s), and for a continued one the iteration it started from and whether
+    # the settings had changed ("settings_changed"). A record written before keeps none (one run).
+    segments: tuple[dict, ...] = ()
+    # Hash of the solution's settings without the iteration limit, the write interval and the stopping criteria
+    # (workflow/solving.solution_hash): Continue compares it to tell a changed set-up (D-171). "" in older records.
+    settings_hash: str = ""
 
     @property
     def label(self) -> str:
@@ -63,6 +70,8 @@ def _data(record: RunRecord) -> dict:
         **({"stages": [dict(s) for s in record.stages], "switch_iteration": record.switch_iteration}
            if record.stages else {}),
         **({"stopping": record.stopping} if record.stopping is not None else {}),
+        **({"segments": [dict(seg) for seg in record.segments]} if record.segments else {}),
+        **({"settings_hash": record.settings_hash} if record.settings_hash else {}),
     }
 
 
@@ -93,7 +102,9 @@ def read_run_record(case_dir: Path) -> RunRecord | None:
                            int(data.get("cores", 1)),
                            tuple(dict(s) for s in data.get("stages", [])),
                            None if data.get("switch_iteration") is None else int(data["switch_iteration"]),
-                           dict(data["stopping"]) if isinstance(data.get("stopping"), dict) else None)
+                           dict(data["stopping"]) if isinstance(data.get("stopping"), dict) else None,
+                           tuple(dict(seg) for seg in data.get("segments", [])),
+                           str(data.get("settings_hash", "")))
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
     if migrated:

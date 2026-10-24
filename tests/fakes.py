@@ -43,6 +43,10 @@ class FakeDialogs:
         self.line_export_path = None  # ask_line_export's answer (a Path or None)
         self.line_export_asked: list = []
         self.chart_export_path = None  # ask_chart_export's answer (a Path or None)
+        self.choices: list = []  # choose's answers in order (a choice key, or None: cancelled)
+        self.choices_asked: list = []  # (title, text, the choice keys)
+        self.more_iterations = None  # ask_more_iterations' answer
+        self.more_iterations_asked: list = []
         self.chart_export_asked: list = []
         self.report_omit = None  # ask_report_sections' answer; None keeps the project's choice
         self.report_sections_asked: list = []
@@ -96,6 +100,14 @@ class FakeDialogs:
     def ask_line_export(self, suggested, kind):
         self.line_export_asked.append((suggested, kind))
         return self.line_export_path
+
+    def choose(self, title, text, choices, default=None):
+        self.choices_asked.append((title, text, [key for key, _label in choices]))
+        return self.choices.pop(0) if self.choices else None
+
+    def ask_more_iterations(self, latest, limit):
+        self.more_iterations_asked.append((latest, limit))
+        return self.more_iterations
 
     def ask_chart_export(self, suggested, kind):
         self.chart_export_asked.append((suggested, kind))

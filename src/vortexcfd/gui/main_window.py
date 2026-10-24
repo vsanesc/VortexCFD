@@ -179,6 +179,19 @@ _LOGGED_LEVELS = {"warning": logging.WARNING, "error": logging.ERROR}
 MESSAGE_TIMEOUT_MS = 8000
 EMPTY = "\u2014"
 NO_PROJECT = "No project open"
+# Continuing a solution (D-171).
+MESH_CHANGED_TEXT = ("The mesh settings changed since this solution was computed, so it cannot be continued: a "
+                     "solution belongs to the mesh it was computed on and cannot go on on another one. Generate the "
+                     "mesh again (that clears the solution), or clear the solution now and run the solver once the "
+                     "mesh is generated.")
+SETTINGS_CHANGED_TEXT = ("The physics, the boundary conditions or the solver settings changed since this solution "
+                         "was computed (the mesh did not).\n\nContinue from the current solution: it is the "
+                         "starting point of the new set-up (its fields are kept, the new conditions apply from the "
+                         "next iteration, the histories go on).\nStart over: the solution is cleared and the solver "
+                         "starts from the free stream.")
+CLEAR_SOLUTION_TEXT = ("Delete the solution of this project: its written times, the postProcessing files, the "
+                       "processor directories, the run record and the solver logs? The mesh and the settings are "
+                       "kept.")
 ADD_PART_NOT_BUILT = "Not built yet: an empty part without a surface. Add parts with File > Import Geometry."
 
 
@@ -1813,8 +1826,22 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         current = report is not None and not self.mesh_stale
         warning = report.warnings_message() if current else None
         drift = report.first_cell_warning() if current else None  # the y+ drift of collapsed layers (D-109)
-        self.top_bar.set_solver_state(None if running else self.solve_readiness(), running, warning, drift,
-                                      self._compressibility_warning())
+        mode = self.solver_mode()
+        reason = None if running else self.solve_readiness()
+        continue_tip = None
+        if mode == "continue":
+            record = self.run_record
+            if self.mesh_stale:  # the button stays enabled: it explains and offers Clear solution (D-171)
+                reason, continue_tip = None, MESH_CHANGED_TEXT
+            elif reason is None:
+                limit = self._project.sim.solvers.iterations
+                continue_tip = (f"Continue the solution from iteration {record.iterations:,} (its latest written "
+                                f"time) to the iteration limit ({limit:,}); the histories and the stopping criteria "
+                                "go on. Solution > Clear solution starts over." if record.iterations < limit else
+                                f"Continue the solution from iteration {record.iterations:,}: it has reached the "
+                                f"iteration limit ({limit:,}), so you choose how many more iterations to run.")
+        self.top_bar.set_solver_state(reason, running, warning, drift, self._compressibility_warning(),
+                                      continue_tip=continue_tip if mode == "continue" else None)
         self._update_study_state()
 
     def _compressibility_warning(self) -> str | None:
@@ -1830,23 +1857,46 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         numbers = flow_numbers.project_numbers(self._project, last)
         return numbers.warning if numbers is not None else None
 
+    def solver_mode(self) -> str:
+        """"running" while the solver runs, "continue" when the shown solution can be continued (stopped or at its
+        iteration limit, with a written time; D-171), else "run"."""
+        if self.solver_worker.is_running():
+            return "running"
+        if not self.has_project:
+            return "run"
+        return "continue" if solving.can_continue(case_dir_for(self._project), self.run_record) else "run"
+
     def run_solver(self) -> None:
-        """Run Solver / Stop: write the solver files into the meshed case and run simpleFoam."""
+        """Run Solver / Continue Solver / Stop: start simpleFoam on the meshed case, or continue the stopped
+        solution from its latest written time (D-171), or stop the running solver."""
         if self.solver_worker.is_running():
             self.show_message("Stopping the solver...", "warning", log_it=False)
             log.warning("Stopping the solver at the user's request")
             self.solver_worker.request_stop()
             return
+        if self.solver_mode() == "continue":
+            self.continue_solver()
+            return
+        self._start_solver()
+
+    def _saved_for_run(self) -> bool:
+        """Save unsaved changes before a run (D-165); False (with a message) when the save fails."""
+        if self._project.dirty and self._project.path is not None:  # the results belong to the saved set-up
+            if not self.save():
+                self.show_message("The project could not be saved, so the solver was not started", "error")
+                return False
+            log.info("Saved the project before the run: its results belong to the saved set-up")
+        return True
+
+    def _start_solver(self) -> None:
+        """A run from the start: the solver files written into the meshed case (the previous results cleared)."""
         self._flush_edits()
         reason = self.solve_readiness()
         if reason is not None:
             self.show_message(reason, "error")
             return
-        if self._project.dirty and self._project.path is not None:  # the results belong to the saved set-up (D-165)
-            if not self.save():
-                self.show_message("The project could not be saved, so the solver was not started", "error")
-                return
-            log.info("Saved the project before the run: its results belong to the saved set-up")
+        if not self._saved_for_run():
+            return
         try:
             case_dir = solving.prepare_solver_case(self._project)
         except (solving.SolvingNotReady, MeshingNotReady) as exc:
@@ -1855,13 +1905,75 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         except OSError as exc:
             self.show_message(f"Could not write the solver case: {exc}", "error")
             return
+        self._continued = None
+        self._begin_run(case_dir, None)
+
+    def continue_solver(self) -> None:
+        """Continue Solver (D-171): the stopped solution goes on from its latest written time, its iteration count,
+        histories and criteria windows continuing. At the iteration limit it asks how many more iterations; with a
+        changed set-up (the mesh unchanged) it offers to continue from the current solution or to start over; with a
+        changed mesh it cannot continue and offers Clear solution."""
+        self._flush_edits()
+        record = self.run_record
+        if record is None or self.solver_mode() != "continue":
+            self._start_solver()
+            return
+        if self.mesh_stale:
+            if self.dialogs.choose("Continue solver", MESH_CHANGED_TEXT, [("clear", "Clear solution")]) == "clear":
+                self.clear_solution(confirm=False)
+            return
+        reason = self.solve_readiness()
+        if reason is not None:
+            self.show_message(reason, "error")
+            return
+        limit = self._project.sim.solvers.iterations
+        if record.iterations >= limit:
+            more = self.dialogs.ask_more_iterations(record.iterations, limit)
+            if more is None:
+                return
+            self._run_edit(lambda: self._project.update_solver(iterations=record.iterations + int(more)))
+        rewrite = False
+        if solving.settings_changed(self._project, record):
+            choice = self.dialogs.choose("Continue solver", SETTINGS_CHANGED_TEXT,
+                                         [("continue", "Continue from the current solution"),
+                                          ("start_over", "Start over")], default="continue")
+            if choice is None:
+                return
+            if choice == "start_over":
+                self._start_solver()
+                return
+            rewrite = True
+        if not self._saved_for_run():
+            return
+        try:
+            case_dir, resume = solving.prepare_continue(self._project, record, rewrite)
+        except (solving.SolvingNotReady, MeshingNotReady) as exc:
+            self.show_message(str(exc), "error")
+            return
+        except OSError as exc:
+            self.show_message(f"Could not write the solver case: {exc}", "error")
+            return
+        self._continued = (record, rewrite)
+        log.info("Continuing simpleFoam from iteration %d%s", resume.iteration,
+                 " with the changed set-up (the current solution is the starting point)" if rewrite else "")
+        self._begin_run(case_dir, resume)
+
+    def _begin_run(self, case_dir: Path, resume) -> None:
+        """Start the solver worker on ``case_dir`` (``resume``: a continued solution) and show it running."""
         self._solve_hash = solving.results_hash(self._project)
+        self._solve_settings_hash = solving.solution_hash(self._project)
         self._solve_stopping = self._project.sim.solvers.stopping.model_copy(deep=True)
         self.run_record = None
         self.properties.set_run_record(None)
-        self.monitors.start_run(case_dir, self._solve_stopping)
+        self.monitors.start_run(case_dir, self._solve_stopping, keep_history=resume is not None)
         if read_stages(case_dir) is not None:  # the wall-resolved mode's two stages (D-126)
-            self.monitors.set_stage(stage_text(1))
+            if resume is not None and resume.stage == 2:
+                stage1 = resume.stage1 or {}
+                self.monitors.set_stage(stage_text(2, resume.switch_iteration, str(stage1.get("switch") or "")))
+                if self._solve_stopping.criteria:
+                    self.monitors.set_run_stopping(stage2_criteria(self._solve_stopping, resume.switch_iteration))
+            else:
+                self.monitors.set_stage(stage_text(1))
         self.top_bar.set_run_state("Solving")
         log.info("Running simpleFoam in %s", case_dir)
         cores = self._project.sim.solvers.cores
@@ -1869,10 +1981,35 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             log.info("Running simpleFoam on %d cores (decomposePar, mpirun, reconstructPar)", cores)
         self._solve_case_dir = case_dir
         self.solver_worker.start(case_dir, timeout_s=self.solver_timeout_s, stopping=self._solve_stopping,
-                                 cores=cores)
+                                 cores=cores, resume=resume)
         self._update_results_stale()
         self._update_run_button()
         self._update_mesh_button()
+
+    def clear_solution(self, confirm: bool = True) -> None:
+        """Solution > Clear solution: delete the solver results (the written times, postProcessing, the processor
+        directories, the run record and the solver logs), after a confirmation; the mesh and the settings stay."""
+        if self.solver_worker.is_running() or self.mesh_worker.is_running():
+            self.show_message("Stop the running solver or mesh first.", "warning")
+            return
+        case = case_dir_for(self._project) if self.has_project else None
+        if case is None:
+            return
+        if confirm and not self.dialogs.confirm("Clear solution", CLEAR_SOLUTION_TEXT):
+            return
+        try:
+            removed = solving.clear_solution(case)
+        except (OSError, CaseDirectoryNotOursError) as exc:
+            self.show_message(f"Could not clear the solution: {exc}", "error")
+            return
+        log.info("Cleared the solution: %s", ", ".join(removed) or "nothing to remove")
+        self.run_record = None
+        self.properties.set_run_record(None)
+        self.monitors.clear()
+        self._update_results_stale(force=True)
+        self._update_results_tab()
+        self._update_run_button()
+        self.show_message("Solution cleared", "success", log_it=False)
 
     def _load_run_record(self, project: Project) -> None:
         """Show the last saved run of ``project`` (case/vortexcfd_run.json), if there is one."""
@@ -1935,16 +2072,32 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         if self._solve_stopping is not None and self._solve_stopping.criteria:
             self.monitors.set_run_stopping(stage2_criteria(self._solve_stopping, switch))
 
+    def _run_record_of(self, result, criteria, stopped_by, labels, stopping) -> RunRecord:
+        """The record of a finished run; a continued one keeps the solution's earlier segments (D-171)."""
+        previous, rewrite = getattr(self, "_continued", None) or (None, False)
+        segment = {"first": previous.iterations + 1 if previous is not None else 1, "last": result.iterations,
+                   "state": result.state, "cores": result.cores, "duration_s": round(result.duration_s, 1)}
+        earlier: tuple[dict, ...] = ()
+        residuals = dict(result.final_residuals)
+        duration = result.duration_s
+        if previous is not None:
+            segment.update(continued_from=previous.iterations, settings_changed=rewrite)
+            earlier = previous.segments or ({"first": 1, "last": previous.iterations, "state": previous.state,
+                                             "cores": previous.cores, "duration_s": previous.duration_s},)
+            duration += sum(float(seg.get("duration_s") or 0.0) for seg in earlier)
+            residuals = residuals or dict(previous.final_residuals)  # a stop before any new iteration
+        return RunRecord(result.state, result.iterations, residuals, self._solve_hash or "", result.exit_code,
+                         criteria, stopped_by, labels, result.met_iteration, round(duration, 1), result.cores,
+                         tuple(result.stages), result.switch_iteration, stopping.model_dump(),
+                         (*earlier, segment), getattr(self, "_solve_settings_hash", ""))
+
     def _on_solver_done(self, result) -> None:
         self.top_bar.set_run_state(None)
         case_dir, self._solve_case_dir = self._solve_case_dir, None
         stopping = self._solve_stopping or StoppingCriteria(criteria=[])
         criteria, stopped_by = convergence.criteria_outcome(stopping, result.criteria_met)
         labels = convergence.met_labels(stopping, result.criteria_met)
-        record = RunRecord(result.state, result.iterations, result.final_residuals,
-                           self._solve_hash or "", result.exit_code, criteria, stopped_by, labels,
-                           result.met_iteration, round(result.duration_s, 1), result.cores,
-                           tuple(result.stages), result.switch_iteration, stopping.model_dump())
+        record = self._run_record_of(result, criteria, stopped_by, labels, stopping)
         if case_dir is None:
             case_dir = case_dir_for(self._project)
         elif not self._is_current_case(case_dir):
