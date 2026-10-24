@@ -1863,7 +1863,10 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
                 reason, continue_tip = None, MESH_CHANGED_TEXT
             elif reason is None:
                 limit = self._project.sim.solvers.iterations
-                continue_tip = (f"Continue the solution from iteration {record.iterations:,} (its latest written "
+                continue_tip = (f"Continue the solution from iteration {record.iterations:,}: its stopping criteria "
+                                "were met, so you choose how many more iterations to run and may tighten the "
+                                "criteria." if record.state == CRITERIA_MET else
+                                f"Continue the solution from iteration {record.iterations:,} (its latest written "
                                 f"time) to the iteration limit ({limit:,}); the histories and the stopping criteria "
                                 "go on. Solution > Clear solution starts over." if record.iterations < limit else
                                 f"Continue the solution from iteration {record.iterations:,}: it has reached the "
@@ -1909,8 +1912,8 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         return numbers.warning if numbers is not None else None
 
     def solver_mode(self) -> str:
-        """"running" while the solver runs, "continue" when the shown solution can be continued (stopped or at its
-        iteration limit, with a written time; D-171), else "run"."""
+        """"running" while the solver runs, "continue" when the shown solution can be continued (stopped, at its
+        iteration limit or with its criteria met, with a written time; D-171, D-176), else "run"."""
         if self.solver_worker.is_running():
             return "running"
         if not self.has_project:
@@ -1996,7 +1999,8 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
 
     def continue_solver(self) -> None:
         """Continue Solver (D-171): the stopped solution goes on from its latest written time, its iteration count,
-        histories and criteria windows continuing. At the iteration limit it asks how many more iterations; with a
+        histories and criteria windows continuing. At the iteration limit it asks how many more iterations, after
+        "Criteria met" also whether to tighten the criteria (D-176); with a
         changed set-up (the mesh unchanged) it offers to continue from the current solution or to start over; with a
         changed mesh it cannot continue and offers Clear solution."""
         self._flush_edits()
@@ -2013,7 +2017,24 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             self.show_message(reason, "error")
             return
         limit = self._project.sim.solvers.iterations
-        if record.iterations >= limit:
+        if record.state == CRITERIA_MET:  # more iterations and, if wanted, tighter criteria in one edit (D-176)
+            stopping = self._project.sim.solvers.stopping
+            answer = self.dialogs.ask_continue_met(record.iterations, limit, stopping, record.met_iteration)
+            if answer is None:
+                return
+            more, values = answer
+            try:
+                tightened = convergence.with_values(stopping, values)
+            except (ValueError, IndexError) as exc:
+                self.show_message(f"Invalid stopping criterion value: {exc}", "error")
+                return
+            for i, value in sorted(values.items()):
+                log.info("Stopping criterion %s: %s %.6g -> %.6g", convergence.short_label(stopping.criteria[i]),
+                         convergence.value_field(stopping.criteria[i]),
+                         getattr(stopping.criteria[i], convergence.value_field(stopping.criteria[i])), value)
+            self._run_edit(lambda: self._project.update_solver(iterations=record.iterations + int(more),
+                                                               stopping=tightened.model_dump()))
+        elif record.iterations >= limit:
             more = self.dialogs.ask_more_iterations(record.iterations, limit)
             if more is None:
                 return

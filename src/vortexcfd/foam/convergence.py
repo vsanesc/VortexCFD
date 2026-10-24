@@ -86,6 +86,21 @@ def short_label(criterion) -> str:
     return f"{quantity_label(criterion.quantity)} asymptotic"
 
 
+def value_field(criterion) -> str:
+    """The name of the criterion's value: a residual criterion's threshold, an asymptotic or mean-stable criterion's
+    tolerance (what Continue after "Criteria met" offers to tighten, D-176)."""
+    return "threshold" if isinstance(criterion, ResidualCriterion) else "tolerance"
+
+
+def with_values(stopping: StoppingCriteria, values: dict[int, float]) -> StoppingCriteria:
+    """``stopping`` with the values (``value_field``) of the criteria at the indices of ``values`` replaced,
+    validated (a value must be positive)."""
+    data = stopping.model_dump()
+    for i, value in values.items():
+        data["criteria"][i][value_field(stopping.criteria[i])] = float(value)
+    return StoppingCriteria.model_validate(data)
+
+
 def is_native(stopping: StoppingCriteria) -> bool:
     """True when OpenFOAM's runTimeControl stops the run (only residual criteria); False when the
     app evaluates the criteria (at least one asymptotic criterion) or there are none."""

@@ -494,7 +494,7 @@ settled the open ones on 2026-10-17.
 240. **[CLOSED (owner, 2026-10-24): checked on the real display]** **The 16 px icon (D-175).** At 16 px the four arms are still told apart, but the centre is soft
      (run/gui_review/gui2/item11/icon_16px_x10.png). Keep it, or should the generator draw a simplified small variant
      (fewer, thicker arms) for 16 and 24 px?
-241. **[OPEN]** **Continue Solver is offered after a stop or at the iteration limit only (D-171).** A run whose criteria
+241. **[CLOSED (task gui-2 owner review, 2026-10-24): Continue is offered after "Criteria met" too, with the more iterations and the criteria's values in one dialog (D-176)]** **Continue Solver is offered after a stop or at the iteration limit only (D-171).** A run whose criteria
      were met runs from the start again (Solution > Clear Solution is not needed). Continuing a converged run with
      tighter criteria would also be possible. Offer Continue after "Criteria met" too?
 242. **[ACCEPTED (owner, 2026-10-24)]** **Shortcuts (D-173): F5 Run / Continue, Shift+F5 Stop, F6 Generate Mesh.** F6 was free and sits next to F5.

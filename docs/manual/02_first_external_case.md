@@ -92,10 +92,12 @@ Live box stops or resumes following). **Solution > Write Fields Now** writes the
 without stopping the run: the Results Scene shows that iteration (in a parallel run it reads the decomposed case;
 the time is reconstructed when the run ends, so ParaView opens it too).
 
-**Continue Solver.** When a run was stopped, or reached the iteration limit, Run Solver becomes **Continue Solver**
-(F5): it goes on from the latest written time; the iteration numbers, the residual and report histories and the
-stopping criteria's windows continue (the Solvers node lists each run: "80 in 2 runs: 1-32 (Stopped), 33-80
+**Continue Solver.** When a run was stopped, reached the iteration limit or met its stopping criteria, Run Solver
+becomes **Continue Solver** (F5): it goes on from the latest written time; the iteration numbers, the residual and
+report histories and the stopping criteria's windows continue (the Solvers node lists each run: "80 in 2 runs: 1-32 (Stopped), 33-80
 (Iteration limit)"). The iteration limit is the total: at the limit Continue asks how many more iterations to run.
+After "Criteria met" the same question comes with the criteria's values (each threshold or tolerance editable) to
+tighten them; the changes are saved in the project, and a criterion that is still met stops the run again at once.
 A two-stage (wall-resolved) run resumes in its stage; a parallel run keeps its decomposition on the same cores. If
 you changed the physics, the boundary conditions or the solver settings (not the mesh), Continue asks whether to
 continue from the current solution (it is the starting point of the new set-up) or start over; after a mesh change

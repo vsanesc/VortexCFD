@@ -103,6 +103,14 @@ class Dialogs:
             max(100, limit // 2), 1, 10_000_000, 100)
         return value if ok else None
 
+    def ask_continue_met(self, latest: int, limit: int, stopping, met_iteration: int | None):
+        """Continue after "Criteria met" (D-176): (more iterations, {criterion index: new value}) or None
+        (cancelled)."""
+        from vortexcfd.gui.continue_dialog import ContinueMetDialog
+
+        dialog = ContinueMetDialog(latest, limit, stopping, met_iteration, self.parent)
+        return dialog.answer() if dialog.exec() else None
+
     def show_text(self, title: str, text: str) -> None:
         """A read-only text, selectable (e.g. the mesh report)."""
         box = QMessageBox(self.parent)

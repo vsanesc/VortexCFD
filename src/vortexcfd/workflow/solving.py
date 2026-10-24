@@ -335,8 +335,9 @@ LIVE_FIELDS = ("live_view", "live_view_interval")
 
 # -- continuing a solution (D-171) ---------------------------------------------------------------------------------
 
-# The run states a solution can be continued from: the user stopped it, or it reached the iteration limit.
-CONTINUABLE = ("stopped", "iteration_limit")
+# The run states a solution can be continued from: the user stopped it, it reached the iteration limit, or its
+# stopping criteria were met (continued with more iterations and, if wanted, tighter criteria; D-176).
+CONTINUABLE = ("stopped", "iteration_limit", "criteria_met")
 
 
 def latest_iteration(case_dir: Path) -> tuple[int | None, int | None]:
@@ -354,8 +355,8 @@ def processor_count(case_dir: Path) -> int:
 
 
 def can_continue(case_dir: Path | None, record) -> bool:
-    """Whether the solution of ``case_dir`` can be continued: a run that was stopped or reached its limit, and a
-    written time to start from."""
+    """Whether the solution of ``case_dir`` can be continued: a run that was stopped, reached its limit or met its
+    criteria, and a written time to start from."""
     if case_dir is None or record is None or record.state not in CONTINUABLE:
         return False
     latest, in_processors = latest_iteration(case_dir)

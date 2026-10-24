@@ -48,6 +48,8 @@ class FakeDialogs:
         self.choices_asked: list = []  # (title, text, the choice keys)
         self.more_iterations = None  # ask_more_iterations' answer
         self.more_iterations_asked: list = []
+        self.continue_met = None  # ask_continue_met's answer: (more iterations, {index: value}) or None
+        self.continue_met_asked: list = []
         self.chart_export_asked: list = []
         self.report_omit = None  # ask_report_sections' answer; None keeps the project's choice
         self.report_sections_asked: list = []
@@ -109,6 +111,10 @@ class FakeDialogs:
     def ask_more_iterations(self, latest, limit):
         self.more_iterations_asked.append((latest, limit))
         return self.more_iterations
+
+    def ask_continue_met(self, latest, limit, stopping, met_iteration):
+        self.continue_met_asked.append((latest, limit, stopping.model_copy(deep=True), met_iteration))
+        return self.continue_met
 
     def ask_chart_export(self, suggested, kind):
         self.chart_export_asked.append((suggested, kind))
