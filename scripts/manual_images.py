@@ -28,6 +28,8 @@ import numpy as np  # noqa: E402
 import pyvista as pv  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from vortexcfd.gui.teardown import dispose  # noqa: E402
+
 REPO = Path(__file__).resolve().parent.parent
 RUN = REPO / "run" / "manual"
 OUT = REPO / "docs" / "manual" / "images"
@@ -113,7 +115,7 @@ def sphere(app) -> None:
     _wait(app, lambda: not w.solver_worker.is_running() and read_run_record(project.folder / "case") is not None, 1800)
     log.info("solver: %.0f s", time.monotonic() - start)
     w.save()
-    w.close()
+    dispose(w)
 
 
 def _copy_project(source: Path, name: str) -> Path:
@@ -208,7 +210,7 @@ def images(app) -> None:
     case = project.folder / "case"
     png = report.residual_png((case / "log.simpleFoam").read_text())
     (OUT / "sphere_residuals.png").write_bytes(png)
-    w.close()
+    dispose(w)
     # -- the NACA 0012 at 15 degrees: the near field, the wall-resolved layers ------------------------------------
     naca = _copy_project(REPO / "run" / "validation" / "naca0012" / "r3_alpha_15", "naca0012_15")
     w = _open(app, naca / "naca0012.json", ("naca0012",))
@@ -224,7 +226,7 @@ def images(app) -> None:
     _field(w, "U_mag")
     _camera(w, (0.5, -5.0, 0.0), (0.5, 0.0, 0.0), parallel_scale=0.6)
     _export(w, "naca_velocity_15deg.png")
-    w.close()
+    dispose(w)
     sweep = json.loads((REPO / "tests" / "data" / "sweep_naca0012_r3.json").read_text())
     points = [polar_sweep.SweepPoint(**p) for p in sweep["points"]]  # the round 3 results (tests/data/README.md)
     (OUT / "naca_polar.png").write_bytes(report.polar_png(points))
@@ -246,7 +248,7 @@ def images(app) -> None:
     samples = w.results_view.line_samples[line_id]
     line_plot.write_png(samples, OUT / "pipe_axis_line_plot.png", "Pipe axis")
     log.info("pipe u_ref %.4g, direction %s", flow_speed(w.project), flow_direction())
-    w.close()
+    dispose(w)
 
 
 def main() -> int:
@@ -259,4 +261,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        code = main()
+    finally:
+        from vortexcfd.gui.teardown import finish
+
+        finish()  # every window and plotter ended while the application exists (D-164)
+    sys.exit(code)

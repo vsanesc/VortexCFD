@@ -15,6 +15,7 @@ from PySide6.QtCore import QObject, Signal
 
 from vortexcfd.core.project import Project
 from vortexcfd.geometry.checks import cached_report, surface_report
+from vortexcfd.gui.thread_gate import ThreadGate
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ class GeometryWorker(QObject):
         self._thread: threading.Thread | None = None
         self._next = 0
         self.label = ""
+        self.gate = ThreadGate()  # closed by shutdown(): no emission once the owner may be deleted (D-164)
 
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
@@ -62,12 +64,12 @@ class GeometryWorker(QObject):
             return
         self._emit(self.finished, job, result)
 
-    @staticmethod
-    def _emit(signal, *args) -> None:
-        try:
-            signal.emit(*args)
-        except RuntimeError:  # the window (and this QObject) was deleted meanwhile
-            pass
+    def _emit(self, signal, *args) -> None:
+        self.gate.emit(signal, *args)
+
+    def shutdown(self) -> None:
+        """Before the owner is deleted: a job still running finishes without reporting (D-164)."""
+        self.gate.close()
 
     def wait(self, timeout: float | None = None) -> bool:
         """Join the running job's thread (tests); True when no job is left running."""
@@ -89,6 +91,7 @@ class OverlapChecker(QObject):
         super().__init__(parent)
         self._lock = threading.Lock()
         self._pending: set[str] = set()
+        self.gate = ThreadGate()  # D-164
         self._done.connect(self._deliver)
 
     def _deliver(self, key: str) -> None:
@@ -117,10 +120,14 @@ class OverlapChecker(QObject):
                 surface_prep.crossing_parts(snap)
             except Exception:  # reported as "not checked" by the panel
                 log.exception("The overlap check failed")
-            GeometryWorker._emit(self._done, key)
+            self.gate.emit(self._done, key)
 
         threading.Thread(target=run, daemon=True, name="overlaps").start()
         return True
+
+    def shutdown(self) -> None:
+        """Before the owner is deleted: a check still running finishes without reporting (D-164)."""
+        self.gate.close()
 
     def busy(self) -> bool:
         with self._lock:
@@ -141,6 +148,7 @@ class IntersectionChecker(QObject):
         self._pending: set[tuple[str, str]] = set()  # until the GUI thread has handled the result
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
+        self.gate = ThreadGate()  # D-164
         self._done.connect(self._deliver)
 
     def _deliver(self, path: str, units: str, error) -> None:
@@ -177,8 +185,17 @@ class IntersectionChecker(QObject):
         with self._lock:
             return bool(self._pending)
 
+    def shutdown(self) -> None:
+        """Before the owner is deleted: the queued checks are dropped, the one running finishes without reporting
+        and the thread ends (D-164)."""
+        self.gate.close()
+        with self._lock:
+            while not self._queue.empty():
+                self._queue.get_nowait()
+            self._pending.clear()
+
     def _loop(self) -> None:
-        while True:
+        while self.gate.is_open:
             try:
                 key = self._queue.get(timeout=0.5)
             except queue.Empty:
@@ -191,6 +208,6 @@ class IntersectionChecker(QObject):
             try:
                 surface_report(Path(path), units)
             except Exception as exc:  # unreadable or vanished file
-                GeometryWorker._emit(self._done, path, units, str(exc))
+                self.gate.emit(self._done, path, units, str(exc))
                 continue
-            GeometryWorker._emit(self._done, path, units, None)
+            self.gate.emit(self._done, path, units, None)

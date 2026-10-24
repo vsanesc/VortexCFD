@@ -10,6 +10,7 @@ from PySide6.QtCore import QObject, Signal
 
 from vortexcfd.foam.runner import FoamRun
 from vortexcfd.foam.solver_run import SolverRun
+from vortexcfd.gui.thread_gate import ThreadGate
 
 
 class SolverWorker(QObject):
@@ -22,6 +23,7 @@ class SolverWorker(QObject):
         super().__init__(parent)
         self.runner_factory = runner_factory  # tests replace it with a fake runner
         self._run: SolverRun | None = None
+        self.gate = ThreadGate()  # the run's threads emit through it (D-164)
 
     def start(self, case_dir: Path, timeout_s: float | None = None, stopping=None, cores: int = 1) -> None:
         """``stopping``: the run's StoppingCriteria (evaluated by SolverRun when OpenFOAM cannot);
@@ -29,8 +31,8 @@ class SolverWorker(QObject):
         if self.is_running():
             raise RuntimeError("the solver is already running")
         self._run = SolverRun(
-            case_dir, on_line=self.line.emit, on_step=self.step.emit, on_done=self.finished.emit,
-            on_stage=self.stage.emit,
+            case_dir, on_line=self.gate.emitter(self.line), on_step=self.gate.emitter(self.step),
+            on_done=self.gate.emitter(self.finished), on_stage=self.gate.emitter(self.stage),
             timeout_s=timeout_s, runner_factory=self.runner_factory, stopping=stopping, cores=cores,
         )
         self._run.start()
@@ -42,6 +44,11 @@ class SolverWorker(QObject):
 
     def is_running(self) -> bool:
         return self._run is not None and self._run.is_running()
+
+    def shutdown(self) -> None:
+        """Before the owner is deleted: stop a run and never emit again (D-164)."""
+        self.request_stop()
+        self.gate.close()
 
     def wait(self, timeout: float | None = None):
         return self._run.wait(timeout) if self._run is not None else None

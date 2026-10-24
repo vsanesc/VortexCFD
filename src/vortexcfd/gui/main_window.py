@@ -352,6 +352,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self._root_item: QTreeWidgetItem | None = None
         self._filter = ""
         self._first_show = True
+        self._released = False  # _release_background ran (D-164)
         self._saved_sizes: dict[str, list[int]] = {}
         # GUI-side visibility of each part (by name); Task 2.2 wires it to the viewer.
         self.part_visibility: dict[str, bool] = {}
@@ -3462,19 +3463,30 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             event.ignore()
             return
         self.geometry_worker.wait(30)  # a job may still write into the project folder
-        if self.mesh_worker.is_running():
-            self.mesh_worker.request_stop()
-        if self.solver_worker.is_running():
-            self.solver_worker.request_stop()
-        for worker in (self.study_worker, self.sweep_worker):
-            if worker.is_running():
-                worker.request_stop()
         self.monitors.save_windows()  # remembered for the next start, then docked (D-156)
         self.dock_properties()  # a window of its own would keep the application open
-        if self.viewer is not None:
-            self.viewer.close()  # release VTK interactor resources
-        console_log.detach(self._console_handler)
+        self._release_background()
         super().closeEvent(event)
+
+    def _release_background(self) -> None:
+        """Everything that outlives the window's widgets, ended before Qt can delete them (D-164), once: the
+        worker threads' signals are closed (a run is asked to stop; a thread still working never emits again),
+        the console no longer receives log records, and the viewer's VTK render window and interactor are closed
+        (finalized) while their Qt widget still exists."""
+        if self._released:
+            return
+        self._released = True
+        for worker in (self.mesh_worker, self.solver_worker, self.study_worker, self.sweep_worker,
+                       self.geometry_worker, self.intersections, self.overlaps, self.results_loader):
+            worker.shutdown()
+        console_log.detach(self._console_handler)
+        if self.viewer is not None:
+            self.viewer.close()  # pyvista finalizes the render window and the interactor
+
+    def event(self, event) -> bool:
+        if event.type() == QEvent.Type.DeferredDelete:  # deleted without an accepted close (tests, scripts)
+            self._release_background()
+        return super().event(event)
 
 
 def manual_path() -> Path | None:

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from vortexcfd.gui.theme import DARK, Metrics, Theme, set_text_role
+from vortexcfd.gui.thread_gate import ThreadGate
 
 APP_LOGGER = "vortexcfd"
 
@@ -93,12 +94,10 @@ class ConsoleHandler(logging.Handler):
     def __init__(self, panel: ConsolePanel) -> None:
         super().__init__(logging.INFO)
         self._panel = panel
+        self.gate = ThreadGate()  # log records come from any thread (D-164); closed by detach
 
     def emit(self, record: logging.LogRecord) -> None:
-        try:
-            self._panel.log_record.emit(record.created, record.levelname, record.getMessage())
-        except RuntimeError:  # the panel's C++ object is already gone
-            pass
+        self.gate.emit(self._panel.log_record, record.created, record.levelname, record.getMessage())
 
 
 def attach(panel: ConsolePanel) -> ConsoleHandler:
@@ -112,5 +111,7 @@ def attach(panel: ConsolePanel) -> ConsoleHandler:
 
 
 def detach(handler: ConsoleHandler) -> None:
+    """The panel no longer receives records; a record being emitted from another thread is waited for."""
     logging.getLogger(APP_LOGGER).removeHandler(handler)
+    handler.gate.close()
 

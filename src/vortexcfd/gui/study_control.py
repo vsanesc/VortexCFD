@@ -17,6 +17,7 @@ from vortexcfd.workflow import internal, mesh_study, meshing, polar_sweep
 from vortexcfd.workflow.meshing import MeshingNotReady
 from vortexcfd.gui.study_rows import format_seconds
 from vortexcfd.gui.study_windows import MeshStudyWindow, PolarSweepWindow
+from vortexcfd.gui.thread_gate import ThreadGate
 
 log = logging.getLogger("vortexcfd.gui")
 
@@ -41,13 +42,15 @@ class StudyWorker(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._run = None
+        self.gate = ThreadGate()  # the run's thread emits through it (D-164)
         self._done.connect(self._on_done, Qt.ConnectionType.QueuedConnection)
 
     def start(self, factory) -> None:
         """``factory(on_line, on_progress, on_done)`` returns an unstarted run."""
         if self.is_running():
             raise RuntimeError("a study is already running")
-        self._run = factory(self.line.emit, self.progress.emit, self._done.emit)
+        gate = self.gate
+        self._run = factory(gate.emitter(self.line), gate.emitter(self.progress), gate.emitter(self._done))
         self._run.start()
 
     def _on_done(self, record) -> None:
@@ -58,6 +61,11 @@ class StudyWorker(QObject):
     def request_stop(self) -> None:
         if self._run is not None:
             self._run.request_stop()
+
+    def shutdown(self) -> None:
+        """Before the owner is deleted: stop a run and never emit again (D-164)."""
+        self.request_stop()
+        self.gate.close()
 
     def is_running(self) -> bool:
         return self._run is not None and self._run.is_running()

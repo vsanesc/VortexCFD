@@ -23,6 +23,8 @@ isolate_settings("vortexcfd_gui_review_")  # never the user's settings (D-141)
 
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 
+from vortexcfd.gui.teardown import dispose  # noqa: E402
+
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "scripts"))
@@ -79,7 +81,7 @@ def shoot(out: Path, screens: list[str]) -> None:
                 dialog.show()
                 gr._settle(app)
                 _shoot_sizes(app, dialog, out, screen, interface, (dialog.width(), dialog.height()))
-                dialog.close()
+                dispose(dialog)
             elif screen == "start":
                 from vortexcfd.gui.recent import RecentProjects
                 from vortexcfd.gui.start_dialogs import StartDialog
@@ -93,11 +95,11 @@ def shoot(out: Path, screens: list[str]) -> None:
                 _shoot_sizes(app, dialog, out, screen, interface, (dialog.width(), dialog.height()))
                 dialog.show_open_panel()
                 _shoot_sizes(app, dialog, out, "start_open", interface, (dialog.width(), dialog.height()))
-                dialog.close()
+                dispose(dialog)
             elif screen == "main":
                 window = _main_window(app, vcfd)
                 _shoot_sizes(app, window, out, screen, interface, gr.SIZE)
-                window.close()
+                dispose(window)
             elif screen == "properties":
                 window = _main_window(app, vcfd)
                 window.detach_properties()
@@ -105,7 +107,7 @@ def shoot(out: Path, screens: list[str]) -> None:
                 panel = window.properties_window
                 _shoot_sizes(app, panel, out, screen, interface, (panel.width(), panel.height()))
                 window.dock_properties()
-                window.close()
+                dispose(window)
             elif screen == "compare":
                 window = _main_window(app, vcfd)
                 from vortexcfd.workflow import snapshots
@@ -118,7 +120,7 @@ def shoot(out: Path, screens: list[str]) -> None:
                 window.compare_tab.click()
                 window.compare_view.check(window.compare_view.keys()[1:3])
                 _shoot_sizes(app, window, out, screen, interface, gr.SIZE)
-                window.close()
+                dispose(window)
             elif screen == "foam_file":
                 window = _main_window(app, vcfd)
                 window.dialogs.foam_files = []
@@ -131,8 +133,8 @@ def shoot(out: Path, screens: list[str]) -> None:
                 viewer.show()
                 gr._settle(app)
                 _shoot_sizes(app, viewer, out, screen, interface, (viewer.width(), viewer.height()))
-                viewer.close()
-                window.close()
+                dispose(viewer)
+                dispose(window)
             elif screen == "monitors":
                 window = _main_window(app, vcfd)
                 for key in ("residuals", "criteria"):
@@ -144,7 +146,7 @@ def shoot(out: Path, screens: list[str]) -> None:
                     gr._settle(app)
                     _shoot_sizes(app, panel, out, f"monitor_{key}", interface, (panel.width(), panel.height()))
                     window.dock_monitor(key)
-                window.close()
+                dispose(window)
             else:
                 log.warning("unknown screen %s", screen)
 
@@ -160,4 +162,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        code = main()
+    finally:
+        from vortexcfd.gui.teardown import finish
+
+        finish()  # every window and plotter ended while the application exists (D-164)
+    sys.exit(code)

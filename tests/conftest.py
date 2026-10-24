@@ -66,17 +66,14 @@ def flush_deleted_widgets():
     pytest-qt closes widgets and calls deleteLater(), but the deferred deletes are only run by
     an event loop, so every test left its whole MainWindow (menus, VTK widgets) behind and
     each later test got slower (the application stylesheet is re-applied to every live widget).
-    This autouse fixture is set up before qtbot, so it is torn down after qtbot closed them.
+    This autouse fixture is set up before qtbot, so it is torn down after qtbot closed them. A main window ends
+    its worker threads' signals and its viewer before it is deleted (D-164).
     """
     yield
-    from PySide6.QtCore import QEvent
-    from PySide6.QtWidgets import QApplication
+    from vortexcfd.gui.teardown import close_plotters, flush_deletions
 
-    app = QApplication.instance()
-    if app is not None:
-        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-        app.processEvents()
-        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    close_plotters()  # a plotter a test left open is finalized before Qt deletes its widget (D-164)
+    flush_deletions()
 
 
 @pytest.fixture(scope="session")

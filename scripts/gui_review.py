@@ -26,6 +26,8 @@ from PySide6.QtCore import QPoint, Qt  # noqa: E402
 from PySide6.QtGui import QImage, QPainter  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from vortexcfd.gui.teardown import dispose  # noqa: E402
+
 REPO = Path(__file__).resolve().parent.parent
 SOURCE = REPO / "run" / "manual" / "sphere"
 WORK = REPO / "run" / "gui_review" / "projects"
@@ -122,7 +124,7 @@ def shoot(out: Path, screens: list[str]) -> None:
             if hasattr(dialog, "show_open_panel"):  # the welcome screen's second page (Part B)
                 dialog.show_open_panel()
                 _grab(app, dialog, out / "start_open.png")
-            dialog.close()
+            dispose(dialog)
         elif screen == "new_sim":
             from vortexcfd.core.presets import PresetStore
             from vortexcfd.gui.settings_store import presets_dir
@@ -137,7 +139,7 @@ def shoot(out: Path, screens: list[str]) -> None:
             _grab(app, dialog, out / "new_simulation.png")
             dialog.name_edit.setText("")
             _grab(app, dialog, out / "new_simulation_empty_name.png")
-            dialog.close()
+            dispose(dialog)
         elif screen.startswith("node:") or screen.startswith("menu:"):
             window = window or _window(app, vcfd)
             what, spec = screen.split(":", 1)
@@ -213,7 +215,7 @@ def shoot(out: Path, screens: list[str]) -> None:
             _grab(app, window, out / "compare_setup.png")
             window.scene_tab.click()
     if window is not None:
-        window.close()
+        dispose(window)
 
 
 def main() -> int:
@@ -230,4 +232,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        code = main()
+    finally:
+        from vortexcfd.gui.teardown import finish
+
+        finish()  # every window and plotter ended while the application exists (D-164)
+    sys.exit(code)
