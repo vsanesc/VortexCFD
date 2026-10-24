@@ -35,7 +35,7 @@ import gui_review as gr  # noqa: E402
 
 LARGE = (1920, 1080)
 SCREENS = ["new_sim", "start", "main", "properties", "compare", "foam_file", "monitors", "report_chart",
-           "solution_menu"]
+           "solution_menu", "save_as"]
 log = logging.getLogger("gui_review_sizes")
 
 
@@ -213,6 +213,16 @@ def shoot(out: Path, screens: list[str]) -> None:
                 _shoot_sizes(app, viewer, out, screen, interface, (viewer.width(), viewer.height()))
                 dispose(viewer)
                 dispose(window)
+            elif screen == "save_as":  # the Save As dialog with "Copy mesh and results" (D-174)
+                from vortexcfd.gui.start_dialogs import DuplicateProjectDialog
+                from vortexcfd.workflow import duplicate as dup
+
+                size = dup.plan_size(dup.copy_plan(vcfd.parent))
+                dialog = DuplicateProjectDialog("sphere", gr.WORK, None, size)
+                dialog.show()
+                gr._settle(app)
+                _shoot_sizes(app, dialog, out, screen, interface, (dialog.width(), dialog.height()))
+                dispose(dialog)
             elif screen == "solution_menu":  # the Solution menu (D-173), open, with its tooltips on
                 window = _main_window(app, vcfd)
                 menu = window.solution_menu

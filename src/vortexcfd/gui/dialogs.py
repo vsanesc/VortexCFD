@@ -237,11 +237,12 @@ class Dialogs:
         dialog.exec()
         return dialog.result_spec
 
-    def ask_duplicate(self, current_name: str, current_parent: Path):
-        """Save As (duplicate project, D-079): (name, parent folder) or None (cancelled)."""
+    def ask_duplicate(self, current_name: str, current_parent: Path, copy_size: int | None = None):
+        """Save As (duplicate project, D-079, D-174): (name, parent folder, copy the mesh and results) or None
+        (cancelled); ``copy_size``: the bytes the copy would take (None: nothing to copy)."""
         from vortexcfd.gui.start_dialogs import DuplicateProjectDialog
 
-        dialog = DuplicateProjectDialog(current_name, current_parent, self.parent)
+        dialog = DuplicateProjectDialog(current_name, current_parent, self.parent, copy_size)
         dialog.exec()
         return dialog.result_target
 

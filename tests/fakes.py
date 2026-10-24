@@ -38,6 +38,7 @@ class FakeDialogs:
         self.domain_asked: list = []
         self.duplicate_target = None  # ask_duplicate's answer: (name, parent folder) or None
         self.duplicate_asked: list = []
+        self.duplicate_sizes: list = []
         self.export_spec = None  # ask_export_image's answer (an ExportSpec or None)
         self.export_asked: list = []
         self.line_export_path = None  # ask_line_export's answer (a Path or None)
@@ -173,6 +174,7 @@ class FakeDialogs:
         self.domain_asked.append((list(part_names), list(checked)))
         return self.domain_fields
 
-    def ask_duplicate(self, current_name, current_parent):
+    def ask_duplicate(self, current_name, current_parent, copy_size=None):
         self.duplicate_asked.append((current_name, current_parent))
+        self.duplicate_sizes.append(copy_size)  # the size the dialog shows (D-174)
         return self.duplicate_target

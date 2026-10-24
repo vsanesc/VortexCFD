@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QButtonGroup,
     QMainWindow,
+    QProgressDialog,
     QPushButton,
     QSlider,
     QSizePolicy,
@@ -101,6 +102,7 @@ from vortexcfd.gui.mesh_worker import MeshWorker
 from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam.run_record import RunRecord, read_run_record, record_stopping, write_run_record
 from vortexcfd.foam.solver_run import CRITERIA_MET, read_stages, stage2_criteria
+from vortexcfd.workflow import duplicate as duplicate_files
 from vortexcfd.workflow import flow_numbers, solving
 from vortexcfd.gui.solver_worker import SolverWorker
 from vortexcfd.gui.study_control import StudyControlMixin
@@ -111,6 +113,7 @@ from vortexcfd.gui.panel_widgets import FloatingPanel
 from vortexcfd.foam.results import latest_result_time
 from vortexcfd.gui import paraview
 from vortexcfd.gui.colormaps import COLORMAPS, DEFAULT_COLORMAP
+from vortexcfd.gui.copy_worker import CopyWorker
 from vortexcfd.gui.results_scene import DISPLAY_MODES, RANGE_MODES, ResultsLoader, ResultsView, apply_view
 from vortexcfd.gui.section_tool import SectionTool
 from vortexcfd.foam.mesh_record import MeshRecord, read_mesh_record, write_mesh_record
@@ -593,6 +596,10 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.viewer = None
         self.results_view: ResultsView | None = None
         self.results_loader = ResultsLoader(self)
+        self.copy_worker = CopyWorker(self)  # Save As with the mesh and results (D-174)
+        self.copy_worker.progress.connect(self._on_copy_progress)
+        self.copy_worker.finished.connect(self._on_copy_finished)
+        self.copy_progress = None
         self.results_loader.loaded.connect(self._on_results_loaded)
         self.results_loader.failed.connect(self._on_results_failed)
         self._results_shown_time: str | None = None  # time of the data in results_view
@@ -3545,29 +3552,84 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         return self._save_to(None)
 
     def save_as(self) -> bool:
-        """File > Save As (duplicate project, D-079): a new project folder <parent>/<name>/ with the
-        current state and a copy of every referenced geometry file; case/ is not copied, so the
-        duplicate opens without mesh and results. The original project and folder are not changed.
-        An in-memory project without a folder (scripts, tests) gets the save-file flow instead."""
+        """File > Save As (duplicate project, D-079, D-174): a new project folder <parent>/<name>/ with the current
+        state and a copy of every referenced geometry file and, when "Copy mesh and results" is ticked (the default),
+        of the mesh and results (workflow/duplicate: copied on a background worker with progress and Cancel; a
+        cancelled or failed copy removes the new folder and the window stays on the original). The original project
+        and folder are not changed. An in-memory project without a folder (scripts, tests) gets the save-file flow
+        instead. True when the window shows the duplicate (or will, once its copy has finished)."""
         self._flush_edits()
         if self._project.path is None:
             return self._save_file_as()
-        target = self.dialogs.ask_duplicate(self._project.sim.name, self._project.folder.parent)
+        plan = duplicate_files.copy_plan(self._project.folder)
+        target = self.dialogs.ask_duplicate(self._project.sim.name, self._project.folder.parent,
+                                            duplicate_files.plan_size(plan) if plan else None)
         if target is None:
             return False
-        name, parent = target
+        name, parent = target[0], target[1]
+        copy_case = bool(target[2]) if len(target) > 2 else False
+        if copy_case and (self.solver_worker.is_running() or self.mesh_worker.is_running() or self.study_running()):
+            self.show_message("A run is writing into the case: stop it before copying the mesh and results.", "error")
+            return False
         if self.geometry_worker.is_running():
             self.geometry_worker.wait(30)  # a job may still write into the geometry folder
+        existed = (Path(parent) / name).exists()
         try:
             duplicate, missing = self._project.duplicate(parent, name)
         except (ProjectFolderError, ValueError, OSError) as exc:  # SaveTargetError included
             return self._refuse_save(exc)
+        if not copy_case or not plan:
+            self._finish_save_as(duplicate, missing, False)
+            return True
+        self._copy_target = (duplicate, missing, existed)
+        self.copy_progress = QProgressDialog(f"Copying the mesh and results to {duplicate.folder} ...", "Cancel", 0,
+                                             1000, self)
+        self.copy_progress.setWindowTitle("Save As")
+        self.copy_progress.setWindowModality(Qt.WindowModality.WindowModal)
+        self.copy_progress.setMinimumDuration(0)
+        self.copy_progress.setAutoClose(False)
+        self.copy_progress.setAutoReset(False)
+        self.copy_progress.canceled.connect(self.copy_worker.cancel)
+        self.copy_progress.show()
+        log.info("Save As: copying %s of mesh and results to %s", duplicate_files.format_size(
+            duplicate_files.plan_size(plan)), duplicate.folder)
+        self.copy_worker.start(plan, duplicate.folder)
+        return True
+
+    def _on_copy_progress(self, done: int, total: int) -> None:
+        progress = getattr(self, "copy_progress", None)
+        if progress is not None:
+            progress.setValue(int(1000 * done / total) if total else 1000)
+            progress.setLabelText(f"Copying the mesh and results: {duplicate_files.format_size(done)} of "
+                                  f"{duplicate_files.format_size(total)}")
+
+    def _on_copy_finished(self, outcome: str) -> None:
+        duplicate, missing, existed = self._copy_target
+        progress, self.copy_progress = getattr(self, "copy_progress", None), None
+        if progress is not None:
+            progress.close()
+            progress.deleteLater()
+        if outcome == "done":
+            self._finish_save_as(duplicate, missing, True)
+            return
+        try:  # nothing half-copied stays behind; the original was only read
+            duplicate_files.remove_partial(duplicate.folder, existed)
+        except OSError as exc:
+            log.warning("Save As: could not remove the partial copy %s: %s", duplicate.folder, exc)
+        if outcome == "cancelled":
+            log.warning("Save As cancelled: the partial copy %s was removed", duplicate.folder)
+            self.show_message("Save As cancelled: the partial copy was removed", "warning", log_it=False)
+        else:
+            log.error("Save As failed while copying the mesh and results: %s", outcome)
+            self.show_message(f"Save As failed: {outcome}; the partial copy was removed", "error", log_it=False)
+
+    def _finish_save_as(self, duplicate, missing: list[str], copied: bool) -> None:
         original = self._project.path
         for rel in missing:
             log.warning("Save As: %s is missing in %s and was not copied", rel, original.parent)
         self.set_project(duplicate)
-        log.info("Saved %s as the new project %s (geometry copied; mesh and results not copied)", original,
-                 duplicate.path)
+        log.info("Saved %s as the new project %s (geometry copied; %s)", original, duplicate.path,
+                 "mesh and results copied" if copied else "mesh and results not copied")
         self.show_message(f"Saved as {duplicate.path}", "warning" if missing else "success", log_it=False)
         if missing:
             listed = "\n".join(f"  {rel}" for rel in missing)
@@ -3575,7 +3637,6 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
                 "Save As",
                 f"These geometry files are missing in {original.parent} and were not copied:\n{listed}\n\n"
                 "The parts that use them have no surface in the duplicate.")
-        return True
 
     def _save_file_as(self) -> bool:
         """The save-file flow of an in-memory project: the dialog's file gets the .vcfd extension when
@@ -3933,6 +3994,11 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             event.ignore()
             return
         self.geometry_worker.wait(30)  # a job may still write into the project folder
+        if self.copy_worker.is_running():  # a Save As copy (D-174): cancelled, its partial folder removed
+            self.copy_worker.cancel()
+            self.copy_worker.wait(30)
+            duplicate, _missing, existed = self._copy_target
+            duplicate_files.remove_partial(duplicate.folder, existed)
         self.monitors.save_windows()  # remembered for the next start, then docked (D-156)
         self.monitors.save_charts()  # the report charts too (D-170)
         self.dock_properties()  # a window of its own would keep the application open
@@ -3948,7 +4014,8 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             return
         self._released = True
         for worker in (self.mesh_worker, self.solver_worker, self.study_worker, self.sweep_worker,
-                       self.geometry_worker, self.intersections, self.overlaps, self.results_loader):
+                       self.geometry_worker, self.intersections, self.overlaps, self.results_loader,
+                       self.copy_worker):
             worker.shutdown()
         console_log.detach(self._console_handler)
         if self.viewer is not None:

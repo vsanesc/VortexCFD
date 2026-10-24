@@ -674,14 +674,16 @@ PARENT_TOOLTIP = "The folder in which the project folder <name>/ is created"
 
 
 class DuplicateProjectDialog(QDialog):
-    """Save As (duplicate project, D-079): the new project's name and parent folder, validated as in
-    New simulation. ``result`` after it closes: (name, parent) or None."""
+    """Save As (duplicate project, D-079, D-174): the new project's name and parent folder, validated as in
+    New simulation, and whether the mesh and results are copied (``copy_size``: their size in bytes; None: there are
+    none). ``result_target`` after it closes: (name, parent, copy the mesh and results) or None."""
 
-    def __init__(self, current_name: str, current_parent: Path, parent: QWidget | None = None) -> None:
+    def __init__(self, current_name: str, current_parent: Path, parent: QWidget | None = None,
+                 copy_size: int | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Save As (duplicate project)")
         self.setModal(True)
-        self.result_target: tuple[str, Path] | None = None
+        self.result_target: tuple[str, Path, bool] | None = None
         form = QFormLayout()
         self.name_edit = QLineEdit(f"{current_name}_copy")
         form.addRow("New project name", self.name_edit)
@@ -692,8 +694,19 @@ class DuplicateProjectDialog(QDialog):
         folder_row.addWidget(self.parent_edit, 1)
         folder_row.addWidget(self.browse_button)
         form.addRow("Parent folder", folder_row)
-        note = QLabel("The geometry is copied; the mesh and results are not (the duplicate starts without them). "
-                      "The original project is not changed.")
+        from vortexcfd.workflow.duplicate import format_size
+
+        self.copy_check = QCheckBox("Copy mesh and results" + (f" ({format_size(copy_size)})" if copy_size else ""))
+        self.copy_check.setChecked(copy_size is not None)
+        self.copy_check.setEnabled(copy_size is not None)
+        self.copy_check.setToolTip(
+            "The mesh, the written times, postProcessing, the run and mesh records, the logs, the mesh study and polar "
+            "sweep folders, the snapshots and the reports are copied (plain copies), so the duplicate opens with its "
+            "results and can continue the solver. The processor directories, case_preview/ and the live-view samples "
+            "are left out. Unchecked: the duplicate starts without mesh and results." if copy_size is not None
+            else "This project has no mesh or results to copy.")
+        form.addRow("", self.copy_check)
+        note = QLabel("The geometry is always copied. The original project is not changed.")
         note.setWordWrap(True)
         self.folder_label = ElidedLabel()
         self.folder_label.setObjectName("muted")
@@ -722,7 +735,8 @@ class DuplicateProjectDialog(QDialog):
 
     def _create(self) -> None:
         if self.validate() is None:
-            self.result_target = (self.name_edit.text().strip(), Path(self.parent_edit.text().strip()))
+            self.result_target = (self.name_edit.text().strip(), Path(self.parent_edit.text().strip()),
+                                  self.copy_check.isChecked())
             self.accept()
 
 
