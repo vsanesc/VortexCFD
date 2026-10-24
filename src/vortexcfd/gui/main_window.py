@@ -677,10 +677,11 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.top_bar.name_clicked.connect(self._select_root)
         self.top_bar.view_requested.connect(self._view)
         self.top_bar.wireframe_toggled.connect(self._set_wireframe)
-        self.top_bar.mesh_clicked.connect(self.generate_mesh)
-        self.top_bar.run_clicked.connect(self.run_solver)
+        # The top bar's buttons show and trigger the Solution menu's actions (D-173)
+        self.top_bar.bind_mesh(self.act_generate_mesh)
+        self.top_bar.bind_run(self.act_run_solver, self.act_stop_solver)
+        self.top_bar.bind_paraview(self.act_paraview)
         self.paraview_button = self.top_bar.paraview_button  # Open in ParaView (D-151)
-        self.paraview_button.clicked.connect(lambda: self.open_in_paraview())
         self.top_bar.set_viewer_enabled(self.viewer is not None)
         central = QWidget()
         central_layout = QVBoxLayout(central)
@@ -1636,7 +1637,18 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         if not running and reason is None:
             warnings = [w for w in (layer_warning(self._project), *thin_part_warnings(self._project)) if w]
             warning = "\n".join(warnings) or None
-        self.top_bar.set_mesh_state(reason, running, warning)
+        act = self.act_generate_mesh  # the top bar's button shows it (D-173)
+        act.setText("&Stop Meshing" if running else "&Generate Mesh")
+        act.setIconText("Stop" if running else "Generate Mesh")
+        act.setEnabled(running or reason is None)
+        act.setToolTip("Stop meshing" if running else reason if reason is not None else
+                       "Generate the mesh with snappyHexMesh" + (f"\nWarning: {warning}" if warning else ""))
+        clear_why = (NO_PROJECT if not self.has_project else "Meshing is running." if running
+                     else "The solver is running: stop it first." if self.solver_worker.is_running()
+                     else "No mesh to clear." if self.mesh_report is None else None)
+        self.act_clear_mesh.setEnabled(clear_why is None)
+        self.act_clear_mesh.setToolTip(clear_why or "Delete the generated mesh and the solution computed on it (the "
+                                                    "settings are kept); asks first")
         self._update_paraview_button()  # a new or cleared mesh
 
     def generate_mesh(self) -> None:
@@ -1849,8 +1861,31 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
                                 "go on. Solution > Clear solution starts over." if record.iterations < limit else
                                 f"Continue the solution from iteration {record.iterations:,}: it has reached the "
                                 f"iteration limit ({limit:,}), so you choose how many more iterations to run.")
-        self.top_bar.set_solver_state(reason, running, warning, drift, self._compressibility_warning(),
-                                      continue_tip=continue_tip if mode == "continue" else None)
+        compressibility = self._compressibility_warning()
+        act = self.act_run_solver  # the top bar's button shows it, or the stop action while running (D-173)
+        act.setText("&Continue Solver" if mode == "continue" else "&Run Solver")
+        act.setIconText("Continue Solver" if mode == "continue" else "Run Solver")
+        act.setEnabled(not running and reason is None)
+        act.setToolTip("The solver is running (Solution > Stop Solver)" if running else reason if reason is not None
+                       else (continue_tip or "Run simpleFoam on the mesh")
+                       + (f"\nThe mesh has warnings ({warning}); the solver can run." if warning else "")
+                       + (f"\nWarning: {drift}" if drift else "")
+                       + (f"\nWarning: {compressibility}" if compressibility else ""))
+        self.act_stop_solver.setIconText("Stop")
+        self.act_stop_solver.setEnabled(running)
+        self.act_stop_solver.setToolTip("Stop the solver (writes the current iteration)" if running
+                                        else "The solver is not running")
+        self.act_write_now.setEnabled(running)
+        self.act_write_now.setToolTip(WRITE_NOW_TIP if running else "Only while the solver runs: " + WRITE_NOW_TIP)
+        case = case_dir_for(self._project) if self.has_project else None
+        has_solution = case is not None and (self.run_record is not None or self.results_time() is not None
+                                             or (case / "log.simpleFoam").is_file())
+        clear_why = ("The solver is running: stop it first." if running else "Meshing is running."
+                     if self.mesh_worker.is_running() else None if has_solution else "No solution to clear.")
+        self.act_clear_solution.setEnabled(clear_why is None)
+        self.act_clear_solution.setToolTip(clear_why or "Delete the solution (the written times, postProcessing, "
+                                                        "the run record and the solver logs); the mesh and the "
+                                                        "settings stay; asks first")
         self._update_study_state()
 
     def _compressibility_warning(self) -> str | None:
@@ -1887,6 +1922,41 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             self.continue_solver()
             return
         self._start_solver()
+
+    def _run_or_continue(self) -> None:
+        """Solution > Run Solver / Continue Solver (F5): never a stop (Shift+F5 is)."""
+        if not self.solver_worker.is_running():
+            self.run_solver()
+
+    def stop_solver(self) -> None:
+        """Solution > Stop Solver (Shift+F5): the clean stop (the current iteration is written)."""
+        if self.solver_worker.is_running():
+            self.run_solver()
+
+    def _update_study_actions(self) -> None:
+        """The studies' actions (D-173): Run / Stop and why they cannot run (read when the menu opens: a study's
+        readiness reads the surfaces)."""
+        from vortexcfd.workflow import mesh_study, polar_sweep
+
+        for act, kind, worker, label in ((self.act_mesh_study, "mesh", self.study_worker, "Mesh Independence Study"),
+                                         (self.act_polar_sweep, "polar", self.sweep_worker, "Polar Sweep")):
+            if worker.is_running():
+                act.setText(f"Stop {label}")
+                act.setEnabled(True)
+                act.setToolTip(f"Stop the running {label.lower()}")
+                continue
+            act.setText(f"Run {label}")
+            try:
+                reason = self._busy_for_study(kind) or (mesh_study.study_readiness(self._project) if kind == "mesh"
+                                                        else polar_sweep.sweep_readiness(self._project))
+            except (MeshingNotReady, ValueError, OSError, TypeError) as exc:
+                reason = str(exc)
+            if not self.has_project:
+                reason = NO_PROJECT
+            elif kind == "polar" and not self._project.sim.studies.polar.enabled:
+                reason = "The polar sweep is off: enable it on its node (Reports & Monitors > Polar sweep)."
+            act.setEnabled(reason is None)
+            act.setToolTip(reason or (f"Run the {label.lower()} (its node holds the settings and the results)"))
 
     def _saved_for_run(self) -> bool:
         """Save unsaved changes before a run (D-165); False (with a message) when the save fails."""
@@ -2646,9 +2716,8 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             tip = f"{tip}\n{paraview.missing_note(missing)} Using the detected one."
         if exe is not None and not has:
             tip = "Generate the mesh first: ParaView opens the case's mesh and results."
-        for widget in (self.paraview_button, self.act_paraview):
-            widget.setEnabled(exe is not None and has)
-            widget.setToolTip(tip)
+        self.act_paraview.setEnabled(exe is not None and has)  # the top bar's button shows it (D-173)
+        self.act_paraview.setToolTip(tip)
 
     def open_in_paraview(self) -> None:
         """Write case.foam and launch ParaView (Linux or Windows) on it, detached."""
@@ -2977,6 +3046,17 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.act_prepare_surfaces.setToolTip(surface_prep.EXPLANATION)
         self.act_prepare_surfaces.setStatusTip("Prepare crossing or unsewn parts so they mesh as one surface")
         self.act_paraview = action("Open in &ParaView", lambda: self.open_in_paraview())
+        # The Solution menu (D-173): the same actions as the top bar and the tree's context menus.
+        self.act_generate_mesh = action("&Generate Mesh", self.generate_mesh, "F6")
+        self.act_clear_mesh = action("C&lear Mesh...", self.clear_mesh)
+        self.act_run_solver = action("&Run Solver", self._run_or_continue, "F5")
+        self.act_stop_solver = action("S&top Solver", self.stop_solver, "Shift+F5")
+        self.act_clear_solution = action("Clear &Solution...", lambda: self.clear_solution())
+        self.act_write_now = action("&Write Fields Now", self.write_fields_now)
+        self.act_mesh_study = action("Mesh &Independence Study", lambda: self.toggle_study("mesh"))
+        self.act_polar_sweep = action("&Polar Sweep", lambda: self.toggle_study("polar"))
+        for act in (self.act_generate_mesh, self.act_run_solver, self.act_stop_solver):
+            act.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
         self.act_add_wake = action("Add &Wake Volume", self.add_wake_volume)
         self.act_add_wake.setToolTip("A refinement box behind the selected part (all parts when none is selected), "
                                      "aligned with the free stream")
@@ -3056,6 +3136,18 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             act.setChecked(self._telemetry_fields[key])
             self.act_tel_fields[key] = act
             tel_menu.addAction(act)
+        solution_menu = self.menuBar().addMenu("&Solution")  # after View (D-173)
+        self.solution_menu = solution_menu
+        solution_menu.setToolTipsVisible(True)  # a disabled entry says why
+        solution_menu.addActions([self.act_generate_mesh, self.act_clear_mesh])
+        solution_menu.addSeparator()
+        solution_menu.addActions([self.act_run_solver, self.act_stop_solver, self.act_clear_solution,
+                                  self.act_write_now])
+        solution_menu.addSeparator()
+        solution_menu.addActions([self.act_mesh_study, self.act_polar_sweep])
+        solution_menu.addSeparator()
+        solution_menu.addAction(self.act_paraview)
+        solution_menu.aboutToShow.connect(self._update_study_actions)
         help_menu = self.menuBar().addMenu("&Help")
         help_menu.addAction(self.act_manual)
         help_menu.addAction(self.act_openfoam)
@@ -3065,7 +3157,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
     def _update_actions(self) -> None:
         p = self._project
         loaded = self.has_project
-        for menu in (self.edit_menu, self.view_menu):  # only File and Help without a project (D-077)
+        for menu in (self.edit_menu, self.view_menu, self.solution_menu):  # only File and Help without a project
             menu.menuAction().setEnabled(loaded)
         for act in (self.act_save, self.act_save_as, self.act_save_preset):
             act.setEnabled(loaded)

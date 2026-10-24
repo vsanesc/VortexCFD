@@ -98,6 +98,11 @@ depends strongly on transition, which RANS does not model.
 
 ## 2.7 Working in the window
 
+- **The Solution menu** (after View) gathers the runs: Generate Mesh (**F6**), Clear Mesh, Run Solver / Continue
+  Solver (**F5**), Stop Solver (**Shift+F5**), Clear Solution, Write Fields Now, the mesh independence study, the
+  polar sweep and Open in ParaView. They are the same commands as the top bar's buttons and the tree's right-click
+  menus; a disabled entry says why when you point at it. Clear Solution and Clear Mesh ask first (clearing the mesh
+  also clears the solution computed on it).
 - **Right-click any tree node** for what applies to it: import, show / hide / isolate a part, use a part as a
   refinement region, generate or clear the mesh and read its report, add refinement volumes (also from an imported
   surface), change a domain face's boundary type, add results objects, open the case in ParaView. **Delete** removes

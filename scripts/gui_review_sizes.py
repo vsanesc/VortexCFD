@@ -34,7 +34,8 @@ sys.path.insert(0, str(REPO / "scripts"))
 import gui_review as gr  # noqa: E402
 
 LARGE = (1920, 1080)
-SCREENS = ["new_sim", "start", "main", "properties", "compare", "foam_file", "monitors", "report_chart"]
+SCREENS = ["new_sim", "start", "main", "properties", "compare", "foam_file", "monitors", "report_chart",
+           "solution_menu"]
 log = logging.getLogger("gui_review_sizes")
 
 
@@ -211,6 +212,16 @@ def shoot(out: Path, screens: list[str]) -> None:
                 gr._settle(app)
                 _shoot_sizes(app, viewer, out, screen, interface, (viewer.width(), viewer.height()))
                 dispose(viewer)
+                dispose(window)
+            elif screen == "solution_menu":  # the Solution menu (D-173), open, with its tooltips on
+                window = _main_window(app, vcfd)
+                menu = window.solution_menu
+                menu.aboutToShow.emit()
+                menu.popup(window.mapToGlobal(window.rect().center()))
+                gr._settle(app)
+                gr._grab(app, menu, out / screen / f"menu_{interface.lower()}.png")
+                menu.hide()
+                _shoot_sizes(app, window, out, "main_solution", interface, gr.SIZE)
                 dispose(window)
             elif screen == "report_chart":  # a report chart's window (D-170) and the slots with their buttons
                 window = _main_window(app, vcfd)

@@ -63,7 +63,7 @@ def test_the_app_starts_with_no_project(make_window) -> None:
     assert w.windowTitle() == "VortexCFD"
     menus = {m.title().replace("&", ""): m.menuAction().isEnabled() for m in
              (a.menu() for a in w.menuBar().actions())}
-    assert menus == {"File": True, "Edit": False, "View": False, "Help": True}
+    assert menus == {"File": True, "Edit": False, "View": False, "Solution": False, "Help": True}
     assert w.act_new.isEnabled() and w.act_open.isEnabled() and w.act_about.isEnabled()
     for act in (w.act_import, w.act_save, w.act_save_as, w.act_save_preset):
         assert not act.isEnabled()

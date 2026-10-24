@@ -157,7 +157,7 @@ def test_settings_use_temp_path(isolated_settings) -> None:
 
 def test_no_theme_menu(make_window) -> None:
     window = make_window()
-    assert [a.text() for a in window.menuBar().actions()] == ["&File", "&Edit", "&View", "&Help"]
+    assert [a.text() for a in window.menuBar().actions()] == ["&File", "&Edit", "&View", "&Solution", "&Help"]
     view = window.menuBar().actions()[2].menu()
     assert [a.text() for a in view.actions() if a.menu() is not None] == ["Interface &size", "Viewport &Telemetry"]
 

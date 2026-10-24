@@ -146,8 +146,8 @@ def test_the_run_solver_tooltip_warns_above_mach_03(window: MainWindow) -> None:
     w._load_mesh_record(w.project) if hasattr(w, "_load_mesh_record") else None
     warning = w._compressibility_warning()
     assert warning.startswith("Mach number 0.58 is above 0.3")
-    w.top_bar.set_solver_state(None, False, None, None, warning)
-    assert f"Warning: {warning}" in w.top_bar.run_button.toolTip()
+    w._update_run_button()
+    assert f"Warning: {warning}" in w.act_run_solver.toolTip() == w.top_bar.run_button.toolTip()
 
 
 def test_the_speed_of_sound_is_edited_on_the_physics_node(window: MainWindow) -> None:
