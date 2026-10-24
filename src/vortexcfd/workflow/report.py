@@ -28,6 +28,7 @@ from vortexcfd.core.model import (
 from vortexcfd.core.labels import value_label
 from vortexcfd.core.project import Project
 from vortexcfd.core.reports import FLOW_QUANTITIES, FLOW_QUANTITY_LABELS, report_label
+from vortexcfd.workflow import flow_numbers
 from vortexcfd.foam.convergence import window_stats
 from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam import mesh_study, polar_sweep
@@ -120,6 +121,11 @@ def project_section(project: Project) -> Section:
                  ("Reference length", f"{sim.reports.reference_length:.6g} m" if sim.reports.reference_length else "auto"),
                  ("Reference area", f"{sim.reports.reference_area:.6g} m²" if sim.reports.reference_area
                   else f"auto ({value_label('reference_area_basis', sim.reports.reference_area_basis).lower()})")]
+    numbers = flow_numbers.project_numbers(project, flow_numbers.run_report_values(project))  # D-168
+    if numbers is not None:
+        rows += [("Reynolds number", numbers.reynolds_text()),
+                 ("Mach number", numbers.mach_text(sim.physics.speed_of_sound)
+                  + (f". {numbers.warning}" if numbers.warning else ""))]
     stop = sim.solvers.stopping
     rows += [("Iteration limit", str(sim.solvers.iterations)), ("Solver cores", str(sim.solvers.cores)),
              ("Stopping criteria", "; ".join(_criterion_text(c) for c in stop.criteria) or "none"),

@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 23
+CURRENT_SCHEMA_VERSION: int = 24
 
 
 class StrictModel(BaseModel):
@@ -258,13 +258,16 @@ class Physics(StrictModel):
     """Flow physics. Only steady incompressible kOmegaSST for now.
 
     ``nu`` is the kinematic viscosity (m2/s); ``rho_ref`` (kg/m3) is used only to scale forces
-    (the solver is incompressible, pressure is kinematic).
+    (the solver is incompressible, pressure is kinematic); ``speed_of_sound`` (m/s) only gives the Mach number.
     """
 
     flow: Literal["incompressible_steady"] = "incompressible_steady"
     nu: float = Field(default=1.5e-5, gt=0)
     rho_ref: float = Field(default=1.225, gt=0)
     turbulence_model: Literal["kOmegaSST"] = "kOmegaSST"
+    # The speed of sound of the Mach number shown (m/s, schema v24, D-168): a reference value only, never written to
+    # the case (the solver is incompressible). Default 343 m/s: air at 20 °C.
+    speed_of_sound: float = Field(default=343.0, gt=0)
 
 
 class Inflow(StrictModel):

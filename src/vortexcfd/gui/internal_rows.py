@@ -28,7 +28,7 @@ from vortexcfd.core.model import (
 )
 from vortexcfd.gui.theme import metrics, set_text_role
 from vortexcfd.gui.widgets import discard
-from vortexcfd.workflow import internal, meshing, solving
+from vortexcfd.workflow import flow_numbers, internal, meshing, solving
 
 # When to use which inlet (the user-manual notes, docs/USER_MANUAL notes in docs/STATUS.md, repeated as tooltips).
 KIND_TIPS = {
@@ -97,6 +97,10 @@ class InternalRowsMixin:
         self._layout.addWidget(self._make_row("ip_length", "Length scale", self.ip_length))
         self.ip_dh = self._ro_row("ip_dh", "Hydraulic diameter")
         self.ip_dh.setToolTip("D_h = 4 A / P of the patch (2D: twice its width)")
+        self.ip_re = self._ro_row("ip_re", "Reynolds, Mach")  # this inlet's numbers (D-168)
+        self.ip_re.setToolTip("Re = U_bulk D_h / \u03bd and Ma = U_bulk / a on this inlet: its hydraulic diameter and "
+                              "its bulk velocity (the speed of a velocity inlet, \u1e41 / (\u03c1 A) for a mass flow; "
+                              "a total-pressure inlet's from the run's mass-flow report)")
         self.ip_pout = _spin(-PRESSURE_RANGE, PRESSURE_RANGE, 3, " Pa")
         self.ip_pout.setToolTip("Static pressure, gauge; the velocity and turbulence are zero-gradient out and safe on "
                                 "backflow (zero velocity, the inlet turbulence)")
@@ -132,7 +136,7 @@ class InternalRowsMixin:
 
     def _internal_keys(self) -> list[str]:
         return ["ip_patch", "ip_role", "ip_kind", "ip_speed", "ip_mass", "ip_p0", "ip_intensity", "ip_length", "ip_dh",
-                "ip_pout", "ip_note"]
+                "ip_re", "ip_pout", "ip_note"]
 
     def _selected_patch(self):
         if self._kind != "internal_patch" or self._index is None:
@@ -170,9 +174,16 @@ class InternalRowsMixin:
         visible = ["ip_patch", "ip_role"]
         if entry.role == "inlet":
             visible += ["ip_kind", {"velocity": "ip_speed", "mass_flow": "ip_mass", "total_pressure": "ip_p0"}[entry.inlet.kind],
-                        "ip_intensity", "ip_length", "ip_dh", "ip_note"]
+                        "ip_intensity", "ip_length", "ip_dh", "ip_re", "ip_note"]
             self.ip_note.setText(KIND_TIPS[entry.inlet.kind])
             self.ip_dh.setText(self._dh_text(patch.safe, entry.inlet))
+            numbers = flow_numbers.inlet_numbers(self._project, self._last_report_value).get(patch.safe)
+            warning = numbers.warning if numbers is not None else None
+            self.ip_re.setText("\u2014" if numbers is None else
+                               "\n".join(dict.fromkeys((numbers.reynolds_text(),
+                                                         numbers.mach_text(self._project.sim.physics.speed_of_sound))))
+                               + (f"\n{warning}" if warning else ""))
+            self._set_warn(self.ip_re, bool(warning))
         elif entry.role == "outlet":
             visible += ["ip_pout", "ip_note"]
             self.ip_note.setText("Static-pressure outlet: p fixed; velocity and turbulence zero-gradient, safe on backflow.")

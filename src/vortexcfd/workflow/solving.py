@@ -299,7 +299,7 @@ def results_hash(project: Project) -> str:
     sim = project.sim
     payload = {
         "mesh": inputs_hash(project),
-        "physics": sim.physics.model_dump(),
+        "physics": sim.physics.model_dump(exclude={"speed_of_sound"}),  # the Mach number's only (D-168)
         "inflow": sim.inflow.model_dump(),
         "solvers": sim.solvers.model_dump(exclude={"cores"}),
         "reports": sim.reports.model_dump(exclude={"slots"}),  # slot choice does not change results

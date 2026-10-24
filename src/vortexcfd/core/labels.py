@@ -36,7 +36,7 @@ VALUE_LABELS: dict[str, dict[str, str]] = {
 # units.
 GROUP_LABELS = {"physics": "Physics", "free stream": "Free stream", "domain": "Domain", "mesh": "Mesh",
                 "solver": "Solver", "reference": "Reference values", "refinement volume": "Refinement volume",
-                "boundary": "Boundary"}
+                "boundary": "Boundary", "flow": "Flow"}
 FIELD_LABELS: dict[str, str] = {
     "flow": "Flow", "nu": "Kinematic viscosity ν (m²/s)", "rho_ref": "Reference density ρ (kg/m³)",
     "turbulence_model": "Turbulence model", "speed_of_sound": "Speed of sound a (m/s)",
@@ -53,6 +53,7 @@ FIELD_LABELS: dict[str, str] = {
     "target_yplus": "Target y+", "layer_controls": "Layer controls", "yplus_at": "y+ measured", "cores": "Cores",
     "iterations": "Iteration limit", "stopping": "Stopping criteria", "area": "Reference area A_ref",
     "length": "Reference length l_ref", "CofR": "Centre of rotation", "ground prism layers": "Ground prism layers",
+    "Reynolds number": "Reynolds number Re", "Mach number": "Mach number Ma",
 }
 
 

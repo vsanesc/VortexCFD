@@ -42,7 +42,7 @@ def test_a_length_in_metres_stays_when_l_changes() -> None:
 def test_older_projects_keep_every_extent_in_l(tmp_path: Path) -> None:
     old = {"schema_version": 22, "name": "s", "domain": {"upstream": 4.0}}
     data = migrate(old)
-    assert data["schema_version"] == CURRENT_SCHEMA_VERSION == 23
+    assert data["schema_version"] == CURRENT_SCHEMA_VERSION == 24
     sim = Simulation.model_validate(data)
     assert sim.domain.upstream == 4.0 and sim.domain.units == {}
     sim.domain = Domain(upstream=1.5, units={"upstream": "m"})

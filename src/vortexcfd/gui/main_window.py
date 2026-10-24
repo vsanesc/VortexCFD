@@ -100,7 +100,7 @@ from vortexcfd.gui.mesh_worker import MeshWorker
 from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam.run_record import RunRecord, read_run_record, record_stopping, write_run_record
 from vortexcfd.foam.solver_run import CRITERIA_MET, read_stages, stage2_criteria
-from vortexcfd.workflow import solving
+from vortexcfd.workflow import flow_numbers, solving
 from vortexcfd.gui.solver_worker import SolverWorker
 from vortexcfd.gui.study_control import StudyControlMixin
 from vortexcfd.gui.tree_actions import TreeActionsMixin
@@ -1810,8 +1810,22 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         current = report is not None and not self.mesh_stale
         warning = report.warnings_message() if current else None
         drift = report.first_cell_warning() if current else None  # the y+ drift of collapsed layers (D-109)
-        self.top_bar.set_solver_state(None if running else self.solve_readiness(), running, warning, drift)
+        self.top_bar.set_solver_state(None if running else self.solve_readiness(), running, warning, drift,
+                                      self._compressibility_warning())
         self._update_study_state()
+
+    def _compressibility_warning(self) -> str | None:
+        """The Mach warning of the project's flow (D-168), for the Run solver tooltip."""
+        if not self.has_project:
+            return None
+        reports = self.monitors.reports
+
+        def last(report_id: str):
+            series = reports.series(report_id) if reports is not None else []
+            return float(series[-1][1]) if series else None
+
+        numbers = flow_numbers.project_numbers(self._project, last)
+        return numbers.warning if numbers is not None else None
 
     def run_solver(self) -> None:
         """Run Solver / Stop: write the solver files into the meshed case and run simpleFoam."""

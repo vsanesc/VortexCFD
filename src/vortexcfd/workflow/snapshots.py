@@ -25,6 +25,7 @@ from vortexcfd.core.model import DOMAIN_EXTENTS, MeanStableCriterion, Simulation
 from vortexcfd.core.project import Project
 from vortexcfd.core.project_io import load_simulation
 from vortexcfd.core.reports import available_reports, report_label
+from vortexcfd.workflow import flow_numbers
 from vortexcfd.foam.convergence import window_stats
 from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam.mesh_record import read_mesh_record
@@ -105,14 +106,16 @@ def _text(value) -> str:
     return str(value)
 
 
-def setup_summary(sim: Simulation) -> dict[str, str]:
-    """The key inputs of a run, flattened to "group: field" -> text (the set-up differences compare these)."""
+def setup_summary(sim: Simulation, numbers=None) -> dict[str, str]:
+    """The key inputs of a run, flattened to "group: field" -> text (the set-up differences compare these), with
+    the run's Reynolds and Mach numbers (``numbers``: workflow/flow_numbers.FlowNumbers, D-168)."""
     out: dict[str, str] = {
         "analysis": f"{sim.analysis_type}, {sim.dimension}",
         "parts": ", ".join(f"{p.name} ({p.source_file}, {p.units})" for p in sim.geometry.parts) or "none",
     }
-    for key, value in sim.physics.model_dump().items():
+    for key, value in sim.physics.model_dump(exclude={"speed_of_sound"}).items():  # a: in the Mach number
         out[f"physics: {key}"] = _text(value)
+    out.update(flow_numbers.summary(numbers))
     if not sim.internal:
         for key, value in sim.inflow.model_dump().items():
             out[f"free stream: {key}"] = _text(value)
@@ -203,7 +206,9 @@ def capture(project: Project, name: str, now: datetime | None = None, points=Non
     sim = project.sim
     snap = Snapshot(name=name, created=(now or datetime.now()).isoformat(timespec="seconds"), project=sim.name,
                     source=str(project.path), state=record.label if record is not None else "",
-                    iterations=record.iterations if record is not None else 0, setup=setup_summary(sim))
+                    iterations=record.iterations if record is not None else 0,
+                    setup=setup_summary(sim, flow_numbers.project_numbers(project,
+                                                                          flow_numbers.run_report_values(project))))
     if log.is_file():
         history = ResidualHistory()
         history.extend(parse_log_text(log.read_text(encoding="utf-8", errors="replace")).time_steps)

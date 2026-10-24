@@ -81,7 +81,8 @@ def _criteria_changed(window) -> None:
 
 # Named set-ups of a ``main:<node>@<setup>`` screen: what is changed in the project before the screenshots.
 SETUPS = {"criteria_changed": _criteria_changed,
-          "alpha4": lambda window: window.project.update_inflow(alpha_deg=4.0)}
+          "alpha4": lambda window: window.project.update_inflow(alpha_deg=4.0),
+          "mach_high": lambda window: window.project.update_inflow(speed=150.0)}
 
 
 def _node_window(app, vcfd: Path, spec: str):

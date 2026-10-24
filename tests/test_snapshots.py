@@ -94,7 +94,10 @@ def test_the_difference_tables(tmp_path: Path) -> None:
     assert cd.kind == "windowed mean" and cd.relative(1) == pytest.approx(0.1)
     assert cd.absolute(1) == pytest.approx(0.1 * first.reports["Cd"].mean)
     setup = dict(sm.setup_rows([first, second]))
-    assert setup == {"Free stream: Free-stream speed (m/s)": ("20", "30"), "Mesh: Background cells": ("100000", "200000")}
+    assert setup == {"Free stream: Free-stream speed (m/s)": ("20", "30"), "Mesh: Background cells": ("100000", "200000"),
+                     "Flow: Reynolds number Re": ("1.3\u00b710\u2076 (U\u221e 20 m/s, l_ref 1 m)",
+                                                  "2.0\u00b710\u2076 (U\u221e 30 m/s, l_ref 1 m)"),
+                     "Flow: Mach number Ma": ("0.0583", "0.0875")}
 
 
 def test_overlays_and_exports(tmp_path: Path) -> None:

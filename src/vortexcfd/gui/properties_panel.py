@@ -58,7 +58,7 @@ from vortexcfd.geometry.cad import CadImportError
 from vortexcfd.geometry.loader import SurfaceLoadError
 from vortexcfd.geometry.regions import RegionError
 from vortexcfd.workflow import internal as internal_flow
-from vortexcfd.workflow import part_ops, solving, surface_prep
+from vortexcfd.workflow import flow_numbers, part_ops, solving, surface_prep
 from vortexcfd.foam.physics_case import (
     AREA_BASIS_LABELS,
     CENTRE_AUTO_LABEL,
@@ -505,6 +505,10 @@ GROUPS: dict[str, dict] = {
             ("rho_ref", "Reference density", lambda: _dspin(0.001, 100000.0, 4, " kg/m\u00b3"),
              "Only scales the forces (the solver is incompressible and works with p / \u03c1). Default 1.225 kg/m\u00b3: "
              "air at sea level."),
+            ("speed_of_sound", "Speed of sound a", lambda: _dspin(1.0, 100000.0, 1, " m/s"),
+             "Only gives the Mach number Ma = U / a shown with the free stream (the solver is incompressible and "
+             "never uses it). Default 343 m/s: air at 20 \u00b0C (water about 1480 m/s). Above Ma 0.3 the "
+             "incompressible results lose accuracy."),
             ("turbulence_model", "Turbulence model", lambda: _fixed_value("turbulence_model"),
              "RANS turbulence model: k-\u03c9 SST, the only model of v1 (robust for attached and separated flow)."),
         ),
@@ -548,6 +552,15 @@ GROUPS: dict[str, dict] = {
         ),
     },
 }
+
+# The Reynolds and Mach numbers' tooltips (D-168).
+RE_TIP = ("Re = U\u221e l_ref / \u03bd: the free-stream speed, the reference length (Reference Values > l_ref: set, or the "
+          "parts' x extent) and the kinematic viscosity (Physics). It follows the speed while it is typed.")
+RE_INTERNAL_TIP = ("Re = U_bulk D_h / \u03bd on the first inlet: its hydraulic diameter and its bulk velocity (a velocity "
+                   "inlet's speed, \u1e41 / (\u03c1 A) for a mass-flow inlet; a total-pressure inlet's comes from the "
+                   "run's mass-flow report). Each inlet shows its own.")
+MACH_TIP = ("Ma = U / a, with the speed of sound a of Physics (default 343 m/s, air at 20 \u00b0C). The app solves "
+            "incompressible flow: above Ma 0.3 the density changes of the flow matter and the results lose accuracy.")
 
 # Where the angle of attack is set, and what it turns (D-120, D-148, D-167).
 BODY_ATTITUDE_NOTE = ("All the parts rotate together, as one rigid body, about the centre of rotation shown below; the "
@@ -1090,8 +1103,30 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                 self.attitude_centre.setToolTip("The angle of attack turns the parts about the y axis through this "
                                                 "point: Reference Values > CofR, auto the centre of the parts' box")
         self._section("inflow_computed", "Computed")
+        # The Reynolds and Mach numbers (D-168): the velocity and length they use, live while the speed is typed.
+        self.inflow_re = self._ro_row("inflow_re", "Reynolds number")
+        self.inflow_re.setToolTip(RE_TIP)
+        self.inflow_mach = self._ro_row("inflow_mach", "Mach number")
+        self.inflow_mach.setToolTip(MACH_TIP)
+        self.inflow_mach_warning = QLabel()
+        self.inflow_mach_warning.setObjectName("checkValue")
+        _wrap(self.inflow_mach_warning)
+        self._layout.addWidget(self.inflow_mach_warning)
         self.inflow_k = self._ro_row("inflow_k", "Turbulence k")
-        self.inflow_omega = self._ro_row("inflow_omega", "Turbulence omega")
+        self.inflow_omega = self._ro_row("inflow_omega", "Turbulence \u03c9")
+        speed = self.group_fields["inflow"]["speed"]
+        speed.setKeyboardTracking(True)
+        speed.valueChanged.connect(lambda value: self._show_flow_numbers(value))
+        # Internal flow (D-168): the reference inlet's numbers on the Physics node (each inlet shows its own).
+        self._section("physics_numbers", "Flow numbers")
+        self.physics_re = self._ro_row("physics_re", "Reynolds number")
+        self.physics_re.setToolTip(RE_INTERNAL_TIP)
+        self.physics_mach = self._ro_row("physics_mach", "Mach number")
+        self.physics_mach.setToolTip(MACH_TIP)
+        self.physics_mach_warning = QLabel()
+        self.physics_mach_warning.setObjectName("checkValue")
+        _wrap(self.physics_mach_warning)
+        self._layout.addWidget(self.physics_mach_warning)
         # Solvers node: the recommended core count for the current mesh (D-064).
         self.solvers_recommended = self._ro_row("solvers_recommended", "Recommended cores")
         self.solvers_recommended.setToolTip(
@@ -1472,6 +1507,10 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                       self.mesh_layer_count, self.mesh_layer_expansion, self.mesh_layer_stack, self.inflow_k,
                       self.inflow_omega):
             set_text_role(label, "value")
+        # A note or warning between the rows (a label of the content itself, not of a row) keeps the rows' side
+        # margins (the warnings touched the panel's edge, D-168); the empty states set their own just below.
+        for label in self._content.findChildren(QLabel, options=Qt.FindChildOption.FindDirectChildrenOnly):
+            label.setContentsMargins(m.s3, 0, m.s3, m.s1)
         for note in self._notes:
             note.setContentsMargins(m.s3, 0, m.s3, m.s1)
         self.info_label.setContentsMargins(m.s3, m.s3, m.s3, m.s3)
@@ -1811,13 +1850,59 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                 self.solvers_recommended.setText("\u2014 (generate the mesh first)")
         inflow = self._kind == "inflow"
         self._sections["inflow_computed"].setVisible(inflow)
-        self._rows["inflow_k"].setVisible(inflow)
-        self._rows["inflow_omega"].setVisible(inflow)
+        for key in ("inflow_k", "inflow_omega", "inflow_re", "inflow_mach"):
+            self._rows[key].setVisible(inflow)
+        if inflow:
+            self._show_flow_numbers()
+        numbers_on_physics = self._kind == "physics" and sim.internal
+        self._sections["physics_numbers"].setVisible(numbers_on_physics)
+        for key in ("physics_re", "physics_mach"):
+            self._rows[key].setVisible(numbers_on_physics)
+        if numbers_on_physics:
+            self._show_internal_numbers()
         if inflow:
             k, omega = inlet_turbulence(sim.inflow.speed, sim.inflow.turbulence_intensity,
                                         sim.physics.nu, sim.inflow.viscosity_ratio)
             self.inflow_k.setText(f"{k:.4g} m\u00b2/s\u00b2")
             self.inflow_omega.setText(f"{omega:.4g} 1/s")
+
+    def _show_flow_numbers(self, speed: float | None = None) -> None:
+        """The Free stream's Re and Ma (D-168); ``speed``: the value being typed (not committed yet)."""
+        if self._kind != "inflow" or self._project.sim.internal:
+            return
+        numbers = flow_numbers.external_numbers(self._project)
+        if speed is not None and speed > 0:  # live while typing: the same length, the typed speed
+            physics = self._project.sim.physics
+            numbers = flow_numbers.FlowNumbers(speed * numbers.length / physics.nu if numbers.length else None,
+                                               speed / physics.speed_of_sound, speed, numbers.speed_name,
+                                               numbers.length, numbers.length_name, numbers.note)
+        self._fill_numbers(numbers, self.inflow_re, self.inflow_mach, self.inflow_mach_warning)
+
+    def _show_internal_numbers(self) -> None:
+        numbers = flow_numbers.project_numbers(self._project, self._last_report_value)
+        if numbers is None:
+            numbers = flow_numbers.FlowNumbers(None, None, None, "U_bulk", None, "D_h", "no inlet yet")
+        self._fill_numbers(numbers, self.physics_re, self.physics_mach, self.physics_mach_warning)
+
+    def _fill_numbers(self, numbers, re_label: QLabel, mach_label: QLabel, warning_label: QLabel) -> None:
+        re_label.setText(numbers.reynolds_text())
+        mach_label.setText(numbers.mach_text(self._project.sim.physics.speed_of_sound))
+        warning = numbers.warning
+        warning_label.setText(warning or "")
+        warning_label.setVisible(bool(warning))
+        self._set_warn(mach_label, bool(warning))
+        self._set_warn(warning_label, bool(warning))
+
+    def _last_report_value(self, report_id: str) -> float | None:
+        """The last value of a report of the shown run (a total-pressure inlet's mass flow, D-168), or None."""
+        monitor = self._report_monitor
+        if monitor is None:
+            return None
+        try:
+            series = monitor.series(report_id)
+        except (OSError, KeyError, ValueError):
+            return None
+        return float(series[-1][1]) if series else None
 
     def _rotation_centre_text(self) -> str:
         """The CofR the angle of attack turns the parts about (the Reference Values' override, else auto)."""
