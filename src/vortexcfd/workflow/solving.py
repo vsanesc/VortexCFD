@@ -15,7 +15,8 @@ from pydantic import ValidationError
 from vortexcfd.core.model import AsymptoticCriterion, Simulation
 from vortexcfd.core.reports import missing_reference, report_label
 from vortexcfd.core.project import Project
-from vortexcfd.foam.case_writer import enable_clean_stop
+from vortexcfd.foam.case_writer import enable_clean_stop, enable_write_now
+from vortexcfd.foam.live_view import LivePlane, LiveViewSpec, safe_name
 from vortexcfd.foam.dictfile import write_foam_file
 from vortexcfd.foam.mesh_case import MARKER_NAME, part_force_groups, remove_results
 from vortexcfd.foam.mesh_report import lost_part_message
@@ -284,8 +285,31 @@ def clear_solution(case_dir: Path) -> list[str]:
     return removed
 
 
-def prepare_solver_case(project: Project) -> Path:
-    """Write the solver files (clean stop enabled) into the meshed case and return its path.
+def live_view_planes(project: Project, section: LivePlane | None = None) -> tuple[LivePlane, ...]:
+    """The planes the live view samples (D-172): the Results Scene's section plane (``section``, the window's) and the
+    plane of every clip of the results scene."""
+    planes = [section] if section is not None else []
+    for obj in project.sim.results.objects:
+        if obj.kind == "clip":
+            planes.append(LivePlane(safe_name(f"clip_{obj.id}"), tuple(obj.origin), tuple(obj.normal)))
+    return tuple(planes)
+
+
+def app_solver_files(project: Project, case_dir: Path, interactive: bool = False, planes: tuple = ()) -> dict:
+    """The solver files of ``project`` (clean stop enabled); ``interactive`` (a run started from the app, D-172): the
+    live view (when the project has it on) and "Write fields now" too. The benchmark, the validation drivers and the
+    studies write the plain files."""
+    inp = for_case(solver_input(project), case_dir)
+    if interactive and project.sim.solvers.live_view:
+        inp = dataclasses.replace(inp, live_view=LiveViewSpec(tuple(inp.patches), tuple(planes),
+                                                              project.sim.solvers.live_view_interval))
+    files = enable_clean_stop(build_solver_files(inp))
+    return enable_write_now(files) if interactive else files
+
+
+def prepare_solver_case(project: Project, interactive: bool = False, planes: tuple = ()) -> Path:
+    """Write the solver files (clean stop enabled) into the meshed case and return its path. ``interactive``: a run
+    started from the app, with the live view and Write fields now (``planes``: the live view's, D-172).
 
     Raises:
         SolvingNotReady: the project is not saved, or the case directory has no mesh.
@@ -298,11 +322,15 @@ def prepare_solver_case(project: Project) -> Path:
     reason = physics_problem(project)
     if reason is not None:
         raise SolvingNotReady(reason)
-    files = enable_clean_stop(build_solver_files(for_case(solver_input(project), case_dir)))
+    files = app_solver_files(project, case_dir, interactive, planes)
     clear_results(case_dir)
     for rel, spec in files.items():
         write_foam_file(case_dir / rel, spec.content, object_name=Path(rel).name, class_name=spec.class_name)
     return case_dir
+
+
+# The Solvers fields of the live view (D-172): not results inputs.
+LIVE_FIELDS = ("live_view", "live_view_interval")
 
 
 # -- continuing a solution (D-171) ---------------------------------------------------------------------------------
@@ -340,7 +368,8 @@ def solution_hash(project: Project) -> str:
     not how long or how far it runs. Continue tells a changed set-up by it (D-171)."""
     sim = project.sim
     payload = json.loads(_results_payload(project))
-    payload["solvers"] = sim.solvers.model_dump(exclude={"cores", "iterations", "write_interval", "stopping"})
+    payload["solvers"] = sim.solvers.model_dump(exclude={"cores", "iterations", "write_interval", "stopping",
+                                                         *LIVE_FIELDS})
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
@@ -368,7 +397,7 @@ def replace_boundaries(case_dir: Path, time_name: str, files) -> list[str]:
     return changed
 
 
-def prepare_continue(project: Project, record, rewrite: bool = False):
+def prepare_continue(project: Project, record, rewrite: bool = False, interactive: bool = False, planes: tuple = ()):
     """Make the case continue its solution from the latest written time (D-171): controlDict starts from latestTime
     and ends at the project's iteration limit (the total), with the project's write interval and criteria. With
     ``rewrite`` (the set-up changed and the user continues from the current solution) every solver file is written
@@ -397,7 +426,7 @@ def prepare_continue(project: Project, record, rewrite: bool = False):
     if rewrite and reconstruct_first:
         raise SolvingNotReady("The latest time is only in the processor directories (reconstructPar did not run): "
                               "start over, or continue with the unchanged set-up.")
-    files = enable_clean_stop(build_solver_files(for_case(solver_input(project), case_dir)))
+    files = app_solver_files(project, case_dir, interactive, planes)
     two_stage = record.stages and int(record.stages[-1].get("stage", 1)) == 2
     if rewrite:
         for rel, spec in files.items():
@@ -447,7 +476,7 @@ def _results_payload(project: Project) -> str:
         "mesh": inputs_hash(project),
         "physics": sim.physics.model_dump(exclude={"speed_of_sound"}),  # the Mach number's only (D-168)
         "inflow": sim.inflow.model_dump(),
-        "solvers": sim.solvers.model_dump(exclude={"cores"}),
+        "solvers": sim.solvers.model_dump(exclude={"cores", *LIVE_FIELDS}),  # the live view: no input (D-172)
         "reports": sim.reports.model_dump(exclude={"slots"}),  # slot choice does not change results
     }
     if sim.domain.ground.enabled:  # the ground's motion is a solver input only (D-116)

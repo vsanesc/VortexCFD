@@ -106,7 +106,12 @@ def test_solvers_editor(window: MainWindow) -> None:
     f["iterations"].editingFinished.emit()
     assert window.project.sim.solvers.iterations == 250
     assert window.project.undo_label == "Edit solver (iterations)"
-    assert set(f) == {"iterations", "write_interval", "cores", "relaxation"}  # residual targets: Stopping Criteria node
+    assert set(f) == {"iterations", "write_interval", "cores", "relaxation", "live_view", "live_view_interval"}
+    assert f["live_view"].isChecked() and f["live_view_interval"].value() == 50  # the live view (D-172)
+    f["live_view_interval"].setValue(20)
+    f["live_view_interval"].editingFinished.emit()
+    f["live_view"].setChecked(False)
+    assert not window.project.sim.solvers.live_view and window.project.sim.solvers.live_view_interval == 20
 
 
 def test_cores_field_is_limited_to_the_physical_cores(window: MainWindow) -> None:

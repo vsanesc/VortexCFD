@@ -250,6 +250,7 @@ class SolverRun:
         self._met: tuple[str, ...] = ()
         self._met_iteration: int | None = None
         self._pending: TimeStep | None = None  # completed iteration whose criteria are not checked yet
+        self._written_now = 0  # "Write fields now" requests the solver got (D-172)
         self.resume = resume  # a continued solution (D-171), None for a run from the start
         if resume is not None:
             self._history.extend(resume.history)  # the criteria's windows go on over the earlier iterations
@@ -274,6 +275,19 @@ class SolverRun:
             runner = self._runner
         if runner is not None:
             runner.request_stop()
+
+    def request_write_now(self) -> bool:
+        """"Write fields now" (D-172): the solver writes the fields at the end of the next iteration without stopping
+        (SIGUSR2; forwarded to the ranks by mpirun). True when the solver got it."""
+        with self._lock:
+            runner = self._runner
+            if runner is None or self._stop or not hasattr(runner, "request_write_now"):
+                return False
+        sent = bool(runner.request_write_now())
+        if sent:
+            with self._lock:
+                self._written_now += 1
+        return sent
 
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
@@ -387,10 +401,14 @@ class SolverRun:
         self._forward_line(summary + "\n")
         return summary, None
 
-    def _reconstruct(self) -> bool:
-        res = self._step(RECONSTRUCT_COMMAND, "log.reconstructPar", self._forward_line, stoppable=False)
+    def _reconstruct(self, new_times: bool = False) -> bool:
+        """reconstructPar of the latest time, or (``new_times``) of every time not reconstructed yet: the times
+        written on request during the run (D-172), appended to log.reconstructPar."""
+        command = ["reconstructPar", "-newTimes"] if new_times else RECONSTRUCT_COMMAND
+        res = self._step(command, "log.reconstructPar", self._forward_line, stoppable=False, append=new_times)
         ok = res.exit_code == 0
-        self._forward_line(("Reconstructed the latest time" if ok else
+        what = "the times written on request" if new_times else "the latest time"
+        self._forward_line((f"Reconstructed {what}" if ok else
                             f"reconstructPar failed (exit code {res.exit_code}): see log.reconstructPar") + "\n")
         return ok
 
@@ -432,6 +450,8 @@ class SolverRun:
                     res = self._second_stage(command)
                 if self.cores > 1 and res.exit_code == 0:
                     reconstructed = self._reconstruct()
+                    if self._written_now:  # the times written on request, reconstructed for ParaView (D-172)
+                        self._reconstruct(new_times=True)
         except Exception as exc:  # noqa: BLE001 - classified as crashed below
             error = f"Could not run {SOLVER}: {exc}"
         self._forward(self.parser.close())

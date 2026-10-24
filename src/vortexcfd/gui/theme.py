@@ -467,6 +467,7 @@ QLabel#checkValue[error="true"] {{ color: {t.error}; }}
 QLabel#checkValue[ok="true"] {{ color: {t.success}; }}
 QWidget#convergenceBox {{ background: {t.base}; border-top: {ln}px solid {t.border}; }}
 QLabel#statusWarn {{ color: {t.warning}; }}
+QLabel#statusOk {{ color: {t.success}; }}
 QLabel#kpiValue {{ color: {t.text}; background: transparent; }}
 QWidget#propRow {{ background: transparent; border-bottom: {ln}px solid {t.border}; }}
 QTreeView {{ background: {t.base}; border: none; outline: 0; }}

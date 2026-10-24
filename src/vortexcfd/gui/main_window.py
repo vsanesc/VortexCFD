@@ -26,6 +26,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QHBoxLayout,
@@ -179,6 +180,14 @@ _LOGGED_LEVELS = {"warning": logging.WARNING, "error": logging.ERROR}
 MESSAGE_TIMEOUT_MS = 8000
 EMPTY = "\u2014"
 NO_PROJECT = "No project open"
+# The live view and Write fields now (D-172).
+LIVE_BADGE_TIP = ("The solver is running: the walls and the Results Scene's planes are sampled every N iterations "
+                  "(Solvers > Live view) and shown as they come. Only the latest sample is kept on disk.")
+WRITE_NOW_TIP = ("Write the full fields at the current iteration without stopping the run (OpenFOAM writes them at the "
+                 "end of the next iteration); the written time opens in the Results Scene, and in ParaView (a "
+                 "parallel run writes it decomposed: the Results Scene reads the decomposed case, and the time is "
+                 "reconstructed when the run ends).")
+LIVE_POLL_MS = 1000  # the live view and the written times are looked for this often while the solver runs
 # Continuing a solution (D-171).
 MESH_CHANGED_TEXT = ("The mesh settings changed since this solution was computed, so it cannot be continued: a "
                      "solution belongs to the mesh it was computed on and cannot go on on another one. Generate the "
@@ -1898,7 +1907,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         if not self._saved_for_run():
             return
         try:
-            case_dir = solving.prepare_solver_case(self._project)
+            case_dir = solving.prepare_solver_case(self._project, interactive=True, planes=self._live_planes())
         except (solving.SolvingNotReady, MeshingNotReady) as exc:
             self.show_message(str(exc), "error")
             return
@@ -1946,7 +1955,8 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         if not self._saved_for_run():
             return
         try:
-            case_dir, resume = solving.prepare_continue(self._project, record, rewrite)
+            case_dir, resume = solving.prepare_continue(self._project, record, rewrite, interactive=True,
+                                                        planes=self._live_planes())
         except (solving.SolvingNotReady, MeshingNotReady) as exc:
             self.show_message(str(exc), "error")
             return
@@ -1982,9 +1992,166 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self._solve_case_dir = case_dir
         self.solver_worker.start(case_dir, timeout_s=self.solver_timeout_s, stopping=self._solve_stopping,
                                  cores=cores, resume=resume)
+        self._start_live(case_dir)
         self._update_results_stale()
         self._update_run_button()
         self._update_mesh_button()
+
+    # -- the live view and Write fields now (D-172) -----------------------------------------------------------------
+
+    def _live_planes(self) -> tuple:
+        """The live view's planes: the Results Scene's section plane (its axis and position, else y through the parts'
+        centre) and the results scene's clips."""
+        from vortexcfd.foam.live_view import LivePlane
+
+        try:
+            bounds = meshing.body_bounds(self._project)
+        except (MeshingNotReady, ValueError, TypeError, OSError):
+            bounds = None
+        section = None
+        if bounds is not None:
+            view = self.results_view
+            axis = view.section_axis if view is not None else 1
+            centre = [(bounds[2 * i] + bounds[2 * i + 1]) / 2 for i in range(3)]
+            if view is not None and view.section_position is not None:
+                centre[axis] = view.section_position
+            normal = [0.0, 0.0, 0.0]
+            normal[axis] = 1.0
+            section = LivePlane(f"section_{'xyz'[axis]}", tuple(centre), tuple(normal))
+        return solving.live_view_planes(self._project, section)
+
+    def _start_live(self, case_dir: Path) -> None:
+        """While the solver runs: look for the live samples and the written times every second."""
+        from vortexcfd.foam.live_view import prune
+
+        prune(case_dir, 1 << 30)  # an earlier run's samples
+        self._live_case = case_dir
+        self._live_settled: dict = {}
+        self._live_shown: int | None = None
+        self._live_data = None
+        self._written_now: list[int] = []
+        self._write_now_after: int | None = None
+        self._written_known = self._written_times(case_dir)
+        self.live_toggle.blockSignals(True)
+        self.live_toggle.setChecked(True)
+        self.live_toggle.blockSignals(False)
+        if not hasattr(self, "_live_timer"):
+            self._live_timer = QTimer(self)
+            self._live_timer.setInterval(LIVE_POLL_MS)
+            self._live_timer.timeout.connect(self.poll_live)
+        self._live_timer.start()
+
+    def _stop_live(self) -> None:
+        if hasattr(self, "_live_timer"):
+            self._live_timer.stop()
+        self._live_data = None
+        self.live_badge.setVisible(False)
+        self.live_toggle.setVisible(False)
+
+    @staticmethod
+    def _written_times(case_dir: Path) -> set[int]:
+        """The written times of the case and of processor0 (as iterations)."""
+        out = set()
+        for folder in (Path(case_dir), Path(case_dir) / "processor0"):
+            if folder.is_dir():
+                for child in folder.iterdir():
+                    try:
+                        value = float(child.name)
+                    except ValueError:
+                        continue
+                    if value > 0 and child.is_dir() and any(f.is_file() for f in child.iterdir()):
+                        out.add(int(round(value)))
+        return out
+
+    def poll_live(self) -> None:
+        """One look at the running case: a new live sample (shown when the scene follows them; the older removed)
+        and a time written on request (shown in the scene)."""
+        from vortexcfd.foam.live_view import latest_sample, prune
+        from vortexcfd.gui.results_scene import read_live_sample
+
+        case = getattr(self, "_live_case", None)
+        if case is None or not self.solver_worker.is_running():
+            return
+        if self._write_now_after is not None:
+            new = sorted(t for t in self._written_times(case) - self._written_known if t > self._write_now_after)
+            if new:
+                self._written_known |= set(new)
+                self._write_now_after = None
+                self._written_now += new
+                log.info("Fields written at iteration %d (the solver goes on)", new[-1])
+                self.show_message(f"Fields written at iteration {new[-1]}: shown in the Results Scene", "success",
+                                  log_it=False)
+                self._show_written_time(case, new[-1])
+        if not self._project.sim.solvers.live_view:
+            return
+        sample = latest_sample(case, settled=self._live_settled)
+        if sample is None or sample.iteration == self._live_shown:
+            return
+        try:
+            data = read_live_sample(case, sample)
+        except Exception as exc:  # noqa: BLE001 - a sample being replaced; the next poll tries again
+            log.debug("Live sample %s not read: %s", sample.iteration, exc)
+            return
+        self._live_shown = sample.iteration
+        prune(case, sample.iteration)  # only the latest sample stays on disk
+        if not data.patches and not data.planes:
+            return
+        self._live_data = data
+        self.live_badge.setText(f"Live \u00b7 iteration {sample.iteration:,}")
+        self.live_badge.setVisible(True)
+        self.live_toggle.setVisible(True)
+        self.results_tab.setVisible(True)
+        if self.live_toggle.isChecked():
+            self._show_results_data(data)
+
+    def _show_results_data(self, data) -> None:
+        """Show ``data`` (a live sample or a written time) in the Results Scene."""
+        self._fill_field_combo_from(data.fields)
+        self._results_shown_time = data.time
+        if self.results_view is None:
+            return
+        self._on_results_loaded_objects()
+        self._apply_results_controls(data)
+        self._sync_scene_objects()
+        if self._scene_mode == "results":
+            self.viewer.render()
+
+    def _show_written_time(self, case: Path, iteration: int) -> None:
+        """A time written on request during the run: the scene stops following the live samples and reads it (the
+        decomposed case when it is only in the processor directories)."""
+        self.live_toggle.setChecked(False)
+        self.live_badge.setText(f"Iteration {iteration:,} (written while running)")
+        self.live_badge.setVisible(True)
+        self.live_toggle.setVisible(True)
+        self.results_tab.setVisible(True)
+        decomposed = not any(abs(float(c.name) - iteration) < 1e-9 for c in Path(case).iterdir()
+                             if c.is_dir() and c.name.replace(".", "", 1).isdigit())
+        self._written_decomposed = decomposed
+        if self.results_view is not None and not self.results_loader.is_running():
+            time = _time_name(case / "processor0" if decomposed else case, iteration)
+            self._results_loading_time = time
+            self.results_loader.start(case, time, self._mesh_patches, decomposed=decomposed)
+
+    def _on_live_toggled(self, on: bool) -> None:
+        if on and getattr(self, "_live_data", None) is not None:
+            self.live_badge.setText(f"Live \u00b7 iteration {self._live_data.live:,}")
+            self._show_results_data(self._live_data)
+
+    def write_fields_now(self) -> None:
+        """Solution > Write fields now (D-172): the full fields at the current iteration, without stopping the run."""
+        if not self.solver_worker.is_running():
+            self.show_message("Write fields now: the solver is not running", "warning")
+            return
+        steps = self.monitors.history.series.get("p") or []
+        now = int(steps[-1][0]) if steps else 0
+        if not self.solver_worker.request_write_now():
+            self.show_message("Write fields now: the solver cannot take it yet (its iterations have not started)",
+                              "warning")
+            return
+        self._write_now_after = now
+        log.info("Write fields now requested at iteration %d: OpenFOAM writes them at the end of the next iteration",
+                 now)
+        self.show_message("Writing the fields at the end of the next iteration...", log_it=False)
 
     def clear_solution(self, confirm: bool = True) -> None:
         """Solution > Clear solution: delete the solver results (the written times, postProcessing, the processor
@@ -2093,6 +2260,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
 
     def _on_solver_done(self, result) -> None:
         self.top_bar.set_run_state(None)
+        self._stop_live()
         case_dir, self._solve_case_dir = self._solve_case_dir, None
         stopping = self._solve_stopping or StoppingCriteria(criteria=[])
         criteria, stopped_by = convergence.criteria_outcome(stopping, result.criteria_met)
@@ -2258,8 +2426,20 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.results_stale_label = QLabel("Results out of date: run the solver again")
         self.results_stale_label.setObjectName("statusWarn")
         self.results_stale_label.setVisible(False)
+        # The live view (D-172): what the scene shows while the solver runs, and whether it follows the samples.
+        self.live_badge = QLabel()
+        self.live_badge.setObjectName("statusOk")
+        self.live_badge.setToolTip(LIVE_BADGE_TIP)
+        self.live_badge.setVisible(False)
+        self.live_toggle = QCheckBox("Live")
+        self.live_toggle.setChecked(True)
+        self.live_toggle.setToolTip("Follow the live samples of the running solver (unchecked: the scene keeps what it "
+                                    "shows, e.g. the fields written with Write fields now)")
+        self.live_toggle.setVisible(False)
+        self.live_toggle.toggled.connect(self._on_live_toggled)
         for widget in (self.field_combo, self.colormap_combo, self.range_combo, self.range_min,
-                       self.range_max, self.display_combo, self.separation_toggle, self.sections_button):
+                       self.range_max, self.display_combo, self.separation_toggle, self.sections_button,
+                       self.live_toggle, self.live_badge):
             row.addWidget(widget)
         row.addWidget(self.results_stale_label)
         # A selector's choice is applied once its popup has closed and the event loop is back (D-152): the redraw
@@ -2286,6 +2466,8 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
 
     def _update_results_tab(self) -> None:
         """Show the Results Scene tab only when the case has results; refresh its controls."""
+        if getattr(self, "_live_data", None) is not None and self.solver_worker.is_running():
+            return  # the live view (D-172) holds the scene until the run ends
         time = self.results_time()
         self.results_tab.setVisible(time is not None)
         if time is None:
@@ -2317,6 +2499,20 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             self.field_combo.setCurrentText(current)
         elif "Cp" in labels:
             self.field_combo.setCurrentText("Cp")
+        self.field_combo.blockSignals(False)
+
+    def _fill_field_combo_from(self, fields) -> None:
+        """The field selector from a field list (a live sample's, D-172)."""
+        labels = [f.label for f in fields]
+        self._field_keys = {f.label: f.key for f in fields}
+        if [self.field_combo.itemText(i) for i in range(self.field_combo.count())] == labels:
+            return
+        current = self.field_combo.currentText()
+        self.field_combo.blockSignals(True)
+        self.field_combo.clear()
+        self.field_combo.addItems(labels)
+        self.field_combo.setCurrentText(current if current in labels else "Cp" if "Cp" in labels else labels[0]
+                                        if labels else "")
         self.field_combo.blockSignals(False)
 
     def field_list(self) -> list[str]:
@@ -3670,6 +3866,17 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         if event.type() == QEvent.Type.DeferredDelete:  # deleted without an accepted close (tests, scripts)
             self._release_background()
         return super().event(event)
+
+
+def _time_name(folder: Path, iteration: int) -> str:
+    """The name of the time directory of ``iteration`` in ``folder`` ("120" or "120.0")."""
+    for child in Path(folder).iterdir():
+        try:
+            if child.is_dir() and abs(float(child.name) - iteration) < 1e-9:
+                return child.name
+        except ValueError:
+            continue
+    return str(iteration)
 
 
 def manual_path() -> Path | None:

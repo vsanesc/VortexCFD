@@ -85,10 +85,37 @@ def _criteria_changed(window) -> None:
     window.project.update_solver(stopping=stop)
 
 
+def _live(window) -> None:
+    """The Results Scene during a run (D-172): a live sample made from the review copy's results (its walls and a y
+    plane), shown as the running solver's; the scene on the Results tab."""
+    from vortexcfd.foam.live_view import LIVE_VIEW, WALLS
+    from vortexcfd.gui.results_scene import read_results
+
+    case = window.project.folder / "case"
+    time = window.results_time()
+    data = read_results(case, time, window._mesh_patches)
+    folder = case / "postProcessing" / LIVE_VIEW / "150"
+    folder.mkdir(parents=True, exist_ok=True)
+    import pyvista as pv
+
+    walls = pv.merge(list(data.patches.values())).extract_surface()
+    walls.save(str(folder / f"{WALLS}.vtp"))
+    data.internal.slice(normal=(0, 1, 0)).extract_surface().save(str(folder / "section_y.vtp"))
+    window.solver_worker.is_running = lambda: True  # shown as during a run
+    window._live_case = case
+    window._live_settled, window._live_shown, window._live_data = {}, None, None
+    window._write_now_after, window._written_now, window._written_known = None, [], set()
+    window.display_combo.setCurrentText("Both")
+    window.poll_live()
+    window.poll_live()
+    window.results_tab.click()
+
+
 # Named set-ups of a ``main:<node>@<setup>`` screen: what is changed in the project before the screenshots.
 SETUPS = {"criteria_changed": _criteria_changed,
           "alpha4": lambda window: window.project.update_inflow(alpha_deg=4.0),
-          "mach_high": lambda window: window.project.update_inflow(speed=150.0)}
+          "mach_high": lambda window: window.project.update_inflow(speed=150.0),
+          "live": _live}
 
 
 def _node_window(app, vcfd: Path, spec: str):

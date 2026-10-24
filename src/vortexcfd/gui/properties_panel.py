@@ -280,6 +280,8 @@ def _fixed_value(field: str) -> FixedValue:
 
 
 def _widget_get(widget):
+    if isinstance(widget, QCheckBox):
+        return widget.isChecked()
     if isinstance(widget, QComboBox):
         data = widget.currentData()
         return data if data is not None else widget.currentText()
@@ -289,6 +291,8 @@ def _widget_get(widget):
 def _widget_set(widget, value) -> None:
     if isinstance(widget, FixedValue):
         widget.setValue(value)
+    elif isinstance(widget, QCheckBox):
+        widget.setChecked(bool(value))
     elif isinstance(widget, AutoField):
         widget.set_state(value, widget._computed)
     elif isinstance(widget, ChoiceField):
@@ -310,6 +314,9 @@ def _widget_set(widget, value) -> None:
 def _connect_commit(widget, slot) -> None:
     """Commit when a field is edited: combos on change, everything else on editing finished (a fixed value never)."""
     if isinstance(widget, FixedValue):
+        return
+    if isinstance(widget, QCheckBox):
+        widget.toggled.connect(lambda _on: slot())
         return
     if isinstance(widget, QComboBox):
         widget.currentIndexChanged.connect(lambda _index: slot())
@@ -550,6 +557,15 @@ GROUPS: dict[str, dict] = {
              "serial. The recommendation for the current mesh is shown below."),
             ("relaxation", "Relaxation preset", lambda: _fixed_value("relaxation"),
              "SIMPLE under-relaxation factors: the robust set (p 0.3, U 0.7), the only preset of v1."),
+            ("live_view", "Live view", QCheckBox,
+             "While the solver runs, OpenFOAM samples the walls and the Results Scene's planes (its section plane and "
+             "clips) every N iterations and the Results Scene shows them as they come (\"Live \u00b7 iteration N\"). "
+             "Only the latest sample is kept on disk; it never changes the solution. On by default; runs from the "
+             "benchmark and validation drivers never have it."),
+            ("live_view_interval", "Live view every", lambda: _spin(1, 10_000_000, " it."),
+             "The live view's sampling interval N: a sample every N iterations (default 50). Smaller follows the run "
+             "more closely and costs a little solver time per sample (the walls and the planes only, not the full "
+             "fields)."),
         ),
     },
 }

@@ -383,6 +383,23 @@ class FoamRun:
                 raise RuntimeError("start() has not been called")
         return self._done_event.wait(timeout=timeout)
 
+    def request_write_now(self) -> bool:
+        """"Write fields now" (D-172): SIGUSR2 to the solver process (for ``mpirun ... -parallel``, mpirun forwards it
+        to the ranks, as the stop's SIGUSR1); OpenFOAM writes the fields at the end of the next iteration and goes on
+        (the case's controlDict must set writeNowSignal 12). Only once the time loop runs (the first "Time = " line)
+        and never during a stop. True when the signal was sent."""
+        with self._lock:
+            if not self._started or self._done_event.is_set() or self._stop_requested:
+                return False
+            process = self._process
+        if process is None or not self._gate_opened.is_set() or process.poll() is not None:
+            return False
+        try:
+            os.kill(process.pid, signal.SIGUSR2)
+        except (ProcessLookupError, PermissionError):
+            return False
+        return True
+
     def request_stop(self, grace_s: float = 10.0) -> bool:
         """Request an orderly stop of the running process asynchronously.
 

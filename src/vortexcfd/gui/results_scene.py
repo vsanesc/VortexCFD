@@ -34,18 +34,26 @@ class ResultsData:
     fields: list[FieldSpec]
     patches: dict[str, pv.PolyData] = field(default_factory=dict)  # part wall patches (cell data)
     internal: pv.UnstructuredGrid | None = None
+    # A live sample of a running solver (D-172): the sampled planes stand for the section; ``live`` its iteration.
+    planes: list = field(default_factory=list)
+    live: int | None = None
 
 
-def read_results(case_dir: Path, time: str, patch_names) -> ResultsData:
+def read_results(case_dir: Path, time: str, patch_names, decomposed: bool = False) -> ResultsData:
     """Read the part patches and the internal mesh at ``time`` with PyVista's OpenFOAM reader
-    (case.foam is created if missing). Slow for big meshes: call it off the GUI thread."""
+    (case.foam is created if missing). Slow for big meshes: call it off the GUI thread. ``decomposed``: the time is
+    in the processor directories only (written on request during a parallel run, D-172): the reader reads the
+    decomposed case."""
     case_dir = Path(case_dir)
     foam = case_dir / "case.foam"
     foam.touch(exist_ok=True)
-    reader = pv.OpenFOAMReader(str(foam))
-    reader.set_active_time_value(float(time))
-    reader.enable_all_patch_arrays()
-    blocks = reader.read()
+    if decomposed:
+        blocks = _read_decomposed(foam, float(time))
+    else:
+        reader = pv.OpenFOAMReader(str(foam))
+        reader.set_active_time_value(float(time))
+        reader.enable_all_patch_arrays()
+        blocks = reader.read()
     boundary = blocks["boundary"]
     patches = {}
     for name in patch_names:
@@ -54,7 +62,49 @@ def read_results(case_dir: Path, time: str, patch_names) -> ResultsData:
             if surface.n_cells:
                 patches[name] = surface
     internal = blocks["internalMesh"] if "internalMesh" in blocks.keys() else None
-    return ResultsData(case_dir, time, available_fields(case_dir, time), patches, internal)
+    folder = case_dir / "processor0" if decomposed else case_dir
+    return ResultsData(case_dir, time, available_fields(folder, time), patches, internal)
+
+
+def _read_decomposed(foam: Path, time: float) -> pv.MultiBlock:
+    """The decomposed case's blocks at ``time`` (VTK's parallel OpenFOAM reader, case type decomposed: it reads every
+    processor directory and joins them; pyvista's reader reads reconstructed cases only)."""
+    from vtkmodules.vtkCommonExecutionModel import vtkStreamingDemandDrivenPipeline
+    from vtkmodules.vtkIOParallel import vtkPOpenFOAMReader
+
+    reader = vtkPOpenFOAMReader()
+    reader.SetFileName(str(foam))
+    reader.SetCaseType(0)  # 0: decomposed, 1: reconstructed
+    reader.UpdateInformation()
+    reader.EnableAllCellArrays()
+    reader.EnableAllPatchArrays()
+    reader.SetCreateCellToPoint(1)
+    reader.UpdateInformation()
+    reader.GetOutputInformation(0).Set(vtkStreamingDemandDrivenPipeline.UPDATE_TIME_STEP(), time)
+    reader.Update()
+    return pv.wrap(reader.GetOutput())
+
+
+def read_live_sample(case_dir: Path, sample) -> ResultsData:
+    """A live sample (foam/live_view.LiveSample) as results: the walls surface and the sampled planes (cell data of
+    p, U, k, omega, nut; D-172). Small surfaces: read in the GUI thread."""
+    from vortexcfd.foam.live_view import WALLS
+
+    patches, planes = {}, []
+    for name, path in sample.files.items():
+        surface = pv.read(str(path))
+        if not isinstance(surface, pv.PolyData):
+            surface = surface.extract_surface()
+        if not surface.n_cells:
+            continue
+        if surface.point_data and not surface.cell_data:
+            surface = surface.point_data_to_cell_data()
+        (patches.__setitem__(name, surface) if name == WALLS else planes.append(surface))
+    arrays = set()
+    for surface in (*patches.values(), *planes):
+        arrays |= set(surface.cell_data.keys())
+    fields = [spec for spec in FIELDS_BY_KEY.values() if spec.source in arrays]
+    return ResultsData(Path(case_dir), str(sample.iteration), fields, patches, None, planes, sample.iteration)
 
 
 class ResultsLoader(QObject):
@@ -75,12 +125,12 @@ class ResultsLoader(QObject):
         """Before the owner is deleted: a read still running finishes without reporting (D-164)."""
         self.gate.close()
 
-    def start(self, case_dir: Path, time: str, patch_names) -> None:
+    def start(self, case_dir: Path, time: str, patch_names, decomposed: bool = False) -> None:
         gate = self.gate
 
         def work() -> None:
             try:
-                gate.emit(self.loaded, read_results(case_dir, time, tuple(patch_names)))
+                gate.emit(self.loaded, read_results(case_dir, time, tuple(patch_names), decomposed))
             except Exception as exc:  # VTK reader errors, missing files
                 gate.emit(self.failed, f"{type(exc).__name__}: {exc}")
 
@@ -370,11 +420,21 @@ class ResultsView:
             if values is not None:
                 cut.cell_data[SHOWN] = values
                 section = cut
+        elif self.display in ("Section", "Both") and self.data.planes:  # a live sample's planes (D-172)
+            shown_planes = []
+            for plane in self.data.planes:
+                values = self._values(plane)
+                if values is not None:
+                    plane = plane.copy()
+                    plane.cell_data[SHOWN] = values
+                    shown_planes.append(plane)
+            if shown_planes:
+                section = shown_planes[0] if len(shown_planes) == 1 else pv.merge(shown_planes)
         walls = []
         if self.display in ("Walls", "Both"):
             for name, surface in self.data.patches.items():
                 shown = surface
-                if section is not None:  # keep the side behind the plane, as in the Mesh Scene
+                if section is not None and use_section:  # keep the side behind the plane, as in the Mesh Scene
                     shown = surface.clip(normal=normal, origin=origin, invert=False)
                 values = self._values(shown) if shown.n_cells else None
                 if values is None:

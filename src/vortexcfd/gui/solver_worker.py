@@ -43,6 +43,10 @@ class SolverWorker(QObject):
         if self._run is not None:
             self._run.request_stop()
 
+    def request_write_now(self) -> bool:
+        """Write fields now (D-172): the solver writes the current fields without stopping. True when sent."""
+        return self._run is not None and self._run.is_running() and self._run.request_write_now()
+
     def is_running(self) -> bool:
         return self._run is not None and self._run.is_running()
 

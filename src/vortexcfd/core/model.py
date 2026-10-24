@@ -381,6 +381,10 @@ class Solvers(StrictModel):
     write_interval: int = Field(default=200, gt=0)
     relaxation: Literal["robust"] = "robust"  # the motorBike tutorial values
     stopping: StoppingCriteria = Field(default_factory=StoppingCriteria)
+    # The live view of a run started from the app (schema v24, D-172): the walls and the Results Scene's planes
+    # sampled every ``live_view_interval`` iterations; never written for the benchmark and validation drivers.
+    live_view: bool = True
+    live_view_interval: int = Field(default=50, gt=0)
 
 
 # Number of report slots in the monitors panel (the one place to change it).
