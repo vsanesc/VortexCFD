@@ -139,6 +139,24 @@ def breakdown(name: str, sample: ForceSample, axes: CoeffAxes, rho: float,
     return ForceRow(name, cd[0], cd[1], cd[2], cl[0], cl[1], cl[2], cm, x_cp, _dot(total, x_b) / q_a, normal / q_a)
 
 
+def imbalance_resolution(fluxes, inlet_flux: float, precision: int = 6) -> float | None:
+    """The smallest mass imbalance (% of the inlet flux) the postProcessing files can show (D-178): each flux is
+    written with ``precision`` digits after the point in scientific notation (controlDict writePrecision), so it is
+    known to half a unit of its last digit; the sum of those over |inlet flux|. None without inflow."""
+    if inlet_flux == 0 or not math.isfinite(inlet_flux):
+        return None
+    error = sum(0.5 * 10.0 ** (math.floor(math.log10(abs(f))) - precision) for f in fluxes if f and math.isfinite(f))
+    return 100.0 * error / abs(inlet_flux)
+
+
+def imbalance_text(percent: float, resolution: float | None, digits: int = 3) -> str:
+    """A mass imbalance in % for display: below the files' resolution it is "< 4.7e-05" (scientific; not 0, which the
+    two fluxes cancelling to their last written digit would give), else ``digits`` significant digits."""
+    if resolution is not None and abs(percent) < resolution:
+        return f"< {resolution:.1e}"
+    return f"{percent:.{digits}g}"
+
+
 def mass_imbalance(inlet_flux: float, outlet_flux: float, others: float = 0.0) -> float | None:
     """Net flux out of the domain as a percentage of the inlet flux: 100 (phi_in + phi_out +
     others) / |phi_in| (sum(phi) is positive out of the domain, so phi_in < 0). None without inflow."""

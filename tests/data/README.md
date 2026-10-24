@@ -111,3 +111,6 @@ A polar sweep record (case_sweep/sweep.json format, foam/polar_sweep.py) written
 per-angle results (no sweep record of them exists): CL, CD and CmPitch are the last rows of the forceCoeffs output of
 the real cases (0 and 15 deg: the per-angle runs; 10 deg: the study's medium level), the cells, iterations and solver
 times from docs/validation/naca0012/RESULT.md, Round 3. Used by tests/test_report_tables.py (D-136).
+
+## `mass_flow_run/`
+Real output (ESI OpenFOAM v2606) of the owner's ~/simulation_2 (a 12-core run to the 2000-iteration limit, copied read-only on 2026-10-24 for D-178): the header and the last 120 rows of `postProcessing/massFlow_inlet/1002/` and `massFlow_outlet/1002/surfaceFieldValue.dat` (both fluxes written as 2.114049e-01), the first 38 lines of `system/controlDict` (writePrecision 6), the last iteration of `log.simpleFoam` (its time step continuity errors) and the "Total volume" line of `logs/log.checkMesh`. Unchanged otherwise.

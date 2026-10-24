@@ -82,7 +82,12 @@ report's **chart** in a window of its own: the whole history, its windowed mean 
 oscillation's half range as a band, Export PNG and CSV; several can be open at once. Every chart's iteration axis
 zooms with the wheel and pans with a drag; a double click shows it all again (and the residual chart then follows
 the run again). The convergence criteria box shows the criteria of the run it judges ("Criteria of the last run")
-and says when the project's criteria have changed since.
+and says when the project's criteria have changed since. Its **Satisfied now** column says whether each criterion
+holds at the last iteration: "yes", "no", "not yet: 40 of 50 iterations" while a window is not complete, or "yes
+(stops from 3,502)" when it holds before it may stop the run (the minimum iterations; in a two-stage run counted from
+the switch). When every residual criterion holds but a monitored force coefficient is still changing, a warning
+says so ("Residuals met, but Cl is still changing"): add an asymptotic or mean-stable criterion on it. A mass
+imbalance below what the postProcessing files resolve (their writePrecision) shows as "< 4.7e-05" (%), not 0.
 
 Run Solver saves the project first, so the results always belong to the saved set-up.
 

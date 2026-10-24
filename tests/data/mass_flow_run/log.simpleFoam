@@ -1,0 +1,9 @@
+Time = 2000
+
+smoothSolver:  Solving for Ux, Initial residual = 1.0299e-07, Final residual = 8.68929e-09, No Iterations 9
+smoothSolver:  Solving for Uz, Initial residual = 2.10547e-07, Final residual = 1.78393e-08, No Iterations 9
+GAMG:  Solving for p, Initial residual = 2.3027e-07, Final residual = 5.96888e-08, No Iterations 1
+time step continuity errors : sum local = 3.10227e-08, global = 6.09617e-11, cumulative = 9.16876e-06
+smoothSolver:  Solving for omega, Initial residual = 1.90229e-08, Final residual = 9.06452e-09, No Iterations 1
+smoothSolver:  Solving for k, Initial residual = 1.08647e-07, Final residual = 6.81151e-09, No Iterations 4
+ExecutionTime = 544.05 s  ClockTime = 544 s

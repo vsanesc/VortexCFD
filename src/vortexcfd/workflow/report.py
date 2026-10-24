@@ -30,6 +30,7 @@ from vortexcfd.core.project import Project
 from vortexcfd.core.reports import FLOW_QUANTITIES, FLOW_QUANTITY_LABELS, report_label
 from vortexcfd.workflow import flow_numbers, plot_axes
 from vortexcfd.foam.convergence import window_stats
+from vortexcfd.foam.forces import imbalance_text
 from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam import mesh_study, polar_sweep
 from vortexcfd.foam.mesh_record import read_mesh_record
@@ -326,7 +327,8 @@ def reports_section(project: Project) -> Section:
     body += _note("Means over the last iterations: the window of a mean-stable criterion on the quantity, else the "
                   "oscillation window of the stopping criteria (D-118, D-119).")
     if balance is not None and balance[2] is not None:
-        body += _pairs([("Mass imbalance at the last iteration", f"{balance[2]:.3g} % of the inlet flux")])
+        text = imbalance_text(balance[2], monitor.mass_resolution())
+        body += _pairs([("Mass imbalance at the last iteration", f"{text} % of the inlet flux")])
     return Section(title, body)
 
 

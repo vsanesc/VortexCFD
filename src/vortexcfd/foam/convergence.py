@@ -36,7 +36,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from vortexcfd.core.model import AsymptoticCriterion, MeanStableCriterion, ResidualCriterion, StoppingCriteria
-from vortexcfd.core.reports import default_floor, report_label
+from vortexcfd.core.reports import FORCE_COEFFS, default_floor, report_label, split_part
 
 FUNCTION_NAME = "runTimeControl1"
 
@@ -286,7 +286,10 @@ def rolling_window(series, window: int) -> list[tuple[float, float, float, float
 
 @dataclass(frozen=True)
 class CriterionStatus:
-    """One criterion's live state: value compared with threshold, and whether it is met."""
+    """One criterion's live state: value compared with threshold. ``holds``: its condition holds at the last
+    iteration (a residual below its threshold; a windowed value at most its tolerance), whatever the minimum
+    iterations; ``satisfied``: it holds and may stop the run there (from ``earliest`` on), which is what stops a run
+    (D-178)."""
 
     description: str
     value: float | None  # None: not computed yet
@@ -296,6 +299,9 @@ class CriterionStatus:
     label: str = ""  # short_label
     iteration: float | None = None  # the iteration the value belongs to
     name: str = ""  # condition_name
+    holds: bool = False
+    earliest: int = 0  # the first iteration at which it may stop the run
+    progress: tuple[int, int] | None = None  # a window not yet complete: (values so far, values it needs)
 
 
 def residual_value(residuals: dict[str, Series], field: str) -> tuple[float, float] | None:
@@ -315,6 +321,7 @@ def evaluate(stopping: StoppingCriteria, residuals: dict[str, Series],
     out = []
     for i, c in enumerate(stopping.criteria):
         earliest = earliest_iteration(c, stopping.min_iterations)
+        progress = None
         if isinstance(c, ResidualCriterion):
             got = residual_value(residuals, c.field)
             value, it = (got[1], got[0]) if got else (None, None)
@@ -326,10 +333,39 @@ def evaluate(stopping: StoppingCriteria, residuals: dict[str, Series],
             it = series[-1][0] if series else None
             met = value is not None and value <= c.tolerance
             threshold = c.tolerance
+            if value is None:
+                progress = (len(series), 2 * c.window if isinstance(c, MeanStableCriterion) else c.window)
         early = it is None or it < earliest
         note = f"from iteration {earliest}" if early and earliest > 1 else ""
         out.append(CriterionStatus(describe(c), value, threshold, met and not early, note, short_label(c),
-                                   it, condition_name(i, c)))
+                                   it, condition_name(i, c), met, earliest, progress))
+    return out
+
+
+# A force coefficient still changing although the residual criteria hold (D-178): its relative range over the last
+# window of the asymptotic criterion's default size above that criterion's default tolerance.
+DRIFT_WINDOW = AsymptoticCriterion.model_fields["window"].default
+DRIFT_TOLERANCE = AsymptoticCriterion.model_fields["tolerance"].default
+
+
+def still_changing(stopping: StoppingCriteria, statuses: Sequence[CriterionStatus], quantities: Sequence[str],
+                   quantity: Callable[[str], Series]) -> list[str]:
+    """The monitored force coefficients (of all walls or of a part) that are still changing while every residual
+    criterion holds: (max - min) / max(|mean|, floor) over the last DRIFT_WINDOW iterations above DRIFT_TOLERANCE.
+    Empty without residual criteria, when one does not hold, and for a coefficient an asymptotic or mean-stable
+    criterion already watches."""
+    residual = [s for c, s in zip(stopping.criteria, statuses) if isinstance(c, ResidualCriterion)]
+    if not residual or not all(s.holds for s in residual):
+        return []
+    watched = {c.quantity for c in stopping.criteria if isinstance(c, AsymptoticCriterion)}
+    out = []
+    for name in quantities:
+        if name in watched or split_part(name)[0] not in FORCE_COEFFS:
+            continue
+        floor = default_floor(name)
+        value = asymptotic_range(quantity(name), DRIFT_WINDOW, floor if floor is not None else MEAN_FLOOR)
+        if value is not None and value > DRIFT_TOLERANCE:
+            out.append(name)
     return out
 
 

@@ -507,3 +507,10 @@ settled the open ones on 2026-10-17.
      time is reconstructed with `reconstructPar -newTimes` when the run ends (that also reconstructs the run's
      periodic write times). Accept, or reconstruct only the requested times (`-time`)?
 
+## Task gui-2 owner review 2
+
+245. **[OPEN]** [NUMERICS-REVIEW] **The stage-2 criteria's minimum (D-126, found in D-178).** `stage2_criteria` adds
+     the run's minimum iterations to the switch: your ~/simulation_4 (minimum 2000, switch at 1502, limit 3000) could
+     stop on its criteria in stage 2 only from iteration 3502, after its limit. The panel now says "yes (stops from
+     3,502)". Keep it, or count stage 2's minimum as max(switch + the criteria's own window, the run's minimum)?
+     Not changed.

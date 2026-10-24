@@ -120,10 +120,12 @@ def test_banner_states_which_criterion_stopped_the_run(make_window, qtbot: QtBot
     w.monitors.refresh()
     assert box.banner.text() == BANNER_RUNNING
     # p residual 0.1 against 1e-3; Cd not written: no value yet
-    assert box.statuses_text == [("p residual", "0.1", "0.001", "no"), ("Cd asymptotic", "—", "0.001", "no")]
+    assert box.statuses_text == [("p residual", "0.1", "0.001", "no"),
+                                 ("Cd asymptotic", "—", "0.001", "not yet: 0 of 20 iterations")]
     assert box.rows[1][0].toolTip() == ("Cd: (max - min) / max(|mean|, 0.01) over the last 20 <= 0.001 "
                                         "(from iteration 20)")
-    assert box.rows[0][3].toolTip() == "from iteration 3"
+    assert box.rows[0][3].toolTip() == ("Not below its threshold at the last iteration; it may stop the run from "
+                                        "iteration 3")
     assert not runner.stop_requested
     runner.push(iteration(3, p=1e-4) + ["Time = 4\n"])  # step 3 completes with the next Time line
     wait_done(qtbot, w)

@@ -42,7 +42,7 @@ from vortexcfd.core.model import (DIMENSION_LABELS, DIMENSIONS, MAX_CURVATURE_LE
                                    SurfaceRegion)
 from vortexcfd.core.reports import (PROBE_NAME_RE, criterion_quantities, default_floor, missing_reference,
                                     report_label, report_unit)
-from vortexcfd.foam.forces import MASS_WARNING
+from vortexcfd.foam.forces import MASS_WARNING, imbalance_text
 from vortexcfd.foam.parallel import CELLS_PER_CORE, EFFICIENT_CORES, physical_cores, recommended_cores
 from vortexcfd.foam.wall_fields import case_yplus_histogram
 from vortexcfd.foam.yplus import MAX_LAYERS
@@ -2416,7 +2416,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                 self._set_warn(self.mass_imbalance, False)
             else:
                 warn = abs(pct) > MASS_WARNING
-                self.mass_imbalance.setText(f"{pct:.3g} % of the inlet flux" + (f" (above {MASS_WARNING:g} %)" if warn else ""))
+                self.mass_imbalance.setText(f"{imbalance_text(pct, monitor.mass_resolution())} % of the inlet flux"
+                                            + (f" (above {MASS_WARNING:g} %)" if warn else ""))
                 self._set_warn(self.mass_imbalance, warn)
         self.yplus_chart.set_histogram(yplus[1] if yplus is not None else None)
         if yplus is not None:

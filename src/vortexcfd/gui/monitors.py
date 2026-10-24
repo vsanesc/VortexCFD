@@ -20,8 +20,9 @@ from PySide6.QtWidgets import (
 
 from vortexcfd.core.model import REPORT_SLOTS, AsymptoticCriterion, MeanStableCriterion, StoppingCriteria
 from vortexcfd.core.reports import YPLUS, available_reports, report_label
-from vortexcfd.foam.convergence import CriterionStatus, evaluate, oscillation, short_label, window_stats
-from vortexcfd.foam.forces import MASS_WARNING
+from vortexcfd.foam.convergence import (CriterionStatus, evaluate, oscillation, quantity_label, short_label,
+                                       still_changing, window_stats)
+from vortexcfd.foam.forces import MASS_WARNING, imbalance_text
 from vortexcfd.foam.logparse import TimeStep
 from vortexcfd.foam.postprocessing import ReportMonitor
 from vortexcfd.foam.residuals import ResidualHistory
@@ -292,6 +293,7 @@ class ReportSlots(QWidget):
         self.values: dict[int, QLabel] = {}
         self.means: dict[int, QLabel] = {}  # windowed mean and oscillation (D-118)
         self.window_of = lambda _report_id: 100  # iterations averaged for a report (set by the panel)
+        self.mass_resolution: float | None = None  # the smallest imbalance the files show (%, set by the panel)
         self.subtitles: dict[int, QLabel] = {}
         self.sparks: dict[int, Sparkline] = {}
         self.assign_buttons: dict[int, QToolButton] = {}
@@ -428,11 +430,16 @@ class ReportSlots(QWidget):
         for slot in range(1, REPORT_SLOTS + 1):
             report_id = self.assignments[slot - 1]
             points = series_of(report_id) if (report_id and series_of is not None) else []
-            self.values[slot].setText(f"{points[-1][1]:.4g}" if points else EMPTY)
+            mass = report_id == "mass_imbalance"  # below the files' resolution: "< 4.7e-05", not 0 (D-178)
+            resolution = self.mass_resolution if mass else None
+            self.values[slot].setText(imbalance_text(points[-1][1], resolution, 4) if points else EMPTY)
             stats = None
             if points and not report_id.startswith("yplus"):
                 stats = window_stats(points, self.window_of(report_id), quantity=report_id)
-            self.means[slot].setText(stats.text() if stats is not None else "")
+            text = stats.text() if stats is not None else ""
+            if stats is not None and resolution is not None and abs(stats.mean) < resolution:
+                text = f"mean {imbalance_text(stats.mean, resolution)} ({stats.n} it.)"
+            self.means[slot].setText(text)
             self.sparks[slot].set_values([v for _, v in points])
 
     def configure(self, m: Metrics, t: Theme) -> None:
@@ -473,6 +480,37 @@ BANNER_CRASHED = "The solver crashed before the criteria were met"
 BANNER_NO_RUN = "No solver run yet"
 
 
+SATISFIED_TIP = ("Whether the criterion holds at the last iteration: a residual below its threshold, a windowed "
+                 "value (asymptotic, mean stable) at most its tolerance over its window. It stops the run only from "
+                 "its earliest iteration (the minimum iterations, its window) and, with \"all\", when every "
+                 "criterion holds at the same iteration.")
+
+
+def satisfied_text(status) -> tuple[str, str]:
+    """(text, tooltip) of a criterion's "Satisfied now" cell (D-178): whether it holds at the last iteration; a window
+    not yet complete says how far it is; one that holds before it may stop the run says from when it may."""
+    if status.value is None:
+        if status.progress is not None:
+            have, need = status.progress
+            return (f"not yet: {have:,} of {need:,} iterations",
+                    f"Its window needs {need:,} iterations; {have:,} so far")
+        return "not yet", "No value yet"
+    if not status.holds:
+        return "no", "Not below its threshold at the last iteration" + (f"; it may stop the run {status.note}"
+                                                                       if status.note else "")
+    if not status.satisfied and status.earliest > 1:
+        return (f"yes (stops from {status.earliest:,})",
+                f"It holds at the last iteration, but may stop the run only from iteration {status.earliest:,} "
+                "(the minimum iterations, its window; in the second turbulence stage counted from the switch)")
+    return "yes", "It holds at the last iteration"
+
+
+def drift_warning(quantity: str) -> str:
+    """The soft warning of a force coefficient still changing while the residual criteria hold (D-178)."""
+    label = quantity_label(quantity)
+    return f"Residuals met, but {label} is still changing: add an asymptotic or mean-stable criterion on it"
+
+
 def banner_for(state: str | None, stopped_by: tuple[str, ...], iterations: int | None) -> tuple[str, str | None]:
     """(text, colour state) of the convergence banner for a run state (None: running)."""
     if state is None:
@@ -506,7 +544,7 @@ class ConvergencePanel(QWidget):
     warnings whenever a monitored quantity oscillates.
     """
 
-    HEADERS = ("Criterion", "Value", "Threshold", "Satisfied")
+    HEADERS = ("Criterion", "Value", "Threshold", "Satisfied now")
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -547,6 +585,8 @@ class ConvergencePanel(QWidget):
         for col, text in enumerate(self.HEADERS):
             head = QLabel(text)
             head.setObjectName("kpiTitle")
+            if col == len(self.HEADERS) - 1:
+                head.setToolTip(SATISFIED_TIP)
             self.grid.addWidget(head, 0, col)
         self.grid.setColumnStretch(0, 1)
         self._has_criteria = False
@@ -572,6 +612,7 @@ class ConvergencePanel(QWidget):
         while len(self.rows) < len(statuses):
             r = len(self.rows) + 1
             labels = (ElidedLabel("", Qt.TextElideMode.ElideRight), *(QLabel() for _ in self.HEADERS[1:]))
+            labels[-1].setWordWrap(True)  # "not yet: 40 of 50 iterations" wraps instead of squeezing the names
             for col, label in enumerate(labels):  # the name column elides instead of widening the column
                 label.setObjectName("checkValue")
                 set_text_role(label, "data_small")
@@ -580,12 +621,15 @@ class ConvergencePanel(QWidget):
         for labels, status in zip(self.rows, statuses):
             name, value, threshold, met = labels
             name.setText(status.label or status.description)
+            # the short name stays whole (up to 8 u); the "Satisfied now" cell wraps instead
+            name.setMinimumWidth(min(name.fontMetrics().horizontalAdvance(name.text()) + 2, 8 * metrics().u))
             name.setToolTip(status.description + (f" ({status.note})" if status.note else ""))
             value.setText(EMPTY if status.value is None else f"{status.value:.3g}")
             threshold.setText(f"{status.threshold:.3g}")
-            met.setText("yes" if status.satisfied else "no")
-            met.setToolTip(status.note)
-            set_state(met, "ok" if status.satisfied else None)
+            text, tip = satisfied_text(status)
+            met.setText(text)
+            met.setToolTip(tip)
+            set_state(met, "ok" if status.holds else None)
         for label in self.warnings:
             self._warning_box.removeWidget(label)
             discard(label)
@@ -887,6 +931,7 @@ class MonitorsPanel(QWidget):
         self._dirty = False
         self.chart.set_series(self.history.decimated())
         self.kpis.window_of = self.mean_window
+        self.kpis.mass_resolution = self.reports.mass_resolution() if self.reports is not None else None
         self.kpis.set_series(self.reports.series if self.reports is not None else None)
         self._update_convergence()
         self._update_charts()
@@ -924,6 +969,7 @@ class MonitorsPanel(QWidget):
         else:
             banner = banner_for(*self.outcome)
         warnings = []
+        oscillating: set[str] = set()
         if stop is not None and self.reports is not None:
             floors = {c.quantity: c.effective_floor for c in stop.criteria if isinstance(c, AsymptoticCriterion)}
             for name in self.monitored_quantities():
@@ -932,6 +978,11 @@ class MonitorsPanel(QWidget):
                 if osc is not None:
                     stable = any(isinstance(c, MeanStableCriterion) and c.quantity == name for c in stop.criteria)
                     warnings.append(osc.message(suggest_mean_stable=not stable))
+                    oscillating.add(name)
+            if statuses:  # the residual criteria hold, a force coefficient still changes (D-178)
+                warnings += [drift_warning(name) for name in
+                             still_changing(stop, statuses, self.monitored_quantities(), series_of)
+                             if name not in oscillating]
         if self.reports is not None:
             balance = self.reports.mass_balance()
             if balance is not None and balance[2] is not None and abs(balance[2]) > MASS_WARNING:
