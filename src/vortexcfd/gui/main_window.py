@@ -462,6 +462,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.properties_window: FloatingPanel | None = None
         self.properties.help_requested.connect(lambda target: self.open_manual(section=target))
         self.properties.face_type_changed.connect(lambda face: self._select_node(f"boundary_{face}", None))
+        self.properties.node_requested.connect(lambda kind: self._select_node(kind, None))
         self.properties.show_in_file_requested.connect(lambda key: self.show_in_openfoam_file(key))
 
         self._left_split = _Splitter(Qt.Orientation.Vertical)
@@ -1039,7 +1040,10 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
                 return item
 
             root = add(self.tree, "root", None, name, "dot", "text")
-            geometry = add(root, "geometry", None, "Geometry", "folder", "text")
+            alpha = self._project.sim.inflow.alpha_deg
+            geometry_text = (f"Geometry \u00b7 \u03b1 {alpha:g}\u00b0" if alpha and not self._project.sim.internal
+                             else "Geometry")  # the angle of attack shown where it is set (D-167)
+            geometry = add(root, "geometry", None, geometry_text, "folder", "text")
             parts_item = add(geometry, "parts", None, "Parts", "folder", "text")
             prep_state = surface_prep.state(self._project)
             prep = self._project.sim.surface_prep

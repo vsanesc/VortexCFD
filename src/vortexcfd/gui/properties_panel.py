@@ -524,7 +524,8 @@ GROUPS: dict[str, dict] = {
         ),
     },
     "geometry": {
-        "model": lambda sim: sim.inflow, "update": "update_inflow", "section": ("body_attitude", "Body attitude"),
+        "model": lambda sim: sim.inflow, "update": "update_inflow",
+        "section": ("body_attitude", "Body attitude (all parts)"),
         "fields": (
             ("alpha_deg", "Angle of attack \u03b1", lambda: _dspin(-90.0, 90.0, 3, "\u00b0"),
              "Angle of attack \u03b1: rotation of the parts about the y axis, nose up positive, relative to the free "
@@ -547,6 +548,15 @@ GROUPS: dict[str, dict] = {
         ),
     },
 }
+
+# Where the angle of attack is set, and what it turns (D-120, D-148, D-167).
+BODY_ATTITUDE_NOTE = ("All the parts rotate together, as one rigid body, about the centre of rotation shown below; the "
+                      "free stream stays along +x.")
+BODY_ATTITUDE_TIP = ("Body attitude: the angle of attack \u03b1 turns every part of the geometry together about the y "
+                     "axis through the centre of rotation (Reference Values > Centre of rotation; auto: the centre of "
+                     "the parts' box), nose up positive. The free stream stays along +x, so lift is +z and drag +x. A "
+                     "change puts the mesh out of date; the geometry files are not changed.")
+ALPHA_LINK = "geometry"  # the Free stream's link to the Body attitude (the Geometry node)
 
 # Stopping Criteria node (D-058): static rows and their tooltips.
 STOPPING_ROWS = ("stop_combine", "stop_min", "stop_max", "stop_osc_threshold", "stop_osc_window")
@@ -672,6 +682,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
     pending_changed = Signal()  # an uncommitted name edit appeared or was resolved
     study_run_requested = Signal(str)  # "mesh" or "polar": Run / Stop on a study node (D-066, D-067)
     study_results_requested = Signal(str)
+    node_requested = Signal(str)  # a link to another node (its kind), e.g. the Free stream's "Body attitude" (D-167)
     regions_selected = Signal(int, list)  # part index, selected region names (viewer highlight, D-071)
     generate_domain_requested = Signal()  # the Generate domain button (D-078)
     prepare_surfaces_requested = Signal()  # the Surface Preparation node's buttons (D-093)
@@ -1054,7 +1065,11 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self.group_fields: dict[str, dict[str, QWidget]] = {}
         for gkind, spec in GROUPS.items():
             fields: dict[str, QWidget] = {}
-            self._section(*spec["section"])
+            header = self._section(*spec["section"])
+            if gkind == "geometry":  # what the angle turns (D-167)
+                header.setToolTip(BODY_ATTITUDE_TIP)
+                self.attitude_note = self._note(BODY_ATTITUDE_NOTE)
+                self.attitude_note.setToolTip(BODY_ATTITUDE_TIP)
             for key, label, factory, tip in spec["fields"]:
                 widget = factory()
                 widget.setToolTip(tip)
@@ -1062,6 +1077,14 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                 self._layout.addWidget(self._make_row(f"{gkind}_{key}", label, widget))
                 _connect_commit(widget, lambda k=key, g=gkind: self._commit_group(g, k))
             self.group_fields[gkind] = fields
+            if gkind == "inflow":  # the angle of attack lives in Geometry > Body attitude: said and linked (D-167)
+                self.inflow_alpha = self._ro_row("inflow_alpha", "Angle of attack")
+                self.inflow_alpha.setTextFormat(Qt.TextFormat.RichText)
+                self.inflow_alpha.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse
+                                                          | Qt.TextInteractionFlag.LinksAccessibleByKeyboard)
+                self.inflow_alpha.setToolTip("The angle of attack is a rotation of the parts, set in Geometry > Body "
+                                             "attitude (the link selects it); the free stream stays along +x.")
+                self.inflow_alpha.linkActivated.connect(self.node_requested.emit)
             if gkind == "geometry":  # the rotation centre of the body attitude (D-120, D-148)
                 self.attitude_centre = self._ro_row("geometry_centre", "Rotation centre")
                 self.attitude_centre.setToolTip("The angle of attack turns the parts about the y axis through this "
@@ -1769,6 +1792,12 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                     w.blockSignals(False)
         attitude = self._group_shown("geometry")
         self._rows["geometry_centre"].setVisible(attitude)
+        self.attitude_note.setVisible(attitude)
+        alpha_row = self._kind == "inflow" and not sim.internal
+        self._rows["inflow_alpha"].setVisible(alpha_row)
+        if alpha_row:
+            self.inflow_alpha.setText(f"\u03b1 = {sim.inflow.alpha_deg:g}\u00b0 (set in "
+                                      f"<a href=\"{ALPHA_LINK}\">Geometry \u2192 Body attitude</a>)")
         if attitude:
             self.attitude_centre.setText(self._rotation_centre_text())
         solvers = self._kind == "solvers"
