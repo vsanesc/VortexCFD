@@ -9,8 +9,12 @@ from vortexcfd.core.model import BOUNDARY_KIND_LABELS, DIMENSION_LABELS
 
 # Model field -> {value: label}. A field shown with a choice box uses its labels; the set-up summary maps its values.
 VALUE_LABELS: dict[str, dict[str, str]] = {
-    "flow": {"incompressible_steady": "Incompressible, steady"},
-    "turbulence_model": {"kOmegaSST": "k-ω SST"},
+    "flow": {"incompressible_steady": "Incompressible, steady",
+             "incompressible_transient": "Incompressible, transient"},
+    "turbulence_model": {"kOmegaSST": "k-ω SST", "laminar": "Laminar (no turbulence model)"},
+    "time_step": {"adaptive": "Adaptive (from the Courant number)", "fixed": "Fixed"},
+    "time_unit": {"flow_through": "Flow-through times (l_ref / U)", "s": "Seconds"},
+    "start_from": {"free_stream": "The free stream", "steady": "The steady solution of this project"},
     "relaxation": {"robust": "Robust (p 0.3, U 0.7)"},
     "combine": {"all": "All", "any": "Any"},
     "symmetry": {"none": "None", "y_min": "y-min plane"},

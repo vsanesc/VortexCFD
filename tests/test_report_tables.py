@@ -102,7 +102,7 @@ def test_a_v20_project_migrates_to_v21() -> None:
     raw = json.loads((DATA / "project_v19.json").read_text())
     data = migrate(raw)
     sim = Simulation.model_validate(data)
-    assert sim.schema_version == 24 and sim.results.report_omit == []
+    assert sim.schema_version == 25 and sim.results.report_omit == []
 
 
 def test_the_window_asks_for_the_sections_and_remembers_them(results_window, qtbot: QtBot) -> None:

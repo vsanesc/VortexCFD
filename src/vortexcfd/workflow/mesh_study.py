@@ -216,6 +216,8 @@ def study_readiness(project: Project, *, busy: str | None = None) -> str | None:
         return "Save the project first."
     if busy:
         return busy
+    if project.sim.physics.transient:  # D-181: the studies record steady values (1.1: transient studies later)
+        return "The mesh study runs steady projects only for now: set Physics > Flow to steady."
     if not project.sim.studies.mesh.quantities:
         return "Choose at least one quantity to study."
     if project.sim.internal:  # D-129: no force coefficients; an inlet, outlet, plane or pressure drop may be gone

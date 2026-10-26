@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVB
 
 from vortexcfd.core.reports import report_label, report_unit
 from vortexcfd.foam.convergence import rolling_window, unique_by_iteration, window_stats
+from vortexcfd.foam.transient import slot_text as transient_slot_text
 from vortexcfd.foam.residuals import decimate
 from vortexcfd.gui.chart_axis import ZoomPanMixin, draw_x_axis, draw_y_axis, y_label_width
 from vortexcfd.gui.panel_widgets import FloatingPanel
@@ -42,6 +43,7 @@ class ReportChart(ZoomPanMixin, QWidget):
         self.points: list[tuple[float, float]] = []
         self.rolling: list[tuple[float, float, float, float]] = []
         self.window = 0
+        self.time_axis = False  # a transient run (D-181): the x axis is the time, the dashed line the running mean
         self.x_ticks = self.y_ticks = None
         self._init_zoom_pan()
 
@@ -62,7 +64,17 @@ class ReportChart(ZoomPanMixin, QWidget):
     def set_data(self, points, window: int) -> None:
         self.points = [(float(x), float(v)) for x, v in unique_by_iteration(points)]
         self.window = window
+        self.time_axis = False
         self.rolling = rolling_window(self.points, window) if has_mean(self.report_id) else []
+        self.update()
+
+    def set_transient(self, points, running: list[tuple[float, float]]) -> None:
+        """A transient run (D-181): the history against time and its running mean from the sampling start (the
+        dashed line; no band)."""
+        self.points = [(float(x), float(v)) for x, v in unique_by_iteration(points)]
+        self.window = 0
+        self.time_axis = True
+        self.rolling = [(x, m, m, m) for x, m in running]
         self.update()
 
     def data_x_range(self) -> tuple[float, float] | None:
@@ -105,10 +117,10 @@ class ReportChart(ZoomPanMixin, QWidget):
         grid, ink = QColor(t.border), QColor(t.muted_text)
         self.y_ticks = draw_y_axis(painter, area, y0, y1, fm, grid, ink, label_w, pad / 2)
         if self.points:
-            self.x_ticks = draw_x_axis(painter, area, x0, x1, fm, grid, ink, integer=True)
+            self.x_ticks = draw_x_axis(painter, area, x0, x1, fm, grid, ink, integer=not self.time_axis)
         painter.setPen(ink)
         painter.drawText(QRectF(area.left(), area.bottom() + 1.25 * fm.height(), area.width(), fm.height()),
-                         int(Qt.AlignmentFlag.AlignCenter), "Iteration")
+                         int(Qt.AlignmentFlag.AlignCenter), "Time [s]" if self.time_axis else "Iteration")
         unit = report_unit(self.report_id)
         painter.save()
         painter.translate(pad / 2 + fm.height() / 2, area.center().y())
@@ -171,7 +183,9 @@ class ReportChart(ZoomPanMixin, QWidget):
         """(colour, pen style, text, x, row) of each legend entry: as many per row as fit."""
         t = self._theme
         entries = [(QColor(t.accent), Qt.PenStyle.SolidLine, report_label(self.report_id))]
-        if self.rolling:
+        if self.rolling and self.time_axis:
+            entries += [(QColor(t.text), Qt.PenStyle.DashLine, "running mean from the sampling start")]
+        elif self.rolling:
             entries += [(QColor(t.text), Qt.PenStyle.DashLine, f"mean over {self.window} it."),
                         (None, None, "\u00b1 half range")]
         out, x, row = [], left, 0
@@ -225,6 +239,14 @@ class ReportChartWindow(FloatingPanel):
         latest = f"latest {points[-1][1]:.5g} at iteration {points[-1][0]:g}" if points else "no values yet"
         self.stats.setText(latest + (f"; {stats.text()}" if stats is not None else ""))
 
+    def set_transient(self, points, running: list[tuple[float, float]], start: float | None) -> None:
+        """A transient run's history and running mean (D-181); the header gives the latest value and the slot's
+        running mean."""
+        self.chart.set_transient(points, running)
+        latest = f"latest {points[-1][1]:.5g} at t = {points[-1][0]:.5g} s" if points else "no values yet"
+        mean = transient_slot_text(points, start) if running or start is None else ""
+        self.stats.setText(latest + (f"; {mean}" if mean and has_mean(self.report_id) else ""))
+
     def write_png(self, path: Path) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.chart.grab().save(str(path), "PNG")
@@ -236,6 +258,12 @@ class ReportChartWindow(FloatingPanel):
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", newline="", encoding="utf-8") as fh:
             w = csv.writer(fh)
+            if self.chart.time_axis:  # a transient run (D-181): time, value and the running mean
+                w.writerow(["time", self.report_id, "running_mean"])
+                for x, v in self.chart.points:
+                    m = rolling.get(x)
+                    w.writerow([repr(x), repr(v), "" if m is None else repr(m[0])])
+                return
             w.writerow(["iteration", self.report_id, "windowed_mean", "band_low", "band_high"])
             for x, v in self.chart.points:
                 m = rolling.get(x)

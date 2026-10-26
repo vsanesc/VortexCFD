@@ -69,7 +69,8 @@ def migrate(data: dict[str, Any], notes: list[str] | None = None) -> dict[str, A
     surface as a refinement volume shape (none, D-145), the domain faces' boundary types (none: the defaults, D-147)
     and the polar sweep's opt-in (on for every older project, which always had it, D-148); v22 -> v23 adds the
     domain extents' units (none: every extent in L, as every older project stored them, D-157); v23 -> v24 adds the
-    speed of sound of the Mach number (default 343 m/s, D-168).
+    speed of sound of the Mach number (default 343 m/s, D-168); v24 -> v25 adds transient flow, the laminar model
+    and the transient settings (none: every older project is steady k-omega SST, D-181).
     Data already at the current version (or not a dict /
     without a version) is returned unchanged."""
     if not isinstance(data, dict):
@@ -167,6 +168,8 @@ def migrate(data: dict[str, Any], notes: list[str] | None = None) -> dict[str, A
         data["schema_version"] = 23  # every extent in L, as before (D-157)
     if data.get("schema_version") == 23:
         data["schema_version"] = 24  # the speed of sound defaults to 343 m/s (D-168)
+    if data.get("schema_version") == 24:
+        data["schema_version"] = 25  # steady k-omega SST as before; the transient settings default (D-181)
     return data
 
 

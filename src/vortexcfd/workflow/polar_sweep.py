@@ -47,6 +47,8 @@ def sweep_readiness(project: Project, *, busy: str | None = None) -> str | None:
         return "Save the project first."
     if busy:
         return busy
+    if project.sim.physics.transient:  # D-181: the studies record steady values (1.1: transient studies later)
+        return "The polar sweep runs steady projects only for now: set Physics > Flow to steady."
     if not project.sim.studies.polar.enabled:
         return "The polar sweep is off: enable it first (Reports & Monitors > Polar sweep)."
     alphas = project.sim.studies.polar.alphas()

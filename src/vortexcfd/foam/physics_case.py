@@ -34,6 +34,7 @@ from vortexcfd.foam.convergence import force_coeffs_name, probe_function_name, r
 from vortexcfd.foam.mesh_case import FRONT_AND_BACK, GROUND_PATCH
 from vortexcfd.foam.parallel import DECOMPOSE_DICT, decompose_par_dict
 from vortexcfd.foam.postprocessing import BODY_COEFFS
+from vortexcfd.foam import transient as transient_files
 
 Bounds = tuple[float, float, float, float, float, float]  # xmin, xmax, ymin, ymax, zmin, zmax
 
@@ -364,6 +365,8 @@ def control_dict(inp: SolverCaseInput) -> FoamFileSpec:
         functions[probe_function_name(probe.name)] = _probe(probe.location)
     if inp.live_view is not None:  # the live view (D-172) [NUMERICS-REVIEW]: it samples, never changes the solution
         functions[LIVE_VIEW] = live_function_object(inp.live_view)
+    if inp.physics.transient:  # D-181: the end time and the app-side statistics stop, no runTimeControl
+        return _transient_control_dict(inp, functions)
     stop = None if inp.two_stage else run_time_control(inp.solvers.stopping)  # two stages: app-side (D-126)
     if stop is not None:
         functions[RUN_TIME_CONTROL] = stop
@@ -384,6 +387,149 @@ def control_dict(inp: SolverCaseInput) -> FoamFileSpec:
         "timePrecision": 6,
         "runTimeModifiable": True,
         "functions": functions,
+    })
+
+
+# -- transient flow (D-181) [NUMERICS-REVIEW] ---------------------------------------------------------------------------
+# pimpleFoam (v2606 applications/solvers/incompressible/pimpleFoam; controlDict keywords adjustTimeStep, maxCo and
+# maxDeltaT of src/finiteVolume/cfdTools/general/include/setDeltaT.H, the PIMPLE dictionary of pimpleControl), as the
+# tutorial incompressible/pimpleFoam/laminar/cylinder2D. The defaults of core.model.Transient.
+FIRST_STEP_FRACTION = 1e-3  # adaptive: the first step, as a fraction of t_c (cut to the Courant limit at once)
+FIXED_STEP_FRACTION = 5e-3  # fixed: the step, as a fraction of t_c
+MAX_STEP_FRACTION = 0.02  # the largest step, as a fraction of t_c
+
+
+@dataclass(frozen=True)
+class TransientTimes:
+    """A transient run's times in seconds (core.model.Transient's values in its time unit)."""
+
+    convective_time: float  # t_c = l_ref / U
+    length: float
+    end_time: float
+    write_interval: float
+    delta_t: float
+    max_delta_t: float
+    window: float
+    sampling_start: float | None
+
+
+def transient_times(inp: SolverCaseInput) -> TransientTimes:
+    """The seconds of the transient settings: t_c = l_ref / U (the reference length of the force coefficients and
+    the free-stream speed); a value in flow-through times is multiplied by t_c."""
+    settings = inp.solvers.transient
+    length = reference_values(inp.parts_bounds, inp.reports, inp.span).l_ref
+    t_c = length / inp.inflow.speed
+    scale = t_c if settings.time_unit == "flow_through" else 1.0
+    adaptive = settings.time_step == "adaptive"
+    max_dt = settings.max_delta_t if settings.max_delta_t is not None else MAX_STEP_FRACTION * t_c
+    if settings.delta_t is not None:
+        dt = settings.delta_t
+    else:
+        dt = (FIRST_STEP_FRACTION if adaptive else FIXED_STEP_FRACTION) * t_c
+    start = settings.sampling_start
+    if adaptive:  # the first step: never above the largest
+        dt = min(dt, max_dt)
+    return TransientTimes(t_c, length, settings.end_time * scale, settings.write_interval * scale, dt, max_dt,
+                          settings.window * scale, None if start is None else start * scale)
+
+
+def _transient_control_dict(inp: SolverCaseInput, functions: dict) -> FoamFileSpec:
+    """controlDict of pimpleFoam: endTime in seconds, the adaptive step (adjustTimeStep, maxCo, maxDeltaT) or a
+    fixed one, the fields written at the write interval (adjustableRunTime with an adaptive step, so the steps land
+    on the write times; runTime with a fixed one), and fieldAverage from a sampling start set by the user (a
+    detected start adds it when it is found, foam/solver_run)."""
+    times = transient_times(inp)
+    settings = inp.solvers.transient
+    adaptive = settings.time_step == "adaptive"
+    if times.sampling_start is not None:
+        functions[transient_files.FIELD_AVERAGE] = transient_files.field_average(times.sampling_start)
+    return FoamFileSpec(content={
+        "application": "pimpleFoam",
+        "startFrom": "startTime",
+        "startTime": 0,
+        "stopAt": "endTime",
+        "endTime": times.end_time,
+        "deltaT": times.delta_t,
+        "writeControl": "adjustableRunTime" if adaptive else "runTime",
+        "writeInterval": times.write_interval,
+        "purgeWrite": 0,
+        "writeFormat": "ascii",
+        "writePrecision": 8,
+        "writeCompression": False,
+        "timeFormat": "general",
+        "timePrecision": 8,
+        "runTimeModifiable": True,
+        "adjustTimeStep": adaptive,
+        "maxCo": settings.max_courant,
+        "maxDeltaT": times.max_delta_t,
+        "functions": functions,
+    })
+
+
+def transient_control(inp: SolverCaseInput) -> FoamFileSpec:
+    """The case's TRANSIENT_FILE (foam/transient.py): the times in seconds and the statistics settings."""
+    times = transient_times(inp)
+    settings = inp.solvers.transient
+    start = times.sampling_start
+    control = transient_files.TransientControl(
+        times.convective_time, times.length, inp.inflow.speed, times.end_time, times.window, settings.tolerance,
+        settings.stop_quantity, settings.statistics_stop, start, False,
+        transient_files.field_average(start if start is not None else 0.0))
+    return FoamFileSpec(content=control.content())
+
+
+def transient_fv_schemes(laminar: bool = False) -> FoamFileSpec:
+    """fvSchemes of a transient run (D-181) [NUMERICS-REVIEW]: second order in time and space.
+
+    ddt backward: second-order implicit with three time levels (v2606 backwardDdtScheme, which takes the variable
+    step of an adaptive run into account and starts with an Euler step); Euler's first-order error damps a
+    shedding's amplitude and lowers its frequency. U: Gauss linearUpwind on the cell-limited grad(U) of the steady
+    default (the tutorials pimpleFoam/RAS/propeller and pitzDaily), without the steady "bounded" correction (that is
+    for steady state). k and omega: Gauss limitedLinear 1, a bounded (TVD) second-order scheme (the tutorials
+    pimpleFoam/RAS/TJunction and ellipsekkLOmega) where the steady default is first-order upwind: a URANS run must
+    not damp the resolved unsteadiness with first-order turbulence transport. The rest as the steady default."""
+    divs = {
+        "default": "none",
+        "div(phi,U)": ("Gauss", "linearUpwind", "grad(U)"),
+        "div((nuEff*dev2(T(grad(U)))))": ("Gauss", "linear"),
+    }
+    if not laminar:
+        divs["div(phi,k)"] = ("Gauss", "limitedLinear", 1)
+        divs["div(phi,omega)"] = ("Gauss", "limitedLinear", 1)
+    return FoamFileSpec(content={
+        "ddtSchemes": {"default": "backward"},
+        "gradSchemes": {"default": ("Gauss", "linear"), "grad(U)": ("cellLimited", "Gauss", "linear", 1)},
+        "divSchemes": divs,
+        "laplacianSchemes": {"default": ("Gauss", "linear", "corrected")},
+        "interpolationSchemes": {"default": "linear"},
+        "snGradSchemes": {"default": "corrected"},
+        "wallDist": {"method": "meshWave"},
+    })
+
+
+def transient_fv_solution(solvers: Solvers, laminar: bool = False) -> FoamFileSpec:
+    """fvSolution of pimpleFoam (D-181) [NUMERICS-REVIEW]: the cylinder2D tutorial's solvers (GAMG for p, a
+    smoothSolver for U, k and omega) and its p tolerance (1e-6; U, k and omega 1e-6, the tutorial's 1e-5 tightened);
+    the last corrector of each step ("Final") solves to that absolute tolerance (relTol 0), which costs every step
+    (the steady default's 1e-7 for p doubled the final pressure solve's iterations on the cylinder). PIMPLE: the user's outer correctors (1: the PISO mode) and pressure
+    correctors, the momentum predictor on, no non-orthogonal correctors (as the steady default) and no
+    under-relaxation (a time step resolved at a Courant number up to about 1 needs none)."""
+    p = {"solver": "GAMG", "smoother": "GaussSeidel", "tolerance": 1e-6, "relTol": 0.01}
+    smooth = {"solver": "smoothSolver", "smoother": "symGaussSeidel", "tolerance": 1e-6, "relTol": 0.1}
+    fields = ("U",) if laminar else ("U", "k", "omega")
+    entries: dict = {"p": p, "pFinal": {**p, "relTol": 0}}
+    for name in fields:
+        entries[name] = dict(smooth)
+        entries[f"{name}Final"] = {**smooth, "relTol": 0}
+    settings = solvers.transient
+    return FoamFileSpec(content={
+        "solvers": entries,
+        "PIMPLE": {
+            "momentumPredictor": True,
+            "nOuterCorrectors": settings.outer_correctors,
+            "nCorrectors": settings.correctors,
+            "nNonOrthogonalCorrectors": 0,
+        },
     })
 
 
@@ -570,6 +716,8 @@ def transport_properties(physics: Physics) -> FoamFileSpec:
 
 
 def turbulence_properties(physics: Physics) -> FoamFileSpec:
+    if physics.laminar:  # no turbulence model (D-182), as the tutorial pimpleFoam/laminar/cylinder2D
+        return FoamFileSpec(content={"simulationType": "laminar"})
     return FoamFileSpec(content={
         "simulationType": "RAS",
         "RAS": {"RASModel": physics.turbulence_model, "turbulence": True, "printCoeffs": True},
@@ -735,21 +883,31 @@ def initial_fields(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
     return {"0/U": u, "0/p": p, "0/k": kf, "0/omega": of, "0/nut": nut}
 
 
+LAMINAR_FIELDS = ("0/U", "0/p")
+
+
 def build_solver_files(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
     """All solver dictionaries and initial fields: relative path -> spec."""
+    laminar = inp.physics.laminar
     files = {
         "system/controlDict": control_dict(inp),
-        "system/fvSchemes": fv_schemes(),
-        "system/fvSolution": fv_solution(inp.solvers, inp.internal is not None and any(
-            i.kind == "total_pressure" for i in inp.internal.inlets)),
+        "system/fvSchemes": transient_fv_schemes(laminar) if inp.physics.transient else fv_schemes(),
+        "system/fvSolution": (transient_fv_solution(inp.solvers, laminar) if inp.physics.transient else
+                              fv_solution(inp.solvers, inp.internal is not None and any(
+                                  i.kind == "total_pressure" for i in inp.internal.inlets))),
         "constant/transportProperties": transport_properties(inp.physics),
         "constant/turbulenceProperties": turbulence_properties(inp.physics),
     }
-    if inp.two_stage:  # D-126
+    if inp.physics.transient:  # D-181
+        files[transient_files.TRANSIENT_FILE] = transient_control(inp)
+    elif inp.two_stage:  # D-126 (a transient run is second order from the start)
         files[STAGES_FILE] = turbulence_stages()
     if inp.internal is not None:  # the report definitions for the monitors (D-129); OpenFOAM ignores the file
         files[INTERNAL_REPORTS_FILE] = internal_reports(inp)
-    files.update(internal_fields(inp) if inp.internal is not None else initial_fields(inp))
+    fields = internal_fields(inp) if inp.internal is not None else initial_fields(inp)
+    if laminar:  # U and p only (D-182)
+        fields = {rel: spec for rel, spec in fields.items() if rel in LAMINAR_FIELDS}
+    files.update(fields)
     if inp.solvers.cores > 1:  # parallel run (D-063)
         files[DECOMPOSE_DICT] = decompose_par_dict(inp.solvers.cores)
     return files

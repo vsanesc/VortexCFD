@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 24
+CURRENT_SCHEMA_VERSION: int = 25
 
 
 class StrictModel(BaseModel):
@@ -255,19 +255,28 @@ class Mesh(StrictModel):
 
 
 class Physics(StrictModel):
-    """Flow physics. Only steady incompressible kOmegaSST for now.
+    """Flow physics: incompressible, steady (simpleFoam, the default) or transient (pimpleFoam, schema v25, D-181);
+    k-omega SST or laminar (no turbulence model, schema v25, D-182).
 
     ``nu`` is the kinematic viscosity (m2/s); ``rho_ref`` (kg/m3) is used only to scale forces
     (the solver is incompressible, pressure is kinematic); ``speed_of_sound`` (m/s) only gives the Mach number.
     """
 
-    flow: Literal["incompressible_steady"] = "incompressible_steady"
+    flow: Literal["incompressible_steady", "incompressible_transient"] = "incompressible_steady"
     nu: float = Field(default=1.5e-5, gt=0)
     rho_ref: float = Field(default=1.225, gt=0)
-    turbulence_model: Literal["kOmegaSST"] = "kOmegaSST"
+    turbulence_model: Literal["kOmegaSST", "laminar"] = "kOmegaSST"
     # The speed of sound of the Mach number shown (m/s, schema v24, D-168): a reference value only, never written to
     # the case (the solver is incompressible). Default 343 m/s: air at 20 °C.
     speed_of_sound: float = Field(default=343.0, gt=0)
+
+    @property
+    def transient(self) -> bool:
+        return self.flow == "incompressible_transient"
+
+    @property
+    def laminar(self) -> bool:
+        return self.turbulence_model == "laminar"
 
 
 class Inflow(StrictModel):
@@ -370,6 +379,50 @@ class StoppingCriteria(StrictModel):
     oscillation_window: int = Field(default=100, ge=4)
 
 
+class Transient(StrictModel):
+    """The time stepping, statistics and end of a transient run (schema v25, D-181) [NUMERICS-REVIEW].
+
+    Times (``end_time``, ``write_interval``, ``sampling_start``, ``window``) are in ``time_unit``: "flow_through",
+    the time the free stream takes to pass the reference length, t_c = l_ref / U (the convective time unit), or "s".
+
+    Time step: "adaptive" (pimpleFoam's adjustTimeStep: the step follows the maximum Courant number ``max_courant``,
+    never above ``max_delta_t``, starting from ``delta_t``) or "fixed" (``delta_t``). ``delta_t`` None: 1/1000 of t_c
+    (adaptive: the first step, cut at once to the Courant limit by pimpleFoam) or 1/200 of t_c (fixed);
+    ``max_delta_t`` None: 1/50 of t_c (at least 250 steps per period at a Strouhal number of 0.2). PIMPLE:
+    ``outer_correctors`` (1: the PISO mode, enough at a Courant number up to about 1) and ``correctors`` (pressure
+    corrections per outer corrector).
+
+    Statistics: from ``sampling_start`` (None: detected from the force history once the start-up transient has
+    passed, foam/transient.detect_start) to the end, the time-averaged fields (fieldAverage: mean and prime2Mean of U
+    and p), the mean and RMS of every force coefficient and the Strouhal number of the lift. End: ``end_time``; with
+    ``statistics_stop`` also once the running mean of ``stop_quantity`` is stable within ``tolerance`` over the last
+    ``window`` (foam/transient.running_mean_stable). ``start_from`` "steady": the initial fields are the latest time
+    of the project's steady solution on the same mesh (D-181)."""
+
+    time_step: Literal["adaptive", "fixed"] = "adaptive"
+    max_courant: float = Field(default=1.0, gt=0, le=50)
+    delta_t: float | None = Field(default=None, gt=0)  # s
+    max_delta_t: float | None = Field(default=None, gt=0)  # s
+    outer_correctors: int = Field(default=1, ge=1, le=100)
+    correctors: int = Field(default=2, ge=1, le=20)
+    time_unit: Literal["flow_through", "s"] = "flow_through"
+    end_time: float = Field(default=200.0, gt=0)
+    write_interval: float = Field(default=20.0, gt=0)
+    sampling_start: float | None = Field(default=None, ge=0)
+    start_from: Literal["free_stream", "steady"] = "free_stream"
+    statistics_stop: bool = False
+    stop_quantity: str = "Cd"
+    window: float = Field(default=20.0, gt=0)
+    tolerance: float = Field(default=0.005, gt=0)  # relative
+
+    @field_validator("stop_quantity")
+    @classmethod
+    def _known_stop_quantity(cls, value: str) -> str:
+        if not is_criterion_quantity(value) or default_floor(value) is None:
+            raise ValueError(f"not a force or moment coefficient: {value!r}")
+        return value
+
+
 class Solvers(StrictModel):
     """Solver run settings. ``iterations`` is the iteration limit (the always-present stopping
     criterion); the other criteria are in ``stopping``. ``cores``: MPI ranks of the solver (1 =
@@ -385,6 +438,8 @@ class Solvers(StrictModel):
     # sampled every ``live_view_interval`` iterations; never written for the benchmark and validation drivers.
     live_view: bool = True
     live_view_interval: int = Field(default=50, gt=0)
+    # A transient project's time stepping, statistics and end (schema v25, D-181); a steady run ignores it.
+    transient: Transient = Field(default_factory=Transient)
 
 
 # Number of report slots in the monitors panel (the one place to change it).

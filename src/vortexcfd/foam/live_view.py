@@ -66,18 +66,19 @@ def function_object(spec: LiveViewSpec) -> dict:
 
 @dataclass(frozen=True)
 class LiveSample:
-    """One sample of the live view: its iteration and the file of each surface."""
+    """One sample of the live view: its iteration (a transient run's time, D-181) and the file of each surface."""
 
-    iteration: int
+    iteration: int | float
     files: dict[str, Path]
 
 
-def _iteration(name: str) -> int | None:
+def _iteration(name: str) -> int | float | None:
+    """A sample folder's iteration, or a transient run's time (a float, D-181)."""
     try:
         value = float(name)
     except ValueError:
         return None
-    return int(round(value))
+    return int(round(value)) if value == round(value) else value
 
 
 def _files(folder: Path) -> dict[str, Path]:

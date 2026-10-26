@@ -37,8 +37,9 @@ def test_physics_editor_shows_and_commits(window: MainWindow) -> None:
     f = p.group_fields["physics"]
     assert p._rows["physics_nu"].isVisible() and not p._rows["inflow_speed"].isVisible()
     # the single options of v1 are read-only labels, never the model's identifiers (D-166)
-    assert f["flow"].value() == "incompressible_steady" and f["flow"].text() == "Incompressible, steady"
-    assert f["turbulence_model"].value() == "kOmegaSST" and f["turbulence_model"].text() == "k-\u03c9 SST"
+    assert f["flow"].value() == "incompressible_steady" and f["flow"].text_of("incompressible_steady") == \
+        "Incompressible, steady"  # a choice since transient flow (D-181)
+    assert f["turbulence_model"].value() == "kOmegaSST" and f["turbulence_model"].text_of("kOmegaSST") == "k-\u03c9 SST"
     assert f["nu"].value() == pytest.approx(1.5e-5) and f["nu"].text() == "1.5e-05"
     assert f["rho_ref"].value() == pytest.approx(1.225)
     f["nu"].setText("2e-5")

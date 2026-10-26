@@ -21,6 +21,8 @@ from vortexcfd.foam.dictfile import write_foam_file
 from vortexcfd.foam.mesh_case import MARKER_NAME, part_force_groups, remove_results
 from vortexcfd.foam.mesh_report import lost_part_message
 from vortexcfd.foam.results import latest_result_time
+from vortexcfd.foam.solver_run import SOLVERS, solver_log
+from vortexcfd.foam.transient import TRANSIENT_FILE
 from vortexcfd.geometry.domain import ground_wall_start
 from vortexcfd.foam.parallel import physical_cores
 from vortexcfd.foam.physics_case import (
@@ -79,6 +81,9 @@ def physics_problem(project: Project) -> str | None:
             why = missing_reference(c.quantity, _names, probes, locations, drops, sim.internal)
             if why is not None:
                 return f"Stopping criterion {i} watches {report_label(c.quantity)}: {why}."
+    problem = transient_problem(project, _names, probes, locations, drops)
+    if problem is not None:
+        return problem
     if sim.internal:  # no force coefficients: no reference values to check (D-129)
         return internal_problem(project)
     ref = reference_values(bounds, project.sim.reports, section_span(project) if project.sim.dimension == "2d" else None)
@@ -87,6 +92,41 @@ def physics_problem(project: Project) -> str | None:
     if ref.a_ref <= 0:
         return "The reference area is zero (the parts have no extent along x or y): set A_ref."
     return None
+
+
+def transient_problem(project: Project, names, probes, locations, drops) -> str | None:
+    """Why a transient project cannot be run (D-181), or None: internal flow has no force history to detect the
+    sampling start from; the statistics stop's quantity must be a report of the project; a start from the steady
+    solution needs one."""
+    sim = project.sim
+    if not sim.physics.transient:
+        return None
+    settings = sim.solvers.transient
+    if sim.internal and settings.sampling_start is None:
+        return ("Transient internal flow: set the sampling start (Solvers > Transient): there are no force "
+                "coefficients to detect the end of the start-up transient from.")
+    if settings.statistics_stop:
+        why = missing_reference(settings.stop_quantity, names, probes, locations, drops, sim.internal)
+        if why is not None:
+            return f"The statistics stop watches {report_label(settings.stop_quantity)}: {why}."
+    if settings.start_from == "steady":
+        case_dir = case_dir_for(project)
+        if case_dir is not None and steady_start_time(case_dir) is None:
+            return ("Start from the steady solution: this project has no steady solution on the current mesh; run "
+                    "it steady first, or start from the free stream.")
+    return None
+
+
+def steady_start_time(case_dir: Path) -> str | None:
+    """The latest written time of the case's steady solution (a run record without transient results, D-181), the
+    start of a transient run "from the steady solution"; None when there is none. A new mesh deletes the results
+    (D-051), so a solution in the case is always on its current mesh."""
+    from vortexcfd.foam.run_record import read_run_record
+
+    record = read_run_record(case_dir)
+    if record is None or record.transient is not None or record.state == "crashed":
+        return None
+    return latest_result_time(case_dir)
 
 
 def report_locations(project: Project) -> tuple[list[str], list[str]]:
@@ -189,6 +229,8 @@ def for_case(inp: SolverCaseInput, case_dir: Path) -> SolverCaseInput:
 def two_stage_turbulence(project: Project) -> bool:
     """The wall-resolved mode (chosen or automatic, D-123) solves k and omega in two stages (D-126)."""
     mesh = project.sim.mesh
+    if project.sim.physics.transient:  # second order from the start (D-181)
+        return False
     return mesh.effective_layer_controls == "wall_resolved" and mesh.layer_sizing == "absolute_yplus"
 
 
@@ -260,6 +302,10 @@ def solver_input(project: Project) -> SolverCaseInput:
                            two_stage=two_stage_turbulence(project), patch_kinds=face_kinds(project))
 
 
+# The solvers' logs (D-181) and the transient control file, cleared before a run.
+SOLVER_LOGS = tuple(f"log.{name}" for name in SOLVERS)
+
+
 def clear_results(case_dir: Path) -> list[str]:
     """Remove the previous run's outputs before a run: the results (mesh_case.remove_results: time
     directories after 0, postProcessing/, processor* directories, the run record), plus 0/
@@ -268,7 +314,8 @@ def clear_results(case_dir: Path) -> list[str]:
     removed = remove_results(case_dir)
     if (case_dir / "0").is_dir():
         shutil.rmtree(case_dir / "0")
-    for name in ("log.simpleFoam", "log.decomposePar", "log.reconstructPar", "system/decomposeParDict"):
+    for name in (*SOLVER_LOGS, "log.decomposePar", "log.reconstructPar", "system/decomposeParDict",
+                 TRANSIENT_FILE):
         (case_dir / name).unlink(missing_ok=True)
     return removed
 
@@ -278,7 +325,7 @@ def clear_solution(case_dir: Path) -> list[str]:
     directories, the run record) and the solver, decomposePar and reconstructPar logs; the mesh, 0/ and the
     dictionaries stay. Returns the removed names."""
     removed = remove_results(case_dir)
-    for name in ("log.simpleFoam", "log.decomposePar", "log.reconstructPar"):
+    for name in (*SOLVER_LOGS, "log.decomposePar", "log.reconstructPar"):
         if (case_dir / name).is_file():
             (case_dir / name).unlink()
             removed.append(name)
@@ -323,10 +370,47 @@ def prepare_solver_case(project: Project, interactive: bool = False, planes: tup
     if reason is not None:
         raise SolvingNotReady(reason)
     files = app_solver_files(project, case_dir, interactive, planes)
+    sim = project.sim
+    start = None
+    if sim.physics.transient and sim.solvers.transient.start_from == "steady":  # D-181
+        latest = steady_start_time(case_dir)
+        if latest is None:
+            raise SolvingNotReady("There is no steady solution to start the transient run from.")
+        start = case_dir / STEADY_START
+        shutil.rmtree(start, ignore_errors=True)
+        shutil.copytree(case_dir / latest, start)
     clear_results(case_dir)
     for rel, spec in files.items():
         write_foam_file(case_dir / rel, spec.content, object_name=Path(rel).name, class_name=spec.class_name)
+    if start is not None:
+        start_from_fields(case_dir, start, files)
+        shutil.rmtree(start, ignore_errors=True)
     return case_dir
+
+
+# Where the steady solution's latest fields wait while the case is cleared for a transient run (D-181).
+STEADY_START = "steady_start"
+
+
+def start_from_fields(case_dir: Path, source: Path, files) -> list[str]:
+    """The initial fields of a run started from another solution (D-181) [NUMERICS-REVIEW]: each 0/ field the solver
+    files write that ``source`` has is that solution's field (its internalField) with the new boundary conditions
+    (the solver files' boundaryField), as D-171's continue from a changed set-up; a field the source lacks (k and
+    omega after a laminar run) keeps the free-stream start. Returns the fields taken from ``source``."""
+    from vortexcfd.foam.dictfile import set_foam_entry
+
+    taken = []
+    for rel, spec in files.items():
+        if not rel.startswith("0/"):
+            continue
+        name = Path(rel).name
+        if not (Path(source) / name).is_file():
+            continue
+        target = Path(case_dir) / rel
+        shutil.copyfile(Path(source) / name, target)
+        set_foam_entry(target, "boundaryField", spec.content["boundaryField"])
+        taken.append(name)
+    return taken
 
 
 # The Solvers fields of the live view (D-172): not results inputs.
@@ -359,6 +443,8 @@ def can_continue(case_dir: Path | None, record) -> bool:
     criteria, and a written time to start from."""
     if case_dir is None or record is None or record.state not in CONTINUABLE:
         return False
+    if record.transient is not None:  # a transient solution runs from its start (D-181)
+        return False
     latest, in_processors = latest_iteration(case_dir)
     return (latest or in_processors or 0) > 0
 
@@ -370,7 +456,7 @@ def solution_hash(project: Project) -> str:
     sim = project.sim
     payload = json.loads(_results_payload(project))
     payload["solvers"] = sim.solvers.model_dump(exclude={"cores", "iterations", "write_interval", "stopping",
-                                                         *LIVE_FIELDS})
+                                                         *LIVE_FIELDS, *_steady_excluded(project)})
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
@@ -442,7 +528,7 @@ def prepare_continue(project: Project, record, rewrite: bool = False, interactiv
                         class_name=spec.class_name)
     set_foam_entry(case_dir / "system" / "controlDict", "startFrom", "latestTime")
     try:
-        text = (case_dir / "log.simpleFoam").read_text(encoding="utf-8", errors="replace")
+        text = solver_log(case_dir).read_text(encoding="utf-8", errors="replace")
     except OSError:
         text = ""
     history = tuple(step for step in parse_log_text(text).time_steps if step.time <= latest)
@@ -477,7 +563,8 @@ def _results_payload(project: Project) -> str:
         "mesh": inputs_hash(project),
         "physics": sim.physics.model_dump(exclude={"speed_of_sound"}),  # the Mach number's only (D-168)
         "inflow": sim.inflow.model_dump(),
-        "solvers": sim.solvers.model_dump(exclude={"cores", *LIVE_FIELDS}),  # the live view: no input (D-172)
+        # the live view: no input (D-172); a steady project's hash has no transient settings (D-181)
+        "solvers": sim.solvers.model_dump(exclude={"cores", *LIVE_FIELDS, *_steady_excluded(project)}),
         "reports": sim.reports.model_dump(exclude={"slots"}),  # slot choice does not change results
     }
     if sim.domain.ground.enabled:  # the ground's motion is a solver input only (D-116)
@@ -489,3 +576,9 @@ def _results_payload(project: Project) -> str:
     if sim.domain.boundary_types:  # the faces' conditions (D-147); a domain left as it was keeps its hash
         payload["boundary_types"] = dict(sorted(sim.domain.boundary_types.items()))
     return json.dumps(payload, sort_keys=True)
+
+
+def _steady_excluded(project: Project) -> tuple[str, ...]:
+    """The Solvers fields a steady project's hashes leave out: its transient settings (D-181), so every steady
+    project keeps its hash."""
+    return () if project.sim.physics.transient else ("transient",)

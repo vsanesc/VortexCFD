@@ -48,6 +48,9 @@ class RunRecord:
     # Hash of the solution's settings without the iteration limit, the write interval and the stopping criteria
     # (workflow/solving.solution_hash): Continue compares it to tell a changed set-up (D-171). "" in older records.
     settings_hash: str = ""
+    # A transient run (D-181; solver_run.SolverRunResult.transient): the end time, the steps, the sampling start and
+    # the statistics. None for a steady run and in older records.
+    transient: dict | None = None
 
     @property
     def label(self) -> str:
@@ -72,6 +75,7 @@ def _data(record: RunRecord) -> dict:
         **({"stopping": record.stopping} if record.stopping is not None else {}),
         **({"segments": [dict(seg) for seg in record.segments]} if record.segments else {}),
         **({"settings_hash": record.settings_hash} if record.settings_hash else {}),
+        **({"transient": record.transient} if record.transient is not None else {}),
     }
 
 
@@ -104,7 +108,8 @@ def read_run_record(case_dir: Path) -> RunRecord | None:
                            None if data.get("switch_iteration") is None else int(data["switch_iteration"]),
                            dict(data["stopping"]) if isinstance(data.get("stopping"), dict) else None,
                            tuple(dict(seg) for seg in data.get("segments", [])),
-                           str(data.get("settings_hash", "")))
+                           str(data.get("settings_hash", "")),
+                           dict(data["transient"]) if isinstance(data.get("transient"), dict) else None)
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
     if migrated:

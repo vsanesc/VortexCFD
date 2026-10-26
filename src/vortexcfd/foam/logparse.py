@@ -22,6 +22,8 @@ _RESIDUAL_RE = re.compile(
     rf"\s*Final residual\s*=\s*({_NUM}),\s*No Iterations\s+(\d+)",
     re.IGNORECASE,
 )
+# setDeltaT.H (adjustTimeStep, v2606): "deltaT = <value>", printed before the step's "Time = " line.
+_DELTA_T_RE = re.compile(rf"^deltaT = ({_NUM})$")
 _EXEC_TIME_RE = re.compile(rf"^ExecutionTime\s*=\s*({_NUM})", re.IGNORECASE)
 # simpleControl::loop (v2606) when every residualControl target is met:
 # "SIMPLE solution converged in <time> iterations".
@@ -50,6 +52,9 @@ class TimeStep:
     courant_max: float | None = None
     residuals: list[tuple[str, float, float, int]] = field(default_factory=list)
     execution_time: float | None = None
+    # A transient run's time step (s, D-181): the "deltaT = " line of an adaptive step, else the difference from the
+    # previous step's time. None for the first step of a fixed-step log and for steady logs.
+    delta_t: float | None = None
 
     @property
     def has_nonfinite(self) -> bool:
@@ -121,6 +126,10 @@ class LogParser(Sequence[TimeStep]):
         self._fatal_lines: list[str] = []
         self._in_trace: bool = False
         self._trace_lines: list[str] = []
+        # pimpleFoam prints the Courant number and the adjusted deltaT before the step's "Time = " line (D-181): kept
+        # here until that line opens the step.
+        self._pending_courant: tuple[float, float] | None = None
+        self._pending_delta_t: float | None = None
 
     def _emit(self, event: Any, completed: list[Any]) -> None:
         self.events.append(event)
@@ -230,10 +239,15 @@ class LogParser(Sequence[TimeStep]):
                 return completed
             self._flush_step(completed)
             self._satisfied = []  # condition lines not followed by a stop (e.g. a trigger action)
-            self._current_step = TimeStep(time=new_time)
-            return completed
-
-        if self._current_step is None:
+            step = TimeStep(time=new_time)
+            if self._pending_courant is not None:
+                step.courant_mean, step.courant_max = self._pending_courant
+            if self._pending_delta_t is not None:
+                step.delta_t = self._pending_delta_t
+            elif self._pending_courant is not None and self.time_steps:
+                step.delta_t = new_time - self.time_steps[-1].time
+            self._pending_courant = self._pending_delta_t = None
+            self._current_step = step
             return completed
 
         m_courant = _COURANT_RE.search(line)
@@ -243,8 +257,22 @@ class LogParser(Sequence[TimeStep]):
             except (ValueError, OverflowError) as exc:
                 self._record_error(line, exc)
                 return completed
+            if self._current_step is None:  # pimpleFoam: before the step's "Time = " line
+                self._pending_courant = (mean, peak)
+                return completed
             self._current_step.courant_mean = mean
             self._current_step.courant_max = peak
+            return completed
+
+        m_delta = _DELTA_T_RE.match(stripped)
+        if m_delta and self._current_step is None:
+            try:
+                self._pending_delta_t = float(m_delta.group(1))
+            except (ValueError, OverflowError) as exc:
+                self._record_error(line, exc)
+            return completed
+
+        if self._current_step is None:
             return completed
 
         m_res = _RESIDUAL_RE.search(line)

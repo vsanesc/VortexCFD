@@ -506,8 +506,10 @@ GROUPS: dict[str, dict] = {
     "physics": {
         "model": lambda sim: sim.physics, "update": "update_physics", "section": ("physics_fluid", "Fluid"),
         "fields": (
-            ("flow", "Flow", lambda: _fixed_value("flow"),
-             "Steady incompressible flow (simpleFoam), the only flow type of v1."),
+            ("flow", "Flow", lambda: ChoiceField(choices("flow")),
+             "Steady (simpleFoam, the default): the time-averaged flow, for attached or mildly separated flow. "
+             "Transient (pimpleFoam): the flow in time, for vortex shedding and unsteady wakes; its time step, "
+             "sampling window and end time are on the Solvers node."),
             ("nu", "Kinematic viscosity", lambda: _sci(" m\u00b2/s"),
              "\u03bd of the fluid in m\u00b2/s. Default 1.5e-05: air at about 20 \u00b0C."),
             ("rho_ref", "Reference density", lambda: _dspin(0.001, 100000.0, 4, " kg/m\u00b3"),
@@ -517,8 +519,10 @@ GROUPS: dict[str, dict] = {
              "Only gives the Mach number Ma = U / a shown with the free stream (the solver is incompressible and "
              "never uses it). Default 343 m/s: air at 20 \u00b0C (water about 1480 m/s). Above Ma 0.3 the "
              "incompressible results lose accuracy."),
-            ("turbulence_model", "Turbulence model", lambda: _fixed_value("turbulence_model"),
-             "RANS turbulence model: k-\u03c9 SST, the only model of v1 (robust for attached and separated flow)."),
+            ("turbulence_model", "Turbulence model", lambda: ChoiceField(choices("turbulence_model")),
+             "k-\u03c9 SST: the RANS model (URANS when transient), robust for attached and separated flow. Laminar: no "
+             "turbulence model, for low Reynolds numbers only (a circular cylinder below Re of about 190, a plate "
+             "below about 5e5)."),
         ),
     },
     "inflow": {
@@ -569,6 +573,72 @@ GROUPS: dict[str, dict] = {
         ),
     },
 }
+
+def _stop_quantity() -> QComboBox:
+    box = QComboBox()
+    for quantity in ("Cd", "Cl", "CmPitch"):
+        box.addItem(report_label(quantity), quantity)
+    return box
+
+
+# The transient settings (D-181), on the Solvers node of a transient project.
+GROUPS["transient"] = {
+    "model": lambda sim: sim.solvers.transient, "update": "update_transient", "section": ("solver_transient", "Transient"),
+    "fields": (
+        ("time_step", "Time step", lambda: ChoiceField(choices("time_step")),
+         "Adaptive: pimpleFoam sets every step from the largest Courant number in the mesh (below), never above the "
+         "largest step. Fixed: the step below, whatever the Courant number."),
+        ("max_courant", "Max Courant number", lambda: _dspin(0.01, 50.0, 2),
+         "Co = U \u0394t / \u0394x, the cells a fluid particle crosses in one step, at its largest in the mesh. Default "
+         "1: the step resolves the flow in time and the PISO mode (1 outer corrector) is stable. Above 1 the run "
+         "needs more outer correctors and resolves less of the unsteadiness."),
+        ("delta_t", "Time step \u0394t", lambda: _auto(_dspin(1e-9, 1e6, 9, " s"),
+                                                     "Auto: 1/1000 of l_ref / U (adaptive: the first step, cut at once "
+                                                     "to the Courant limit) or 1/200 of it (fixed)"),
+         "The fixed step, or the first step of an adaptive run (seconds)."),
+        ("max_delta_t", "Largest time step", lambda: _auto(_dspin(1e-9, 1e6, 9, " s"),
+                                                           "Auto: 1/50 of l_ref / U (at least 250 steps per shedding "
+                                                           "period at a Strouhal number of 0.2)"),
+         "An adaptive step never grows above this (seconds), so a slow flow is still sampled finely enough for "
+         "its frequencies."),
+        ("outer_correctors", "Outer correctors", lambda: _spin(1, 100, " per step"),
+         "PIMPLE outer correctors per time step: 1 is the PISO mode, accurate and cheapest at a Courant number up to "
+         "about 1 (default). Raise it (2-5) only with a larger Courant number: each one solves the step again."),
+        ("correctors", "Pressure correctors", lambda: _spin(1, 20, " per outer"),
+         "Pressure corrections per outer corrector (nCorrectors). Default 2, as the OpenFOAM tutorials."),
+        ("time_unit", "Times in", lambda: ChoiceField(choices("time_unit")),
+         "The unit of the end time, write interval, sampling start and window: flow-through times of the reference "
+         "length (t_c = l_ref / U, shown below) or seconds. Changing it does not convert the values."),
+        ("end_time", "End time", lambda: _dspin(1e-6, 1e9, 4, " t_c"),
+         "The run ends at this time (endTime). Default 200 flow-through times: about 30 shedding periods of a "
+         "bluff body."),
+        ("write_interval", "Write interval", lambda: _dspin(1e-6, 1e9, 4, " t_c"),
+         "The full fields (and the averaged fields) are written every this much time and at the end."),
+        ("sampling_start", "Sampling starts at", lambda: _auto(_dspin(0.0, 1e9, 4, " t_c"),
+                                                              "Auto: detected once the start-up transient is over"),
+         "The statistics (averaged fields, mean and RMS of the coefficients, Strouhal number) are taken from this "
+         "time on. Auto: from when the force history is statistically steady (the stop quantity's mean and the "
+         "ranges of Cd and Cl stop changing between two windows)."),
+        ("window", "Window", lambda: _dspin(1e-6, 1e9, 4, " t_c"),
+         "The window of the start-up detection and of the statistics stop (in the unit above). Default 20 "
+         "flow-through times: several periods of a bluff body's shedding."),
+        ("statistics_stop", "Stop when statistically converged", QCheckBox,
+         "Also end the run once the running mean of the quantity below has varied by at most the tolerance over "
+         "the last window (the end time still applies)."),
+        ("stop_quantity", "Statistics of", lambda: _stop_quantity(),
+         "The coefficient whose running mean decides the statistics stop (and whose mean the start-up detection "
+         "watches)."),
+        ("tolerance", "Tolerance", lambda: _percent(0.0001, 1.0, 2),
+         "The running mean's (max - min) over the window, relative to its value (floor 0.01). Default 0.5 %."),
+        ("start_from", "Start from", lambda: ChoiceField(choices("start_from")),
+         "The initial fields: the free stream, or the latest time of this project's steady solution on the current "
+         "mesh (run the project steady first; its solution is replaced by the transient one)."),
+    ),
+}
+# The transient settings in the chosen time unit (their suffix: " t_c" or " s").
+TRANSIENT_TIME_FIELDS = ("end_time", "write_interval", "sampling_start", "window")
+# The Solvers rows a transient project does not use (it ends at its end time, D-181).
+STEADY_ONLY_SOLVER_ROWS = ("solvers_iterations", "solvers_write_interval", "solvers_relaxation")
 
 # The Reynolds and Mach numbers' tooltips (D-168).
 RE_TIP = ("Re = U\u221e l_ref / \u03bd: the free-stream speed, the reference length (Reference Values > l_ref: set, or the "
@@ -1115,6 +1185,10 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                 self.inflow_alpha.setToolTip("The angle of attack is a rotation of the parts, set in Geometry > Body "
                                              "attitude (the link selects it); the free stream stays along +x.")
                 self.inflow_alpha.linkActivated.connect(self.node_requested.emit)
+            if gkind == "transient":  # the time unit (D-181)
+                self.transient_convective = self._ro_row("transient_convective", "Flow-through time")
+                self.transient_convective.setToolTip("t_c = l_ref / U: the reference length (Reference Values) "
+                                                     "over the free-stream speed, the unit of the times above")
             if gkind == "geometry":  # the rotation centre of the body attitude (D-120, D-148)
                 self.attitude_centre = self._ro_row("geometry_centre", "Rotation centre")
                 self.attitude_centre.setToolTip("The angle of attack turns the parts about the y axis through this "
@@ -1823,6 +1897,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         """The group of the selected node; the Body attitude only for external flow (D-120, D-129)."""
         if gkind == "geometry":
             return self._kind in ("geometry", "parts") and not self._project.sim.internal
+        if gkind == "transient":
+            return self._kind == "solvers" and self._project.sim.physics.transient
         return self._kind == gkind
 
     def _refresh_groups(self) -> None:
@@ -1846,6 +1922,16 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             finally:
                 for w in widgets:
                     w.blockSignals(False)
+        if self._group_shown("transient"):  # D-181: a transient run ends at its end time
+            for key in STEADY_ONLY_SOLVER_ROWS:
+                self._rows[key].setVisible(False)
+            unit = " t_c" if sim.solvers.transient.time_unit == "flow_through" else " s"
+            for key in TRANSIENT_TIME_FIELDS:  # the times' unit follows the choice
+                field = self.group_fields["transient"][key]
+                (field.spin if isinstance(field, AutoField) else field).setSuffix(unit)
+        self._rows["transient_convective"].setVisible(self._group_shown("transient"))
+        if self._group_shown("transient"):
+            self.transient_convective.setText(self._convective_time_text())
         attitude = self._group_shown("geometry")
         self._rows["geometry_centre"].setVisible(attitude)
         self.attitude_note.setVisible(attitude)
@@ -1931,6 +2017,18 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             return "\u2014 (import a part)"
         ref = reference_values(bounds, self._project.sim.reports)
         return f"({format_vector(ref.cofr)}) m" + (f" \u2014 {CENTRE_AUTO_LABEL}" if ref.cofr_auto else " (set)")
+
+    def _convective_time_text(self) -> str:
+        """t_c = l_ref / U of the Transient group (D-181)."""
+        sim = self._project.sim
+        try:
+            _box, _names, bounds = parts_layout(self._project)
+        except (MeshingNotReady, TypeError, ValueError, OSError):  # no part file, or an unsaved project
+            bounds = None
+        if bounds is None:
+            return "\u2014 (import a part)"
+        length = reference_values(bounds, sim.reports).l_ref
+        return f"{length / sim.inflow.speed:.4g} s (l_ref {length:.4g} m / U {sim.inflow.speed:g} m/s)"
 
     def _commit_group(self, gkind: str, key: str) -> None:
         if not self._group_shown(gkind):

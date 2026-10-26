@@ -567,6 +567,14 @@ class Project:
         """Edit solver settings as one undoable step."""
         self._update_section("solvers", "solver", fields)
 
+    def update_transient(self, **fields: Any) -> None:
+        """Edit the transient run settings (Solvers > transient, D-181) as one undoable step."""
+
+        def mutate(data: dict[str, Any]) -> None:
+            data["solvers"]["transient"].update(fields)
+
+        self._edit(f"Edit transient settings ({', '.join(fields) or 'no fields'})", mutate)
+
     def update_reports(self, **fields: Any) -> None:
         """Edit reference value overrides or report slots as one undoable step."""
         self._update_section("reports", "reports", fields)
