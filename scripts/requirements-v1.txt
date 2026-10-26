@@ -3,7 +3,7 @@
 # (pytest, pytest-qt, pytest-xdist, iniconfig, pluggy, execnet). Licences: THIRD_PARTY_LICENSES.md.
 # Qt: PySide6_Essentials only (D-139): the app uses QtCore, QtGui, QtWidgets, and through pyvistaqt, VTK and matplotlib
 # QtOpenGL, QtOpenGLWidgets and QtSvg; not the PySide6 meta-package, which adds PySide6_Addons, Qt WebEngine and Qt Pdf.
-# 1.0.1 (D-180, security): pillow 12.3.0 -> 13.0.0, the first release that fixes the 41 Dependabot advisories;
+# 1.0.1 (D-183, security): pillow 12.3.0 -> 13.0.0, the first release that fixes the 41 Dependabot advisories;
 # certifi 2026.7.22 -> 2026.10.23 (GHSA-6q48-6c7w-9gw2, the compromised emSign ECC Root CA - G3 removed).
 aioshutil==1.6
 annotated-types==0.8.0

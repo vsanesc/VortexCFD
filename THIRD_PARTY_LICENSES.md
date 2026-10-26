@@ -99,7 +99,7 @@ Against GPL-3.0-or-later, no dependency was found that is **incompatible**. The 
    clause unless a file is marked "Incompatible With Secondary Licenses" (MPL-2.0 Exhibit B). Checked on
    2026-10-24 in the installed wheels (pytetwild 0.4.2: the Python files, PyfTetWildWrapper.abi3.so with fTetWild
    compiled in, the bundled libraries, the licence file; certifi 2026.7.22: every file, cacert.pem's MPL header
-   included; certifi 2026.10.23 again on 2026-10-26, every file, D-180): no such notice. The only occurrence is the template of Exhibit B inside the MPL-2.0 text of
+   included; certifi 2026.10.23 again on 2026-10-26, every file, D-183): no such notice. The only occurrence is the template of Exhibit B inside the MPL-2.0 text of
    pytetwild's licence file, which is part of the licence, not a notice. fTetWild's own source repository was not
    checked (it is not distributed: only the compiled wrapper is).
 5. **Apache-2.0 (cadquery-ocp, requests, cyclopts, multicollections)** is compatible with GPL-3.0 (not with

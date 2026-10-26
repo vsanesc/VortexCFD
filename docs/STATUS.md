@@ -5,7 +5,8 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
 
 ## Current branch
 
-**task/v1.0.1-pillow** (not yet published; no push, no merge). Security update for 1.0.1 (D-180, accepted by the owner 2026-10-26):
+**task/v1.0.1-pillow** (not yet published; no push, no merge). Security update for 1.0.1 (D-183, accepted by the
+owner 2026-10-26; D-183, not D-180, because task/1.1-transient already uses D-180 to D-182 and QUESTIONS up to 246):
 - pillow 12.3.0 -> 13.0.0 in scripts/requirements-v1.txt and THIRD_PARTY_LICENSES.md: fixes all 41 open Dependabot
   alerts (5 critical, 23 high, 13 moderate; alert 1 of 42 withdrawn by GitHub); none affects 13.0.0. CHANGELOG 1.0.1
   (unreleased).
