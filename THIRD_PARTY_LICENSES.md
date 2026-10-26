@@ -44,7 +44,7 @@ D-074; licence review for v1: the section at the end (prepared for the owner, ta
 | mdurl | 0.1.2 | MIT (classifier) | markdown-it-py |
 | Pygments | 2.21.0 | BSD-2-Clause | rich |
 | QtPy | 2.4.3 | MIT | pyvistaqt |
-| pillow | 12.3.0 | MIT-CMU | matplotlib |
+| pillow | 13.0.0 | MIT-CMU | matplotlib |
 | contourpy | 1.4.0 | BSD-3-Clause | matplotlib |
 | cycler | 0.12.1 | BSD (classifier) | matplotlib |
 | fonttools | 4.67.0 | MIT | matplotlib |

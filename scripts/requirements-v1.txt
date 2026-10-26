@@ -3,6 +3,7 @@
 # (pytest, pytest-qt, pytest-xdist, iniconfig, pluggy, execnet). Licences: THIRD_PARTY_LICENSES.md.
 # Qt: PySide6_Essentials only (D-139): the app uses QtCore, QtGui, QtWidgets, and through pyvistaqt, VTK and matplotlib
 # QtOpenGL, QtOpenGLWidgets and QtSvg; not the PySide6 meta-package, which adds PySide6_Addons, Qt WebEngine and Qt Pdf.
+# 1.0.1: pillow 12.3.0 -> 13.0.0, the first release that fixes the 41 Dependabot advisories (D-180).
 aioshutil==1.6
 annotated-types==0.8.0
 attrs==26.1.0
@@ -24,7 +25,7 @@ mdurl==0.1.2
 multicollections==1.2.0
 numpy==2.5.4
 packaging==26.3
-pillow==12.3.0
+pillow==13.0.0
 platformdirs==4.13.0
 pooch==1.9.0
 pydantic==2.14.1

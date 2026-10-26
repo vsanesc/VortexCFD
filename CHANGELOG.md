@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1 (unreleased)
+
+### Security
+
+- Security: Pillow updated to 13.0.0, fixing 41 advisories (the open Dependabot alerts, among them heap overflows in
+  the JPEG, TIFF and FlashPix decoders and an argument injection in the Ghostscript call; D-180). VortexCFD does not
+  open user images (Pillow writes the PNG exports and the .ico); nothing else changed.
+
 ## 1.0.0 (2026-10-24)
 
 The first release of VortexCFD: a desktop workflow for steady, incompressible RANS flow on top of OpenFOAM ESI
