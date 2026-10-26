@@ -5,8 +5,10 @@
 ### Security
 
 - Security: Pillow updated to 13.0.0, fixing 41 advisories (the open Dependabot alerts, among them heap overflows in
-  the JPEG, TIFF and FlashPix decoders and an argument injection in the Ghostscript call; D-180). VortexCFD does not
-  open user images (Pillow writes the PNG exports and the .ico); nothing else changed.
+  the JPEG, TIFF and FlashPix decoders and an argument injection in the Ghostscript call), and certifi updated to
+  2026.10.23, fixing 1 advisory (GHSA-6q48-6c7w-9gw2: the emSign ECC Root CA - G3, whose intermediate CAs' keys were
+  compromised, is no longer trusted); D-180. VortexCFD does not open user images (Pillow writes the PNG exports and
+  the .ico); nothing else changed.
 
 ## 1.0.0 (2026-10-24)
 

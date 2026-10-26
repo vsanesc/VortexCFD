@@ -1,19 +1,21 @@
 # Status
 
-Updated 2026-10-26 (task/v1.0.1-pillow: **Pillow 13.0.0 for the Dependabot security alerts**).
+Updated 2026-10-26 (task/v1.0.1-pillow: **Pillow 13.0.0 and certifi 2026.10.23 for the security advisories**).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
 
-**task/v1.0.1-pillow** (not yet published; no push, no merge). Security update for 1.0.1 (D-180):
+**task/v1.0.1-pillow** (not yet published; no push, no merge). Security update for 1.0.1 (D-180, accepted by the owner 2026-10-26):
 - pillow 12.3.0 -> 13.0.0 in scripts/requirements-v1.txt and THIRD_PARTY_LICENSES.md: fixes all 41 open Dependabot
   alerts (5 critical, 23 high, 13 moderate; alert 1 of 42 withdrawn by GitHub); none affects 13.0.0. CHANGELOG 1.0.1
   (unreleased).
 - Checks: the fast suite; the image-export, report and branding tests; scripts/brand/make_logo.py byte-identical;
   scripts/install.sh in a temporary HOME and prefix (`vortexcfd --version`: 1.0.0); the public benchmarks'
   dictionaries byte-identical to main's (`diff -r`, 51 files, exit status 0). No OpenFOAM run.
-- Other pins against the GitHub advisory database (pip-audit is not installed): certifi==2026.7.22 is affected by
-  GHSA-6q48-6c7w-9gw2 (critical, fixed in 2026.10.18); not changed (QUESTIONS 247).
+- certifi 2026.7.22 -> 2026.10.23 (GHSA-6q48-6c7w-9gw2, critical: the compromised emSign ECC Root CA - G3; found by
+  checking every pin against the GitHub advisory database; QUESTIONS 247 closed). Licence still MPL-2.0. The audit
+  over all 46 pins now reports 0 advisories; `pip check` clean; the isolated install again ends with
+  `vortexcfd --version` 1.0.0.
 
 ## Previous branch
 
