@@ -518,3 +518,7 @@ settled the open ones on 2026-10-17.
      VortexCFD logo: start the app from the WSLg Start-menu entry (after `scripts/install.sh --desktop-only`) and from
      the shortcut scripts/windows/make_shortcut.ps1 makes (run it from Windows PowerShell). WSLg may still draw a
      small Linux badge over the icon; the app cannot remove it.
+247. **[CLOSED (owner, 2026-10-26): certifi updated to 2026.10.23 in 1.0.1, see D-183]** **certifi has a critical advisory (D-183).** The pinned certifi==2026.7.22 (scripts/requirements-v1.txt,
+     through requests and pooch) is affected by GHSA-6q48-6c7w-9gw2 (critical: it bundles emSign root CAs whose
+     intermediate CA keys were compromised), fixed in 2026.10.18. Task v1.0.1-pillow did not change it (Pillow only).
+     Update certifi in 1.0.1 too, as its own item?

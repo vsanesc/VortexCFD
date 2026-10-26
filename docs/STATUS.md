@@ -1,12 +1,26 @@
 # Status
 
-Updated 2026-10-24 (task/gui-2: **a second round of GUI work after the owner used the app, and its owner review; v1.0.0
-ready to tag**).
+Updated 2026-10-26 (task/v1.0.1-pillow: **Pillow 13.0.0 and certifi 2026.10.23 for the security advisories**).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
 
-**task/gui-2** (not yet published; no push, no merge). A second round of GUI work the owner asked for after using the
+**task/v1.0.1-pillow** (not yet published; no push, no merge). Security update for 1.0.1 (D-183, accepted by the
+owner 2026-10-26; D-183, not D-180, because task/1.1-transient already uses D-180 to D-182 and QUESTIONS up to 246):
+- pillow 12.3.0 -> 13.0.0 in scripts/requirements-v1.txt and THIRD_PARTY_LICENSES.md: fixes all 41 open Dependabot
+  alerts (5 critical, 23 high, 13 moderate; alert 1 of 42 withdrawn by GitHub); none affects 13.0.0. CHANGELOG 1.0.1
+  (unreleased).
+- Checks: the fast suite; the image-export, report and branding tests; scripts/brand/make_logo.py byte-identical;
+  scripts/install.sh in a temporary HOME and prefix (`vortexcfd --version`: 1.0.0); the public benchmarks'
+  dictionaries byte-identical to main's (`diff -r`, 51 files, exit status 0). No OpenFOAM run.
+- certifi 2026.7.22 -> 2026.10.23 (GHSA-6q48-6c7w-9gw2, critical: the compromised emSign ECC Root CA - G3; found by
+  checking every pin against the GitHub advisory database; QUESTIONS 247 closed). Licence still MPL-2.0. The audit
+  over all 46 pins now reports 0 advisories; `pip check` clean; the isolated install again ends with
+  `vortexcfd --version` 1.0.0.
+
+## Previous branch
+
+**task/gui-2** (merged). A second round of GUI work the owner asked for after using the
 app; one commit per item:
 - Item 7 (D-165): stopping criteria the user removes no longer "come back": the monitors show the run's own criteria
   ("Criteria of the last run", kept in the run record) apart from the project's; Run Solver saves the project first
