@@ -1,0 +1,9 @@
+# Pinned test tools of the development environment (the versions of the main checkout's .venv, 2026-10-26), installed
+# on top of scripts/requirements-v1.txt by a new checkout or worktree (CONTRIBUTING.md, "Worktrees").
+-r requirements-v1.txt
+execnet==2.1.2
+iniconfig==2.3.1
+pluggy==1.7.0
+pytest==9.1.1
+pytest-qt==4.5.0
+pytest-xdist==3.8.0
