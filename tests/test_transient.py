@@ -76,6 +76,10 @@ def test_fixed_time_step_and_a_set_sampling_start(tmp_path: Path) -> None:
     write_foam_file(tmp_path / "controlDict", control, object_name="controlDict")
     text = (tmp_path / "controlDict").read_text()
     assert "fields (U {mean yes; prime2Mean yes; base time;} p {mean yes; prime2Mean yes; base time;});" in text
+    # an interval that does not divide the run is shortened so that the end is a write time
+    odd = build_solver_files(_input(time_unit="s", end_time=10.0, write_interval=3.0))
+    assert odd["system/controlDict"].content["writeInterval"] == pytest.approx(2.5)
+    assert transient.even_interval(12.9, 1.0) == pytest.approx(12.9 / 13)
     # the auto step of a fixed run: 1/200 of t_c
     assert transient_times(_input(time_step="fixed")).delta_t == pytest.approx(0.0025)
 
@@ -190,7 +194,8 @@ def test_the_running_mean_stop() -> None:
 
 def _transient_case(case: Path, start: float | None = None, stop: bool = False, end: float = 20.0) -> Path:
     write_foam_file(case / "system" / "controlDict", {"application": "pimpleFoam", "startFrom": "startTime",
-                                                     "endTime": end, "functions": {}}, object_name="controlDict")
+                                                     "endTime": end, "writeInterval": 1.0, "functions": {}},
+                    object_name="controlDict")
     control = transient.TransientControl(1.0, 1.0, 1.0, end, 2.0, 0.001 if stop else 0.005, "Cd", stop, start,
                                          False, transient.field_average(start or 0.0))
     transient.write_control(case, control)
@@ -228,6 +233,7 @@ def test_the_sampling_starts_when_the_start_up_is_over(tmp_path: Path) -> None:
     assert any("Start-up transient over at t = " in line for line in lines)
     control = read_foam_file(case / "system" / "controlDict")
     assert control["startFrom"] == "latestTime" and control["functions"]["fieldAverage1"]["timeStart"] == 7.1
+    assert control["writeInterval"] == pytest.approx((20.0 - 7.1) / 13)  # 13 writes, the last at the end time
     assert transient.read_control(case).sampling_start == pytest.approx(7.1)
     stats = result.transient["statistics"]
     assert stats["coefficients"]["Cd"]["mean"] == pytest.approx(1.3, abs=1e-3)

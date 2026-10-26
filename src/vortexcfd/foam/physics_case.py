@@ -451,7 +451,7 @@ def _transient_control_dict(inp: SolverCaseInput, functions: dict) -> FoamFileSp
         "endTime": times.end_time,
         "deltaT": times.delta_t,
         "writeControl": "adjustableRunTime" if adaptive else "runTime",
-        "writeInterval": times.write_interval,
+        "writeInterval": transient_files.even_interval(times.end_time, times.write_interval),  # the end is written
         "purgeWrite": 0,
         "writeFormat": "ascii",
         "writePrecision": 8,

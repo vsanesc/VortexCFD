@@ -639,6 +639,11 @@ class SolverRun:
         control_dict = FoamFile(self.case_dir / "system" / "controlDict")
         control_dict["functions", transient.FIELD_AVERAGE] = entry
         control_dict["startFrom"] = "latestTime"
+        try:  # the write times count from the restart: the interval that still ends on the end time
+            interval = float(control_dict["writeInterval"])
+            control_dict["writeInterval"] = transient.even_interval(control.end_time - start, interval)
+        except (KeyError, TypeError, ValueError):
+            pass
         transient.write_control(self.case_dir, control)
         with self._lock:
             self._transient = control

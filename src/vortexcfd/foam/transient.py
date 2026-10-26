@@ -89,6 +89,15 @@ def write_control(case_dir: Path, control: TransientControl) -> None:
     write_foam_file(Path(case_dir) / TRANSIENT_FILE, control.content(), object_name="transientControl")
 
 
+def even_interval(span: float, interval: float) -> float:
+    """The write interval that divides ``span`` (the end time less the start time of a run) into whole intervals no
+    longer than ``interval``: OpenFOAM counts write times from the run's start time (Time::adjustDeltaT and
+    Time::operator++, v2606), so a run's end is written only when it falls on one (D-181)."""
+    if span <= 0 or interval <= 0:
+        return interval
+    return span / max(1, math.ceil(span / interval - 1e-9))
+
+
 def field_average(start: float) -> dict:
     """The fieldAverage entry (v2606 src/functionObjects/field/fieldAverage, the tutorial
     incompressible/pimpleFoam/laminar/cylinder2D): the time-weighted mean and the mean of the squared fluctuation of
