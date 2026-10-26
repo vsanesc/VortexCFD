@@ -114,8 +114,9 @@ def test_the_choice_boxes_show_labels_and_keep_the_model_values(qtbot: QtBot, tm
     p = w.properties
     w.tree.setCurrentItem(w._items[("physics", None)])
     fields = p.group_fields["physics"]
-    assert fields["flow"].text() == "Incompressible, steady" and fields["flow"].value() == "incompressible_steady"
-    assert fields["turbulence_model"].text() == "k-ω SST"
+    flow, model = fields["flow"], fields["turbulence_model"]  # choices since transient flow (D-181)
+    assert flow.text_of(flow.value()) == "Incompressible, steady" and flow.value() == "incompressible_steady"
+    assert model.text_of(model.value()) == "k-ω SST"
     w.tree.setCurrentItem(w._items[("physics", None)])
     nu = fields["nu"]
     assert nu.unit() == "m²/s" and nu._unit.isVisibleTo(p)  # the kinematic viscosity shows its unit

@@ -271,6 +271,26 @@ Workstreams:
 **v1.0.0 is ready to tag** (2026-10-23, task/release-1.0.0; docs/RELEASE_v1.md): every workstream is done; the
 owner's last decisions are whether the repository becomes public and the licence sign-off.
 
+## Release 1.1: transient flow
+
+The owner's decisions for 1.1 (T1-T6, the task 1.1-transient brief; recorded here because the repository had no 1.1
+section): transient incompressible flow with pimpleFoam and k-omega SST, steady staying the default (T1); an adaptive
+time step from a target maximum Courant number or a fixed one, a largest step, outer correctors (T2); a start from
+the free stream or from the project's steady solution (T3); a sampling window set by the user or detected, the
+averaged fields, the mean and RMS of every force coefficient and the Strouhal number (T4); the end time and an
+optional statistical stop (T5); monitors, report charts, live view, snapshots, Compare, the report and Results in
+time (T6). Then DDES and the Ahmed body.
+
+Progress (task/1.1-transient, in the worktree ~/proyectos/vortexcfd-1.1):
+
+| Part | Content | State |
+|---|---|---|
+| 0 | Worktree support: its own venv, ship.sh from a worktree (D-180) | **done** |
+| A | Transient flow with pimpleFoam, T1-T6 (D-181), the laminar option (D-182) | **done** (Proposed, [NUMERICS-REVIEW]) |
+| B | Validation: the circular cylinder at Re 100 (laminar, 2D), three-level mesh study | **done**: docs/validation/cylinder_re100/RESULT.md |
+| C | Docs: manual chapter 10, STATUS, PLAN, QUESTIONS, CHANGELOG | **done** |
+| left | Continue a transient run; transient mesh study and polar sweep; DDES (scale-resolving: LUST, its own validation); the Ahmed body with DDES | not started |
+
 ## Next plan: the post-v1 backlog
 
 The next plan after v1.0.0 is this backlog. It is collected from the owner's post-v1 list, the known limitations

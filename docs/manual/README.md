@@ -19,6 +19,7 @@ Short and practical; the reasons behind each behaviour are in DECISIONS.md (D-nu
 | [7. Troubleshooting](07_troubleshooting.md) | checkMesh failures, the first-cell drift, oscillating runs, a run that will not converge |
 | [8. Validation and known limitations](08_validation_and_limits.md) | The validated cases and their verdicts, what v1 does not do |
 | [9. Properties reference](09_properties_reference.md) | What every section of the Properties panel does, its defaults and why (the "?" of each section) |
+| [10. Transient flow](10_transient_flow.md) | 1.1: when to use it, the Courant number, the sampling window, the averaged results and the Strouhal number |
 
 Images: every picture of results in this manual was exported by the app itself (File > Export Image, the line plot's
 Export PNG, the report's plots) from real results, with `scripts/manual_images.py`; the pictures of the window

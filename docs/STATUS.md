@@ -1,10 +1,36 @@
 # Status
 
-Updated 2026-10-24 (task/gui-2: **a second round of GUI work after the owner used the app, and its owner review; v1.0.0
-ready to tag**).
+Updated 2026-10-26 (task/1.1-transient: **release 1.1 started: transient flow, first part**).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
+
+**task/1.1-transient** (worktree ~/proyectos/vortexcfd-1.1; not yet published; no push, no merge). One commit per part:
+- Part 0 (D-180): worktree support: the worktree's own .venv from scripts/requirements-dev.txt (new: the pinned
+  runtime plus the test tools), settings isolation checked (D-141, unchanged), scripts/ship.sh publishes from a
+  worktree (GitHub merge, main fast-forwarded where it is checked out) with `--dry-run`, CONTRIBUTING "Worktrees".
+- Part A (D-181, D-182, [NUMERICS-REVIEW], schema v25): transient incompressible flow with pimpleFoam (T1-T6) and the
+  laminar option: adaptive / fixed time step, second-order transient schemes, the detected or set sampling window,
+  field averages, time-weighted mean and RMS, the Strouhal number, the end time and the statistics stop, the start
+  from a steady solution; monitors, report charts, live view, Write Fields Now, snapshots, Compare, the report and the
+  Results Scene (averaged fields, the time choice) in time. tests/test_transient.py.
+- Part B: the circular cylinder at Re 100 (laminar, 2D), three levels through the app:
+  docs/validation/cylinder_re100/ (SETUP.md, RESULT.md, result.json), tests/validation/test_cylinder.py. **PASS** on
+  all three levels; fine (63,369 cells): St 0.1649, mean Cd 1.3391 (+0.7 %), RMS Cl 0.2309 (+0.4 %); St GCI 0.09 %,
+  Cd oscillatory within 0.1 %.
+- Machine time: about 90 minutes of OpenFOAM runs (4 cores each, at most 8 at once, nice 15), including two aborted
+  trial runs; no OpenFOAM process left running.
+- Part C: manual chapter 10 (transient flow) and the Transient section of chapter 9, PLAN (1.1 progress),
+  QUESTIONS 247-255, CHANGELOG (unreleased 1.1), ARCHITECTURE.
+- The public benchmarks' meshing and solver dictionaries (scripts/validation/public_dicts.py, main's sources against
+  the branch): byte-identical (`diff -r`, 51 files). The existing validations are untouched (no file under
+  docs/validation/ other than cylinder_re100/ and its README row changed).
+
+What is left of 1.1 (PLAN, "Release 1.1"): Continue for a transient run; the mesh study and polar sweep of a
+transient project; per-part statistics; DDES; the Ahmed body.
+
+## Previous branch (task/gui-2, published)
+
 
 **task/gui-2** (not yet published; no push, no merge). A second round of GUI work the owner asked for after using the
 app; one commit per item:

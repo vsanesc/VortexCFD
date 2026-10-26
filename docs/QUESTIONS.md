@@ -518,3 +518,37 @@ settled the open ones on 2026-10-17.
      VortexCFD logo: start the app from the WSLg Start-menu entry (after `scripts/install.sh --desktop-only`) and from
      the shortcut scripts/windows/make_shortcut.ps1 makes (run it from Windows PowerShell). WSLg may still draw a
      small Linux badge over the icon; the app cannot remove it.
+
+## Task 1.1-transient (Parts 0, A, B, C)
+
+247. **[OPEN]** **The 1.1 roadmap section was not in the repository.** docs/PLAN.md had no 1.1 section; the owner's
+     decisions T1-T6 were taken from the task brief and are now written in PLAN ("Release 1.1: transient flow").
+     Please check they are as you meant them.
+248. **[OPEN]** **"Flow-through time" is l_ref / U (D-181).** The app's time unit is the convective time of the
+     reference length (the diameter of a cylinder, the chord of a wing), not the domain length over U. The start-up
+     window and the statistics stop are in it (default 20). Keep this meaning (and the name), or use "convective
+     times"?
+249. **[OPEN]** [NUMERICS-REVIEW] **The transient schemes and solution settings (D-181).** backward in time;
+     Gauss linearUpwind grad(U) on cellLimited grad(U); k and omega Gauss limitedLinear 1; PISO (1 outer, 2
+     pressure correctors), no non-orthogonal correctors, no relaxation; the cylinder2D tutorial's p tolerance 1e-6
+     (U, k, omega 1e-6) with relTol 0 on the final corrector. Accept, or prefer Gauss linear for U in laminar runs?
+250. **[OPEN]** [NUMERICS-REVIEW] **The start-up detection and the sampling switch (D-181).** Settled when, over two
+     consecutive windows, the stop quantity's mean changes by at most the tolerance (0.5 %) and the ranges of Cd and
+     Cl by at most 5 %; the app then stops pimpleFoam cleanly, adds fieldAverage from the latest time and continues
+     (the D-126 switch mechanism). The 5 % range tolerance is fixed (not a setting). Accept?
+251. **[OPEN]** **Laminar projects and the y+ layer sizing (D-182).** The y+ layer sizing assumes a turbulent boundary
+     layer (at Re 100 it would give a first layer of about 0.1 D); the cylinder validation uses relative layers. Should
+     the app switch a laminar project to relative layers by itself, or only warn?
+252. **[OPEN]** **The cylinder references (docs/validation/cylinder_re100/SETUP.md).** St 0.164-0.166 (Williamson
+     1996), mean Cd about 1.33 and RMS Cl about 0.23 (Park, Kwon & Choi 1998; Qu et al. 2013; Posdziech & Grundmann
+     2007) are the values these papers are commonly quoted with; they were not re-read here (no access to the
+     papers). Please confirm them, in particular Qu et al. 2013's Re 100 table.
+253. **[OPEN]** **Left for the next 1.1 parts.** Continue for a transient run (it starts from the beginning each
+     time; Continue is off for it), the mesh study and polar sweep of a transient project (refused with a message),
+     the transient per-part coefficients' statistics (all walls only), DDES and the Ahmed body.
+254. **[OPEN]** **Changing "Times in" does not convert the values (D-181).** The four time fields keep their numbers
+     and change their unit (the suffix shows " t_c" or " s"). Convert them instead?
+255. **[OPEN]** **ship.sh from a worktree (D-180).** It merges the pull request on GitHub without --delete-branch,
+     deletes the remote branch itself, and fast-forwards main where it is checked out (that tree must be clean);
+     the local task branch stays in the worktree. For a long-lived branch like task/1.1-transient the next push
+     recreates the remote branch. Please try `scripts/ship.sh --dry-run` in both folders before the first real use.

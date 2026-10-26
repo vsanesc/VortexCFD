@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased (1.1)
+
+### Added
+- **Transient incompressible flow** (D-181, [NUMERICS-REVIEW]): Physics > Flow "Incompressible, transient" runs
+  pimpleFoam (k-omega SST URANS or laminar); steady stays the default. An adaptive time step from a maximum Courant
+  number (default 1) or a fixed one, a largest step, outer and pressure correctors; second-order schemes (backward,
+  linearUpwind, limitedLinear for k and omega). Times in flow-through times (l_ref / U) or seconds.
+- The sampling window: set, or detected from the force history once the start-up transient is over; field averages
+  (fieldAverage: mean and RMS of U and p), the time-weighted mean and RMS of Cd, Cl and CmPitch, and the Strouhal
+  number from the lift spectrum. The end time and an optional statistical stop (the running mean stable over a
+  window). A start from the project's steady solution.
+- Monitors, report charts, the live view and Write Fields Now in time; the running mean in the report slots and charts;
+  snapshots, Compare and the HTML report with the means, the RMS and St; the averaged fields and a written-time
+  choice in the Results Scene.
+- **Laminar** option (no turbulence model, D-182).
+- Validation: the circular cylinder at Re 100 (docs/validation/cylinder_re100/).
+- Manual chapter 10, "Transient flow".
+- Development: worktree support, scripts/requirements-dev.txt and `scripts/ship.sh --dry-run` (D-180).
+
+### Changed
+- Project schema v25 (older projects open unchanged as steady k-omega SST). The public benchmarks' dictionaries are
+  unchanged.
+
 ## 1.0.0 (2026-10-24)
 
 The first release of VortexCFD: a desktop workflow for steady, incompressible RANS flow on top of OpenFOAM ESI

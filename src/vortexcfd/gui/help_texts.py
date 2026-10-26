@@ -25,6 +25,7 @@ SECTION_HELP: dict[str, str] = {
     "vol_edit": "refinement-volumes",
     "ref_values": "reference-values",
     "stop_criteria": "stopping-criteria",
+    "solver_transient": "transient",
     "ms_title": "mesh-independence-study",
     "ms_estimate": "mesh-independence-study",
     "ps_title": "polar-sweep",
