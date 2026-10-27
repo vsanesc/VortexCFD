@@ -1817,8 +1817,9 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   1.33538 (-0.34 %), 334 s (3 outer correctors per step); PIMPLE with max_courant 5 reached Co 3.7 (the automatic
   largest step, t_c / 50, caps it) St 0.16400 (+0.10 %), Cd 1.33495 (-0.37 %), 252 s. Accuracy within 1 %; on this
   mesh, whose Courant limit is set by the wake cells, PIMPLE saves nothing (3 outer correctors cost what the larger
-  step gains), which is why PISO stays the laminar default. The saving on a wall-resolved URANS mesh is to be
-  shown by Part B's square cylinder.
+  step gains), which is why PISO stays the laminar default. On the square cylinder's wall-function mesh (5 prism
+  layers) the first 15 t_c took PISO at Co 1 759 s (16,139 steps) and PIMPLE at Co 2 613 s (8,768 steps): 19 %
+  less, which supports PIMPLE as the turbulent default (docs/validation/square_re22000/RESULT.md).
 - Check: tests/test_transient.py::test_piso_or_pimple_per_case_type_and_by_choice,
   test_adaptive_time_step_dictionaries, test_the_rows_of_a_transient_project.
 

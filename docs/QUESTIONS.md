@@ -564,7 +564,8 @@ settled the open ones on 2026-10-17.
 257. **[OPEN]** [NUMERICS-REVIEW] **PIMPLE as the default of turbulent transient projects (D-185).** Laminar projects
      keep PISO at Co 1; turbulent ones get PIMPLE (residual control 1e-4, at most 10 outer correctors) at Co 2, DDES
      at Co 1. On the laminar cylinder PIMPLE matched PISO within 0.4 % but saved no time (3 outer correctors per
-     step); the square cylinder's coarse level compares them on a mesh with wall layers (its RESULT.md). Keep
+     step); on the square cylinder's mesh with wall layers PIMPLE at Co 2 took 19 % less wall time than PISO at
+     Co 1 over the first 15 t_c (its RESULT.md). Keep
      PIMPLE as the turbulent default, or PISO everywhere with PIMPLE as an option?
 258. **[OPEN]** [NUMERICS-REVIEW] **k and omega by linearUpwind instead of limitedLinear (D-192, amends the accepted
      D-181).** limitedLinear 1 drove omega negative and crashed the first URANS run (the square cylinder) in its
