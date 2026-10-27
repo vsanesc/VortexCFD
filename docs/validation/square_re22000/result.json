@@ -1,0 +1,44 @@
+{
+  "runs": [
+    {
+      "run": "coarse",
+      "level": "coarse",
+      "settings": {},
+      "cells": 27234,
+      "st": 0.1354795889245594,
+      "cd_mean": 2.132118257825019,
+      "cl_rms": 1.421707294704271,
+      "cycles": 14.114703901791747,
+      "errors": {
+        "st": 0.018643525748566963,
+        "cd": 0.01529440848810417
+      },
+      "verdict": "PASS",
+      "sampling_start": 95.81674986,
+      "steps": 112902,
+      "solve_s": 7296.9,
+      "max_courant": 6.0642482,
+      "cores": 8
+    },
+    {
+      "run": "medium",
+      "level": "medium",
+      "settings": {},
+      "cells": 40527,
+      "st": 0.13100031209089427,
+      "cd_mean": 2.082489593748191,
+      "cl_rms": 1.4736676767466412,
+      "cycles": 8.871124895200198,
+      "errors": {
+        "st": -0.015035247436885226,
+        "cd": -0.008338288691337722
+      },
+      "verdict": "PASS",
+      "sampling_start": 82.28165068,
+      "steps": 65593,
+      "solve_s": 6293.4,
+      "max_courant": 11.01501,
+      "cores": 8
+    }
+  ]
+}
