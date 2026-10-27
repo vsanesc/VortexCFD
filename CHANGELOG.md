@@ -18,10 +18,20 @@
 - Validation: the circular cylinder at Re 100 (docs/validation/cylinder_re100/).
 - Manual chapter 10, "Transient flow".
 - Development: worktree support, scripts/requirements-dev.txt and `scripts/ship.sh --dry-run` (D-180).
+- PIMPLE with outer correctors and residual control (D-185, [NUMERICS-REVIEW]): "Pressure-velocity coupling" Auto
+  (PISO for laminar, PIMPLE for turbulent projects), PISO or PIMPLE, a target Courant number of 2-5.
+- A start-up perturbation for transient external flow (D-187, [NUMERICS-REVIEW]): the inflow swings by 10 degrees
+  at 0.2 U / l_ref for the first 10 flow-through times, so shedding develops within a few tens of flow-through
+  times; never sampled.
+- The start-up detection's tolerance is a setting (default 5 %, D-186).
+- Continue Solver for a transient run: a later end time, the field averages and the statistics going on (D-189).
+- Laminar projects size their prism layers by a first-cell thickness instead of y+ (D-190).
 
 ### Changed
 - Project schema v25 (older projects open unchanged as steady k-omega SST). The public benchmarks' dictionaries are
   unchanged.
+- Changing the time unit of the transient settings converts the values already entered (D-188).
+- scripts/ship.sh refuses a branch with no commits ahead of origin/main before running anything (D-184).
 
 ## 1.0.1 (unreleased)
 

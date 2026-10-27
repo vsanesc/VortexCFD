@@ -1738,3 +1738,129 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Check: tests/test_ship_script.py::test_refuses_a_branch_with_no_commits_ahead_of_origin_main_before_the_suite
   (a bare origin: one commit ahead goes on; after the commit is pushed to origin's main, refused with no suite and no
   push printed).
+
+## D-186 The start-up detection's tolerance is editable; the sampling start can be set by hand [NUMERICS-REVIEW]
+- Status: Proposed (task 1.1-transient, Part 2, Part A item 3; the owner's condition for accepting the detection rule
+  of D-181, QUESTIONS 251).
+- Decision: `Transient.detect_tolerance` (schema v25, default 0.05): the largest relative change of the ranges
+  (max - min) of Cd and Cl (and of the stop quantity) between two consecutive windows for which the start-up
+  transient counts as over. It was the fixed `foam/transient.RANGE_TOLERANCE`; that constant stays as the default.
+  The control file carries it (`rangeTolerance`; older case files read without it get 0.05) and SolverRun's
+  detection uses it. The Solvers > Transient group shows "Start-up detection tolerance" (percent) next to the
+  window. The sampling start set by hand was already there ("Sampling starts at", Auto unchecked: a time in the
+  chosen unit; fieldAverage then starts at it and no detection runs); its tooltip now points to it from the
+  tolerance's.
+- Check: tests/test_transient.py::test_the_detection_tolerance_and_the_end_of_the_perturbation (a looser tolerance
+  settles a slowly growing oscillation earlier), test_the_start_up_perturbation_swings_the_inflow_and_holds_the_detection
+  (the control file), test_fixed_time_step_and_a_set_sampling_start (the set start).
+
+## D-188 Changing the time unit converts the transient times
+- Status: Proposed (task 1.1-transient, Part 2, Part A item 6; QUESTIONS 255).
+- Decision: choosing "Times in" (flow-through times or seconds) converts the end time, write interval, sampling
+  start, window and perturbation time already entered with t_c = l_ref / U (`Transient.converted_times`;
+  `core.model.TRANSIENT_TIME_FIELDS` is the one list of those fields), in the same undo step as the unit. Without
+  a part (t_c unknown) the numbers are kept and a message says so.
+- Check: tests/test_transient.py::test_changing_the_time_unit_converts_the_values (there and back; one undo).
+
+## D-189 Continue a transient run to a later end time [NUMERICS-REVIEW]
+- Status: Proposed (task 1.1-transient, Part 2, Part A item 4; the transient counterpart of D-171).
+- Decision: a transient solution that was stopped, reached its end time or met the statistics stop, with a written
+  time, can be continued: Continue Solver asks for the new end time (in the project's unit), writes controlDict
+  again (startFrom latestTime, the new end, the write interval that ends on it counted from the restart, the live
+  view) and keeps the fieldAverage entry with its original timeStart when the sampling has started: OpenFOAM's
+  fieldAverage (v2606, restartOnRestart off) reads the means of the latest time back and goes on. The control file
+  keeps the sampling start, whether it was detected and the end of the start-up perturbation; a start-up not yet
+  over is still detected. SolverRun counts the solution's earlier time steps (`ContinueFrom.iteration` is the step
+  count of a transient solution) and its statistics run over the whole force history from the same sampling start
+  (every postProcessing start-time directory). The record's segments go on as D-171's.
+- What may change: how far a run goes (`workflow.solving.TRANSIENT_RUN_LENGTH`: end time, write interval, the
+  statistics stop, its quantity, window and tolerance) is not part of a transient solution's set-up hash; any other
+  change (time stepping, schemes, physics, boundaries) can only start over ("Start over" is the one choice).
+  Steady projects' hashes are unchanged (a steady hash has no transient settings, D-181).
+- Check: tests/test_transient.py::test_a_transient_run_continues_to_a_later_end_time (controlDict, the record's
+  steps 100 -> 150, statistics from the same start to the new end, segments),
+  test_a_changed_transient_set_up_can_only_start_over.
+
+## D-190 A laminar project sizes its prism layers by a first-cell thickness, not y+ [NUMERICS-REVIEW]
+- Status: Proposed (task 1.1-transient, Part 2, Part A item 5; QUESTIONS 252).
+- Context: y+ sizing assumes a turbulent boundary layer; at Re 100 it gives a first layer of about 0.1 D.
+- Decision: in a laminar project absolute layer sizing uses `Mesh.first_layer_height` (m, schema v25; None: auto,
+  `workflow.meshing.LAMINAR_FIRST_FRACTION` 0.1 x sqrt(nu L / U) on the surface size length L, a tenth of the laminar
+  boundary layer's scale L / sqrt(Re_L), about ten layers inside it) instead of the y+ estimate; everything after
+  the first layer (the count, the caps, the controls) is unchanged. The Mesh node hides "Target y+" and its note and
+  shows "First-cell thickness" (Auto or a value); the sizing choice reads "Absolute: from a first-cell thickness".
+  The mesh hash of a laminar project with absolute sizing gains a marker (its mesh is out of date when the project
+  turns laminar); a project without the field keeps its hash.
+- Check: tests/test_transient.py::test_a_laminar_project_sizes_its_layers_by_a_first_cell_thickness.
+
+## D-185 PIMPLE with outer correctors and residual control; PISO or PIMPLE by case type [NUMERICS-REVIEW]
+- Status: Proposed (task 1.1-transient, Part 2, Part A item 1).
+- Context: wall-resolved meshes make Courant-1 steps tiny; outer correctors let a step run at a Courant number of 2-5.
+- Decision: `Transient.algorithm` "auto" (default), "piso" or "pimple"; `max_courant` None (auto), `outer_correctors`
+  (the most per step, default 10, PIMPLE only), `outer_tolerance` (default 1e-4). PISO writes nOuterCorrectors 1.
+  PIMPLE writes `residualControl { U | "(U|k|omega)" { tolerance <outer_tolerance>; relTol 0; } }` in the PIMPLE
+  dictionary, the form of the v2606 tutorial compressible/rhoPimpleFoam/RAS/angledDuct ("(U|k|epsilon)" tolerance
+  1e-4, relTol 0; read in src/finiteVolume/cfdTools/general/solutionControl/pimpleControl: the check starts at the
+  second outer corrector, the last one is always "Final"), and no under-relaxation, as pimpleFoam/RAS/propeller
+  (maxCo 2, 2 outer correctors, factors 1) and pimpleFoam/RAS/TJunction (maxCo 5, factors 1).
+- Defaults per case type: laminar -> PISO at Co 1 (the tutorial pimpleFoam/laminar/cylinder2D: no outer correctors);
+  turbulent URANS -> PIMPLE at Co 2 (pimpleFoam/RAS/propeller; wall layers make the Courant limit fall on the
+  thinnest cells); DDES -> PIMPLE at Co 1 (D-191: Spalart 2001 asks for a local CFL about 1 in the focus region; the
+  v2606 LES tutorials all use outer correctors). The pimpleFoam tutorials' settings were tabulated for this
+  (docs/validation/cylinder_re100/RESULT.md, "Part 2").
+- Measured (the coarse cylinder, 17,182 cells, 4 cores, two 4-core runs at a time, statistics over 60-120 t_c,
+  the same start-up perturbation): PISO Co 1 St 0.16383, Cd 1.33993, 265 s; PIMPLE Co 2 St 0.16403 (+0.12 %), Cd
+  1.33538 (-0.34 %), 334 s (3 outer correctors per step); PIMPLE with max_courant 5 reached Co 3.7 (the automatic
+  largest step, t_c / 50, caps it) St 0.16400 (+0.10 %), Cd 1.33495 (-0.37 %), 252 s. Accuracy within 1 %; on this
+  mesh, whose Courant limit is set by the wake cells, PIMPLE saves nothing (3 outer correctors cost what the larger
+  step gains), which is why PISO stays the laminar default. The saving on a wall-resolved URANS mesh is to be
+  shown by Part B's square cylinder.
+- Check: tests/test_transient.py::test_piso_or_pimple_per_case_type_and_by_choice,
+  test_adaptive_time_step_dictionaries, test_the_rows_of_a_transient_project.
+
+## D-187 A start-up perturbation for transient external flow: the inflow swings at 0.2 U / l_ref [NUMERICS-REVIEW]
+- Status: Proposed (task 1.1-transient, Part 2, Part A item 2).
+- Context: from rest, a symmetric body's shedding grows from round-off: on the coarse cylinder the start-up was
+  detected only at 151.7 t_c and 3 sampled cycles took 345 s of solver time on 4 cores (Part 1's requirement: 5 min).
+- Decision: `Transient.perturb` (default on), `perturb_angle` (default 10 deg), `perturb_time` (default 10 t_c, in
+  the time unit). For external flow the inlet is uniformFixedValue with a table Function1 (v2606, linear, clamped):
+  the free stream's direction oscillates in the x-z plane as angle * sin(2 pi f t), f = 0.2 U / l_ref, speed
+  unchanged, 40 points per period, then +x. The control file carries the end (`notBefore`), and the detection's two
+  windows must both start after it (`settled_at(not_before=...)`). Internal flow and steady runs are unchanged.
+- Alternatives measured on copies of the coarse case (Cl amplitude per 5 t_c): a constant 5 deg inflow for 5 t_c
+  (the first implementation: saturated shedding only at about 65 t_c; a circular cylinder sees a turned inflow as
+  the same symmetric problem turned, only the switch breaks the symmetry), the oscillating inflow (10 deg, 2 periods:
+  amplitude 0.28-0.37 from 10 t_c, saturated by about 35 t_c) and a brief wall rotation (surface speed 0.5 U for 2
+  t_c: saturated by about 30 t_c). The oscillating inflow was chosen: it applies to any body and leaves the walls'
+  conditions untouched.
+- Measured (coarse cylinder, PISO, 4 cores, the run beside another 4-core run): start-up detected at 83.9 t_c (151.7
+  without), 3 sampled cycles after 226 s of solver time (345 s without): Part 1's requirement is met. The
+  statistics agree with Part 1's coarse level (St 0.16383 vs 0.16385, Cd 1.3400 vs 1.3402).
+- Check: tests/test_transient.py::test_the_start_up_perturbation_swings_the_inflow_and_holds_the_detection,
+  test_the_detection_tolerance_and_the_end_of_the_perturbation; RESULT.md "Part 2".
+
+## D-191 k-omega SST DDES, transient and 3D only [NUMERICS-REVIEW]
+- Status: Proposed (task 1.1-transient, Part 2, Part B). Every dictionary entry and default below is
+  [NUMERICS-REVIEW]; the vault note "1.1 URANS y DES" (read-only) flags one open point: kOmegaSSTDDES's GbyNu
+  returns the unlimited production (`// Unlimited`), not checked against Gritskevich et al. 2012.
+- Model (schema v25): `Physics.turbulence_model` "kOmegaSSTDDES" (rejected unless the flow is transient; a 2D project
+  cannot run it: DDES resolves 3D turbulence); `des_delta` ("DeltaOmegaTilde" default, "cubeRootVol",
+  "maxDeltaxyz"), `des_use_sigma` (default true), `des_scheme` ("DEShybrid" default, "LUST"). These three are not in
+  the hash of a non-DDES project (steady and URANS hashes unchanged).
+- Case files (read in v2606: src/TurbulenceModels/turbulenceModels/DES, LES/LESdeltas, src/TurbulenceModels/schemes/
+  DEShybrid, src/functionObjects/field/turbulenceFields; the tutorial incompressible/pimpleFoam/LES/wallMountedHump,
+  setup kOmegaSSTDDES-DeltaOmegaTilde-useSigmaTrue): turbulenceProperties `simulationType LES; LES { LESModel
+  kOmegaSSTDDES; delta <des_delta>; kOmegaSSTDDESCoeffs { useSigma <...>; } <delta>Coeffs {} }` (the deltas' own
+  default coefficients: cubeRootVol 1, maxDeltaxyz 2); div(phi,U) `Gauss DEShybrid linear linearUpwind grad(U)
+  delta 0.65 <U> <l_ref> 0 1 1 10` (the tutorial's line with the case's reference velocity and length in place of
+  its 1 and 1) or `Gauss LUST grad(U)` (the v2606 LES tutorials' scheme, e.g. pisoFoam/LES/motorBike); k and omega
+  limitedLinear 1 (as the tutorial); `wallDist { method exactDistance; nRequired yes; }` (as the tutorial); the
+  initial and boundary fields of SST. The shielding function and the LES-region indicator are written with the
+  fields by a turbulenceFields function object (`fields (fd LESRegion)`, files turbulenceProperties:fd and
+  turbulenceProperties:LESRegion) and offered in the Results Scene. PIMPLE with residual control at Co 1 by default
+  (D-185).
+- Guidance: Physics shows a warning when the focus region is too coarse (no enabled refinement volume; its cell
+  coarser than 0.068 l_ref, the coarser cylinder grid in Spalart, NASA/CR-2001-211032, section 4.2; fewer than 32
+  cells across its smallest extent, section 2.4.2 "a minimum of 32^3") and the recommended averaging: at least 50
+  flow-through times after the start-up (a working value of this app, not from a source).
+- Check: tests/test_transient.py::test_ddes_dictionaries, test_ddes_project_checks; Part B's functional run.

@@ -4,6 +4,8 @@ would, and the three-level mesh study on St and the mean Cd.
 
     nice -n 15 .venv/bin/python scripts/validation/cylinder_study.py level --name coarse [--end 120] [--mesh-only]
     nice -n 15 .venv/bin/python scripts/validation/cylinder_study.py level --name coarse --end 60 --start 30 --write 25 --tag short
+    nice -n 15 .venv/bin/python scripts/validation/cylinder_study.py level --name coarse --end 120 --tag pimple2 \
+        --set algorithm=pimple --set max_courant=2 --set perturb=true
     .venv/bin/python scripts/validation/cylinder_study.py collect     # -> docs/validation/cylinder_re100/result.json
 
 The projects go to run/validation/cylinder_re100/ (git-ignored); the numbers to docs/validation/cylinder_re100/.
@@ -85,8 +87,15 @@ def solve(project) -> dict:
 
 def cmd_level(args) -> None:
     folder = WORK / (args.name + (f"_{args.tag}" if args.tag else ""))
+    extra = {}
+    for item in args.set:  # Transient fields: key=value (JSON values: true, 2.0, "pimple")
+        key, _, value = item.partition("=")
+        try:
+            extra[key] = json.loads(value)
+        except json.JSONDecodeError:
+            extra[key] = value
     project = cc.build_project(folder, args.name, end_time=args.end, cores=args.cores, sampling_start=args.start,
-                               write_interval=args.write)
+                               write_interval=args.write, **extra)
     say(f"{args.name}: base {cc.LEVELS[args.name]:.4g} m, readiness {meshing.readiness(project)}")
     out = {"level": args.name, "base_m": cc.LEVELS[args.name], "mesh": mesh(project)}
     if not args.mesh_only:
@@ -140,6 +149,8 @@ def main() -> None:
     level.add_argument("--start", type=float, default=None, help="a set sampling start (t_c); default: detected")
     level.add_argument("--write", type=float, default=None, help="the write interval (t_c); default: the end time")
     level.add_argument("--tag", default="", help="a suffix of the run's folder (a run beside the study's)")
+    level.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
+                       help="a Transient setting, e.g. algorithm=pimple, max_courant=2, perturb=true (Part 2)")
     level.set_defaults(func=cmd_level)
     sub.add_parser("collect").set_defaults(func=cmd_collect)
     args = parser.parse_args()

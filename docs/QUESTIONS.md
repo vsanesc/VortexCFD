@@ -542,7 +542,7 @@ settled the open ones on 2026-10-17.
      consecutive windows, the stop quantity's mean changes by at most the tolerance (0.5 %) and the ranges of Cd and
      Cl by at most 5 %; the app then stops pimpleFoam cleanly, adds fieldAverage from the latest time and continues
      (the D-126 switch mechanism). The 5 % range tolerance is fixed (not a setting). Accept?
-252. **[OPEN]** **Laminar projects and the y+ layer sizing (D-182).** The y+ layer sizing assumes a turbulent boundary
+252. **[CLOSED (owner, 2026-10-27, Part 2 brief): hide the y+ sizing and offer a first-cell thickness; done, D-190]** **Laminar projects and the y+ layer sizing (D-182).** The y+ layer sizing assumes a turbulent boundary
      layer (at Re 100 it would give a first layer of about 0.1 D); the cylinder validation uses relative layers. Should
      the app switch a laminar project to relative layers by itself, or only warn?
 253. **[CLOSED (Part 2, Part 0): replaced by sourced values, SETUP.md "References"; verdict unchanged]** **The cylinder references (docs/validation/cylinder_re100/SETUP.md).** St 0.164-0.166 (Williamson
@@ -552,7 +552,7 @@ settled the open ones on 2026-10-17.
 254. **[OPEN]** **Left for the next 1.1 parts.** Continue for a transient run (it starts from the beginning each
      time; Continue is off for it), the mesh study and polar sweep of a transient project (refused with a message),
      the transient per-part coefficients' statistics (all walls only), DDES and the Ahmed body.
-255. **[OPEN]** **Changing "Times in" does not convert the values (D-181).** The four time fields keep their numbers
+255. **[CLOSED (owner, 2026-10-27, Part 2 brief): convert them; done, D-188]** **Changing "Times in" does not convert the values (D-181).** The four time fields keep their numbers
      and change their unit (the suffix shows " t_c" or " s"). Convert them instead?
 256. **[OPEN]** **ship.sh from a worktree (D-180).** It merges the pull request on GitHub without --delete-branch,
      deletes the remote branch itself, and fast-forwards main where it is checked out (that tree must be clean);

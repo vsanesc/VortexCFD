@@ -411,6 +411,7 @@ class TransientTimes:
     max_delta_t: float
     window: float
     sampling_start: float | None
+    perturb_end: float = 0.0  # s: the inflow is along +x again from here (0: no perturbation, D-187)
 
 
 def transient_times(inp: SolverCaseInput) -> TransientTimes:
@@ -429,8 +430,46 @@ def transient_times(inp: SolverCaseInput) -> TransientTimes:
     start = settings.sampling_start
     if adaptive:  # the first step: never above the largest
         dt = min(dt, max_dt)
+    perturb_end = settings.perturb_time * scale if perturbed(inp) else 0.0
     return TransientTimes(t_c, length, settings.end_time * scale, settings.write_interval * scale, dt, max_dt,
-                          settings.window * scale, None if start is None else start * scale)
+                          settings.window * scale, None if start is None else start * scale, perturb_end)
+
+
+def perturbed(inp: SolverCaseInput) -> bool:
+    """Whether the run starts with the inflow perturbation (D-187): a transient external flow with it on."""
+    return inp.physics.transient and inp.internal is None and inp.solvers.transient.perturb
+
+
+# The start-up perturbation's forcing frequency as a Strouhal number on l_ref (D-187): 0.2, a bluff body's shedding;
+# its table has this many points per period.
+PERTURB_STROUHAL = 0.2
+PERTURB_POINTS = 40
+
+
+def perturbed_inlet(inp: SolverCaseInput) -> dict:
+    """The inlet velocity of a perturbed start (D-187) [NUMERICS-REVIEW]: uniformFixedValue with a table Function1
+    (v2606 src/finiteVolume/fields/fvPatchFields/derived/uniformFixedValue; Function1 table, linear interpolation,
+    clamped after its last row): the free stream's direction oscillates in the x-z plane (towards the lift
+    direction and away) as perturb_angle * sin(2 pi f t), f = PERTURB_STROUHAL U / l_ref, the speed unchanged,
+    for ``perturb_time``, then along +x. The alternating crossflow sheds alternating vortices near the expected
+    frequency, so the wake of a symmetric body is asymmetric and shedding within a few periods instead of growing
+    from round-off over about 100 t_c (measured on the coarse cylinder, docs/validation/cylinder_re100/RESULT.md:
+    a constant turned inflow did much less: a symmetric body sees it as the same symmetric problem turned). The
+    start-up detection never samples before it has ended."""
+    times = transient_times(inp)
+    speed = inp.inflow.speed
+    amplitude = math.radians(inp.solvers.transient.perturb_angle)
+    frequency = PERTURB_STROUHAL * inp.inflow.speed / times.length
+    end = times.perturb_end
+    rows = int(math.ceil(end * frequency * PERTURB_POINTS))
+    table = []
+    for i in range(rows + 1):
+        t = end * i / rows
+        a = amplitude * math.sin(2.0 * math.pi * frequency * t)
+        table.append([t, [speed * math.cos(a), 0.0, speed * math.sin(a)]])
+    table[-1][1] = [speed * c for c in FLOW_DIRECTION]
+    return {"type": "uniformFixedValue", "uniformValue": ("table", table),
+            "value": [speed * c for c in FLOW_DIRECTION]}
 
 
 def _transient_control_dict(inp: SolverCaseInput, functions: dict) -> FoamFileSpec:
@@ -443,6 +482,9 @@ def _transient_control_dict(inp: SolverCaseInput, functions: dict) -> FoamFileSp
     adaptive = settings.time_step == "adaptive"
     if times.sampling_start is not None:
         functions[transient_files.FIELD_AVERAGE] = transient_files.field_average(times.sampling_start)
+    if inp.physics.ddes:  # the shielding function and the LES-region indicator, written with the fields (D-191)
+        functions[DES_FIELDS] = {"type": "turbulenceFields", "libs": ["fieldFunctionObjects"],
+                                 "fields": ["fd", "LESRegion"], "writeControl": "writeTime"}
     return FoamFileSpec(content={
         "application": "pimpleFoam",
         "startFrom": "startTime",
@@ -460,10 +502,24 @@ def _transient_control_dict(inp: SolverCaseInput, functions: dict) -> FoamFileSp
         "timePrecision": 8,
         "runTimeModifiable": True,
         "adjustTimeStep": adaptive,
-        "maxCo": settings.max_courant,
+        "maxCo": settings.resolved_max_courant(inp.physics.laminar, inp.physics.ddes),
         "maxDeltaT": times.max_delta_t,
         "functions": functions,
     })
+
+
+# The turbulenceFields function object of a DDES run (D-191): it writes turbulenceProperties:fd (the DDES shielding
+# function, 1 - f_d is 1 in the RANS-shielded boundary layer) and turbulenceProperties:LESRegion (1 where the model
+# is in LES mode) at the write times.
+DES_FIELDS = "desFields"
+
+
+def ddes_scheme(inp: SolverCaseInput) -> "DDESScheme | None":
+    """The DDES U scheme's inputs of a DDES case, None otherwise."""
+    if not inp.physics.ddes:
+        return None
+    return DDESScheme(inp.physics.des_scheme, inp.inflow.speed,
+                      reference_values(inp.parts_bounds, inp.reports, inp.span).l_ref)
 
 
 def transient_control(inp: SolverCaseInput) -> FoamFileSpec:
@@ -474,11 +530,12 @@ def transient_control(inp: SolverCaseInput) -> FoamFileSpec:
     control = transient_files.TransientControl(
         times.convective_time, times.length, inp.inflow.speed, times.end_time, times.window, settings.tolerance,
         settings.stop_quantity, settings.statistics_stop, start, False,
-        transient_files.field_average(start if start is not None else 0.0))
+        transient_files.field_average(start if start is not None else 0.0), settings.detect_tolerance,
+        times.perturb_end)
     return FoamFileSpec(content=control.content())
 
 
-def transient_fv_schemes(laminar: bool = False) -> FoamFileSpec:
+def transient_fv_schemes(laminar: bool = False, ddes: "DDESScheme | None" = None) -> FoamFileSpec:
     """fvSchemes of a transient run (D-181) [NUMERICS-REVIEW]: second order in time and space.
 
     ddt backward: second-order implicit with three time levels (v2606 backwardDdtScheme, which takes the variable
@@ -487,10 +544,14 @@ def transient_fv_schemes(laminar: bool = False) -> FoamFileSpec:
     default (the tutorials pimpleFoam/RAS/propeller and pitzDaily), without the steady "bounded" correction (that is
     for steady state). k and omega: Gauss limitedLinear 1, a bounded (TVD) second-order scheme (the tutorials
     pimpleFoam/RAS/TJunction and ellipsekkLOmega) where the steady default is first-order upwind: a URANS run must
-    not damp the resolved unsteadiness with first-order turbulence transport. The rest as the steady default."""
+    not damp the resolved unsteadiness with first-order turbulence transport. The rest as the steady default.
+
+    DDES (``ddes``, D-191): U by ``ddes_u_scheme`` and the wall distance exactDistance (nRequired), as the v2606
+    tutorial pimpleFoam/LES/wallMountedHump (kOmegaSSTDDES); k and omega as above (that tutorial's limitedLinear
+    1)."""
     divs = {
         "default": "none",
-        "div(phi,U)": ("Gauss", "linearUpwind", "grad(U)"),
+        "div(phi,U)": ("Gauss", "linearUpwind", "grad(U)") if ddes is None else ddes_u_scheme(ddes),
         "div((nuEff*dev2(T(grad(U)))))": ("Gauss", "linear"),
     }
     if not laminar:
@@ -503,17 +564,55 @@ def transient_fv_schemes(laminar: bool = False) -> FoamFileSpec:
         "laplacianSchemes": {"default": ("Gauss", "linear", "corrected")},
         "interpolationSchemes": {"default": "linear"},
         "snGradSchemes": {"default": "corrected"},
-        "wallDist": {"method": "meshWave"},
+        "wallDist": {"method": "meshWave"} if ddes is None else {"method": "exactDistance", "nRequired": True},
     })
+
+
+@dataclass(frozen=True)
+class DDESScheme:
+    """What the DDES U scheme needs (D-191): the scheme, and DEShybrid's reference velocity and length."""
+
+    scheme: str  # "DEShybrid" or "LUST"
+    speed: float  # U (m/s)
+    length: float  # l_ref (m)
+
+
+# DEShybrid's coefficients after its two schemes and the delta (v2606 src/TurbulenceModels/schemes/DEShybrid, as the
+# tutorial pimpleFoam/LES/wallMountedHump writes them): C_DES 0.65, sigma between 0 and 1, the B-function limiter 1
+# and the nut limiter 10 (above 1 the "GAM" extension is on). The reference velocity and length are the case's U and
+# l_ref (the tutorial's 1 and 1 are its own scales). [NUMERICS-REVIEW]
+DES_HYBRID_CDES = 0.65
+DES_HYBRID_SIGMA = (0.0, 1.0)
+DES_HYBRID_B_LIMIT = 1.0
+DES_HYBRID_NUT_LIMIT = 10.0
+
+
+def ddes_u_scheme(ddes: DDESScheme) -> tuple:
+    """div(phi,U) of a DDES run (D-191) [NUMERICS-REVIEW]: DEShybrid, central (linear) where the LES region is
+    resolved and linearUpwind grad(U) in the RANS region or where it is not (Travin et al. 2000, Spalart et al.
+    2012), as the wallMountedHump tutorial; or LUST grad(U) (75 % linear, 25 % linearUpwind everywhere), the scheme
+    of the v2606 LES tutorials (pisoFoam/LES/motorBike among them)."""
+    if ddes.scheme == "LUST":
+        return ("Gauss", "LUST", "grad(U)")
+    return ("Gauss", "DEShybrid", "linear", "linearUpwind", "grad(U)", "delta", DES_HYBRID_CDES, ddes.speed,
+            ddes.length, *DES_HYBRID_SIGMA, DES_HYBRID_B_LIMIT, DES_HYBRID_NUT_LIMIT)
 
 
 def transient_fv_solution(solvers: Solvers, laminar: bool = False) -> FoamFileSpec:
     """fvSolution of pimpleFoam (D-181) [NUMERICS-REVIEW]: the cylinder2D tutorial's solvers (GAMG for p, a
     smoothSolver for U, k and omega) and its p tolerance (1e-6; U, k and omega 1e-6, the tutorial's 1e-5 tightened);
     the last corrector of each step ("Final") solves to that absolute tolerance (relTol 0), which costs every step
-    (the steady default's 1e-7 for p doubled the final pressure solve's iterations on the cylinder). PIMPLE: the user's outer correctors (1: the PISO mode) and pressure
-    correctors, the momentum predictor on, no non-orthogonal correctors (as the steady default) and no
-    under-relaxation (a time step resolved at a Courant number up to about 1 needs none)."""
+    (the steady default's 1e-7 for p doubled the final pressure solve's iterations on the cylinder). The momentum
+    predictor on, no non-orthogonal correctors (as the steady default), no under-relaxation, the user's pressure
+    correctors.
+
+    PISO (D-185): one outer corrector (the cylinder2D tutorial), the step at a Courant number up to about 1. PIMPLE
+    (D-185): up to ``outer_correctors`` outer correctors per step with residualControl on U (and k, omega): the outer
+    loop is left once each field's initial residual is below ``outer_tolerance`` (relTol 0), as the tutorial
+    compressible/rhoPimpleFoam/RAS/angledDuct ("(U|k|epsilon)" tolerance 1e-4, relTol 0); no under-relaxation, as
+    pimpleFoam/RAS/propeller (maxCo 2, 2 outer correctors, factors 1) and pimpleFoam/RAS/TJunction (maxCo 5, factors
+    1): the outer correctors, not relaxation, carry the larger Courant number. pimpleControl::criteriaSatisfied
+    (v2606) checks from the second outer corrector on; turbOnFinalIterOnly stays at its default (true)."""
     p = {"solver": "GAMG", "smoother": "GaussSeidel", "tolerance": 1e-6, "relTol": 0.01}
     smooth = {"solver": "smoothSolver", "smoother": "symGaussSeidel", "tolerance": 1e-6, "relTol": 0.1}
     fields = ("U",) if laminar else ("U", "k", "omega")
@@ -524,13 +623,24 @@ def transient_fv_solution(solvers: Solvers, laminar: bool = False) -> FoamFileSp
     settings = solvers.transient
     return FoamFileSpec(content={
         "solvers": entries,
-        "PIMPLE": {
-            "momentumPredictor": True,
-            "nOuterCorrectors": settings.outer_correctors,
-            "nCorrectors": settings.correctors,
-            "nNonOrthogonalCorrectors": 0,
-        },
+        "PIMPLE": pimple_dict(solvers, laminar),
     })
+
+
+def pimple_dict(solvers: Solvers, laminar: bool) -> dict:
+    """fvSolution's PIMPLE dictionary (D-185): PISO or PIMPLE with residual control (``transient_fv_solution``)."""
+    settings = solvers.transient
+    pimple = settings.resolved_algorithm(laminar) == "pimple"
+    out: dict = {
+        "momentumPredictor": True,
+        "nOuterCorrectors": settings.outer_correctors if pimple else 1,
+        "nCorrectors": settings.correctors,
+        "nNonOrthogonalCorrectors": 0,
+    }
+    if pimple:
+        fields = "U" if laminar else '"(U|k|omega)"'  # a quoted regular expression of the field names
+        out["residualControl"] = {fields: {"tolerance": settings.outer_tolerance, "relTol": 0}}
+    return out
 
 
 def _external_functions(inp: SolverCaseInput) -> dict:
@@ -718,6 +828,14 @@ def transport_properties(physics: Physics) -> FoamFileSpec:
 def turbulence_properties(physics: Physics) -> FoamFileSpec:
     if physics.laminar:  # no turbulence model (D-182), as the tutorial pimpleFoam/laminar/cylinder2D
         return FoamFileSpec(content={"simulationType": "laminar"})
+    if physics.ddes:  # D-191 [NUMERICS-REVIEW]: an LES model in OpenFOAM, as the wallMountedHump tutorial
+        return FoamFileSpec(content={
+            "simulationType": "LES",
+            "LES": {"LESModel": "kOmegaSSTDDES", "turbulence": True, "printCoeffs": True,
+                    "delta": physics.des_delta, "kOmegaSSTDDESCoeffs": {"useSigma": physics.des_use_sigma},
+                    # the deltas' own default coefficients (v2606: cubeRootVol 1, maxDeltaxyz 2; DeltaOmegaTilde none)
+                    f"{physics.des_delta}Coeffs": {}},
+        })
     return FoamFileSpec(content={
         "simulationType": "RAS",
         "RAS": {"RASModel": physics.turbulence_model, "turbulence": True, "printCoeffs": True},
@@ -852,7 +970,7 @@ def initial_fields(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
     moving_u = {"type": "fixedValue", "value": list(ground_velocity(inp))}  # a moving wall: the free stream's velocity
     u = _field(
         inp, "volVectorField", [0, 1, -1, 0, 0, 0, 0], velocity,
-        inlet={"type": "fixedValue", "value": velocity},
+        inlet=perturbed_inlet(inp) if perturbed(inp) else {"type": "fixedValue", "value": velocity},
         outlet={"type": "inletOutlet", "inletValue": [0.0, 0.0, 0.0], "value": velocity},
         far=slip, wall={"type": "noSlip"},
         ground=(moving_u if inp.ground == "moving" else None), moving=moving_u,
@@ -891,7 +1009,8 @@ def build_solver_files(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
     laminar = inp.physics.laminar
     files = {
         "system/controlDict": control_dict(inp),
-        "system/fvSchemes": transient_fv_schemes(laminar) if inp.physics.transient else fv_schemes(),
+        "system/fvSchemes": (transient_fv_schemes(laminar, ddes_scheme(inp)) if inp.physics.transient else
+                             fv_schemes()),
         "system/fvSolution": (transient_fv_solution(inp.solvers, laminar) if inp.physics.transient else
                               fv_solution(inp.solvers, inp.internal is not None and any(
                                   i.kind == "total_pressure" for i in inp.internal.inlets))),

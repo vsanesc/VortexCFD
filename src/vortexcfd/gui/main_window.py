@@ -197,6 +197,9 @@ MESH_CHANGED_TEXT = ("The mesh settings changed since this solution was computed
                      "solution belongs to the mesh it was computed on and cannot go on on another one. Generate the "
                      "mesh again (that clears the solution), or clear the solution now and run the solver once the "
                      "mesh is generated.")
+TRANSIENT_CHANGED_TEXT = ("The physics, the boundary conditions or the time stepping changed since this transient "
+                          "solution was computed. A transient solution continues only with its own set-up (a later "
+                          "end time, another write interval or statistics stop are fine): start over.")
 SETTINGS_CHANGED_TEXT = ("The physics, the boundary conditions or the solver settings changed since this solution "
                          "was computed (the mesh did not).\n\nContinue from the current solution: it is the "
                          "starting point of the new set-up (its fields are kept, the new conditions apply from the "
@@ -2017,6 +2020,9 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         if reason is not None:
             self.show_message(reason, "error")
             return
+        if record.transient is not None:  # a later end time (D-189)
+            self._continue_transient(record)
+            return
         limit = self._project.sim.solvers.iterations
         if record.state == CRITERIA_MET:  # more iterations and, if wanted, tighter criteria in one edit (D-176)
             stopping = self._project.sim.solvers.stopping
@@ -2065,6 +2071,40 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self._continued = (record, rewrite)
         log.info("Continuing simpleFoam from iteration %d%s", resume.iteration,
                  " with the changed set-up (the current solution is the starting point)" if rewrite else "")
+        self._begin_run(case_dir, resume)
+
+    def _continue_transient(self, record) -> None:
+        """Continue Solver for a transient solution (D-189): asks for the new end time (in the project's time unit)
+        and goes on from the latest written time, the field averages and the statistics from the same sampling
+        start; a changed set-up can only start over."""
+        if solving.settings_changed(self._project, record):
+            if self.dialogs.choose("Continue solver", TRANSIENT_CHANGED_TEXT,
+                                   [("start_over", "Start over")]) == "start_over":
+                self._start_solver()
+            return
+        settings = self._project.sim.solvers.transient
+        t_c = float(record.transient.get("convective_time") or 1.0)
+        scale = t_c if settings.time_unit == "flow_through" else 1.0
+        unit = " t_c" if settings.time_unit == "flow_through" else " s"
+        latest = float(record.transient.get("end_time") or 0.0) / scale
+        end = self.dialogs.ask_more_time(latest, settings.end_time, unit)
+        if end is None:
+            return
+        self._run_edit(lambda: self._project.update_transient(end_time=float(end)))
+        if not self._saved_for_run():
+            return
+        try:
+            case_dir, resume = solving.prepare_continue(self._project, record, interactive=True,
+                                                        planes=self._live_planes())
+        except (solving.SolvingNotReady, MeshingNotReady) as exc:
+            self.show_message(str(exc), "error")
+            return
+        except OSError as exc:
+            self.show_message(f"Could not write the solver case: {exc}", "error")
+            return
+        self._continued = (record, False)
+        log.info("Continuing pimpleFoam from t = %.6g s (%d time steps) to t = %.6g%s", latest * scale,
+                 resume.iteration, float(end), unit)
         self._begin_run(case_dir, resume)
 
     def _begin_run(self, case_dir: Path, resume) -> None:

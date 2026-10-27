@@ -84,3 +84,31 @@ end is written, UMean, UPrime2Mean, pMean and pPrime2Mean written at t = 60. At 
 About 90 minutes of solver time in all, 4 cores per run, nice 15: the coarse 9 min, medium 19 min, fine 45 min (the
 fine and medium levels in parallel for part of it), the short run 2.5 min, plus two aborted trial runs before the
 statistics checks were throttled and the levels fixed (about 14 min; D-181, "SolverRun checks this every W/50").
+
+## Part 2: PIMPLE and the start-up perturbation (coarse level)
+
+Runs of the coarse level (17,182 cells) through the same driver, 4 cores each, two runs at a time, nice 15
+(`level --name coarse ... --set ...`; records in run/validation/cylinder_re100/, not committed). The study above is
+unchanged (it ran without the perturbation, which the driver keeps off unless set).
+
+**Start-up perturbation (D-187).** Time to developed shedding (≥ 3 cycles sampled after the detected start-up):
+
+| Run | Start-up detected at | 3 cycles sampled at | Solver wall time to it |
+|---|---|---|---|
+| no perturbation, PISO | 151.7 t_c | 170.0 t_c | 345 s |
+| inflow swinging ±10° at 0.2 U/D for 10 t_c, PISO | 83.9 t_c | 102.2 t_c | 226 s |
+
+With the perturbation the statistics of the detected window are St 0.16383, mean Cd 1.3400, RMS Cl 0.2297 (the
+study's coarse level: 0.16385, 1.3402, 0.2298).
+
+**PISO and PIMPLE (D-185)**, the same perturbation, statistics over 60-120 t_c from the force histories:
+
+| Run | Steps | Max Co | St | mean Cd | Solver wall time (120 t_c) |
+|---|---|---|---|---|---|
+| PISO, Co 1 | 17,377 | 1.0 | 0.16383 | 1.33993 | 265 s |
+| PIMPLE, Co 2 | 8,682 | 2.0 | 0.16403 (+0.12 %) | 1.33538 (-0.34 %) | 334 s |
+| PIMPLE, max_courant 5 | 6,011 | 3.7 (capped by the largest step, t_c / 50) | 0.16400 (+0.10 %) | 1.33495 (-0.37 %) | 252 s |
+
+PIMPLE needed 3 outer correctors per step (residual control at 1e-4) and is within 1 % of PISO on St and mean Cd.
+It saves no wall time on this mesh: its Courant limit is set by the wake cells, not by thin wall layers. PISO stays
+the default of laminar projects.

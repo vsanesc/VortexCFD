@@ -57,6 +57,9 @@ FIELD_SPECS = (
     FieldSpec("Cf", "Cf", "", "wallShearStress", magnitude=True),
     FieldSpec("Cf_x", "Cf_x (free-stream direction)", "", "wallShearStress", component=-1),
     # The time-averaged fields of a transient run (fieldAverage, D-181): the means and the RMS of the fluctuations.
+    # DDES (D-191): written by the turbulenceFields function object at the write times.
+    FieldSpec("fd", "DDES shielding function f_d (0: RANS-shielded boundary layer)", "", "turbulenceProperties:fd"),
+    FieldSpec("LESRegion", "DDES LES region (1: LES mode, 0: RANS)", "", "turbulenceProperties:LESRegion"),
     FieldSpec("pMean", "p mean (kinematic)", "m²/s²", "pMean"),
     FieldSpec("CpMean", "Cp mean", "", "pMean"),
     FieldSpec("UMean_mag", "|U mean|", "m/s", "UMean", magnitude=True),

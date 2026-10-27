@@ -214,7 +214,8 @@ class ContinueFrom:
     """A run that continues a solution from its latest written time (D-171): the case starts from latestTime, the
     log is appended, the postProcessing files go on in a new start-time directory (followed by the readers, D-126).
 
-    ``iteration``: the latest written time (the run starts after it); ``history``: the solution's earlier iterations
+    ``iteration``: the latest written time (the run starts after it; a transient solution's time steps so far,
+    D-189); ``history``: the solution's earlier iterations
     (its log), so the app-side criteria's windows reach back into them; ``reuse_decomposition``: a parallel case whose
     processor directories hold the latest time on the same core count runs on them (no decomposePar); otherwise a
     parallel run decomposes the latest time again; ``reconstruct_first``: the latest time is only in the processor
@@ -429,7 +430,8 @@ class SolverRun:
             if rows:
                 series[quantity] = rows
         if control.sampling_start is None:
-            if transient.settled_at(series, now, control.window, control.tolerance, control.stop_quantity):
+            if transient.settled_at(series, now, control.window, control.tolerance, control.stop_quantity,
+                                    range_tolerance=control.range_tolerance, not_before=control.not_before):
                 with self._lock:
                     self._switching = True
                     self._switch_met_at = now
@@ -591,7 +593,9 @@ class SolverRun:
         of the force coefficients from it."""
         control = self._transient
         steps = self.parser.time_steps
-        out = {"end_time": steps[-1].time if steps else 0.0, "steps": len(steps),
+        earlier = self.resume.history if self.resume is not None else ()
+        last = steps[-1].time if steps else (earlier[-1].time if earlier else 0.0)
+        out = {"end_time": last, "steps": self._last_iteration(),
                "sampling_start": control.sampling_start, "detected": control.detected,
                "convective_time": control.convective_time,
                "met_time": self._met_time if state == CRITERIA_MET else None, "statistics": None}
@@ -658,8 +662,8 @@ class SolverRun:
     def _last_iteration(self) -> int:
         """The last iteration of the solution: this run's, or the one it continued from when it ran none; a transient
         run's time steps (D-181)."""
-        if self._transient is not None:
-            return len(self.parser.time_steps)
+        if self._transient is not None:  # a continued one counts the solution's earlier steps too (D-189)
+            return len(self.parser.time_steps) + (self.resume.iteration if self.resume is not None else 0)
         return max(_iterations(self.parser), self.resume.iteration if self.resume is not None else 0)
 
     def _switch_ready(self, res: RunResult) -> bool:

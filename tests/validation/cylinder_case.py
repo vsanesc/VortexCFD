@@ -84,9 +84,12 @@ def verdict(st: float | None, cd_mean: float | None, cl_rms: float | None) -> tu
 
 
 def build_project(folder: Path, level: str = "coarse", end_time: float = END_TIME, cores: int = CORES,
-                  window: float = WINDOW, sampling_start: float | None = None, write_interval: float | None = None):
+                  window: float = WINDOW, sampling_start: float | None = None, write_interval: float | None = None,
+                  **transient_settings):
     """The project in ``folder`` (created): the "2D airfoil" preset, laminar transient flow at Re 100, the cylinder
-    imported as a section, the domain, the level's mesh and the wake box. Returns the Project."""
+    imported as a section, the domain, the level's mesh and the wake box; ``transient_settings``: more Transient
+    fields (Part 2: the PIMPLE and perturbation runs). The study of Part 1 ran without the start-up perturbation
+    (it did not exist), so it is off unless set. Returns the Project."""
     from vortexcfd.core.model import BoxShape, RefinementVolume
     from vortexcfd.core.presets import BUILTIN_PRESETS, apply_preset
     from vortexcfd.core.project import Project
@@ -105,7 +108,7 @@ def build_project(folder: Path, level: str = "coarse", end_time: float = END_TIM
                         layer_sizing="relative", layer_controls="robust", layers=LAYERS)
     project.update_solver(cores=cores, live_view=False)
     project.update_transient(end_time=end_time, write_interval=write_interval or end_time, window=window,
-                             sampling_start=sampling_start)
+                             sampling_start=sampling_start, **{"perturb": False, **transient_settings})
     centre, size = WAKE_BOX
     project._sim = project.sim.model_copy(update={"refinement_volumes": [RefinementVolume(
         id="wake", name="Wake", shape=BoxShape(centre=centre, size=size), target_size=WAKE_LEVEL_SIZE * base,

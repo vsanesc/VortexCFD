@@ -109,12 +109,67 @@ def transient_problem(project: Project, names, probes, locations, drops) -> str 
         why = missing_reference(settings.stop_quantity, names, probes, locations, drops, sim.internal)
         if why is not None:
             return f"The statistics stop watches {report_label(settings.stop_quantity)}: {why}."
+    if sim.physics.ddes and sim.dimension == "2d":
+        return ("DDES resolves three-dimensional turbulence: a 2D project cannot use it. Choose k-\u03c9 SST (URANS) "
+                "or make the project 3D.")
     if settings.start_from == "steady":
         case_dir = case_dir_for(project)
         if case_dir is not None and steady_start_time(case_dir) is None:
             return ("Start from the steady solution: this project has no steady solution on the current mesh; run "
                     "it steady first, or start from the free stream.")
     return None
+
+
+# The DDES grid guidance (D-191) [NUMERICS-REVIEW], from Spalart, "Young-person's guide to detached-eddy simulation
+# grids", NASA/CR-2001-211032 (2001): the focus region (where the separated turbulence must be resolved, here the
+# finest refinement volume) needs "a minimum of 32^3" cells of the target spacing Delta_0 to cover it (section
+# 2.4.2), and the coarser of the cylinder grids it cites (Travin et al. 2000) had Delta_0 = 0.068 D (section 4.2).
+DES_FOCUS_CELLS = 32
+DES_COARSEST_DELTA = 0.068  # x l_ref
+# The averaging this app recommends for a DDES run (D-191): at least this many flow-through times of sampling after
+# the start-up (the statistics stop then judges the running mean). A working value, not from a source.
+DES_AVERAGING = 50.0
+
+
+def ddes_mesh_warning(project: Project) -> str | None:
+    """Why the mesh of a DDES project is too coarse for DDES where the eddies are, or None (D-191): no enabled
+    refinement volume (no focus region), its cell coarser than DES_COARSEST_DELTA l_ref, or fewer than
+    DES_FOCUS_CELLS cells across its smallest extent. [NUMERICS-REVIEW]"""
+    from vortexcfd.geometry import refinement_volumes
+
+    sim = project.sim
+    if not sim.physics.ddes:
+        return None
+    volumes = [v for v in sim.refinement_volumes if v.enabled]
+    if not volumes:
+        return ("DDES needs a focus region: a refinement volume around the body and its near wake, meshed with "
+                "nearly cubic cells, where the separated turbulence is resolved (Spalart 2001).")
+    focus = min(volumes, key=lambda v: v.target_size)
+    notes = []
+    try:
+        _box, _names, bounds = parts_layout(project)
+    except (MeshingNotReady, TypeError, ValueError, OSError):
+        bounds = None
+    if bounds is not None:
+        l_ref = reference_values(bounds, sim.reports).l_ref
+        if focus.target_size > DES_COARSEST_DELTA * l_ref:
+            notes.append(f"its cell ({focus.target_size:.3g} m) is coarser than {DES_COARSEST_DELTA:g} l_ref "
+                         f"({DES_COARSEST_DELTA * l_ref:.3g} m), the coarser DDES grid of a cylinder in Spalart 2001")
+    b = refinement_volumes.bounds(focus.shape)
+    extent = min(b[1] - b[0], b[3] - b[2], b[5] - b[4])
+    if extent / focus.target_size < DES_FOCUS_CELLS:
+        notes.append(f"it is only {extent / focus.target_size:.0f} cells across (at least {DES_FOCUS_CELLS} are "
+                     "needed to resolve eddies in it)")
+    if not notes:
+        return None
+    return f"The mesh may be too coarse for DDES in the focus region '{focus.name}': " + "; ".join(notes) + "."
+
+
+def ddes_averaging_text(project: Project) -> str:
+    """The recommended averaging of a DDES run (D-191)."""
+    return (f"Recommended averaging: at least {DES_AVERAGING:g} flow-through times after the start-up (a long "
+            "window: resolved turbulence converges slowly); the statistics stop shows when the running mean "
+            "has settled.")
 
 
 def steady_start_time(case_dir: Path) -> str | None:
@@ -419,9 +474,18 @@ LIVE_FIELDS = ("live_view", "live_view_interval")
 
 # -- continuing a solution (D-171) ---------------------------------------------------------------------------------
 
+# The Physics fields of DDES only (D-191).
+DES_FIELDS = ("des_delta", "des_use_sigma", "des_scheme")
+
+
 # The run states a solution can be continued from: the user stopped it, it reached the iteration limit, or its
 # stopping criteria were met (continued with more iterations and, if wanted, tighter criteria; D-176).
 CONTINUABLE = ("stopped", "iteration_limit", "criteria_met")
+# A transient solution (D-189): stopped, at its end time, or ended by the statistics stop; continued to a later end.
+TRANSIENT_CONTINUABLE = ("stopped", "end_time", "criteria_met")
+# The transient settings that only say how far a run goes, not what it solves (D-189): a later end time, another
+# write interval or statistics stop leave a solution continuable.
+TRANSIENT_RUN_LENGTH = ("end_time", "write_interval", "statistics_stop", "stop_quantity", "window", "tolerance")
 
 
 def latest_iteration(case_dir: Path) -> tuple[int | None, int | None]:
@@ -438,12 +502,28 @@ def processor_count(case_dir: Path) -> int:
     return sum(1 for child in Path(case_dir).glob("processor*") if child.is_dir() and child.name[9:].isdigit())
 
 
+def latest_times(case_dir: Path) -> tuple[float | None, float | None]:
+    """(the latest written time of the case directory, the latest of processor0) in seconds; None: none."""
+    case_dir = Path(case_dir)
+    found = []
+    for folder in (case_dir, case_dir / "processor0"):
+        name = latest_result_time(folder) if folder.is_dir() else None
+        found.append(float(name) if name is not None else None)
+    return found[0], found[1]
+
+
 def can_continue(case_dir: Path | None, record) -> bool:
     """Whether the solution of ``case_dir`` can be continued: a run that was stopped, reached its limit or met its
-    criteria, and a written time to start from."""
-    if case_dir is None or record is None or record.state not in CONTINUABLE:
+    criteria (a transient one: stopped, at its end time or statistically converged, D-189), and a written time to
+    start from."""
+    if case_dir is None or record is None:
         return False
-    if record.transient is not None:  # a transient solution runs from its start (D-181)
+    if record.transient is not None:
+        if record.state not in TRANSIENT_CONTINUABLE:
+            return False
+        latest, in_processors = latest_times(case_dir)
+        return (latest or in_processors or 0.0) > 0.0
+    if record.state not in CONTINUABLE:
         return False
     latest, in_processors = latest_iteration(case_dir)
     return (latest or in_processors or 0) > 0
@@ -457,6 +537,9 @@ def solution_hash(project: Project) -> str:
     payload = json.loads(_results_payload(project))
     payload["solvers"] = sim.solvers.model_dump(exclude={"cores", "iterations", "write_interval", "stopping",
                                                          *LIVE_FIELDS, *_steady_excluded(project)})
+    if sim.physics.transient:  # how far a transient run goes is not its set-up (D-189)
+        for name in TRANSIENT_RUN_LENGTH:
+            payload["solvers"]["transient"].pop(name, None)
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
@@ -499,6 +582,8 @@ def prepare_continue(project: Project, record, rewrite: bool = False, interactiv
     from vortexcfd.foam.logparse import parse_log_text
     from vortexcfd.foam.solver_run import ContinueFrom, apply_stage2, read_stages
 
+    if record is not None and record.transient is not None:
+        return prepare_continue_transient(project, record, interactive, planes)
     case_dir = case_dir_for(project)
     if not can_continue(case_dir, record):
         raise SolvingNotReady("There is no stopped solution to continue.")
@@ -538,6 +623,72 @@ def prepare_continue(project: Project, record, rewrite: bool = False, interactiv
     return case_dir, resume
 
 
+def prepare_continue_transient(project: Project, record, interactive: bool = False, planes: tuple = ()):
+    """Continue a transient solution to the project's (later) end time without restarting it (D-189), the transient
+    counterpart of D-171: controlDict is written again (the end time, the write interval that ends on it, the live
+    view) and starts from the latest written time; a sampling that has started keeps its fieldAverage entry and
+    start time, so OpenFOAM's fieldAverage goes on from the means written at that time (v2606 fieldAverage reads
+    them back on a restart: restartOnRestart is off) and the app's statistics go on over the whole force history
+    from the same sampling start. The control file keeps the sampling start, whether it was detected and the end of
+    the start-up perturbation; a start-up not yet over is detected as before. Returns (case directory,
+    solver_run.ContinueFrom) whose ``iteration`` is the solution's time steps so far.
+
+    Raises:
+        SolvingNotReady: nothing to continue, the set-up changed (start over), the end time is not after the
+        latest time.
+    """
+    from vortexcfd.foam import transient as transient_files
+    from vortexcfd.foam.logparse import parse_log_text
+    from vortexcfd.foam.solver_run import ContinueFrom
+
+    case_dir = case_dir_for(project)
+    if not can_continue(case_dir, record):
+        raise SolvingNotReady("There is no stopped transient solution to continue.")
+    reason = physics_problem(project)
+    if reason is not None:
+        raise SolvingNotReady(reason)
+    if settings_changed(project, record):
+        raise SolvingNotReady("The set-up changed since this transient solution was computed: start over.")
+    in_case, in_processors = latest_times(case_dir)
+    latest = max(v for v in (in_case, in_processors) if v is not None)
+    files = app_solver_files(project, case_dir, interactive, planes)
+    new = transient_files.TransientControl.from_content(files[transient_files.TRANSIENT_FILE].content)
+    if new.end_time <= latest * (1 + 1e-9):
+        raise SolvingNotReady(f"Set an end time after the latest time of the solution (t = {latest:.6g} s).")
+    old = transient_files.read_control(case_dir) or new
+    control = dataclasses.replace(new, sampling_start=old.sampling_start, detected=old.detected,
+                                  not_before=old.not_before)
+    cores = project.sim.solvers.cores
+    reuse = (cores > 1 and processor_count(case_dir) == cores and in_processors is not None
+             and abs(in_processors - latest) <= 1e-9 * max(1.0, latest))
+    reconstruct_first = in_case is None or in_case < latest * (1 - 1e-12)
+    spec = files["system/controlDict"]
+    content = dict(spec.content)
+    content["functions"] = dict(content["functions"])
+    if control.sampling_start is not None:  # the averages go on from the same start
+        content["functions"][transient_files.FIELD_AVERAGE] = transient_files.field_average(control.sampling_start)
+    content["startFrom"] = "latestTime"
+    interval = transient_times_of(project, case_dir).write_interval  # the write times count from the restart
+    content["writeInterval"] = transient_files.even_interval(control.end_time - latest, interval)
+    write_foam_file(case_dir / "system" / "controlDict", content, object_name="controlDict",
+                    class_name=spec.class_name)
+    transient_files.write_control(case_dir, control)
+    try:
+        text = solver_log(case_dir).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = ""
+    history = tuple(step for step in parse_log_text(text).time_steps if step.time <= latest * (1 + 1e-12))
+    steps = int((record.transient or {}).get("steps") or len(history))
+    return case_dir, ContinueFrom(steps, history, reuse, reconstruct_first and not reuse)
+
+
+def transient_times_of(project: Project, case_dir: Path):
+    """The transient settings of ``project`` in seconds (physics_case.TransientTimes) for its case."""
+    from vortexcfd.foam.physics_case import transient_times
+
+    return transient_times(for_case(solver_input(project), case_dir))
+
+
 def _time_name(case_dir: Path, iteration: int) -> str:
     """The directory name of the written time ``iteration`` ("120")."""
     for child in Path(case_dir).iterdir():
@@ -561,7 +712,8 @@ def _results_payload(project: Project) -> str:
     sim = project.sim
     payload = {
         "mesh": inputs_hash(project),
-        "physics": sim.physics.model_dump(exclude={"speed_of_sound"}),  # the Mach number's only (D-168)
+        # the Mach number's only (D-168); the DDES settings only with DDES, so other projects keep their hash (D-191)
+        "physics": sim.physics.model_dump(exclude={"speed_of_sound", *(() if sim.physics.ddes else DES_FIELDS)}),
         "inflow": sim.inflow.model_dump(),
         # the live view: no input (D-172); a steady project's hash has no transient settings (D-181)
         "solvers": sim.solvers.model_dump(exclude={"cores", *LIVE_FIELDS, *_steady_excluded(project)}),

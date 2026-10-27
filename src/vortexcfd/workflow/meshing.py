@@ -357,11 +357,34 @@ def flow_speed(project: Project) -> float:
     return project.sim.inflow.speed
 
 
+# A laminar project's automatic first layer (D-190): this fraction of sqrt(nu L / U) = L / sqrt(Re_L), the scale
+# of a laminar boundary layer's thickness (Blasius: 5 L / sqrt(Re_L) at the trailing edge of a flat plate of
+# length L), so about ten layers fall inside it. [NUMERICS-REVIEW]
+LAMINAR_FIRST_FRACTION = 0.1
+
+
+def laminar_first_layer(project: Project, length: float) -> float:
+    """A laminar project's first layer (D-190): the user's first-cell thickness, else LAMINAR_FIRST_FRACTION *
+    sqrt(nu L / U) on the surface size length L and the speed the y+ estimate would use. [NUMERICS-REVIEW]"""
+    mesh = project.sim.mesh
+    if mesh.first_layer_height is not None:
+        return mesh.first_layer_height
+    return laminar_first_layer_auto(project, length)
+
+
+def laminar_first_layer_auto(project: Project, length: float) -> float:
+    """The automatic laminar first layer: LAMINAR_FIRST_FRACTION * sqrt(nu L / U) (D-190). [NUMERICS-REVIEW]"""
+    return LAMINAR_FIRST_FRACTION * math.sqrt(project.sim.physics.nu * length / flow_speed(project))
+
+
 def yplus_first_layer(project: Project, length: float) -> float:
     """The first layer of absolute (y+) sizing: the estimator with Re on the surface size length (D-088), the
     target at the first cell centre by default (D-107); internal flow: the reference inlet's bulk speed and, by
-    default, its hydraulic diameter (D-129). [NUMERICS-REVIEW]"""
+    default, its hydraulic diameter (D-129). A laminar project has no y+ to target: its first-cell thickness
+    (``laminar_first_layer``, D-190). [NUMERICS-REVIEW]"""
     mesh = project.sim.mesh
+    if project.sim.physics.laminar:
+        return laminar_first_layer(project, length)
     return first_layer_thickness(mesh.target_yplus, flow_speed(project), project.sim.physics.nu, length,
                                  mesh.yplus_at)
 
@@ -859,6 +882,8 @@ def inputs_hash(project: Project) -> str:
         parts.append(entry)
     mesh = project.sim.mesh.model_dump()
     mesh.pop("cores", None)  # a parallel run meshes the same inputs (D-111)
+    if mesh.get("first_layer_height") is None:  # D-190: a project without it keeps its hash
+        mesh.pop("first_layer_height", None)
     for key, legacy in {**V10_MESH_FIELDS, **V13_MESH_FIELDS, **V14_MESH_FIELDS}.items():  # a project meshed
         # before v10 / v13 / v14 keeps its hash (D-085, D-106, D-107)
         if mesh.get(key) == legacy:
@@ -881,6 +906,8 @@ def inputs_hash(project: Project) -> str:
         payload["robust_controls"] = ROBUST_CONTROLS_REVISION
     if mesh_settings.effective_layer_controls == "wall_resolved":  # the layer phase's relaxed set changed (D-135)
         payload["wall_resolved_controls"] = WALL_RESOLVED_CONTROLS_REVISION
+    if project.sim.physics.laminar and mesh_settings.layer_sizing == "absolute_yplus":  # sized without y+ (D-190)
+        payload["laminar_first_layer"] = True
     if project.sim.internal:  # the roles set the patch types and the layered walls (D-129); others keep their hash
         payload["internal"] = [[p.safe, p.role] for p in internal.patches(project)]
         payload["internal_l_ref"] = project.sim.reports.reference_length

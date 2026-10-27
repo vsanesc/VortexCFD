@@ -23,8 +23,9 @@ TRANSIENT_FILE = "system/transientControl"
 FIELD_AVERAGE = "fieldAverage1"  # the function object and its fields' prefix-free names (UMean, pPrime2Mean, ...)
 # The coefficients whose ranges must settle before the sampling starts (with the stop quantity's mean).
 DETECT_RANGES = ("Cd", "Cl")
-# The relative change of a coefficient's range (max - min) between two consecutive windows below which the start-up
-# transient is over: a growing or decaying oscillation changes its range by more (D-181). [NUMERICS-REVIEW]
+# The default relative change of a coefficient's range (max - min) between two consecutive windows below which the
+# start-up transient is over: a growing or decaying oscillation changes its range by more (D-181; editable, D-186).
+# [NUMERICS-REVIEW]
 RANGE_TOLERANCE = 0.05
 # A Strouhal number from fewer cycles than this in the sampling window is shown with a warning.
 MIN_CYCLES = 3.0
@@ -45,6 +46,8 @@ class TransientControl:
     sampling_start: float | None = None  # s; None: detected from the force history
     detected: bool = False  # the sampling start was detected (not set by the user)
     field_average: dict = field(default_factory=dict)  # the fieldAverage entry (timeStart set when it starts)
+    range_tolerance: float = RANGE_TOLERANCE  # the detection's ranges (D-186)
+    not_before: float = 0.0  # s: no sampling before this (the end of the start-up perturbation, D-187)
 
     def content(self) -> dict:
         data = {
@@ -52,6 +55,7 @@ class TransientControl:
             "endTime": self.end_time, "window": self.window, "tolerance": self.tolerance,
             "stopQuantity": self.stop_quantity, "statisticsStop": self.statistics_stop,
             "detected": self.detected, "fieldAverage": dict(self.field_average),
+            "rangeTolerance": self.range_tolerance, "notBefore": self.not_before,
         }
         if self.sampling_start is not None:
             data["samplingStart"] = self.sampling_start
@@ -64,7 +68,8 @@ class TransientControl:
                    float(data["endTime"]), float(data["window"]), float(data["tolerance"]),
                    str(data.get("stopQuantity", "Cd")), bool(data.get("statisticsStop", False)),
                    None if start is None else float(start), bool(data.get("detected", False)),
-                   dict(data.get("fieldAverage", {})))
+                   dict(data.get("fieldAverage", {})), float(data.get("rangeTolerance", RANGE_TOLERANCE)),
+                   float(data.get("notBefore", 0.0)))
 
     def with_start(self, start: float, detected: bool) -> "TransientControl":
         return replace(self, sampling_start=float(start), detected=detected)
@@ -260,16 +265,18 @@ def _relative(change: float, scale: float, floor: float) -> float:
 
 
 def settled_at(series: dict[str, Sequence[tuple[float, float]]], now: float, window: float, tolerance: float,
-               mean_quantity: str, floor: float = 0.01) -> bool:
+               mean_quantity: str, floor: float = 0.01, range_tolerance: float = RANGE_TOLERANCE,
+               not_before: float = 0.0) -> bool:
     """Whether the start-up transient is over at ``now`` [NUMERICS-REVIEW]: over the two consecutive windows
-    [now - 2W, now - W] and [now - W, now], the time-weighted mean of ``mean_quantity`` changes by at most
-    ``tolerance`` and the range (max - min) of each of DETECT_RANGES (and of ``mean_quantity``) by at most
-    RANGE_TOLERANCE, each relative to max(|the last window's value|, ``floor``) (the D-058 normalisation; the floor
+    [now - 2W, now - W] and [now - W, now], both after ``not_before`` (the end of a start-up perturbation, D-187),
+    the time-weighted mean of ``mean_quantity`` changes by at most ``tolerance`` and the range (max - min) of each of
+    DETECT_RANGES (and of ``mean_quantity``) by at most ``range_tolerance`` (default RANGE_TOLERANCE, D-186), each
+    relative to max(|the last window's value|, ``floor``) (the D-058 normalisation; the floor
     of the force coefficients, 0.01). The range is compared, not the mean, for the lift: a window that is not a
     whole number of periods moves a lift's mean by a large share of its amplitude, its range hardly. A quantity
     without data in both windows keeps it unsettled; one that is not monitored (absent from ``series``) is
     skipped."""
-    if now < 2 * window:
+    if now < 2 * window or now - 2 * window < not_before - 1e-12 * max(1.0, abs(not_before)):
         return False
     names = [mean_quantity] + [q for q in DETECT_RANGES if q != mean_quantity]
     checked = 0
@@ -282,7 +289,7 @@ def settled_at(series: dict[str, Sequence[tuple[float, float]]], now: float, win
         if len(ta) < 2 or len(tb) < 2:
             return False
         range_a, range_b = float(xa.max() - xa.min()), float(xb.max() - xb.min())
-        if _relative(range_b - range_a, range_b, floor) > RANGE_TOLERANCE:
+        if _relative(range_b - range_a, range_b, floor) > range_tolerance:
             return False
         if name == mean_quantity:
             mean_a, mean_b = time_mean(ta, xa), time_mean(tb, xb)
@@ -293,17 +300,19 @@ def settled_at(series: dict[str, Sequence[tuple[float, float]]], now: float, win
 
 
 def detect_start(series: dict[str, Sequence[tuple[float, float]]], window: float, tolerance: float,
-                 mean_quantity: str, floor: float = 0.01, step: float | None = None) -> float | None:
-    """The first time (checked every ``step``, default W / 20, from 2 W on) at which ``settled_at`` holds, from the
-    recorded histories (after a run, or to explain a live detection); None when it never does."""
+                 mean_quantity: str, floor: float = 0.01, step: float | None = None,
+                 range_tolerance: float = RANGE_TOLERANCE, not_before: float = 0.0) -> float | None:
+    """The first time (checked every ``step``, default W / 20, from 2 W on, or from ``not_before`` + 2 W) at which
+    ``settled_at`` holds, from the recorded histories (after a run, or to explain a live detection); None when it
+    never does."""
     ends = [float(s[-1][0]) for name, s in series.items() if s and (name == mean_quantity or name in DETECT_RANGES)]
     if not ends:
         return None
     last = min(ends)
     step = step or window / 20.0
-    now = 2 * window
+    now = 2 * window + max(not_before, 0.0)
     while now <= last + 1e-12:
-        if settled_at(series, now, window, tolerance, mean_quantity, floor):
+        if settled_at(series, now, window, tolerance, mean_quantity, floor, range_tolerance, not_before):
             return now
         now += step
     return None

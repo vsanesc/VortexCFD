@@ -41,7 +41,7 @@ def test_adaptive_time_step_dictionaries() -> None:
     files = build_solver_files(_input())
     control = files["system/controlDict"].content
     assert control["application"] == "pimpleFoam"
-    assert control["adjustTimeStep"] is True and control["maxCo"] == 1.0
+    assert control["adjustTimeStep"] is True and control["maxCo"] == 2.0  # turbulent: PIMPLE at Co 2 (D-185)
     assert control["endTime"] == pytest.approx(100.0)  # 200 flow-through times of 0.5 s
     assert control["deltaT"] == pytest.approx(5e-4) and control["maxDeltaT"] == pytest.approx(0.01)
     assert control["writeControl"] == "adjustableRunTime" and control["writeInterval"] == pytest.approx(10.0)
@@ -53,8 +53,9 @@ def test_adaptive_time_step_dictionaries() -> None:
     assert schemes["divSchemes"]["div(phi,k)"] == ("Gauss", "limitedLinear", 1)
     assert schemes["divSchemes"]["div(phi,omega)"] == ("Gauss", "limitedLinear", 1)
     solution = files["system/fvSolution"].content
-    assert solution["PIMPLE"] == {"momentumPredictor": True, "nOuterCorrectors": 1, "nCorrectors": 2,
-                                  "nNonOrthogonalCorrectors": 0}
+    assert solution["PIMPLE"] == {"momentumPredictor": True, "nOuterCorrectors": 10, "nCorrectors": 2,
+                                  "nNonOrthogonalCorrectors": 0,
+                                  "residualControl": {'"(U|k|omega)"': {"tolerance": 1e-4, "relTol": 0}}}
     assert solution["solvers"]["pFinal"]["relTol"] == 0 and solution["solvers"]["omegaFinal"]["relTol"] == 0
     assert solution["solvers"]["p"]["tolerance"] == 1e-6  # the cylinder2D tutorial's
     assert "SIMPLE" not in solution and "relaxationFactors" not in solution
@@ -96,6 +97,73 @@ def test_laminar_writes_u_and_p_only() -> None:
     steady = SolverCaseInput(Physics(turbulence_model="laminar"), inp.inflow, Solvers(), inp.patches,
                              inp.parts_bounds)
     assert build_solver_files(steady)["system/controlDict"].content["application"] == "simpleFoam"
+
+
+def _laminar(**transient_settings) -> SolverCaseInput:
+    inp = _input(**transient_settings)
+    return SolverCaseInput(Physics(flow="incompressible_transient", turbulence_model="laminar"), inp.inflow,
+                           inp.solvers, inp.patches, inp.parts_bounds)
+
+
+def test_piso_or_pimple_per_case_type_and_by_choice() -> None:
+    """D-185: auto is PISO at Co 1 for a laminar project and PIMPLE (residual control, no relaxation) at Co 2 for a
+    turbulent one; the choice and the Courant number override it."""
+    files = build_solver_files(_laminar())
+    assert files["system/controlDict"].content["maxCo"] == 1.0
+    assert files["system/fvSolution"].content["PIMPLE"] == {"momentumPredictor": True, "nOuterCorrectors": 1,
+                                                            "nCorrectors": 2, "nNonOrthogonalCorrectors": 0}
+    files = build_solver_files(_laminar(algorithm="pimple", max_courant=4.0, outer_correctors=6,
+                                        outer_tolerance=1e-5))
+    assert files["system/controlDict"].content["maxCo"] == 4.0
+    pimple = files["system/fvSolution"].content["PIMPLE"]
+    assert pimple["nOuterCorrectors"] == 6 and pimple["residualControl"] == {"U": {"tolerance": 1e-5, "relTol": 0}}
+    assert "relaxationFactors" not in files["system/fvSolution"].content
+    files = build_solver_files(_input(algorithm="piso"))
+    assert files["system/controlDict"].content["maxCo"] == 1.0
+    assert "residualControl" not in files["system/fvSolution"].content["PIMPLE"]
+    assert Transient().resolved_algorithm(laminar=True) == "piso"
+    assert Transient().resolved_max_courant(laminar=False) == 2.0
+
+
+def test_the_start_up_perturbation_swings_the_inflow_and_holds_the_detection(tmp_path: Path) -> None:
+    """D-187: the inflow swings +-10 degrees towards +z at 0.2 U / l_ref for 10 t_c (two periods), the speed kept,
+    then along +x; the control file holds the detection until then; off: a plain fixedValue inlet."""
+    files = build_solver_files(_input())  # l_ref 2 m at 4 m/s: t_c = 0.5 s, f = 0.4 Hz, 10 t_c = 5 s
+    inlet = files["0/U"].content["boundaryField"]["inlet"]
+    assert inlet["type"] == "uniformFixedValue"
+    kind, rows = inlet["uniformValue"]
+    assert kind == "table" and rows[0][0] == 0.0 and rows[-1][0] == pytest.approx(5.0) and len(rows) == 81
+    angles = [math.degrees(math.atan2(r[1][2], r[1][0])) for r in rows]
+    assert max(angles) == pytest.approx(10.0) and min(angles) == pytest.approx(-10.0)
+    assert rows[10][0] == pytest.approx(0.625) and angles[10] == pytest.approx(10.0)  # a quarter period
+    assert all(math.hypot(r[1][0], r[1][2]) == pytest.approx(4.0) for r in rows)
+    assert rows[-1][1] == [4.0, 0.0, 0.0] and inlet["value"] == [4.0, 0.0, 0.0]
+    ctl = transient.TransientControl.from_content(files[transient.TRANSIENT_FILE].content)
+    assert ctl.not_before == pytest.approx(5.0) and ctl.range_tolerance == pytest.approx(0.05)
+    write_foam_file(tmp_path / "U", files["0/U"].content, object_name="U", class_name="volVectorField")
+    assert "uniformValue table ((0.0 (4.0 0.0 0.0)) (0.0625 (" in (tmp_path / "U").read_text()
+    off = build_solver_files(_input(perturb=False, detect_tolerance=0.1))
+    assert off["0/U"].content["boundaryField"]["inlet"] == {"type": "fixedValue", "value": [4.0, 0.0, 0.0]}
+    ctl = transient.TransientControl.from_content(off[transient.TRANSIENT_FILE].content)
+    assert ctl.not_before == 0.0 and ctl.range_tolerance == pytest.approx(0.1)
+    steady = build_solver_files(SolverCaseInput(Physics(), Inflow(speed=4.0), Solvers(), ("body",),
+                                                (0.0, 2.0, -0.5, 0.5, -0.5, 0.5)))
+    assert steady["0/U"].content["boundaryField"]["inlet"]["type"] == "fixedValue"
+
+
+def test_the_detection_tolerance_and_the_end_of_the_perturbation() -> None:
+    """D-186 and D-187: a looser range tolerance settles a slowly growing oscillation earlier; nothing is sampled
+    before ``not_before`` + 2 W."""
+    t = np.arange(0.0, 40.0, 0.01)
+    growth = 1.0 + 0.04 * np.minimum(t, 20.0) / 20.0  # the amplitude grows 4 % until t = 20, then stays
+    series = {"Cd": list(zip(t, 1.3 + 0.01 * growth * np.sin(4 * np.pi * t))),
+              "Cl": list(zip(t, 0.3 * growth * np.sin(2 * np.pi * t)))}
+    strict = transient.detect_start(series, 2.0, 0.005, "Cd", range_tolerance=0.002)
+    loose = transient.detect_start(series, 2.0, 0.005, "Cd", range_tolerance=0.05)
+    assert loose is not None and strict is not None and loose < strict
+    held = transient.detect_start(series, 2.0, 0.005, "Cd", not_before=10.0)
+    assert held is not None and held >= 14.0 - 1e-9
+    assert not transient.settled_at(series, 13.9, 2.0, 0.005, "Cd", not_before=10.0)
 
 
 # -- the log ---------------------------------------------------------------------------------------------------------
@@ -299,7 +367,8 @@ def test_start_from_the_steady_solution(make_window) -> None:
     solving.prepare_solver_case(w.project)
     u = read_foam_file(case / "0" / "U")
     assert tuple(u["internalField"]) == (7.0, 0.0, 0.0)  # the steady solution's field
-    assert "old" not in u["boundaryField"] and u["boundaryField"]["inlet"]["type"] == "fixedValue"  # new conditions
+    assert "old" not in u["boundaryField"]  # the new conditions: the perturbed inlet (D-187)
+    assert u["boundaryField"]["inlet"]["type"] == "uniformFixedValue"
     assert read_foam_file(case / "0" / "k")["internalField"] != 0  # the free stream: the steady run had none
     assert not (case / "300").exists() and not (case / solving.STEADY_START).exists()
     assert read_foam_file(case / "system" / "controlDict")["application"] == "pimpleFoam"
@@ -325,20 +394,54 @@ def test_the_rows_of_a_transient_project(make_window) -> None:
     assert not panel._rows["solvers_iterations"].isVisibleTo(panel)
     assert "s (l_ref" in panel.transient_convective.text()
     field = panel.group_fields["transient"]["max_courant"]
-    field.setValue(0.5)
-    field.editingFinished.emit()
+    assert field.auto.isChecked() and field.spin.value() == 1.0  # laminar: PISO at Co 1 (D-185)
+    assert not panel._rows["transient_outer_tolerance"].isVisibleTo(panel)  # PIMPLE only
+    field.auto.setChecked(False)
+    field.spin.setValue(0.5)
+    field.spin.editingFinished.emit()
     assert w.project.sim.solvers.transient.max_courant == 0.5
-    assert "pimpleFoam" in w.top_bar.run_button.toolTip()
+    assert w._solver_name() == "pimpleFoam"  # (laminar sizing puts the mesh out of date, D-190)
     w.act_undo.trigger()
+    w.act_undo.trigger()
+    w.project.update_transient(algorithm="pimple")
+    assert panel._rows["transient_outer_tolerance"].isVisibleTo(panel)
+    assert panel.group_fields["transient"]["max_courant"].spin.value() == 2.0
+    assert panel._rows["transient_perturb_angle"].isVisibleTo(panel)
+    w.project.update_transient(perturb=False)
+    assert not panel._rows["transient_perturb_angle"].isVisibleTo(panel)
     w.project.update_physics(flow="incompressible_steady")
     assert not panel._rows["transient_max_courant"].isVisibleTo(panel)
     assert panel._rows["solvers_iterations"].isVisibleTo(panel)
 
 
+def test_changing_the_time_unit_converts_the_values(make_window) -> None:
+    """D-188 (QUESTIONS 255): flow-through times to seconds and back keep the times; one undo step."""
+    w = make_window()
+    panel = w.properties
+    w.project.update_physics(flow="incompressible_transient")
+    w.project.update_transient(end_time=100.0, sampling_start=40.0, window=10.0)
+    w._select_node("solvers", None)
+    t_c = panel._convective_time()
+    assert t_c is not None and t_c > 0
+    unit = panel.group_fields["transient"]["time_unit"]
+    unit.buttons["s"].setChecked(True)
+    s = w.project.sim.solvers.transient
+    assert s.time_unit == "s" and s.end_time == pytest.approx(100.0 * t_c)
+    assert s.sampling_start == pytest.approx(40.0 * t_c) and s.window == pytest.approx(10.0 * t_c)
+    assert s.perturb_time == pytest.approx(10.0 * t_c) and s.write_interval == pytest.approx(20.0 * t_c)
+    assert panel.group_fields["transient"]["end_time"].suffix() == " s"
+    unit.buttons["flow_through"].setChecked(True)
+    s = w.project.sim.solvers.transient
+    assert s.end_time == pytest.approx(100.0) and s.sampling_start == pytest.approx(40.0)
+    w.act_undo.trigger()
+    assert w.project.sim.solvers.transient.time_unit == "s"
+    assert w.project.sim.solvers.transient.end_time == pytest.approx(100.0 * t_c)
+
+
 def test_a_transient_run_through_the_window(make_window, qtbot: QtBot) -> None:
     w = make_window()
     w.project.update_physics(flow="incompressible_transient")
-    w.project.update_transient(time_unit="s", end_time=20.0, window=2.0)
+    w.project.update_transient(time_unit="s", end_time=20.0, window=2.0, perturb=False)
     w.project.update_reports(slots=["Cd", "Cl", None])
     case = w.project.path.parent / "case"
 
@@ -362,6 +465,92 @@ def test_a_transient_run_through_the_window(make_window, qtbot: QtBot) -> None:
     w._load_run_record(w.project)  # reopened: the record's statistics
     assert w.monitors.convergence.banner.text().startswith("End time reached")
     assert w.monitors.chart.X_CAPTION == "Time [s]"
+
+
+def _coefficient_rows(case: Path, start: str, t0: float, t1: float) -> None:
+    """forceCoeffs1's history from ``t0`` to ``t1`` in the start-time directory ``start`` (a continued run writes a
+    new one)."""
+    folder = case / "postProcessing" / "forceCoeffs1" / start
+    folder.mkdir(parents=True, exist_ok=True)
+    rows = "".join(f"{t:.6g}\t{_shedding(t)[0]}\t0\t0\t{_shedding(t)[1]}\t0\t0\t0\t0\t0\t0\t0\t0\n"
+                   for t in np.arange(t0, t1 + 0.05, 0.1))
+    (folder / "coefficient.dat").write_text("# Time\tCd\tCd(f)\tCd(r)\tCl\tCl(f)\tCl(r)\tCmPitch\tCmRoll\tCmYaw\t"
+                                            "Cs\tCs(f)\tCs(r)\n" + rows)
+
+
+def _written_time(case: Path, name: str) -> None:
+    folder = case / name
+    folder.mkdir(parents=True, exist_ok=True)
+    for field in ("U", "p", "UMean"):
+        (folder / field).write_text("FoamFile {}\n")
+
+
+def test_a_transient_run_continues_to_a_later_end_time(make_window, qtbot: QtBot) -> None:
+    """D-189: a transient run at its end time continues (not restarted) to a later end: controlDict from the latest
+    time with the same fieldAverage start, the statistics over the whole sampling window, the steps counted on."""
+    w = make_window()
+    w.project.update_physics(flow="incompressible_transient")
+    w.project.update_transient(time_unit="s", end_time=10.0, write_interval=5.0, sampling_start=3.0, perturb=False)
+    w.project.update_reports(slots=["Cd", "Cl", None])
+    case = w.project.path.parent / "case"
+
+    def first_files():
+        _coefficient_rows(case, "0", 0.1, 10.0)
+        _written_time(case, "10")
+
+    w.solver_worker.runner_factory = lambda: (first_files(), FakeRunner(_steps(0.1, 10.0) + ["End\n"]))[1]
+    w.run_solver()
+    wait_done(qtbot, w)
+    first = w.run_record
+    assert first.state == END_TIME and first.transient["steps"] == 100
+    assert w.solver_mode() == "continue"
+    w.dialogs.more_time = 15.0
+
+    def second_files():
+        _coefficient_rows(case, "10", 10.1, 15.0)
+
+    w.solver_worker.runner_factory = lambda: (second_files(), FakeRunner(_steps(10.1, 15.0) + ["End\n"]))[1]
+    w.run_solver()
+    assert w.dialogs.more_time_asked == [(pytest.approx(10.0, rel=1e-3), 10.0, " s")]
+    control = read_foam_file(case / "system" / "controlDict")
+    assert control["startFrom"] == "latestTime" and control["endTime"] == pytest.approx(15.0)
+    assert control["functions"]["fieldAverage1"]["timeStart"] == pytest.approx(3.0)
+    assert control["writeInterval"] == pytest.approx(5.0)
+    wait_done(qtbot, w)
+    record = w.run_record
+    assert record.state == END_TIME and w.project.sim.solvers.transient.end_time == 15.0
+    assert record.transient["steps"] == 150 and record.transient["end_time"] == pytest.approx(15.0)
+    assert record.transient["sampling_start"] == pytest.approx(3.0)
+    stats = record.transient["statistics"]["coefficients"]["Cd"]
+    assert stats["start"] == pytest.approx(3.0) and stats["end"] == pytest.approx(15.0)
+    assert [s["first"] for s in record.segments] == [1, 101] and record.segments[-1]["continued_from"] == 100
+    assert transient.read_control(case).sampling_start == pytest.approx(3.0)
+
+
+def test_a_changed_transient_set_up_can_only_start_over(make_window, qtbot: QtBot) -> None:
+    """D-189: a later end time keeps the solution continuable; another time step does not (start over)."""
+    w = make_window()
+    w.project.update_physics(flow="incompressible_transient")
+    w.project.update_transient(time_unit="s", end_time=10.0, sampling_start=3.0, perturb=False)
+    case = w.project.path.parent / "case"
+
+    def files():
+        _coefficient_rows(case, "0", 0.1, 10.0)
+        _written_time(case, "10")
+
+    w.solver_worker.runner_factory = lambda: (files(), FakeRunner(_steps(0.1, 10.0) + ["End\n"]))[1]
+    w.run_solver()
+    wait_done(qtbot, w)
+    record = w.run_record
+    w.project.update_transient(end_time=30.0, write_interval=7.0, statistics_stop=True)
+    assert not solving.settings_changed(w.project, record)
+    w.project.update_transient(max_courant=3.0)
+    assert solving.settings_changed(w.project, record)
+    w.dialogs.choices = [None]
+    w.run_solver()
+    assert w.dialogs.choices_asked[-1][2] == ["start_over"] and not w.dialogs.more_time_asked
+    with pytest.raises(solving.SolvingNotReady, match="start over"):
+        solving.prepare_continue(w.project, record)
 
 
 def _transient_case_files(case: Path) -> None:
@@ -425,3 +614,102 @@ def test_the_snapshot_and_the_report_carry_the_statistics(make_window) -> None:
     section = report.reports_section(w.project)
     assert "Strouhal number" in section.body and "RMS" in section.body
     assert "Sampling start" in report.convergence_section(w.project).body
+
+
+def test_a_laminar_project_sizes_its_layers_by_a_first_cell_thickness(make_window) -> None:
+    """D-190 (QUESTIONS 252): a laminar project has no y+ row; its first layer is the first-cell thickness (auto:
+    0.1 sqrt(nu L / U)); a turbulent project and its mesh hash are unchanged."""
+    import math as _math
+
+    from vortexcfd.workflow import meshing
+
+    w = make_window()
+    panel = w.properties
+    before = meshing.inputs_hash(w.project)
+    w.project.update_mesh(first_layer_height=None)
+    assert meshing.inputs_hash(w.project) == before  # an unset thickness keeps every project's hash
+    w._select_node("mesh", None)
+    assert panel._rows["mset_target_yplus"].isVisibleTo(panel)
+    assert not panel._rows["mset_first_layer_height"].isVisibleTo(panel)
+    turbulent = meshing.yplus_first_layer(w.project, 1.0)
+    w.project.update_physics(turbulence_model="laminar")
+    assert meshing.inputs_hash(w.project) != before  # the layers are sized differently
+    w._select_node("mesh", None)
+    assert not panel._rows["mset_target_yplus"].isVisibleTo(panel)
+    assert panel._rows["mset_first_layer_height"].isVisibleTo(panel)
+    assert panel.mesh_fields["layer_sizing"].buttons["absolute_yplus"].text() == "Absolute: from a first-cell thickness"
+    sim = w.project.sim
+    auto = 0.1 * _math.sqrt(sim.physics.nu * 1.0 / sim.inflow.speed)
+    assert meshing.yplus_first_layer(w.project, 1.0) == pytest.approx(auto) and auto != pytest.approx(turbulent)
+    field = panel.mesh_fields["first_layer_height"]
+    assert field.auto.isChecked() and field.spin.value() > 0
+    w.project.update_mesh(first_layer_height=2e-4)
+    assert meshing.yplus_first_layer(w.project, 1.0) == 2e-4
+    w.project.update_physics(turbulence_model="kOmegaSST")
+    assert meshing.yplus_first_layer(w.project, 1.0) == pytest.approx(turbulent)  # y+ again
+    assert panel.mesh_fields["layer_sizing"].buttons["absolute_yplus"].text() == "Sized from a target y+"
+
+
+def _ddes(**physics) -> SolverCaseInput:
+    inp = _input()
+    return SolverCaseInput(Physics(flow="incompressible_transient", turbulence_model="kOmegaSSTDDES", **physics),
+                           inp.inflow, inp.solvers, inp.patches, inp.parts_bounds)
+
+
+def test_ddes_dictionaries() -> None:
+    """D-191: an LES-type turbulenceProperties with kOmegaSSTDDES, the delta and sigma; DEShybrid with the case's U
+    and l_ref (or LUST); exactDistance; fd and LESRegion written; PIMPLE at Co 1; k and omega kept."""
+    files = build_solver_files(_ddes())
+    props = files["constant/turbulenceProperties"].content
+    assert props["simulationType"] == "LES"
+    les = props["LES"]
+    assert les["LESModel"] == "kOmegaSSTDDES" and les["delta"] == "DeltaOmegaTilde"
+    assert les["kOmegaSSTDDESCoeffs"] == {"useSigma": True}
+    schemes = files["system/fvSchemes"].content
+    assert schemes["divSchemes"]["div(phi,U)"] == ("Gauss", "DEShybrid", "linear", "linearUpwind", "grad(U)",
+                                                   "delta", 0.65, 4.0, 2.0, 0.0, 1.0, 1.0, 10.0)
+    assert schemes["divSchemes"]["div(phi,k)"] == ("Gauss", "limitedLinear", 1)
+    assert schemes["wallDist"] == {"method": "exactDistance", "nRequired": True}
+    control = files["system/controlDict"].content
+    assert control["maxCo"] == 1.0
+    assert control["functions"]["desFields"]["fields"] == ["fd", "LESRegion"]
+    assert "residualControl" in files["system/fvSolution"].content["PIMPLE"]
+    assert {"0/k", "0/omega", "0/nut"} <= set(files)
+    lust = build_solver_files(_ddes(des_scheme="LUST", des_delta="maxDeltaxyz", des_use_sigma=False))
+    assert lust["system/fvSchemes"].content["divSchemes"]["div(phi,U)"] == ("Gauss", "LUST", "grad(U)")
+    assert lust["constant/turbulenceProperties"].content["LES"]["delta"] == "maxDeltaxyz"
+    urans = build_solver_files(_input())  # URANS unchanged
+    assert urans["constant/turbulenceProperties"].content["simulationType"] == "RAS"
+    assert urans["system/fvSchemes"].content["wallDist"] == {"method": "meshWave"}
+    assert "desFields" not in urans["system/controlDict"].content["functions"]
+    with pytest.raises(ValueError, match="transient"):
+        Physics(turbulence_model="kOmegaSSTDDES")
+
+
+def test_ddes_project_checks(make_window) -> None:
+    """D-191: DDES keeps other projects' hashes, is refused in 2D, warns without a fine focus region and shows its
+    rows only when chosen."""
+    from vortexcfd.core.model import BoxShape, RefinementVolume
+
+    w = make_window()
+    panel = w.properties
+    before = solving.results_hash(w.project)
+    w.project.update_physics(flow="incompressible_transient")
+    w._select_node("physics", None)
+    assert not panel._rows["physics_des_delta"].isVisibleTo(panel)
+    w.project.update_physics(turbulence_model="kOmegaSSTDDES")
+    assert panel._rows["physics_des_delta"].isVisibleTo(panel)
+    assert "focus region" in solving.ddes_mesh_warning(w.project)
+    assert panel.physics_ddes_warning.isVisibleTo(panel) and "Recommended averaging" in panel.physics_ddes_note.text()
+    w.project.update_physics(flow="incompressible_steady", turbulence_model="kOmegaSST")
+    assert solving.results_hash(w.project) == before  # the DDES fields are not in a non-DDES hash
+    w.project.update_physics(flow="incompressible_transient", turbulence_model="kOmegaSSTDDES")
+    sim = w.project.sim
+    w.project._sim = sim.model_copy(update={"refinement_volumes": [RefinementVolume(
+        id="f", name="Focus", shape=BoxShape(centre=(0.0, 0.0, 0.0), size=(10.0, 10.0, 10.0)), target_size=0.01)]})
+    assert solving.ddes_mesh_warning(w.project) is None
+    w.project._sim = w.project.sim.model_copy(update={"refinement_volumes": [RefinementVolume(
+        id="f", name="Focus", shape=BoxShape(centre=(0.0, 0.0, 0.0), size=(0.2, 1.0, 1.0)), target_size=0.05)]})
+    assert "cells across" in solving.ddes_mesh_warning(w.project)
+    w.project._sim = w.project.sim.model_copy(update={"dimension": "2d"})
+    assert "2D" in (solving.transient_problem(w.project, [], [], [], []) or "")
