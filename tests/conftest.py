@@ -67,10 +67,15 @@ def flush_deleted_widgets():
     an event loop, so every test left its whole MainWindow (menus, VTK widgets) behind and
     each later test got slower (the application stylesheet is re-applied to every live widget).
     This autouse fixture is set up before qtbot, so it is torn down after qtbot closed them. A main window ends
-    its worker threads' signals and its viewer before it is deleted (D-164).
+    its worker threads' signals and its viewer before it is deleted (D-164). It also runs before the test: pytest-qt
+    closes and deletes the widgets of qtbot.addWidget in a hook after this fixture's teardown, so the previous
+    test's windows and their VTK objects are freed here, before this test opens one, with no OpenGL context current
+    (D-193).
     """
-    yield
     from vortexcfd.gui.teardown import close_plotters, flush_deletions
+
+    flush_deletions()
+    yield
 
     close_plotters()  # a plotter a test left open is finalized before Qt deletes its widget (D-164)
     flush_deletions()

@@ -1858,7 +1858,9 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   default coefficients: cubeRootVol 1, maxDeltaxyz 2); div(phi,U) `Gauss DEShybrid linear linearUpwind grad(U)
   delta 0.65 <U> <l_ref> 0 1 1 10` (the tutorial's line with the case's reference velocity and length in place of
   its 1 and 1) or `Gauss LUST grad(U)` (the v2606 LES tutorials' scheme, e.g. pisoFoam/LES/motorBike); k and omega
-  limitedLinear 1 (as the tutorial); `wallDist { method exactDistance; nRequired yes; }` (as the tutorial); the
+  limitedLinear 1 (as the tutorial; D-192 replaced it); `wallDist { method meshWave; nRequired yes; }` (the
+  tutorial has exactDistance, which in a parallel run needs a decomposition method pimpleFoam does not load: the
+  first DDES run stopped at "Unknown decompositionMethod type scotch"); the
   initial and boundary fields of SST. The shielding function and the LES-region indicator are written with the
   fields by a turbulenceFields function object (`fields (fd LESRegion)`, files turbulenceProperties:fd and
   turbulenceProperties:LESRegion) and offered in the Results Scene. PIMPLE with residual control at Co 1 by default
@@ -1889,3 +1891,25 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   Laminar runs (the cylinder validation) have no k or omega and are unchanged.
 - Check: tests/test_transient.py::test_adaptive_time_step_dictionaries, test_ddes_dictionaries; the square cylinder
   validation (docs/validation/square_re22000/).
+
+## D-193 A window's VTK objects are freed at the teardown, with no OpenGL context current
+- Status: Proposed (task 1.1-transient, Part 2, Part A item 8; QUESTIONS 82 family).
+- Finding: GUI test files in one process (`pytest -v --capture=sys`, the machine loaded by OpenFOAM runs) crashed in
+  run 1 of a 20-run loop: "Fatal Python error: Segmentation fault" in tests/test_domain_operations.py::
+  test_viewer_draws_the_surface_and_highlights_a_role[c_type] (the test of QUESTIONS 82's xdist crash), inside the
+  new window's pyvistaqt `initializeGL` (rw.OpenGLInit), only the main thread alive. A probe showed a viewer
+  window's four vtkOpenGLRenderer objects outliving the window: they were still alive at the start of the next test
+  and were freed only by a later cyclic collection (2,831 objects at once), i.e. at an arbitrary allocation. On
+  this offscreen platform Qt reports "QOpenGLWidget is not supported", so the viewers render through pyvistaqt's
+  fallback contexts; its documented invariant 5 is that GL objects freed against the wrong context corrupt the
+  driver heap and crash at a distance. A collection inside a new viewer's initializeGL, or inside a deletion (a
+  QOpenGLWidget makes its own context current to free its framebuffer while PySide allocates), frees an older
+  window's VTK objects with another context current: the segfault in initializeGL, and the abort reported from
+  ship.sh inside MainWindow.event (DeferredDelete -> the C++ destructors, no Python frame above).
+- Decision: `gui/teardown.collect_garbage` (doneCurrent on the current OpenGL context, then gc.collect) runs in
+  `flush_deletions` before and after the deferred deletions; tests/conftest.py's autouse flush runs before each test
+  as well as after it (pytest-qt deletes the qtbot widgets in a hook after the fixtures' teardown). Every earlier
+  window's VTK objects are then freed at a fixed point, with no context current, before a new window exists.
+- Check: tests/test_thread_teardown.py::test_a_viewer_window_whose_vtk_objects_are_left_in_cycles and
+  test_the_teardown_freed_the_previous_windows_vtk_objects_with_no_context_current (fails with the old teardown,
+  4 renderers left); 20 consecutive single-process runs of the GUI test files under a nice 15 fast suite (STATUS).

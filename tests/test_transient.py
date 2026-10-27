@@ -670,7 +670,7 @@ def test_ddes_dictionaries() -> None:
     assert schemes["divSchemes"]["div(phi,U)"] == ("Gauss", "DEShybrid", "linear", "linearUpwind", "grad(U)",
                                                    "delta", 0.65, 4.0, 2.0, 0.0, 1.0, 1.0, 10.0)
     assert schemes["divSchemes"]["div(phi,k)"] == ("Gauss", "linearUpwind", "grad(k)")
-    assert schemes["wallDist"] == {"method": "exactDistance", "nRequired": True}
+    assert schemes["wallDist"] == {"method": "meshWave", "nRequired": True}
     control = files["system/controlDict"].content
     assert control["maxCo"] == 1.0
     assert control["functions"]["desFields"]["fields"] == ["fd", "LESRegion"]

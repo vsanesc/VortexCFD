@@ -550,8 +550,8 @@ def transient_fv_schemes(laminar: bool = False, ddes: "DDESScheme | None" = None
     then a floating-point exception; -148 still at 3 t_c after a first-order start), linearUpwind did not clip
     once. The rest as the steady default.
 
-    DDES (``ddes``, D-191): U by ``ddes_u_scheme`` and the wall distance exactDistance (nRequired), as the v2606
-    tutorial pimpleFoam/LES/wallMountedHump (kOmegaSSTDDES); k and omega as above (that tutorial has limitedLinear
+    DDES (``ddes``, D-191): U by ``ddes_u_scheme`` and the wall distance with its normal (nRequired, as the v2606
+    tutorial pimpleFoam/LES/wallMountedHump, kOmegaSSTDDES, but by meshWave); k and omega as above (that tutorial has limitedLinear
     1, which D-192 replaced)."""
     divs = {
         "default": "none",
@@ -570,7 +570,10 @@ def transient_fv_schemes(laminar: bool = False, ddes: "DDESScheme | None" = None
         "laplacianSchemes": {"default": ("Gauss", "linear", "corrected")},
         "interpolationSchemes": {"default": "linear"},
         "snGradSchemes": {"default": "corrected"},
-        "wallDist": {"method": "meshWave"} if ddes is None else {"method": "exactDistance", "nRequired": True},
+        # DDES: the wall normal too (nRequired, as the tutorial); meshWave, not the tutorial's exactDistance, which
+        # in a parallel run needs a decomposition method pimpleFoam does not load ("Unknown decompositionMethod type
+        # scotch", the first DDES run of D-191)
+        "wallDist": {"method": "meshWave"} if ddes is None else {"method": "meshWave", "nRequired": True},
     })
 
 

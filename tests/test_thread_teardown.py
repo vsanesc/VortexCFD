@@ -115,3 +115,30 @@ def test_the_intersection_checker_stops(qtbot: QtBot, tmp_path: Path) -> None:
     qtbot.waitUntil(lambda: checker._thread is None or not checker._thread.is_alive(), timeout=10000)
     QApplication.processEvents()
     assert not checker.busy() and len(delivered) == 0  # nothing reported after the shutdown
+
+
+def _renderers() -> int:
+    import gc
+
+    import vtkmodules.vtkRenderingOpenGL2 as gl
+
+    return sum(isinstance(o, gl.vtkOpenGLRenderer) for o in gc.get_objects())
+
+
+def test_a_viewer_window_whose_vtk_objects_are_left_in_cycles(qtbot: QtBot, tmp_path: Path) -> None:
+    """D-193, part 1 of 2: a viewer window with a mesh, ended as a test ends it (closed, deleted by the fixtures).
+    Its renderers sit in reference cycles; the next test checks that the teardown freed them."""
+    w = _window(qtbot, tmp_path, FakeDialogs())
+    w.viewer.add_mesh(pv.Sphere())
+    w.viewer.render()
+    assert _renderers() > 0
+    qtbot.addWidget(w)
+
+
+def test_the_teardown_freed_the_previous_windows_vtk_objects_with_no_context_current() -> None:
+    """D-193, part 2 of 2: tests/conftest.py's flush (gui/teardown.flush_deletions) freed the previous test's
+    renderers before this test began (they used to survive into it and be freed by a later collection, possibly
+    with another window's OpenGL context current), and left no OpenGL context current."""
+    from PySide6.QtGui import QOpenGLContext
+
+    assert _renderers() == 0 and QOpenGLContext.currentContext() is None
