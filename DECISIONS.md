@@ -1864,3 +1864,24 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   cells across its smallest extent, section 2.4.2 "a minimum of 32^3") and the recommended averaging: at least 50
   flow-through times after the start-up (a working value of this app, not from a source).
 - Check: tests/test_transient.py::test_ddes_dictionaries, test_ddes_project_checks; Part B's functional run.
+
+## D-192 Transient k and omega: linearUpwind on limited gradients instead of limitedLinear (amends D-181) [NUMERICS-REVIEW]
+- Status: Proposed (task 1.1-transient, Part 2, Part B; it changes a scheme of D-181, which the owner accepted:
+  QUESTIONS 258 asks to accept the change).
+- Finding: the first URANS run through the app (the square cylinder at Re 22,000, 2D, k-omega SST, wall functions,
+  27,234 cells, max non-orthogonality 58.7) crashed in its first time step: `bounding omega, min: -1212.78`, then a
+  floating-point exception in the k solve (symGaussSeidel). Serial copies of the case (scratch, 0.1-3 t_c): PISO
+  instead of PIMPLE, one non-orthogonal corrector and Euler in time all crashed the same way; first-order upwind
+  for k and omega ran; limitedLinear 1 switched on in place after an upwind start (runTimeModifiable, re-read
+  logged) kept clipping omega every step (min -267, still -148 at 3 t_c); Gauss linearUpwind on cellLimited Gauss
+  linear 1 gradients ran from the free stream with no clipping at all (763 steps to 1 t_c), and from the upwind
+  start too (635 steps). Part 1 validated only laminar runs, so this never showed.
+- Decision: transient k and omega (URANS and DDES): `div(phi,k) Gauss linearUpwind grad(k)`, `div(phi,omega) Gauss
+  linearUpwind grad(omega)`, `grad(k)` and `grad(omega)` `cellLimited Gauss linear 1`: second order (D-181's
+  reason stands: first-order turbulence transport would damp the resolved unsteadiness), the scheme of D-126's
+  second stage without the steady-state "bounded" correction; the v2606 tutorial pimpleFoam/RAS/rotatingFanInRoom
+  also has linearUpwind for k and omega. The tutorial wingMotion2D_pimpleFoam keeps limitedLinear 1 but starts from
+  a converged simpleFoam solution; the wallMountedHump DDES tutorial has limitedLinear 1 on a structured mesh.
+  Laminar runs (the cylinder validation) have no k or omega and are unchanged.
+- Check: tests/test_transient.py::test_adaptive_time_step_dictionaries, test_ddes_dictionaries; the square cylinder
+  validation (docs/validation/square_re22000/).

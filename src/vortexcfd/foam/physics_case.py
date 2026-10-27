@@ -542,24 +542,30 @@ def transient_fv_schemes(laminar: bool = False, ddes: "DDESScheme | None" = None
     step of an adaptive run into account and starts with an Euler step); Euler's first-order error damps a
     shedding's amplitude and lowers its frequency. U: Gauss linearUpwind on the cell-limited grad(U) of the steady
     default (the tutorials pimpleFoam/RAS/propeller and pitzDaily), without the steady "bounded" correction (that is
-    for steady state). k and omega: Gauss limitedLinear 1, a bounded (TVD) second-order scheme (the tutorials
-    pimpleFoam/RAS/TJunction and ellipsekkLOmega) where the steady default is first-order upwind: a URANS run must
-    not damp the resolved unsteadiness with first-order turbulence transport. The rest as the steady default.
+    for steady state). k and omega: second order, Gauss linearUpwind on their cell-limited gradients (D-192, the
+    scheme of D-126's second stage without the steady "bounded" correction; the tutorial pimpleFoam/RAS/
+    rotatingFanInRoom uses linearUpwind for k and omega) where the steady default is first-order upwind: a URANS run
+    must not damp the resolved unsteadiness with first-order turbulence transport. D-181 had Gauss limitedLinear 1:
+    on the square cylinder's wall-function mesh it drove omega negative (clipped to min -1213 in the first step,
+    then a floating-point exception; -148 still at 3 t_c after a first-order start), linearUpwind did not clip
+    once. The rest as the steady default.
 
     DDES (``ddes``, D-191): U by ``ddes_u_scheme`` and the wall distance exactDistance (nRequired), as the v2606
-    tutorial pimpleFoam/LES/wallMountedHump (kOmegaSSTDDES); k and omega as above (that tutorial's limitedLinear
-    1)."""
+    tutorial pimpleFoam/LES/wallMountedHump (kOmegaSSTDDES); k and omega as above (that tutorial has limitedLinear
+    1, which D-192 replaced)."""
     divs = {
         "default": "none",
         "div(phi,U)": ("Gauss", "linearUpwind", "grad(U)") if ddes is None else ddes_u_scheme(ddes),
         "div((nuEff*dev2(T(grad(U)))))": ("Gauss", "linear"),
     }
-    if not laminar:
-        divs["div(phi,k)"] = ("Gauss", "limitedLinear", 1)
-        divs["div(phi,omega)"] = ("Gauss", "limitedLinear", 1)
+    grads = {"default": ("Gauss", "linear"), "grad(U)": ("cellLimited", "Gauss", "linear", 1)}
+    if not laminar:  # D-192: bounded in practice where limitedLinear 1 drove omega negative
+        for name in ("k", "omega"):
+            divs[f"div(phi,{name})"] = ("Gauss", "linearUpwind", f"grad({name})")
+            grads[f"grad({name})"] = ("cellLimited", "Gauss", "linear", 1)
     return FoamFileSpec(content={
         "ddtSchemes": {"default": "backward"},
-        "gradSchemes": {"default": ("Gauss", "linear"), "grad(U)": ("cellLimited", "Gauss", "linear", 1)},
+        "gradSchemes": grads,
         "divSchemes": divs,
         "laplacianSchemes": {"default": ("Gauss", "linear", "corrected")},
         "interpolationSchemes": {"default": "linear"},

@@ -558,3 +558,15 @@ settled the open ones on 2026-10-17.
      deletes the remote branch itself, and fast-forwards main where it is checked out (that tree must be clean);
      the local task branch stays in the worktree. For a long-lived branch like task/1.1-transient the next push
      recreates the remote branch. Please try `scripts/ship.sh --dry-run` in both folders before the first real use.
+
+## Task 1.1-transient, Part 2
+
+257. **[OPEN]** [NUMERICS-REVIEW] **PIMPLE as the default of turbulent transient projects (D-185).** Laminar projects
+     keep PISO at Co 1; turbulent ones get PIMPLE (residual control 1e-4, at most 10 outer correctors) at Co 2, DDES
+     at Co 1. On the laminar cylinder PIMPLE matched PISO within 0.4 % but saved no time (3 outer correctors per
+     step); the square cylinder's coarse level compares them on a mesh with wall layers (its RESULT.md). Keep
+     PIMPLE as the turbulent default, or PISO everywhere with PIMPLE as an option?
+258. **[OPEN]** [NUMERICS-REVIEW] **k and omega by linearUpwind instead of limitedLinear (D-192, amends the accepted
+     D-181).** limitedLinear 1 drove omega negative and crashed the first URANS run (the square cylinder) in its
+     first step; linearUpwind on cell-limited gradients ran without a single clip. Accept the change?
+

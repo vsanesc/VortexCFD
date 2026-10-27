@@ -50,8 +50,9 @@ def test_adaptive_time_step_dictionaries() -> None:
     schemes = files["system/fvSchemes"].content
     assert schemes["ddtSchemes"] == {"default": "backward"}
     assert schemes["divSchemes"]["div(phi,U)"] == ("Gauss", "linearUpwind", "grad(U)")
-    assert schemes["divSchemes"]["div(phi,k)"] == ("Gauss", "limitedLinear", 1)
-    assert schemes["divSchemes"]["div(phi,omega)"] == ("Gauss", "limitedLinear", 1)
+    assert schemes["divSchemes"]["div(phi,k)"] == ("Gauss", "linearUpwind", "grad(k)")  # D-192
+    assert schemes["divSchemes"]["div(phi,omega)"] == ("Gauss", "linearUpwind", "grad(omega)")
+    assert schemes["gradSchemes"]["grad(omega)"] == ("cellLimited", "Gauss", "linear", 1)
     solution = files["system/fvSolution"].content
     assert solution["PIMPLE"] == {"momentumPredictor": True, "nOuterCorrectors": 10, "nCorrectors": 2,
                                   "nNonOrthogonalCorrectors": 0,
@@ -668,7 +669,7 @@ def test_ddes_dictionaries() -> None:
     schemes = files["system/fvSchemes"].content
     assert schemes["divSchemes"]["div(phi,U)"] == ("Gauss", "DEShybrid", "linear", "linearUpwind", "grad(U)",
                                                    "delta", 0.65, 4.0, 2.0, 0.0, 1.0, 1.0, 10.0)
-    assert schemes["divSchemes"]["div(phi,k)"] == ("Gauss", "limitedLinear", 1)
+    assert schemes["divSchemes"]["div(phi,k)"] == ("Gauss", "linearUpwind", "grad(k)")
     assert schemes["wallDist"] == {"method": "exactDistance", "nRequired": True}
     control = files["system/controlDict"].content
     assert control["maxCo"] == 1.0
