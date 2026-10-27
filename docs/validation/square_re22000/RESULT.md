@@ -45,3 +45,11 @@ with two levels and a modulated signal no extrapolation is attempted. Mean Cl -0
 |---|---|---|---|---|
 | coarse | 27,234 | 7,297 s (200 t_c) | 0.065 s | 2.4 |
 | medium | 40,527 | 6,293 s (150 t_c) | 0.096 s | 2.4 |
+
+## PISO and PIMPLE on this mesh (D-185)
+
+A PISO run of the coarse level at Co 1 to 15 t_c (`level --name coarse --end 15 --tag piso_timing --set
+algorithm=piso`, run/validation/square_re22000/, beside the DDES run) against the PIMPLE run's first 15 t_c (beside
+the medium level): PISO 16,139 steps in 759 s, PIMPLE at Co 2 8,768 steps in 613 s (3 outer correctors each).
+PIMPLE took 19 % less wall time here, where the wall layers set the Courant limit (on the laminar cylinder, whose
+limit is set by the wake cells, it took 26 % more). The PISO run's statistics were not sampled (timing only).

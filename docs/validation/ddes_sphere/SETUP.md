@@ -27,3 +27,10 @@ The mesh (cells, the app's DDES mesh warning), the solve (steps, Courant number,
 written fields turbulenceProperties:fd and turbulenceProperties:LESRegion (their ranges and the share of LES cells),
 the cost (wall seconds per step, microseconds per cell and step on 8 cores and per core, the peak resident memory of
 the solver processes) and from it the estimate of an Ahmed DDES on this machine.
+
+## Amendment (during the run, before any statistics)
+
+At 1.06 t_c the run had taken 1,152 s on 4 cores (about 4.1 s per step at Co 1): 40 t_c would take about 12 hours,
+over this part's machine time. The end time was cut to 25 t_c (10 t_c sampled from 15 t_c) by editing the running
+case's controlDict (endTime 25, writeInterval 5; OpenFOAM re-reads it) and system/transientControl.
+
