@@ -40,6 +40,13 @@ level at Co 2), so 200 t_c of the medium level would take about 7 hours of the 1
 more than 10 shedding periods after a start-up detected near 60 t_c. The PISO comparison runs only if machine time
 is left.
 
+Amendment 2 (at 80 t_c of the coarse level and 62 t_c of the medium one, before either ended; the pass rule is
+unchanged): the lift amplitude of this flow is modulated at low frequency (1.0 to 2.1 per 5 t_c), so the mean of
+Cd over consecutive 20 t_c windows moves by about 1 % and their ranges by up to 25 %: the detection (0.5 % and
+5 %) had not settled. If a level ends without a detected start-up, its sampling start is set by hand at 50 t_c
+(40 t_c after the start-up perturbation; the shedding is developed from about 10 t_c) and the solution is continued
+by 1 t_c with Continue Solver (D-189), which takes the statistics from 50 t_c over the whole force history.
+
 ## References
 
 ERCOFTAC Knowledge Base Wiki, UFR 2-02 "Flow past a square cylinder"

@@ -2,7 +2,8 @@
 the case set up through the app's workflow layer, meshed and solved per level as Generate Mesh then Run Solver would.
 
     nice -n 15 .venv/bin/python scripts/validation/square_study.py level --name coarse [--set algorithm=piso]
-    .venv/bin/python scripts/validation/square_study.py collect     # -> docs/validation/square_re22000/result.json
+    nice -n 15 .venv/bin/python scripts/validation/square_study.py continue --run coarse --start 50 --end 201
+    .venv/bin/python scripts/validation/square_study.py collect coarse medium  # -> docs/validation/square_re22000/
 
 The projects go to run/validation/square_re22000/ (git-ignored); the numbers to docs/validation/square_re22000/.
 The meshing and solving steps are the cylinder driver's (scripts/validation/cylinder_study.py).
@@ -48,6 +49,45 @@ def cmd_level(args) -> None:
     say(f"wrote {path}")
 
 
+def cmd_continue(args) -> None:
+    """SETUP.md amendment 2: a level that ended without a detected start-up gets its sampling start by hand and is
+    continued to a later end with the app's Continue (D-189); its run record is updated."""
+    import time
+
+    from vortexcfd.core.project import Project
+    from vortexcfd.foam.logparse import parse_log_text
+    from vortexcfd.foam.run_record import RunRecord
+    from vortexcfd.foam.solver_run import SolverRun, solver_log
+    from vortexcfd.workflow import solving
+
+    folder = WORK / args.run
+    path = WORK / f"{args.run}.json"
+    data = json.loads(path.read_text())
+    project = Project.open(folder / "square.json")
+    project.update_transient(sampling_start=args.start, end_time=args.end)
+    project.save()
+    tr = data["solve"]["transient"]
+    record = RunRecord(data["solve"]["state"], tr["steps"], {}, "", 0, transient=tr,
+                       settings_hash=solving.solution_hash(project))
+    case, resume = solving.prepare_continue(project, record)
+    t0 = time.monotonic()
+    run = SolverRun(case, cores=project.sim.solvers.cores, timeout_s=3600, resume=resume)
+    run.start()
+    result = run.wait()
+    seconds = time.monotonic() - t0
+    stats = (result.transient or {}).get("statistics") or {}
+    say(f"continued {args.run}: {result.state} to t = {result.transient.get('end_time')} in {seconds:.0f} s; "
+        f"sampling from {result.transient.get('sampling_start')}; St {stats.get('strouhal')}, "
+        f"Cd {stats.get('coefficients', {}).get('Cd', {}).get('mean')}")
+    steps = parse_log_text(solver_log(case).read_text(errors="replace")).time_steps
+    data["solve"]["continued"] = {"sampling_start": args.start, "end": args.end, "state": result.state,
+                                  "solve_s": round(seconds, 1), "steps_total": result.transient.get("steps"),
+                                  "log_steps": len(steps)}
+    data["solve"]["transient"] = result.transient
+    path.write_text(json.dumps(data, indent=2) + "\n")
+    say(f"wrote {path}")
+
+
 def cmd_collect(args) -> None:
     table = []
     for name in args.runs:
@@ -80,6 +120,11 @@ def main() -> None:
     level.add_argument("--tag", default="")
     level.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
     level.set_defaults(func=cmd_level)
+    cont = sub.add_parser("continue")
+    cont.add_argument("--run", required=True)
+    cont.add_argument("--start", type=float, required=True, help="the sampling start set by hand (t_c)")
+    cont.add_argument("--end", type=float, required=True, help="the new end time (t_c)")
+    cont.set_defaults(func=cmd_continue)
     collect = sub.add_parser("collect")
     collect.add_argument("runs", nargs="+", help="run names (the level and its tag), e.g. coarse medium")
     collect.set_defaults(func=cmd_collect)
