@@ -1773,13 +1773,17 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   over is still detected. SolverRun counts the solution's earlier time steps (`ContinueFrom.iteration` is the step
   count of a transient solution) and its statistics run over the whole force history from the same sampling start
   (every postProcessing start-time directory). The record's segments go on as D-171's.
-- What may change: how far a run goes (`workflow.solving.TRANSIENT_RUN_LENGTH`: end time, write interval, the
-  statistics stop, its quantity, window and tolerance) is not part of a transient solution's set-up hash; any other
+- What may change: how far a run goes and how it is sampled (`workflow.solving.TRANSIENT_RUN_LENGTH`: end time,
+  write interval, the statistics stop, its quantity, window and tolerance, the sampling start and the detection
+  tolerance) is not part of a transient solution's set-up hash. A solution whose start-up was never detected (a
+  modulated flow whose ranges keep changing) can be given its sampling start by hand and continued: the statistics
+  are taken from that start over the whole force history, the field averages from the restart (they cannot go back
+  in time); any other
   change (time stepping, schemes, physics, boundaries) can only start over ("Start over" is the one choice).
   Steady projects' hashes are unchanged (a steady hash has no transient settings, D-181).
 - Check: tests/test_transient.py::test_a_transient_run_continues_to_a_later_end_time (controlDict, the record's
   steps 100 -> 150, statistics from the same start to the new end, segments),
-  test_a_changed_transient_set_up_can_only_start_over.
+  test_a_changed_transient_set_up_can_only_start_over, test_a_sampling_start_set_by_hand_after_an_undetected_start_up.
 
 ## D-190 A laminar project sizes its prism layers by a first-cell thickness, not y+ [NUMERICS-REVIEW]
 - Status: Proposed (task 1.1-transient, Part 2, Part A item 5; QUESTIONS 252).

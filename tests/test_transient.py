@@ -714,3 +714,35 @@ def test_ddes_project_checks(make_window) -> None:
     assert "cells across" in solving.ddes_mesh_warning(w.project)
     w.project._sim = w.project.sim.model_copy(update={"dimension": "2d"})
     assert "2D" in (solving.transient_problem(w.project, [], [], [], []) or "")
+
+
+def test_a_sampling_start_set_by_hand_after_an_undetected_start_up(make_window, qtbot: QtBot) -> None:
+    """D-189: a run whose start-up was never detected continues with a sampling start set by hand: the statistics
+    from it over the whole history, the field averages from the restart."""
+    w = make_window()
+    w.project.update_physics(flow="incompressible_transient")
+    w.project.update_transient(time_unit="s", end_time=10.0, window=20.0, perturb=False)  # never detected
+    w.project.update_reports(slots=["Cd", "Cl", None])
+    case = w.project.path.parent / "case"
+
+    def first_files():
+        _coefficient_rows(case, "0", 0.1, 10.0)
+        _written_time(case, "10")
+
+    w.solver_worker.runner_factory = lambda: (first_files(), FakeRunner(_steps(0.1, 10.0) + ["End\n"]))[1]
+    w.run_solver()
+    wait_done(qtbot, w)
+    first = w.run_record
+    assert first.transient["sampling_start"] is None and first.transient["statistics"] is None
+    w.project.update_transient(sampling_start=4.0)
+    assert not solving.settings_changed(w.project, first)
+    w.dialogs.more_time = 12.0
+    w.solver_worker.runner_factory = lambda: (_coefficient_rows(case, "10", 10.1, 12.0),
+                                              FakeRunner(_steps(10.1, 12.0) + ["End\n"]))[1]
+    w.run_solver()
+    control = read_foam_file(case / "system" / "controlDict")
+    assert control["functions"]["fieldAverage1"]["timeStart"] == pytest.approx(10.0)
+    wait_done(qtbot, w)
+    stats = w.run_record.transient["statistics"]["coefficients"]["Cd"]
+    assert w.run_record.transient["sampling_start"] == pytest.approx(4.0) and stats["start"] == pytest.approx(4.0)
+    assert not w.run_record.transient["detected"]

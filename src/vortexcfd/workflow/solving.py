@@ -485,7 +485,10 @@ CONTINUABLE = ("stopped", "iteration_limit", "criteria_met")
 TRANSIENT_CONTINUABLE = ("stopped", "end_time", "criteria_met")
 # The transient settings that only say how far a run goes, not what it solves (D-189): a later end time, another
 # write interval or statistics stop leave a solution continuable.
-TRANSIENT_RUN_LENGTH = ("end_time", "write_interval", "statistics_stop", "stop_quantity", "window", "tolerance")
+TRANSIENT_RUN_LENGTH = ("end_time", "write_interval", "statistics_stop", "stop_quantity", "window", "tolerance",
+                        # the sampling settings: a solution whose start-up was not detected can be given its
+                        # sampling start by hand, or a looser detection, and continued (D-189)
+                        "sampling_start", "detect_tolerance")
 
 
 def latest_iteration(case_dir: Path) -> tuple[int | None, int | None]:
@@ -656,8 +659,12 @@ def prepare_continue_transient(project: Project, record, interactive: bool = Fal
     if new.end_time <= latest * (1 + 1e-9):
         raise SolvingNotReady(f"Set an end time after the latest time of the solution (t = {latest:.6g} s).")
     old = transient_files.read_control(case_dir) or new
-    control = dataclasses.replace(new, sampling_start=old.sampling_start, detected=old.detected,
-                                  not_before=old.not_before)
+    if old.sampling_start is not None:  # the sampling has started: it goes on from the same start
+        control = dataclasses.replace(new, sampling_start=old.sampling_start, detected=old.detected,
+                                      not_before=old.not_before)
+    else:  # not started: the start set now by hand (the statistics from it; the field averages from the restart
+        # at the latest, they cannot go back in time), or the detection goes on with the new tolerance
+        control = dataclasses.replace(new, not_before=old.not_before)
     cores = project.sim.solvers.cores
     reuse = (cores > 1 and processor_count(case_dir) == cores and in_processors is not None
              and abs(in_processors - latest) <= 1e-9 * max(1.0, latest))
@@ -665,8 +672,9 @@ def prepare_continue_transient(project: Project, record, interactive: bool = Fal
     spec = files["system/controlDict"]
     content = dict(spec.content)
     content["functions"] = dict(content["functions"])
-    if control.sampling_start is not None:  # the averages go on from the same start
-        content["functions"][transient_files.FIELD_AVERAGE] = transient_files.field_average(control.sampling_start)
+    if control.sampling_start is not None:  # the averages go on from the same start (or begin at the restart)
+        content["functions"][transient_files.FIELD_AVERAGE] = transient_files.field_average(
+            max(control.sampling_start, latest) if old.sampling_start is None else control.sampling_start)
     content["startFrom"] = "latestTime"
     interval = transient_times_of(project, case_dir).write_interval  # the write times count from the restart
     content["writeInterval"] = transient_files.even_interval(control.end_time - latest, interval)

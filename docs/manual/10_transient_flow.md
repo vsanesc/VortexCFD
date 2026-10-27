@@ -96,8 +96,11 @@ mean is then known to that accuracy. The banner says which ended the run.
 A transient run that was stopped, reached its end time or met the statistics stop can go on: **Continue Solver**
 asks for the new end time and runs from the latest written time. The field averages and the statistics go on from
 the same sampling start (the averages written at that time are read back), and a start-up not yet over is still
-detected. Only how far the run goes may change (the end time, the write interval, the statistics stop); any other
-change (time stepping, schemes, physics, boundaries) can only start over.
+detected. Only how far the run goes and how it is sampled may change (the end time, the write interval, the
+statistics stop, the sampling start, the detection tolerance); any other change (time stepping, schemes, physics,
+boundaries) can only start over. If the start-up was never detected (a flow whose amplitude keeps changing), set
+"Sampling starts at" by hand and continue: the statistics are taken from that time over the whole history, the
+averaged fields from the restart on.
 
 ## DDES (detached-eddy simulation)
 
