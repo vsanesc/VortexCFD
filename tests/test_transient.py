@@ -638,7 +638,7 @@ def test_a_laminar_project_sizes_its_layers_by_a_first_cell_thickness(make_windo
     w._select_node("mesh", None)
     assert not panel._rows["mset_target_yplus"].isVisibleTo(panel)
     assert panel._rows["mset_first_layer_height"].isVisibleTo(panel)
-    assert panel.mesh_fields["layer_sizing"].buttons["absolute_yplus"].text() == "Absolute: from a first-cell thickness"
+    assert panel.mesh_fields["layer_sizing"].text_of("absolute_yplus") == "Absolute: from a first-cell thickness"
     sim = w.project.sim
     auto = 0.1 * _math.sqrt(sim.physics.nu * 1.0 / sim.inflow.speed)
     assert meshing.yplus_first_layer(w.project, 1.0) == pytest.approx(auto) and auto != pytest.approx(turbulent)
@@ -648,7 +648,7 @@ def test_a_laminar_project_sizes_its_layers_by_a_first_cell_thickness(make_windo
     assert meshing.yplus_first_layer(w.project, 1.0) == 2e-4
     w.project.update_physics(turbulence_model="kOmegaSST")
     assert meshing.yplus_first_layer(w.project, 1.0) == pytest.approx(turbulent)  # y+ again
-    assert panel.mesh_fields["layer_sizing"].buttons["absolute_yplus"].text() == "Sized from a target y+"
+    assert panel.mesh_fields["layer_sizing"].text_of("absolute_yplus") == "Sized from a target y+"
 
 
 def _ddes(**physics) -> SolverCaseInput:

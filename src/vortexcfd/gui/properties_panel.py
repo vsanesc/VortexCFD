@@ -1821,8 +1821,10 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self._rows["mset_target_yplus"].setVisible(not laminar)
         self._rows["mset_first_layer_height"].setVisible(laminar)
         self.mesh_fields["first_layer_height"].setEnabled(mesh.layer_sizing == "absolute_yplus")
-        self.mesh_fields["layer_sizing"].buttons["absolute_yplus"].setText(
-            LAMINAR_SIZING_LABEL if laminar else dict(LAYER_SIZINGS)["absolute_yplus"])
+        sizing = self.mesh_fields["layer_sizing"]
+        text = LAMINAR_SIZING_LABEL if laminar else dict(LAYER_SIZINGS)["absolute_yplus"]
+        sizing.labels["absolute_yplus"].setText(text)  # the option's text is its label (ChoiceField)
+        sizing.buttons["absolute_yplus"].setAccessibleName(text)
         tips = {key: tip for key, _l, _f, tip in MESH_SETTINGS}
         self.mesh_fields["target_yplus"].setEnabled(yplus_used)
         self.mesh_fields["target_yplus"].setToolTip(
