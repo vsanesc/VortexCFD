@@ -26,7 +26,8 @@ Blockage: D / H = 1 / 60 = 1.7 %. Behr, Hastreiter, Mittal and Tezduyar (1995, C
 cylinder and the inlet about 8 D ahead; Posdziech and Grundmann (2007, J. Fluids Struct. 23) showed the remaining
 dependence of Cd on the domain size (a few per cent between domains of 25 D and several hundred D), which is one
 reason the Cd tolerance is 5 %. The far field here is slip, not a free-stream condition: with 30 D to each side its
-effect on the forces is of the order of the blockage.
+effect on the forces is of the order of the blockage. (Behr et al. 1995 and Posdziech and Grundmann 2007 are cited
+here from memory for the domain-size argument only; they were not re-read and give no reference value of the rule.)
 
 ## Mesh study
 
@@ -50,15 +51,33 @@ finest level above the 3-cycle minimum even if its start-up ends later.
 
 ## References
 
-- Strouhal number: Williamson (1996), "Vortex dynamics in the cylinder wake", Annu. Rev. Fluid Mech. 28, 477-539:
-  the parallel-shedding St-Re relation gives St = 0.164 to 0.166 at Re 100 (the band used).
-- Mean drag: about 1.33 (Park, Kwon and Choi 1998, KSME Int. J. 12: 1.33; Posdziech and Grundmann 2007: about 1.32 to
-  1.35 depending on the domain; Qu, Norberg, Davidson, Peng and Wang 2013, J. Fluids Struct. 39: about 1.33).
-- RMS of the lift: about 0.23 (Park et al. 1998: lift amplitude 0.332, an RMS of 0.235; Qu et al. 2013: about 0.23;
-  Posdziech and Grundmann 2007: about 0.23).
+Sourced in Part 2, Part 0 of task 1.1-transient (2026-10-27), replacing the values first written here from memory.
+The tolerances of the pass rule are unchanged (see "Amendment of the references" below).
 
-The numbers are the values these papers are commonly quoted with; they were not re-read for this task (no access to
-the papers here): QUESTIONS asks the owner to confirm them.
+- **Strouhal number: 0.164-0.165.** Constant, Li, Favier, Meldi, Meliga and Serre (2016), "Implementation of a
+  discrete Immersed Boundary Method in OpenFOAM", arXiv:1609.04364 (https://arxiv.org/abs/1609.04364), Table 3
+  (2D flow past a fixed cylinder at Re 100): Barkley and Henderson (1996, J. Fluid Mech. 322, 215-241) 0.165;
+  Williamson (1996, Annu. Rev. Fluid Mech. 28, 477-539) 0.164; Norberg (1994, J. Fluid Mech. 258, 287-316) 0.164.
+- **Mean drag: 1.35.** The same Table 3: Henderson (1995, Phys. Fluids 7(9), 2102-2104) 1.35; Blackburn and
+  Henderson (1999, J. Fluid Mech. 385, 255-286) 1.35.
+- **RMS of the lift: 0.253.** Dong and Shen (2014), "A Pressure Correction Scheme for Generalized Form of
+  Energy-Stable Open Boundary Conditions for Incompressible Flows", arXiv:1409.6676
+  (https://arxiv.org/abs/1409.6676), Table 2: their 2D spectral-element results at Re 100 are 0.261, 0.254, 0.253
+  and 0.253 for wake lengths of 5, 10, 15 and 20 D (domain 20 D high, periodic sides); the reference is the
+  domain-independent 0.253. The same table lists earlier 2D simulations at Re 100 from 0.21 (Braza et al. 1986;
+  Tang and Audry 1997) to 0.27 (Persillon and Braza 1998; Hwang and Lin 1992).
+
+Opened for this: the two arXiv papers above (full text). The original papers behind Table 3 (Henderson 1995;
+Blackburn and Henderson 1999; Barkley and Henderson 1996; Williamson 1996; Norberg 1994) are not open access and
+were not opened; their values are cited as Constant et al. tabulate them.
+
+### Amendment of the references (after the runs; the rule is unchanged)
+
+The first version of this file used St 0.164-0.166, mean Cd 1.33 and RMS Cl 0.23, quoted from memory (Park, Kwon
+and Choi 1998; Posdziech and Grundmann 2007; Qu et al. 2013) and not re-read. The owner asked for sourced values.
+The tolerances (3 %, 5 %, 15 %) and the rule are the ones written before the runs; only the reference values
+changed, and RESULT.md recomputes every level's verdict against them. The verdict did not change (PASS on all three
+levels); the RMS Cl error moved from about 0 % to about -9 %.
 
 ## Pass rule
 
@@ -66,9 +85,9 @@ Per level, on the statistics of the detected sampling window:
 
 | Quantity | Reference | PASS within |
 |---|---|---|
-| St (lift spectrum) | the band 0.164-0.166 | 3 % of the nearer band end (0 inside the band) |
-| mean Cd | 1.33 | 5 % |
-| RMS of Cl | 0.23 | 15 % |
+| St (lift spectrum) | the band 0.164-0.165 | 3 % of the nearer band end (0 inside the band) |
+| mean Cd | 1.35 | 5 % |
+| RMS of Cl | 0.253 | 15 % |
 
 The case PASSES when the finest level passes all three; the study shows whether the levels converge towards it. A
 level whose sampling window holds fewer than 3 shedding cycles does not count.

@@ -9,8 +9,8 @@
       "cycles": 4.302372909828216,
       "errors": {
         "st": -0.0009350440148244858,
-        "cd": 0.00765665930508596,
-        "cl_rms": -0.0008227337423061254
+        "cd": -0.0072715874994338445,
+        "cl_rms": -0.09165703067482373
       },
       "verdict": "PASS",
       "sampling_start": 153.74199108,
@@ -26,8 +26,8 @@
       "cycles": 5.370781985924139,
       "errors": {
         "st": 0.0,
-        "cd": 0.00679571378369251,
-        "cl_rms": -0.004476561093794009
+        "cd": -0.008119778272362205,
+        "cl_rms": -0.09497869190344907
       },
       "verdict": "PASS",
       "sampling_start": 147.38507502,
@@ -43,8 +43,8 @@
       "cycles": 10.57918126923362,
       "errors": {
         "st": 0.0,
-        "cd": 0.006821212445341482,
-        "cl_rms": 0.003922092208980833
+        "cd": -0.00809465736866359,
+        "cl_rms": -0.08734355253729012
       },
       "verdict": "PASS",
       "sampling_start": 135.8547907,
@@ -69,5 +69,14 @@
       "asymptotic_ratio": null,
       "text": "oscillatory, GCI not applicable"
     }
+  },
+  "references": {
+    "st_band": [
+      0.164,
+      0.165
+    ],
+    "cd_mean": 1.35,
+    "cl_rms": 0.253,
+    "sources": "SETUP.md, References (sourced in task 1.1-transient Part 2, Part 0)"
   }
 }

@@ -15,11 +15,11 @@ RESULT = Path(__file__).resolve().parents[2] / "docs" / "validation" / "cylinder
 @pytest.mark.validation
 def test_the_pass_rule() -> None:
     assert cc.RE == pytest.approx(100.0)
-    assert cc.verdict(0.165, 1.33, 0.23)[0] == "PASS"
-    assert cc.verdict(0.170, 1.33, 0.23)[1]["st"] == pytest.approx(0.004 / 0.166)
-    assert cc.verdict(0.174, 1.33, 0.23)[0] == "FAIL"  # 4.8 % above the band
-    assert cc.verdict(0.165, 1.41, 0.23)[0] == "FAIL"  # Cd +6 %
-    assert cc.verdict(0.165, 1.33, 0.27)[0] == "FAIL"  # Cl RMS +17 %
+    assert cc.verdict(0.165, 1.35, 0.253)[0] == "PASS"
+    assert cc.verdict(0.170, 1.35, 0.253)[1]["st"] == pytest.approx(0.005 / 0.165)
+    assert cc.verdict(0.171, 1.35, 0.253)[0] == "FAIL"  # 3.6 % above the band
+    assert cc.verdict(0.165, 1.43, 0.253)[0] == "FAIL"  # Cd +5.9 %
+    assert cc.verdict(0.165, 1.35, 0.295)[0] == "FAIL"  # Cl RMS +16.6 %
 
 
 @pytest.mark.validation

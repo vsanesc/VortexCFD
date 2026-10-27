@@ -7,8 +7,10 @@ OpenFOAM v2606, 4 cores per level, nice 15, the machine shared with another agen
 
 ## Verdict: PASS
 
-Every level passes all three criteria; the finest (63,369 cells, 10.6 shedding cycles sampled) is within 0.7 % of
-every reference.
+Every level passes all three criteria. Against the sourced references (SETUP.md, "References", amended in Part 2,
+Part 0; the rule and its tolerances unchanged) the finest level (63,369 cells, 10.6 shedding cycles sampled) has St
+inside the band, mean Cd -0.8 % and RMS Cl -8.7 %. Against the first, unsourced references it was within 0.7 % of
+each; the verdict is the same.
 
 | Level | Background cell | Cells | Steps | Δt range (s) | Sampling from (t_c) | Cycles | St | mean Cd | RMS Cl | Verdict |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -16,18 +18,18 @@ every reference.
 | medium | 1 m (D/128) | 32,817 | 35,767 | 0.0012-0.0054 | 147.4 (detected) | 5.4 | 0.1647 | 1.3390 | 0.2290 | PASS |
 | fine | 0.707 m (D/181) | 63,369 | 56,366 | 0.0012-0.0038 | 135.9 (detected) | 10.6 | 0.1649 | 1.3391 | 0.2309 | PASS |
 
-Errors against the references (St: to the nearer end of the band 0.164-0.166, 0 inside it; Cd: against 1.33; RMS
-Cl: against 0.23):
+Errors against the sourced references (St: to the nearer end of the band 0.164-0.165, 0 inside it; Cd: against 1.35;
+RMS Cl: against 0.253), with the errors against the first, unsourced references (0.164-0.166, 1.33, 0.23) in brackets:
 
 | Level | St | mean Cd | RMS Cl |
 |---|---|---|---|
-| coarse | -0.09 % | +0.77 % | -0.08 % |
-| medium | 0 (in the band) | +0.68 % | -0.45 % |
-| fine | 0 (in the band) | +0.68 % | +0.39 % |
+| coarse | -0.09 % (-0.09 %) | -0.73 % (+0.77 %) | -9.17 % (-0.08 %) |
+| medium | 0, in the band (0) | -0.81 % (+0.68 %) | -9.50 % (-0.45 %) |
+| fine | 0, in the band (0) | -0.81 % (+0.68 %) | -8.73 % (+0.39 %) |
 | tolerance | 3 % | 5 % | 15 % |
 
 The fine level's other statistics: Cd RMS 0.0066 (Cd oscillates at twice the shedding frequency, 1.3297-1.3485 on the
-coarse level), Cl between -0.326 and +0.326 (amplitude 0.326; Park et al. 1998: 0.332), mean Cl -0.001.
+coarse level), Cl between -0.326 and +0.326 (amplitude 0.326), mean Cl -0.001.
 
 ## Mesh study
 
@@ -40,11 +42,14 @@ GCI (Celik et al. 2008) with h = (A / N)^(1/2):
 
 The mean Cd changes by 0.09 % from coarse to medium and by 0.002 % from medium to fine: the change below the
 statistical scatter of a mean over 5-10 cycles, so the sign of the last difference is noise and the GCI is not
-defined; the mesh error of Cd is below 0.1 %. St converges monotonically to 0.1650, the middle of Williamson's band.
+defined; the mesh error of Cd is below 0.1 %. St converges monotonically to 0.1650, the upper end of the sourced
+band (0.164-0.165).
 
-The remaining offset of Cd (+0.7 %) is of the size of the domain and blockage effects reported by Posdziech and
-Grundmann (2007) for domains of a few tens of diameters (SETUP.md, "Domain"), and of the spread of the published
-values (about 1.32 to 1.35).
+The remaining offsets (Cd -0.8 %, RMS Cl -9 %) are not explained by the mesh (the study converges far tighter). The
+RMS Cl reference itself depends on the set-up: Dong and Shen's own values range 0.253-0.261 with the wake length,
+and the earlier simulations they list span 0.21-0.27 at Re 100 (SETUP.md, "References"); the app's result, 0.231,
+lies inside that spread. The domain here (slip far field 30 D to each side, 50 D wake) differs from the references'
+domains; no domain study was made.
 
 ## What the runs show of the app (D-181)
 

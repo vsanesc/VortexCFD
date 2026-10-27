@@ -36,11 +36,13 @@ WINDOW = 20.0  # t_c
 CORES = 4
 
 # The references (SETUP.md, "References") and the pass rule (written before the runs).
-ST_BAND = (0.164, 0.166)  # Williamson (1996), the parallel-shedding St-Re relation at Re 100: St = 0.1645-0.166
+# Sourced (Part 0 of task 1.1-transient, SETUP.md "References"): Constant et al. (2016, arXiv:1609.04364) Table 3 and
+# Dong & Shen (2014, arXiv:1409.6676) Table 2. The tolerances below are the rule as first written.
+ST_BAND = (0.164, 0.165)  # Williamson (1996), Norberg (1994): 0.164; Barkley & Henderson (1996): 0.165
 ST_TOLERANCE = 0.03
-CD_REFERENCE = 1.33  # mean Cd: Park, Kwon & Choi (1998) 1.33; Posdziech & Grundmann (2007) 1.33 (large domain)
+CD_REFERENCE = 1.35  # mean Cd: Henderson (1995) 1.35; Blackburn & Henderson (1999) 1.35
 CD_TOLERANCE = 0.05
-CL_RMS_REFERENCE = 0.23  # RMS of Cl: Posdziech & Grundmann (2007) about 0.228; Park et al. (1998): amplitude 0.332
+CL_RMS_REFERENCE = 0.253  # RMS of Cl: Dong & Shen (2014), wake 15 D and 20 D (literature spread there 0.21-0.27)
 CL_RMS_TOLERANCE = 0.15
 
 
@@ -64,8 +66,8 @@ def reference_st() -> float:
 
 
 def verdict(st: float | None, cd_mean: float | None, cl_rms: float | None) -> tuple[str, dict]:
-    """(PASS / FAIL, the errors): St within 3 % of the band (0 inside it), mean Cd within 5 % of 1.33, the RMS of Cl
-    within 15 % of 0.23."""
+    """(PASS / FAIL, the errors): St within 3 % of the band (0 inside it), mean Cd within 5 % of 1.35, the RMS of Cl
+    within 15 % of 0.253."""
     def band_error(value: float) -> float:
         lo, hi = ST_BAND
         if lo <= value <= hi:

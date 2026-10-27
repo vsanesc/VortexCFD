@@ -16,12 +16,12 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
   Results Scene (averaged fields, the time choice) in time. tests/test_transient.py.
 - Part B: the circular cylinder at Re 100 (laminar, 2D), three levels through the app:
   docs/validation/cylinder_re100/ (SETUP.md, RESULT.md, result.json), tests/validation/test_cylinder.py. **PASS** on
-  all three levels; fine (63,369 cells): St 0.1649, mean Cd 1.3391 (+0.7 %), RMS Cl 0.2309 (+0.4 %); St GCI 0.09 %,
+  all three levels; fine (63,369 cells): St 0.1649, mean Cd 1.3391 (-0.8 % of the sourced 1.35), RMS Cl 0.2309 (-8.7 % of 0.253); St GCI 0.09 %,
   Cd oscillatory within 0.1 %.
 - Machine time: about 90 minutes of OpenFOAM runs (4 cores each, at most 8 at once, nice 15), including two aborted
   trial runs; no OpenFOAM process left running.
 - Part C: manual chapter 10 (transient flow) and the Transient section of chapter 9, PLAN (1.1 progress),
-  QUESTIONS 247-255, CHANGELOG (unreleased 1.1), ARCHITECTURE.
+  QUESTIONS 248-256, CHANGELOG (unreleased 1.1), ARCHITECTURE.
 - The public benchmarks' meshing and solver dictionaries (scripts/validation/public_dicts.py, main's sources against
   the branch): byte-identical (`diff -r`, 51 files). The existing validations are untouched (no file under
   docs/validation/ other than cylinder_re100/ and its README row changed).
@@ -29,10 +29,24 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
 What is left of 1.1 (PLAN, "Release 1.1"): Continue for a transient run; the mesh study and polar sweep of a
 transient project; per-part statistics; DDES; the Ahmed body.
 
-## Previous branch (task/gui-2, published)
+## Previous branch (task/v1.0.1-pillow, merged)
 
+**task/v1.0.1-pillow** (merged into main as 1.0.1, unreleased). Security update for 1.0.1 (D-183, accepted by the
+owner 2026-10-26; D-183, not D-180, because task/1.1-transient already uses D-180 to D-182 and QUESTIONS up to 246):
+- pillow 12.3.0 -> 13.0.0 in scripts/requirements-v1.txt and THIRD_PARTY_LICENSES.md: fixes all 41 open Dependabot
+  alerts (5 critical, 23 high, 13 moderate; alert 1 of 42 withdrawn by GitHub); none affects 13.0.0. CHANGELOG 1.0.1
+  (unreleased).
+- Checks: the fast suite; the image-export, report and branding tests; scripts/brand/make_logo.py byte-identical;
+  scripts/install.sh in a temporary HOME and prefix (`vortexcfd --version`: 1.0.0); the public benchmarks'
+  dictionaries byte-identical to main's (`diff -r`, 51 files, exit status 0). No OpenFOAM run.
+- certifi 2026.7.22 -> 2026.10.23 (GHSA-6q48-6c7w-9gw2, critical: the compromised emSign ECC Root CA - G3; found by
+  checking every pin against the GitHub advisory database; QUESTIONS 247 closed). Licence still MPL-2.0. The audit
+  over all 46 pins now reports 0 advisories; `pip check` clean; the isolated install again ends with
+  `vortexcfd --version` 1.0.0.
 
-**task/gui-2** (not yet published; no push, no merge). A second round of GUI work the owner asked for after using the
+## Earlier branch
+
+**task/gui-2** (merged). A second round of GUI work the owner asked for after using the
 app; one commit per item:
 - Item 7 (D-165): stopping criteria the user removes no longer "come back": the monitors show the run's own criteria
   ("Criteria of the last run", kept in the run record) apart from the project's; Run Solver saves the project first
