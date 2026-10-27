@@ -12,6 +12,9 @@
 #
 # --dry-run checks the branch and the tree, then prints every command it would run (the suite included) and runs
 # none of them.
+#
+# Before anything else runs it refuses a branch with no commits ahead of origin/main (fetched first; main when the
+# repository has no origin): there is nothing to publish (D-184).
 set -euo pipefail
 
 DRY_RUN=0
@@ -53,8 +56,21 @@ if [ -n "$main_tree" ] && [ -n "$(git -C "$main_tree" status --porcelain)" ]; th
   exit 1
 fi
 
-echo "== Commits to publish =="
-git log --oneline main..HEAD
+# Nothing to publish: refuse before the suite runs (D-184). origin/main is fetched first (read-only) so a branch
+# already merged on GitHub is seen as such.
+base=main
+if git remote get-url origin >/dev/null 2>&1; then
+  git fetch -q origin main || { echo "Could not fetch origin/main. Aborting."; exit 1; }
+  base=origin/main
+fi
+ahead=$(git rev-list --count "$base..HEAD")
+if [ "$ahead" = 0 ]; then
+  echo "$branch has no commits ahead of $base: nothing to publish. Aborting."
+  exit 1
+fi
+
+echo "== Commits to publish ($ahead ahead of $base) =="
+git log --oneline "$base..HEAD"
 if [ -n "$main_tree" ]; then
   echo "main is checked out in $main_tree: it is fast-forwarded there after the merge."
 elif [ "$linked" = 1 ]; then

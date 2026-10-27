@@ -1725,3 +1725,16 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - certifi (QUESTIONS 247): the audit of every pin against the GitHub advisory database (pip-audit is not installed) found certifi==2026.7.22 affected by GHSA-6q48-6c7w-9gw2 (critical: the bundled emSign ECC Root CA - G3, eight of whose eMudhra intermediate CAs have compromised keys; 2026.10.18 removed every emSign root, 2026.10.19 restored the unaffected ones). Pinned certifi==2026.10.23 (the newest release; requests 2.34.2 requires certifi>=2023.5.7): its cacert.pem has no emSign ECC Root CA - G3 (emSign Root CA - G1 only); still MPL-2.0, no file marked "Incompatible With Secondary Licenses" (THIRD_PARTY_LICENSES.md). Check: `pip check` clean; the audit over all 46 pins reports 0 advisories; scripts/install.sh in a temporary HOME and prefix, `vortexcfd --version` 1.0.0.
 - Alternatives considered: none; no Pillow release below 13.0.0 fixes the alerts, and no certifi below 2026.10.18.
 
+
+## D-184 ship.sh refuses a branch with nothing to publish
+- Status: Proposed (task 1.1-transient, Part 2, Part A item 7).
+- Context: on main, scripts/ship.sh ran the full suite and pushed a task branch that had no commits ahead of
+  origin/main (an empty pull request).
+- Decision: right after the branch and tree checks, before the confirmation, the suite or any push, the script fetches
+  origin/main (read-only; a repository without an origin compares with main) and counts the commits of HEAD ahead of
+  it; with none it prints "<branch> has no commits ahead of origin/main: nothing to publish. Aborting." and exits 1.
+  The list of commits to publish is now the commits ahead of that base (it was main..HEAD, the local main). The dry
+  run behaves the same (the fetch is the only command it runs).
+- Check: tests/test_ship_script.py::test_refuses_a_branch_with_no_commits_ahead_of_origin_main_before_the_suite
+  (a bare origin: one commit ahead goes on; after the commit is pushed to origin's main, refused with no suite and no
+  push printed).

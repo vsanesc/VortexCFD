@@ -83,3 +83,20 @@ def test_refusals(tmp_path: Path) -> None:
     assert result.returncode == 1 and "Working tree not clean" in result.stdout
     result = _ship(main)
     assert result.returncode == 1 and "Not on a task/* branch" in result.stdout
+
+
+def test_refuses_a_branch_with_no_commits_ahead_of_origin_main_before_the_suite(tmp_path: Path) -> None:
+    """D-184: an empty branch (no commits ahead of origin/main) is refused before the suite runs or anything is
+    pushed; one commit ahead goes on."""
+    main, tree = _repos(tmp_path)
+    origin = tmp_path / "origin.git"
+    _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(origin))
+    _git(main, "remote", "add", "origin", str(origin))
+    _git(main, "push", "-q", "origin", "main")
+    result = _ship(tree)
+    assert result.returncode == 0 and "(1 ahead of origin/main)" in result.stdout, result.stdout + result.stderr
+    _git(tree, "push", "-q", "origin", "task/x:main")  # the branch's commit is on origin/main now (merged)
+    result = _ship(tree)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "task/x has no commits ahead of origin/main: nothing to publish" in result.stdout
+    assert "== Tests ==" not in result.stdout and "pytest" not in result.stdout and "git push" not in result.stdout
