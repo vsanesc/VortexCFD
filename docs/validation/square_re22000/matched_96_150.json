@@ -1,0 +1,222 @@
+{
+  "window_tc": [
+    96.0,
+    150.0
+  ],
+  "rule": "relative",
+  "reference": "swing_co2",
+  "runs": {
+    "swing_co2": {
+      "folder": "run/validation/square_re22000/coarse",
+      "convective_time": 1.0,
+      "not_before_tc": 10.0,
+      "window": [
+        96.0,
+        150.0
+      ],
+      "whole": {
+        "st": 0.1352989160810808,
+        "cycles": 7.3057797337865,
+        "cd_mean": 2.1287435506923864,
+        "cl_rms": 1.4053472043885522
+      },
+      "first_half": {
+        "st": 0.13586053954893118,
+        "cycles": 3.668067491999524,
+        "cd_mean": 2.1544275793160295,
+        "cl_rms": 1.4214598476061546
+      },
+      "second_half": {
+        "st": 0.13678660495002756,
+        "cycles": 3.6928202163076973,
+        "cd_mean": 2.103049819998671,
+        "cl_rms": 1.386391918752604
+      },
+      "halves_diff": {
+        "st": 0.000926065401096382,
+        "cd_mean": 0.05137775931735833,
+        "cl_rms": 0.0350679288535507
+      },
+      "detected_tc": 96.0000000000004,
+      "steps_to_detected": 54002,
+      "steps_total": 112902
+    },
+    "matched": {
+      "folder": "run/validation/square_re22000/coarse_matched",
+      "convective_time": 1.0,
+      "not_before_tc": 0.0,
+      "window": [
+        96.0,
+        150.0
+      ],
+      "whole": {
+        "st": 0.0952427291307134,
+        "cycles": 5.143049274993754,
+        "cd_mean": 2.415915099460745,
+        "cl_rms": 1.5262396470697577
+      },
+      "first_half": {
+        "st": 0.085453829620354,
+        "cycles": 2.3071303462349055,
+        "cd_mean": 2.2921103746924865,
+        "cl_rms": 1.3865505521452368
+      },
+      "second_half": {
+        "st": 0.09617736946269535,
+        "cycles": 2.596670677328335,
+        "cd_mean": 2.539672545369652,
+        "cl_rms": 1.652469535230567
+      },
+      "halves_diff": {
+        "st": 0.010723539842341354,
+        "cd_mean": 0.24756217067716557,
+        "cl_rms": 0.26591898308533013
+      },
+      "detected_tc": null,
+      "steps_to_detected": null,
+      "steps_total": 111247
+    },
+    "swing_co1": {
+      "folder": "run/validation/square_re22000/coarse_pimple_co1",
+      "convective_time": 1.0,
+      "not_before_tc": 10.0,
+      "window": [
+        96.0,
+        150.0
+      ],
+      "whole": {
+        "st": 0.10903730337581162,
+        "cycles": 5.8879980266983205,
+        "cd_mean": 1.5113508798222604,
+        "cl_rms": 0.013901355466000137
+      },
+      "first_half": {
+        "st": 0.10196570420743352,
+        "cycles": 2.7529904017232543,
+        "cd_mean": 1.510985625412847,
+        "cl_rms": 0.01768469759801358
+      },
+      "second_half": {
+        "st": 0.11203708833505312,
+        "cycles": 3.0249554498402165,
+        "cd_mean": 1.511716110833255,
+        "cl_rms": 0.00815452739430531
+      },
+      "halves_diff": {
+        "st": 0.010071384127619598,
+        "cd_mean": 0.0007304854204079891,
+        "cl_rms": 0.009530170203708268
+      },
+      "detected_tc": null,
+      "steps_to_detected": null,
+      "steps_total": 141315
+    },
+    "initial_co2": {
+      "folder": "run/validation/square_re22000/coarse_initial",
+      "convective_time": 1.0,
+      "not_before_tc": 5.0,
+      "window": [
+        96.0,
+        150.0
+      ],
+      "whole": {
+        "st": 0.1434995870728678,
+        "cycles": 7.748723994664917,
+        "cd_mean": 2.0075959471923803,
+        "cl_rms": 1.1363789756104823
+      },
+      "first_half": {
+        "st": 0.14354141198324255,
+        "cycles": 3.875282523726333,
+        "cd_mean": 2.008379708940628,
+        "cl_rms": 1.1408777267642967
+      },
+      "second_half": {
+        "st": 0.14350321023388832,
+        "cycles": 3.874404427237987,
+        "cd_mean": 2.006820302809089,
+        "cl_rms": 1.131586114606392
+      },
+      "halves_diff": {
+        "st": 3.820174935423304e-05,
+        "cd_mean": 0.0015594061315389318,
+        "cl_rms": 0.00929161215790475
+      },
+      "detected_tc": 73.00000000000006,
+      "steps_to_detected": 40057,
+      "steps_total": 83214
+    }
+  },
+  "comparisons": {
+    "matched": {
+      "quantities": {
+        "st": {
+          "diff": 0.0400561869503674,
+          "relative": 0.29605696860396774,
+          "limit": 0.002705978321621616,
+          "within": false
+        },
+        "cd_mean": {
+          "diff": 0.2871715487683586,
+          "relative": 0.1349018996087877,
+          "limit": 0.04257487101384773,
+          "within": false
+        },
+        "cl_rms": {
+          "diff": 0.12089244268120547,
+          "relative": 0.08602318509168996,
+          "limit": 0.028106944087771046,
+          "within": null
+        }
+      },
+      "verdict": "do not agree"
+    },
+    "swing_co1": {
+      "quantities": {
+        "st": {
+          "diff": 0.02626161270526918,
+          "relative": 0.19410068806117664,
+          "limit": 0.002705978321621616,
+          "within": false
+        },
+        "cd_mean": {
+          "diff": 0.6173926708701261,
+          "relative": 0.2900267956980142,
+          "limit": 0.04257487101384773,
+          "within": false
+        },
+        "cl_rms": {
+          "diff": 1.391445848922552,
+          "relative": 0.9901082412783192,
+          "limit": 0.028106944087771046,
+          "within": null
+        }
+      },
+      "verdict": "do not agree"
+    },
+    "initial_co2": {
+      "quantities": {
+        "st": {
+          "diff": 0.008200670991787007,
+          "relative": 0.060611505467439056,
+          "limit": 0.002705978321621616,
+          "within": false
+        },
+        "cd_mean": {
+          "diff": 0.12114760350000608,
+          "relative": 0.05691037958076355,
+          "limit": 0.04257487101384773,
+          "within": false
+        },
+        "cl_rms": {
+          "diff": 0.2689682287780699,
+          "relative": 0.1913891655657396,
+          "limit": 0.028106944087771046,
+          "within": null
+        }
+      },
+      "verdict": "do not agree"
+    }
+  },
+  "tolerance": 0.02
+}

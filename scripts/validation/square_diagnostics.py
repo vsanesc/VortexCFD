@@ -243,6 +243,33 @@ def cmd_plot(_args) -> None:
     say(f"figures in {FIGURES}")
 
 
+def cmd_inflow(args) -> None:
+    """The modelled intensity I = sqrt(2k/3) / U and nut/nu at the cell nearest (-3 D, 0) at every reconstructed written
+    time of ``args.run`` (the matched-inflow run's inflow check, SETUP.md)."""
+    import numpy as np
+    import pyvista as pv
+
+    case = WORK / args.run / "case"
+    foam = case / "case.foam"
+    foam.touch()
+    reader = pv.OpenFOAMReader(str(foam))
+    reader.enable_all_cell_arrays()
+    rows = []
+    for t in reader.time_values:
+        if t <= 0:
+            continue
+        reader.set_active_time_value(t)
+        mesh = reader.read()["internalMesh"]
+        centres = mesh.cell_centers().points
+        i = int(np.argmin((centres[:, 0] + 3.0) ** 2 + centres[:, 2] ** 2))
+        k = float(mesh.cell_data["k"][i])
+        rows.append({"time": float(t), "cell": [round(float(c), 4) for c in centres[i]], "k": k,
+                     "intensity": math.sqrt(2.0 * k / 3.0) / sc.SPEED,
+                     "nut_nu": float(mesh.cell_data["nut"][i]) / sc.NU})
+        say(f"{args.run} t = {t:g}: k {k:.4e}, I {100 * rows[-1]['intensity']:.3f} %, nut/nu {rows[-1]['nut_nu']:.1f}")
+    (OUT / f"inflow_{args.run}.json").write_text(json.dumps(rows, indent=2) + "\n")
+
+
 OVERLAY = (("matched inflow, no perturbation, PIMPLE Co 2", "coarse_matched", "#c0392b"),
            ("swing, PIMPLE Co 2", "coarse", "#2a6f97"), ("swing, PIMPLE Co 1 (C)", "coarse_pimple_co1", "#7f8c8d"),
            ("initial field, PIMPLE Co 2 (B)", "coarse_initial", "#27ae60"))
@@ -268,11 +295,13 @@ def cmd_overlay(_args) -> None:
         ax = fig.add_subplot(grid[i + 1], sharex=top)
         ax.plot(data[:, 0], data[:, 1], lw=0.4, color=colour)
         ax.set_ylabel("Cl")
+        ax.set_ylim(-3.5, 3.5)
         ax.set_title(label, fontsize=9, loc="left")
     top.set_ylabel("Cl")
     top.set_title("Square cylinder Re 22,000, coarse, 2D URANS: lift histories", fontsize=9, loc="left")
     top.legend(fontsize=7, loc="upper right")
-    top.set_xlim(0, 150)
+    top.set_xlim(0, 200)
+    top.set_ylim(-3.5, 3.5)  # the initial-field start's first-step spike (|Cl| about 10) is clipped here only
     fig.axes[-1].set_xlabel("t / t_c")
     fig.tight_layout()
     fig.savefig(FIGURES / "lift_matched_overlay.png", dpi=130)
@@ -285,6 +314,9 @@ def main() -> None:
     for name, func in (("restart", cmd_restart), ("rerun", cmd_rerun), ("sample", cmd_sample), ("plot", cmd_plot),
                        ("overlay", cmd_overlay)):
         sub.add_parser(name).set_defaults(func=func)
+    inflow = sub.add_parser("inflow")
+    inflow.add_argument("--run", default="coarse_matched")
+    inflow.set_defaults(func=cmd_inflow)
     args = parser.parse_args()
     args.func(args)
 

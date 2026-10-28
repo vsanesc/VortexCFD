@@ -86,7 +86,15 @@ Part 2 closing brief and its addendum (2026-10-28; D-195 to D-198, QUESTIONS 262
   failure (scripts/validation/window_compare.py did not isolate the settings, fixed in ec0be81). No OpenFOAM process
   left running.
 
-What is left of 1.1 (PLAN, "Release 1.1"): QUESTIONS 257 (the URANS square cylinder); the mesh study and polar sweep
+Matched-inflow follow-up (2026-10-28; QUESTIONS 263, not published): the square cylinder's coarse level with the default
+start-up (no perturbation) and the inflow turbulence matched to the experiment at 3 D upstream (inlet 2.23 %, viscosity
+ratio 100; ratio 10 cannot reach 2 % from the inlet 19.5 D upstream, QUESTIONS 263), rule committed first (f955494):
+inflow matched (1.995-1.999 %), it sheds, but irregularly, and the detection found no window by 200 t_c: no pass
+verdict; for information St 0.097, mean Cd 2.43 over 100-200 t_c. A fourth sustained state (QUESTIONS 257). Solver
+time 4,780 s on 6 processes (indicative only: measured with another workload running). No default changed; URANS stays
+"PASS under investigation".
+
+What is left of 1.1 (PLAN, "Release 1.1"): QUESTIONS 257 and 263 (the URANS square cylinder); the mesh study and polar sweep
 of a transient project; per-part statistics. Later: a DDES validation and the Ahmed body with DDES (QUESTIONS 261).
 
 ## Previous branch (task/v1.0.1-pillow, merged)

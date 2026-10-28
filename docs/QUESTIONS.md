@@ -594,6 +594,30 @@ settled the open ones on 2026-10-17.
      10 D upstream, or its intensity raised so that about 2 % reaches the body (b1); (3) a reporting rule in the app
      that flags a transient run whose statistics depend on its start (for example two starts compared) before calling
      a URANS result validated. Lift histories: ~/vortexcfd-research/1.1-urans-diagnostics/. No default was changed.
+     **Matched-inflow run (follow-up; rule committed first, f955494):** the default start-up (no perturbation), the
+     inflow giving the experiment's 2 % at 3 D upstream (inlet 2.23 %, viscosity ratio 100: QUESTIONS 263), PIMPLE
+     Co 2, to 150 t_c then 200 t_c. Inflow check: 1.995-1.999 % at 3 D upstream (matched). It sheds (lift range 4-5
+     at the end), but irregularly and modulated, and the app's detection found no window by 200 t_c, so the pass rule
+     gives no verdict. For information over 100-200 t_c: St 0.097 (-27 %), mean Cd 2.43 (+15.5 %), RMS Cl 1.53.
+     My reading: what a user gets with the default start-up and a matched inflow on this coarse 2D mesh is a fourth
+     state, further from the experiment than the PASS run, which the app would not even report statistics for
+     without a sampling start set by hand. The coarse 2D URANS square cylinder does not give one answer; the PASS
+     should stay "under investigation". Next steps for the owner as above (the medium level; a decision on the inflow
+     turbulence, QUESTIONS 263); no default was changed.
+
+## Task 1.1-transient, Part 2: matched-inflow follow-up
+
+263. **[OPEN]** **The square cylinder's inflow viscosity ratio: 10 cannot give the experiment's 2 % at 3 D upstream.**
+     ERCOFTAC UFR 2-02 (Test Case page): the approach turbulence was "about 2%" measured "3 cylinder widths upstream";
+     RANS computations assumed a viscosity ratio "in the range 10 to 100", and "the value of 10 is more suitable". With
+     the validation's inlet 19.5 D upstream (not moved, as the brief asked), k-omega SST's free-stream decay (v2606
+     constants beta2 0.0828, betaStar 0.09) leaves at most 1.28 % at 3 D upstream with ratio 10, whatever the inlet
+     intensity; ratio 10 applied at 3 D upstream has no inlet state at all; the smallest inlet ratio that reaches 2 %
+     is 24.4 (inlet 7.9 %). The matched-inflow run used ratio 100 (inlet 2.23 %), the top of the page's range, as the
+     match least sensitive to extra numerical decay; it put nut/nu about 70 at 3 D upstream. Keep ratio 100 for the
+     matched inflow, use the smallest ratio that reaches 2 % (about 24.4, inlet about 7.9 %), or move the inlet to the
+     page's 5-10 D (even at 10 D, ratio 10 reaches at most 1.97 %)? Details: docs/validation/square_re22000/SETUP.md,
+     "Matched inflow turbulence".
 258. **[CLOSED (owner, 2026-10-28): approved; D-192 Accepted]** [NUMERICS-REVIEW] **k and omega by linearUpwind instead of limitedLinear (D-192, amends the accepted
      D-181).** limitedLinear 1 drove omega negative and crashed the first URANS run (the square cylinder) in its
      first step; linearUpwind on cell-limited gradients ran without a single clip. Accept the change?

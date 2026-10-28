@@ -207,3 +207,68 @@ then both 0.02-0.07; [lift_ranges.json](lift_ranges.json)).
   setting (c). The model's approach turbulence is about half the experiment's (b1), and C's steady wake carries 2-35
   times the eddy viscosity of the shedding runs (b2), which would damp a weak oscillation; whether that is cause or
   consequence of the steady state is open.
+
+## Matched inflow turbulence, default start-up (QUESTIONS 257 follow-up)
+
+Set-up, the inlet arithmetic and the rule: SETUP.md, "Matched inflow turbulence, default start-up" (committed before
+the run, f955494). The inlet: intensity 2.23302 %, viscosity ratio 100 (k0 7.4796e-4 m²/s², omega0 0.16455 1/s), so
+that SST's free-stream decay leaves 2 % at 3 D upstream; ratio 10, the value the ERCOFTAC page favours, cannot reach
+2 % there from this inlet (at most 1.28 %; QUESTIONS 263). No start-up perturbation (the default since D-198).
+
+Case dictionaries against the earlier PIMPLE Co 2 run (run/validation/square_re22000/coarse): 0/k and 0/omega (the
+inlet, internal and inlet-outlet values: k 6.0e-4 -> 7.4796e-4, omega 1.32 -> 0.16455); 0/U's inlet fixedValue
+instead of the swing's table and transientControl's notBefore 10 -> 0 (no perturbation); the end time 150 instead of
+200 (controlDict endTime and writeInterval, transientControl endTime); 6 processes instead of 4 (decomposeParDict);
+transientControl's maxCourant / maxDeltaT records (D-194, written by later code, not read by OpenFOAM). The earlier
+case's startFrom latestTime, fieldAverage entry and samplingStart were written by its sampling switch during its run,
+not inputs. fvSchemes, fvSolution, turbulenceProperties, transportProperties, 0/p and 0/nut are identical. The mesh was
+meshed again on 6 processes (27,234 cells, max non-orthogonality 58.73, as before).
+
+The run: 81,916 steps to 150 t_c (3,493 s), no start-up detected, so continued once to 200 t_c as SETUP.md provides
+(29,331 more steps, 1,287 s): 111,247 steps, Δt 0.00043-0.0025 s, 3.0 outer correctors per step, the Courant number
+above 2 only in the first step. Solver wall time 4,780 s on 6 processes, indicative only: measured with another
+workload running (a serial run of another project was on the machine from 17:21). Numbers: coarse_matched.json (run
+folder), [inflow_coarse_matched.json](inflow_coarse_matched.json), [matched_96_150.json](matched_96_150.json),
+[matched_100_200.json](matched_100_200.json). Lift histories overlaid: ~/vortexcfd-research/1.1-urans-diagnostics/
+lift_matched_overlay.png.
+
+Lift range and mean Cd per 10 t_c: 0.04 / 1.43, 0.37 / 1.54, 2.97 / 1.60, 4.46 / 2.40, 4.81 / 2.58, 3.77 / 2.30, 3.92 /
+2.24, 3.58 / 2.03, 2.54 / 1.71, 3.87 / 1.88, 3.78 / 1.86, 4.32 / 2.37, 4.92 / 2.83, 5.62 / 2.56, 4.64 / 2.56, 5.20 /
+2.67, 5.10 / 2.41, 4.58 / 2.31, 4.99 / 2.49, 4.01 / 2.30 (0 to 200 t_c). The shedding grows from round-off and is
+developed from about 25 t_c; it stays irregular (a dominant period of about 10 t_c with secondary peaks in each cycle)
+and modulated at low frequency.
+
+**Verdict under each part of the rule:**
+1. **Inflow check: matched at both written times.** I at the cell nearest (-3 D, 0): 1.995 % at 150 t_c and 1.999 %
+   at 200 t_c (nut/nu 75 and 65; the analytic decay gives 2.000 % and 98), within 1.8-2.2 %. The rule's average "over
+   the written times inside the sampled window" has no window to use (none was detected), so both written times are
+   reported instead; the upstream free stream is steady. The earlier runs had 0.75-1.0 % there (diagnostic b).
+2. **Shedding: sheds** (lift range 4.99 and 4.01 in [180, 190] and [190, 200], ≥ 1.0).
+3. **Pass rule: no verdict.** The app's automatic start-up detection did not find a window by 200 t_c (the Cd window
+   means and ranges kept changing between 20 t_c windows, below), so there is no detected window
+   to judge; the rule requires one.
+
+Why it did not settle: between consecutive 20 t_c windows the mean Cd moved by 0.30-0.54 (up to 25 %) and the lift
+range by up to 25 % until 160 t_c. In the last pair, [160, 180] / [180, 200], the mean Cd (0.2 %) and the lift range
+(2 %) agree, but the range of Cd does not (2.29 -> 2.56, 11 %; the detection asks 5 % of it too).
+
+For information only (not a verdict; windows set here, not detected):
+
+| Run (coarse, 2D URANS) | Window (t_c) | St | mean Cd | RMS Cl | I at 3 D upstream |
+|---|---|---|---|---|---|
+| matched inflow, no perturbation, PIMPLE Co 2 | 100-200 | 0.0971 | 2.425 | 1.531 | 2.0 % |
+| matched inflow, no perturbation, PIMPLE Co 2 | 96-150 | 0.0952 | 2.416 | 1.526 | 2.0 % |
+| swing, PIMPLE Co 2 (the PASS run) | 96-150 | 0.1353 | 2.129 | 1.405 | 1.0 % |
+| swing, PIMPLE Co 1 (C) | 96-150 | 0.1090 | 1.511 | 0.014 | 0.75 % |
+| initial field, PIMPLE Co 2 (B) | 96-150 | 0.1435 | 2.008 | 1.136 | (not sampled) |
+| PISO Co 1, swing | 96-150 | 0.1250 | 1.939 | 1.030 | 0.77 % |
+
+Over 100-200 t_c the matched run's St would be -27 % and its mean Cd +15.5 % from the references (0.133, 2.1): outside
+the pass rule's 10 % and 15 % on both, had a detected window existed. Its "St" is the lift spectrum's peak of an
+irregular signal (about one main cycle per 10 t_c), not a clean shedding frequency.
+
+Reading: with the default start-up and the experiment's approach turbulence at 3 D upstream, this coarse 2D URANS case
+sheds, but on a fourth state, irregular, slower and with more drag than the PASS run's, and the app's detection never
+declares it settled. The change of inflow is large in the model's terms (nut/nu about 70 instead of about 4 at 3 D
+upstream, from the ratio 100 needed to keep 2 % over 16.5 D of decay), so this run shows how sensitive the state is
+to the free-stream turbulence as much as to the start-up.
