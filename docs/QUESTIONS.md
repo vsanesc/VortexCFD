@@ -584,4 +584,12 @@ settled the open ones on 2026-10-17.
      vault note and the wallMountedHump tutorial), and `Gauss LUST grad(U)` is the other choice in Physics. If the
      decision was DEShybrid blending LUST (LUST in the LES region instead of linear), it is a one-entry change:
      confirm which.
+261. **[OPEN]** [NUMERICS-REVIEW] **DDES cost: the pressure solve, and which DDES case for Part 3.** The 3D square
+     cylinder DDES (810,540 cells) costs 12.9 s per step at its fastest count (8 processes; 6 to 12 are within 15 %),
+     about 3.5 PIMPLE outer correctors and 490-560 GAMG iterations for p per step: about 300 hours for the committed
+     100 t_c, so it was not run (docs/validation/square_ddes/RESULT.md); an Ahmed DDES of 8-12 M cells would take
+     15-38 days. Options: (a) a cheaper pressure solve for transient runs (a relative tolerance on the final
+     corrector, fewer outer correctors, or PISO for DDES), a numerics change; (b) a smaller DDES validation case for
+     Part 3 (the 2D coarse section extruded in 10 cells, about 0.27 M cells, about 20 h at Co 2 to 70 t_c), or the
+     NASA wall-mounted hump of the vault note once the app can set an inflow boundary layer. Which?
 
