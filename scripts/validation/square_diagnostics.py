@@ -66,6 +66,7 @@ def cmd_restart(_args) -> None:
     src, dst = WORK / "coarse", WORK / "coarse_restart_co1"
     if dst.exists():
         shutil.rmtree(dst)
+    dst.mkdir(parents=True)
     for name in ("square.json", "square.dat", "geometry"):
         (shutil.copytree if (src / name).is_dir() else shutil.copy2)(src / name, dst / name)
     case, origin = dst / "case", src / "case"
