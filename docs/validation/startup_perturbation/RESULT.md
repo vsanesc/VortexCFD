@@ -28,11 +28,12 @@ Differences from "none" against the rule's limit v = max(|half-difference| of th
 | swing | 2.3e-7 / 2.4e-5 | 2.9e-6 / 4.2e-5 | 4.5e-4 (0.20 %) / 1.6e-3 | **equivalent** |
 
 **Verdict under the committed rule: the inflow swing is equivalent to no perturbation; the initial-field
-perturbation is not** — its St and mean Cd agree to 1e-6 and 5e-5 relative, but its RMS Cl is 0.85 % higher, 4 %
+perturbation fails the rule (not equivalent)** — its St and mean Cd agree to 1e-6 and 5e-5 relative, but its RMS Cl is 0.85 % higher, 4 %
 over the limit (1.93e-3 against 1.85e-3). Reading (not part of the verdict): in all three runs the RMS of Cl still
 falls from the first half to the second (by 0.5-0.8 %), so the lift amplitude was still settling slowly at 180-240
-t_c, and the initial-field run, whose shedding grew differently, sits slightly higher on that slow approach. A later
-or longer window would probably close the gap; that was not run, and the rule is not changed.
+t_c, and the initial-field run, whose shedding grew differently, sits slightly higher on that slow approach. Whether
+the unperturbed run had settled is checked by the follow-up A2 (SETUP.md, rule committed before it); A's rule is not
+relaxed.
 
 **Start-up time** (the app's detection on each force history: two windows of 20 t_c, mean of Cd within 0.5 %,
 ranges within 5 %, both windows after the perturbation's end):

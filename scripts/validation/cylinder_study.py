@@ -6,6 +6,7 @@ would, and the three-level mesh study on St and the mean Cd.
     nice -n 15 .venv/bin/python scripts/validation/cylinder_study.py level --name coarse --end 60 --start 30 --write 25 --tag short
     nice -n 15 .venv/bin/python scripts/validation/cylinder_study.py level --name coarse --end 120 --tag pimple2 \
         --set algorithm=pimple --set max_courant=2 --set perturb=true
+    nice -n 15 .venv/bin/python scripts/validation/cylinder_study.py continue --run coarse_none --end 300
     .venv/bin/python scripts/validation/cylinder_study.py collect     # -> docs/validation/cylinder_re100/result.json
 
 The projects go to run/validation/cylinder_re100/ (git-ignored); the numbers to docs/validation/cylinder_re100/.
@@ -108,6 +109,37 @@ def cmd_level(args) -> None:
     say(f"wrote {path}")
 
 
+def cmd_continue(args) -> None:
+    """Continue a run to a later end time with the app's Continue (D-189): the sampling start and every other setting
+    kept; the run's record (WORK/<run>.json) gains "continued" and the new transient results."""
+    from vortexcfd.core.project import Project
+    from vortexcfd.foam.run_record import RunRecord
+
+    folder = WORK / args.run
+    path = WORK / f"{args.run}.json"
+    data = json.loads(path.read_text())
+    project = Project.open(folder / "cylinder.json")
+    project.update_transient(end_time=args.end)
+    project.save()
+    tr = data["solve"]["transient"]
+    record = RunRecord(data["solve"]["state"], tr["steps"], {}, "", 0, transient=tr,
+                       settings_hash=solving.solution_hash(project))
+    case, resume = solving.prepare_continue(project, record)
+    t0 = time.monotonic()
+    run = SolverRun(case, cores=project.sim.solvers.cores, timeout_s=3 * 3600, resume=resume)
+    run.start()
+    result = run.wait()
+    seconds = time.monotonic() - t0
+    stats = (result.transient or {}).get("statistics") or {}
+    say(f"continued {args.run}: {result.state} to t = {result.transient.get('end_time')} in {seconds:.0f} s; "
+        f"{result.transient.get('steps')} steps in all; St {stats.get('strouhal')}")
+    data["solve"]["continued"] = {"end": args.end, "state": result.state, "solve_s": round(seconds, 1),
+                                  "steps_total": result.transient.get("steps")}
+    data["solve"]["transient"] = result.transient
+    path.write_text(json.dumps(data, indent=2) + "\n")
+    say(f"wrote {path}")
+
+
 def cmd_collect(_args) -> None:
     rows = {}
     for name in cc.LEVELS:
@@ -156,6 +188,10 @@ def main() -> None:
     level.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
                        help="a Transient setting, e.g. algorithm=pimple, max_courant=2, perturb=true (Part 2)")
     level.set_defaults(func=cmd_level)
+    cont = sub.add_parser("continue")
+    cont.add_argument("--run", required=True, help="the run folder's name, e.g. coarse_none")
+    cont.add_argument("--end", type=float, required=True, help="the new end time (t_c)")
+    cont.set_defaults(func=cmd_continue)
     sub.add_parser("collect").set_defaults(func=cmd_collect)
     args = parser.parse_args()
     args.func(args)

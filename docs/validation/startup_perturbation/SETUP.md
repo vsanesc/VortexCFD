@@ -73,3 +73,22 @@ low frequency, so its detection settles late either way: 95.8 t_c in the referen
 
 Ryzen 9 5900X, WSL2, OpenFOAM v2606. Another workload ran on the other cores during these runs: every wall time
 here is indicative only, measured with another workload running; no cost or scaling conclusion is drawn from them.
+
+## A2. Follow-up: the three cylinder runs extended to 300 t_c (owner's addendum)
+
+Written and committed before the extension runs; A's verdict (the initial-field perturbation fails its rule) stands
+and A's rule is not relaxed. This follow-up checks whether the unperturbed run had fully settled on its limit cycle in
+180-240 t_c.
+
+Runs: the three A runs (none, initial, swing) continued from 240 to 300 t_c with the app's Continue (D-189;
+`scripts/validation/cylinder_study.py continue --run coarse_<run> --end 300`), every setting kept (sampling from
+180 t_c, PISO at Co 1, 4 processes), one at a time. Measured as in A over the window [240, 300] t_c and its halves
+[240, 270] / [270, 300].
+
+**Rule 1 (settling of "none").** The unperturbed run had settled in 180-240 when, for each of St, mean Cd and RMS Cl,
+|Q_none[240, 300] − Q_none[180, 240]| ≤ |Q_none[180, 210] − Q_none[210, 240]| (its own window-to-window variability in
+A). Otherwise it had not, and the change is reported.
+
+**Rule 2 (equivalence in the later window).** A's rule applied to [240, 300]: a perturbed run is equivalent to "none"
+when, for each of St, mean Cd and RMS Cl, |Q_run − Q_none| over [240, 300] ≤ max(|Q_run[240, 270] − Q_run[270, 300]|,
+|Q_none[240, 270] − Q_none[270, 300]|). This is reported beside A's verdict, not in place of it.
