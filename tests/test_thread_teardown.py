@@ -142,3 +142,51 @@ def test_the_teardown_freed_the_previous_windows_vtk_objects_with_no_context_cur
     from PySide6.QtGui import QOpenGLContext
 
     assert _renderers() == 0 and QOpenGLContext.currentContext() is None
+
+
+def _vtk_objects() -> int:
+    import gc
+
+    from vtkmodules.vtkCommonCore import vtkObjectBase
+
+    return sum(isinstance(o, vtkObjectBase) for o in gc.get_objects())
+
+
+def test_closing_the_window_frees_its_vtk_garbage_with_no_context_current(qtbot: QtBot, tmp_path: Path) -> None:
+    """D-193 in the application: closing the main window leaves no unreachable VTK object for a later collection,
+    and no OpenGL context current."""
+    import gc
+
+    from PySide6.QtGui import QOpenGLContext
+
+    w = _window(qtbot, tmp_path, FakeDialogs())
+    for _ in range(3):  # scenes replaced: their actors become garbage
+        w.viewer.clear()
+        w.viewer.add_mesh(pv.Sphere())
+        w.viewer.render()
+    w.close()
+    assert QOpenGLContext.currentContext() is None
+    left = _vtk_objects()
+    gc.collect()
+    assert _vtk_objects() == left  # nothing VTK was left in cycles for a later collection
+    qtbot.addWidget(w)
+
+
+def test_an_exported_image_leaves_no_vtk_garbage(qtbot: QtBot, tmp_path: Path) -> None:
+    """D-193: the offscreen plotter of an image export is freed at the end of the export, not by a later
+    collection while the viewer's context is current."""
+    import gc
+
+    from vortexcfd.gui.image_export import render_image
+
+    w = _window(qtbot, tmp_path, FakeDialogs())
+    w.viewer.add_mesh(pv.Sphere())
+    w.viewer.render()
+    gc.collect()
+    before = _vtk_objects()
+    image = render_image(w.viewer, (64, 48))
+    assert image.actors >= 1
+    after = _vtk_objects()
+    gc.collect()
+    assert _vtk_objects() == after and after <= before + 5
+    qtbot.addWidget(w)

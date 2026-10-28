@@ -4140,6 +4140,12 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         console_log.detach(self._console_handler)
         if self.viewer is not None:
             self.viewer.close()  # pyvista finalizes the render window and the interactor
+            self.viewer.deep_clean()  # its renderers drop their props, cameras and lights
+        # VTK objects left in reference cycles (earlier scenes, the closed viewer's) are freed here, with no OpenGL
+        # context current, not by a later collection under another context (D-193)
+        from vortexcfd.gui.teardown import collect_garbage
+
+        collect_garbage()
 
     def event(self, event) -> bool:
         if event.type() == QEvent.Type.DeferredDelete:  # deleted without an accepted close (tests, scripts)

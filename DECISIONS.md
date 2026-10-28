@@ -1911,6 +1911,15 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   `flush_deletions` before and after the deferred deletions; tests/conftest.py's autouse flush runs before each test
   as well as after it (pytest-qt deletes the qtbot widgets in a hook after the fixtures' teardown). Every earlier
   window's VTK objects are then freed at a fixed point, with no context current, before a new window exists.
+- In the application (Part 2 review): only two objects own VTK render windows, the main window's viewer
+  (gui/main_window.py, QtInteractor) and image export's temporary offscreen plotter (gui/image_export.render_image);
+  Snapshots, Compare and the detached monitor and report-chart windows hold none. Closing the main window
+  finalized its render window (D-164) but its renderers stayed reachable from the window and their cyclic garbage
+  was left to a later collection; the export plotter's too. Now `_release_background` closes the viewer, calls its
+  deep_clean (the renderers drop their props, cameras and lights) and `collect_garbage()`; `render_image` closes,
+  deep-cleans and drops its plotter and calls `collect_garbage()`. Checks:
+  test_closing_the_window_frees_its_vtk_garbage_with_no_context_current and
+  test_an_exported_image_leaves_no_vtk_garbage (both fail on the previous code).
 - Check: tests/test_thread_teardown.py::test_a_viewer_window_whose_vtk_objects_are_left_in_cycles and
   test_the_teardown_freed_the_previous_windows_vtk_objects_with_no_context_current (fails with the old teardown,
   4 renderers left); 20 consecutive single-process runs of the GUI test files under a nice 15 fast suite (STATUS).
