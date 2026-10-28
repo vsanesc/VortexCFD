@@ -25,6 +25,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+from vortexcfd.core.user_dirs import isolate_settings  # noqa: E402
+
+isolate_settings()  # never the user's settings (D-141); it opens no window
 
 from vortexcfd.foam import transient  # noqa: E402
 from vortexcfd.foam.logparse import parse_log_text  # noqa: E402
