@@ -46,3 +46,31 @@ ranges within 5 %, both windows after the perturbation's end):
 
 (The indicative wall times are each run's solver time scaled by its share of steps; 4 processes, measured with
 another workload running.) The swing saves more start-up time here than the initial-field perturbation.
+
+## B. Square cylinder, Re 22,000, URANS, coarse level
+
+One new run with the initial-field perturbation only (27,234 cells, PIMPLE at Co 2, 6 processes, mesh on 6;
+sampling set at 96 t_c, end 150 t_c; 83,214 steps, Δt 0.00039-0.0023 s, the Courant number above 2 only in the first
+step; 2,994 s of solver time, indicative only: measured with another workload running) against the existing PIMPLE
+Co 2 run with the inflow swing (run/validation/square_re22000/coarse, 4 processes), cut to the same window. Numbers:
+[square.json](square.json).
+
+| Run | St | mean Cd | RMS Cl |
+|---|---|---|---|
+| swing (reference) | 0.1353 (0.1359 / 0.1368) | 2.129 (2.154 / 2.103) | 1.405 (1.421 / 1.386) |
+| initial | 0.1435 (0.1435 / 0.1435) | 2.008 (2.008 / 2.007) | 1.136 (1.141 / 1.132) |
+
+| | St: d / v | mean Cd: d / v | RMS Cl: d / v | Verdict |
+|---|---|---|---|---|
+| initial vs swing | 8.2e-3 (6.1 %) / 9.3e-4 | 0.121 (5.7 %) / 0.051 | 0.269 (19.1 %) / 0.035 | **not equivalent** |
+
+**Verdict under the committed rule: the initial-field run is not equivalent to the swing run**: every quantity
+differs by several times the window-to-window variability. What the two runs show: they settle on different
+sustained states of the same set-up. The initial-field run sheds at a constant amplitude from about 10 t_c (lift
+range 3.18 in every 10 t_c from 60 to 150 t_c, mean Cd 2.00-2.02 per 10 t_c); the swing run's shedding stays
+modulated at low frequency (lift range 3.6-4.4 per 10 t_c, RESULT.md of the square cylinder). On this case the
+start-up perturbation chooses the answer, not only how soon it comes; with measurement C (PIMPLE Co 1 losing the
+shedding) this is evidence for QUESTIONS 257 that the coarse 2D URANS solution has more than one sustained state.
+
+Start-up time by the app's detection (for information, as SETUP.md says): initial 73.0 t_c after 40,057 steps; swing
+96.0 t_c after 54,002 steps (the reference run's live detection said 95.8 t_c).
