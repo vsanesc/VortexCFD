@@ -176,3 +176,34 @@ scale of the turbulence"; an inflow viscosity ratio of 10 recommended, the inflo
   2 at all three near-wake points (887-3,530 against 2-574). By the rule this makes eddy-viscosity damping a candidate
   in C, not a proof: with a (the same Co 1 sustains the shedding when started from it), the high wake eddy viscosity
   may as well be a property of the steady state (long, steady shear layers) as its cause.
+
+### c. C rerun with turbOnFinalIterOnly false (diagnostic only)
+
+C exactly, with `turbOnFinalIterOnly no;` written into the case's PIMPLE dictionary after the app wrote it (k and omega
+solved in every outer corrector); no app code or setting changed. 141,024 steps, 2.5 outer correctors per step, 5,832
+s (indicative only: measured with another workload running), the Courant number above 1 only in the first step.
+Numbers: [diagnostic_c.json](diagnostic_c.json).
+
+| Run | St | mean Cd | RMS Cl | mean Cl | lift range 130-140 / 140-150 |
+|---|---|---|---|---|---|
+| C: turbOnFinalIterOnly true (default) | 0.1090 | 1.511 | 0.014 | 0.122 | 0.04 / 0.02 |
+| c: turbOnFinalIterOnly false | 0.1077 | 1.512 | 0.016 | 0.113 | **0.03 / 0.02** |
+
+**Verdict under the rule: the shedding decays** (lift range ≤ 0.2 in both intervals). Reading fixed in advance:
+solving the turbulence only on the final outer corrector is not (alone) the cause of C's loss of shedding. The lift
+histories of C and c agree nearly interval by interval (lift range per 10 t_c 2.44 / 2.45, 1.27 / 1.19, 0.22 / 0.21,
+then both 0.02-0.07; [lift_ranges.json](lift_ranges.json)).
+
+### What the diagnostics show together
+
+- At PIMPLE Co 1 on this mesh **two sustained states exist**: the developed shedding (sustained from a restart, a) and
+  a nearly steady wake with a small steady lift (mean Cl 0.11-0.12, its range 0.07-0.16: an asymmetric steady
+  solution), reached from the free stream (C, c). Which one a run ends in is decided during the start-up.
+- The lift histories (~/vortexcfd-research/1.1-urans-diagnostics/lift_all.png) show where: during the 10 t_c swing the
+  Co 1 runs (C, c) answer with about half the lift amplitude of PISO Co 1 and PIMPLE Co 2 (peak |Cl| 1.2-1.4 against
+  1.7-2.5), and after the swing their oscillation decays, while the others' grows into shedding. B adds a third
+  sustained state at PIMPLE Co 2 (constant-amplitude shedding after the initial-field start, St 0.1435, Cd 2.008).
+- The cause of the different start-up response at Co 1 is not established. Not the turbulence-per-outer-corrector
+  setting (c). The model's approach turbulence is about half the experiment's (b1), and C's steady wake carries 2-35
+  times the eddy viscosity of the shedding runs (b2), which would damp a weak oscillation; whether that is cause or
+  consequence of the steady state is open.

@@ -580,6 +580,20 @@ settled the open ones on 2026-10-17.
      the sensitivity; (b) tighten PIMPLE's outer convergence (outer tolerance, or a minimum of outer correctors) and
      repeat Co 1 / Co 2; (c) repeat on the medium level. Details: docs/validation/square_re22000/RESULT.md, "Time-step
      convergence". No default was changed.
+     **Diagnostics (owner's addendum; rules committed first, bd7273a) and my conclusion:** (a) PIMPLE Co 1 restarted
+     from the Co 2 run's developed shedding at 95.8 t_c keeps it (St 0.1352, Cd 2.131, RMS Cl 1.405, within 0.1 % of
+     Co 2): two sustained states, the start-up picks one. (b) The modelled approach turbulence at 3 D upstream is
+     0.75-1.0 % against the experiment's "about 2%" (ERCOFTAC UFR 2-02), the inlet being 19.5 D upstream; C's
+     near-wake nut/nu is 2-35 times the shedding runs'. (c) C with `turbOnFinalIterOnly false` decays exactly as C
+     (St 0.108, Cd 1.512): not the cause. With B (the initial-field start at Co 2 settles on yet another shedding
+     state, St 0.1435, Cd 2.008), the coarse 2D URANS square cylinder has **several sustained states, and the
+     start-up (perturbation, time step, coupling) selects which one a run reaches**; Co 1 is not "converged" towards
+     any one of them. The PASS (PIMPLE Co 2, the swing) is therefore one of several possible answers of the same
+     set-up and should stay "PASS under investigation". Not tested and possible next steps, for the owner: (1) the
+     medium level with the same three starts (is the multiplicity a coarse-mesh effect?); (2) the inlet moved to about
+     10 D upstream, or its intensity raised so that about 2 % reaches the body (b1); (3) a reporting rule in the app
+     that flags a transient run whose statistics depend on its start (for example two starts compared) before calling
+     a URANS result validated. Lift histories: ~/vortexcfd-research/1.1-urans-diagnostics/. No default was changed.
 258. **[CLOSED (owner, 2026-10-28): approved; D-192 Accepted]** [NUMERICS-REVIEW] **k and omega by linearUpwind instead of limitedLinear (D-192, amends the accepted
      D-181).** limitedLinear 1 drove omega negative and crashed the first URANS run (the square cylinder) in its
      first step; linearUpwind on cell-limited gradients ran without a single clip. Accept the change?
