@@ -1740,7 +1740,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   push printed).
 
 ## D-186 The start-up detection's tolerance is editable; the sampling start can be set by hand [NUMERICS-REVIEW]
-- Status: Proposed (task 1.1-transient, Part 2, Part A item 3; the owner's condition for accepting the detection rule
+- Status: Accepted (owner, 2026-10-28). Was Proposed (task 1.1-transient, Part 2, Part A item 3; the owner's condition for accepting the detection rule
   of D-181, QUESTIONS 251).
 - Decision: `Transient.detect_tolerance` (schema v25, default 0.05): the largest relative change of the ranges
   (max - min) of Cd and Cl (and of the stop quantity) between two consecutive windows for which the start-up
@@ -1763,7 +1763,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Check: tests/test_transient.py::test_changing_the_time_unit_converts_the_values (there and back; one undo).
 
 ## D-189 Continue a transient run to a later end time [NUMERICS-REVIEW]
-- Status: Proposed (task 1.1-transient, Part 2, Part A item 4; the transient counterpart of D-171).
+- Status: Accepted (owner, 2026-10-28). Was Proposed (task 1.1-transient, Part 2, Part A item 4; the transient counterpart of D-171).
 - Decision: a transient solution that was stopped, reached its end time or met the statistics stop, with a written
   time, can be continued: Continue Solver asks for the new end time (in the project's unit), writes controlDict
   again (startFrom latestTime, the new end, the write interval that ends on it counted from the restart, the live
@@ -1786,7 +1786,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   test_a_changed_transient_set_up_can_only_start_over, test_a_sampling_start_set_by_hand_after_an_undetected_start_up.
 
 ## D-190 A laminar project sizes its prism layers by a first-cell thickness, not y+ [NUMERICS-REVIEW]
-- Status: Proposed (task 1.1-transient, Part 2, Part A item 5; QUESTIONS 252).
+- Status: Accepted (owner, 2026-10-28). Was Proposed (task 1.1-transient, Part 2, Part A item 5; QUESTIONS 252).
 - Context: y+ sizing assumes a turbulent boundary layer; at Re 100 it gives a first layer of about 0.1 D.
 - Decision: in a laminar project absolute layer sizing uses `Mesh.first_layer_height` (m, schema v25; None: auto,
   `workflow.meshing.LAMINAR_FIRST_FRACTION` 0.1 x sqrt(nu L / U) on the surface size length L, a tenth of the laminar
@@ -1798,7 +1798,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Check: tests/test_transient.py::test_a_laminar_project_sizes_its_layers_by_a_first_cell_thickness.
 
 ## D-185 PIMPLE with outer correctors and residual control; PISO or PIMPLE by case type [NUMERICS-REVIEW]
-- Status: Proposed (task 1.1-transient, Part 2, Part A item 1).
+- Status: Accepted (owner, 2026-10-28; the PIMPLE turbulent default unchanged per D-199). Was Proposed (task 1.1-transient, Part 2, Part A item 1).
 - Context: wall-resolved meshes make Courant-1 steps tiny; outer correctors let a step run at a Courant number of 2-5.
 - Decision: `Transient.algorithm` "auto" (default), "piso" or "pimple"; `max_courant` None (auto), `outer_correctors`
   (the most per step, default 10, PIMPLE only), `outer_tolerance` (default 1e-4). PISO writes nOuterCorrectors 1.
@@ -1831,7 +1831,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   test_adaptive_time_step_dictionaries, test_the_rows_of_a_transient_project.
 
 ## D-187 A start-up perturbation for transient external flow: the inflow swings at 0.2 U / l_ref [NUMERICS-REVIEW]
-- Status: Proposed (task 1.1-transient, Part 2, Part A item 2). Amended by D-198: the swing is now a declared option,
+- Status: Accepted (owner, 2026-10-28; as amended by D-198). Was Proposed (task 1.1-transient, Part 2, Part A item 2). Amended by D-198: the swing is now a declared option,
   off by default (it was on by default), beside a second one, the initial-field perturbation.
 - Context: from rest, a symmetric body's shedding grows from round-off: on the coarse cylinder the start-up was
   detected only at 151.7 t_c and 3 sampled cycles took 345 s of solver time on 4 cores (Part 1's requirement: 5 min).
@@ -1860,7 +1860,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   test_the_detection_tolerance_and_the_end_of_the_perturbation; RESULT.md "Part 2"., test_a_sampling_start_inside_the_perturbation_is_refused.
 
 ## D-191 k-omega SST DDES, transient and 3D only [NUMERICS-REVIEW]
-- Status: Proposed (task 1.1-transient, Part 2, Part B); ships experimental and not validated in 1.1 (D-197). Every
+- Status: Accepted (owner, 2026-10-28; DDES experimental per D-197). Was Proposed (task 1.1-transient, Part 2, Part B); ships experimental and not validated in 1.1 (D-197). Every
   dictionary entry and default below is [NUMERICS-REVIEW]; the vault note "1.1 URANS y DES" (read-only) flags one open point: kOmegaSSTDDES's GbyNu
   returns the unlimited production (`// Unlimited`), not checked against Gritskevich et al. 2012.
 - Model (schema v25): `Physics.turbulence_model` "kOmegaSSTDDES" (rejected unless the flow is transient; a 2D project
@@ -1962,7 +1962,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Check: tests/test_transient.py::test_a_courant_number_held_down_by_the_largest_step_is_reported.
 
 ## D-195 The DDES wall distance by meshWave instead of exactDistance [NUMERICS-REVIEW]
-- Status: Proposed, **not approved** (task 1.1-transient, Part 2 closing brief; QUESTIONS 262). Recorded after the
+- Status: Accepted (owner, 2026-10-28; meshWave for the experimental DDES, to be revisited with the Ahmed body, QUESTIONS 262). Was Proposed, not approved (task 1.1-transient, Part 2 closing brief; QUESTIONS 262). Recorded after the
   fact: commit c6ff8b5 (2026-10-27, titled for D-193) changed this entry of a DDES case's fvSchemes without a
   [NUMERICS-REVIEW] tag or a decision of its own; the history is left as it is and the change is recorded here.
 - Change: system/fvSchemes of a DDES case (D-191), `wallDist { method exactDistance; nRequired yes; }` (the v2606

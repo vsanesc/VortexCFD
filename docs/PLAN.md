@@ -294,7 +294,7 @@ Progress (task/1.1-transient, in the worktree ~/proyectos/vortexcfd-1.1):
 | B | Validation: the circular cylinder at Re 100 (laminar, 2D), three-level mesh study | **done**: docs/validation/cylinder_re100/RESULT.md |
 | C | Docs: manual chapter 10, STATUS, PLAN, QUESTIONS, CHANGELOG | **done** |
 | 2 | PIMPLE, start-up perturbations, Continue for transient runs, DDES (experimental), the square cylinder URANS investigation (not a validation, D-199) | **done** (Proposed, [NUMERICS-REVIEW]; D-184 to D-198) |
-| left | Transient mesh study and polar sweep; per-part statistics | not started |
+| Later | Transient mesh study and polar sweep; per-part statistics | moved out of 1.1 (QUESTIONS 254) |
 | Later | The Ahmed 25 degree body with DDES; a DDES validation case that fits the machine and the DDES pressure-solve cost (QUESTIONS 261); matched free-stream turbulence through kOmegaSST's decay control (its sustaining terms); the medium-mesh and 3D URANS of the square cylinder | moved out of 1.1 (D-197, D-199) |
 
 ## Next plan: the post-v1 backlog

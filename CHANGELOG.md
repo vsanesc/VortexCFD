@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased (1.1)
+## 1.1.0 (2026-10-28)
+
+Transient incompressible flow. Scope of this release:
+- **Validated:** laminar transient flow (the circular cylinder at Re 100, docs/validation/cylinder_re100/).
+- **Available, not validated:** URANS (k-omega SST, transient; D-199) and k-omega SST DDES (experimental; D-197).
+  Physics shows an inline notice for each.
 
 ### Added
 - **Transient incompressible flow** (D-181, [NUMERICS-REVIEW]): Physics > Flow "Incompressible, transient" runs
@@ -48,17 +53,21 @@
 - Transient k and omega use linearUpwind on limited gradients (D-192, accepted, [NUMERICS-REVIEW]): limitedLinear
   crashed a URANS run in its first step.
 - DDES: the U convection is DEShybrid with LUST in the LES region and linearUpwind in the RANS region (D-196); the wall
-  distance is computed by meshWave (D-195, under review: QUESTIONS 262).
-
-## 1.0.1 (unreleased)
+  distance is computed by meshWave (D-195, accepted for the experimental DDES; to be revisited with the Ahmed body,
+  QUESTIONS 262).
 
 ### Security
-
-- Security: Pillow updated to 13.0.0, fixing 41 advisories (the open Dependabot alerts, among them heap overflows in
-  the JPEG, TIFF and FlashPix decoders and an argument injection in the Ghostscript call), and certifi updated to
-  2026.10.23, fixing 1 advisory (GHSA-6q48-6c7w-9gw2: the emSign ECC Root CA - G3, whose intermediate CAs' keys were
+- Pillow updated to 13.0.0, fixing 41 advisories (the open Dependabot alerts, among them heap overflows in the JPEG,
+  TIFF and FlashPix decoders and an argument injection in the Ghostscript call), and certifi updated to 2026.10.23,
+  fixing 1 advisory (GHSA-6q48-6c7w-9gw2: the emSign ECC Root CA - G3, whose intermediate CAs' keys were
   compromised, is no longer trusted); D-183. VortexCFD does not open user images (Pillow writes the PNG exports and
-  the .ico); nothing else changed.
+  the .ico); nothing else changed. Already published on main (pull request #37); planned as 1.0.1, which was never
+  released on its own.
+
+### Known limitations
+- A transient project has no mesh study and no polar sweep (both refused with a message).
+- The transient statistics (mean and RMS of the coefficients) are for all walls only, not per part.
+- URANS and DDES are available but not validated (see the scope above).
 
 ## 1.0.0 (2026-10-24)
 

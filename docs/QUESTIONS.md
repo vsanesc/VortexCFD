@@ -527,7 +527,7 @@ settled the open ones on 2026-10-17.
 
 ## Task 1.1-transient (Parts 0, A, B, C)
 
-248. **[OPEN]** **The 1.1 roadmap section was not in the repository.** docs/PLAN.md had no 1.1 section; the owner's
+248. **[CLOSED (owner, 2026-10-28): checked, as meant; scope later revised by D-197 and D-199]** **The 1.1 roadmap section was not in the repository.** docs/PLAN.md had no 1.1 section; the owner's
      decisions T1-T6 were taken from the task brief and are now written in PLAN ("Release 1.1: transient flow").
      Please check they are as you meant them.
 249. **[CLOSED (owner, 2026-10-27): accepted, keep l_ref / U and the name; D-181]** **"Flow-through time" is l_ref / U (D-181).** The app's time unit is the convective time of the
@@ -549,7 +549,7 @@ settled the open ones on 2026-10-17.
      1996), mean Cd about 1.33 and RMS Cl about 0.23 (Park, Kwon & Choi 1998; Qu et al. 2013; Posdziech & Grundmann
      2007) are the values these papers are commonly quoted with; they were not re-read here (no access to the
      papers). Please confirm them, in particular Qu et al. 2013's Re 100 table.
-254. **[OPEN]** **Left for the next 1.1 parts.** Continue for a transient run (it starts from the beginning each
+254. **[CLOSED (owner, 2026-10-28): Continue done in Part 2; DDES and the Ahmed body per D-197; the transient mesh study, polar sweep and per-part statistics stay out of 1.1 as known limitations and move to Later]** **Left for the next 1.1 parts.** Continue for a transient run (it starts from the beginning each
      time; Continue is off for it), the mesh study and polar sweep of a transient project (refused with a message),
      the transient per-part coefficients' statistics (all walls only), DDES and the Ahmed body.
 255. **[CLOSED (owner, 2026-10-27, Part 2 brief): convert them; done, D-188]** **Changing "Times in" does not convert the values (D-181).** The four time fields keep their numbers
