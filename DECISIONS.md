@@ -1823,7 +1823,10 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   Accuracy on that case (Part 2 review, statistics over 96-150 t_c): PISO at Co 1 St 0.1250, Cd 1.939; PIMPLE at
   Co 2 St 0.1353, Cd 2.129: 8-9 % apart, each self-consistent to 1-2 % across the window's halves. On a turbulent
   case with wall layers the coupling is not neutral; PIMPLE was the nearer to the experiment (St 0.132-0.133,
-  Cd 1.9-2.2). Not a reason to change any default without the owner (QUESTIONS 257).
+  Cd 1.9-2.2). Not a reason to change any default without the owner (QUESTIONS 257). Measurement C (closing brief,
+  rule committed first): PIMPLE at Co 1 over the same window, St 0.1090 and Cd 1.511 (-19 % and -29 % from PIMPLE
+  Co 2): its shedding decays after the start-up swing to a nearly steady wake; no time-step convergence is shown
+  (docs/validation/square_re22000/RESULT.md, "Time-step convergence"). Defaults unchanged.
 - Check: tests/test_transient.py::test_piso_or_pimple_per_case_type_and_by_choice,
   test_adaptive_time_step_dictionaries, test_the_rows_of_a_transient_project.
 

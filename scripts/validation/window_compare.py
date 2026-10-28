@@ -85,7 +85,8 @@ def compare(run: dict, ref: dict, rule: str, tolerance: float) -> dict:
             ok = diff <= limit if q in ("st", "cd_mean") else None
         rows[q] = {"diff": diff, "relative": relative, "limit": limit, "within": ok}
     decided = [r["within"] for r in rows.values() if r["within"] is not None]
-    return {"quantities": rows, "verdict": "equivalent" if all(decided) else "not equivalent"}
+    words = ("equivalent", "not equivalent") if rule == "halves" else ("agree", "do not agree")
+    return {"quantities": rows, "verdict": words[0] if all(decided) else words[1]}
 
 
 def main() -> None:

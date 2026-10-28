@@ -569,6 +569,17 @@ settled the open ones on 2026-10-17.
      PISO Co 1 St 0.1250, mean Cd 1.939; PIMPLE Co 2 St 0.1353, mean Cd 2.129 (8-9 % apart, each stable to 1-2 %
      across the window; the experiment: St 0.132-0.133, Cd 1.9-2.2). Keep
      PIMPLE as the turbulent default, or PISO everywhere with PIMPLE as an option?
+     **Measurement C (2026-10-28; rule committed first, 8f73cbc):** PIMPLE at Co 1, the same start-up and window:
+     St 0.1090, mean Cd 1.511, RMS Cl 0.014 against PIMPLE Co 2's 0.1353 / 2.129 / 1.405: **not within 2 %** (St
+     -19.4 %, Cd -29.0 %), so no time-step convergence can be claimed and PISO is not shown to be the outlier. At Co 1
+     PIMPLE's shedding decays after the swing ends (lift range 2.4 -> 0.03 per 10 t_c by 50 t_c) to a nearly steady,
+     symmetric wake; PISO Co 1 and PIMPLE Co 2 shed throughout with different amplitudes. My reading: on this coarse
+     2D URANS mesh the answer depends on the time step and the coupling, and halving the step moved it away from the
+     experiment rather than towards a limit; the square cylinder PASS (PIMPLE Co 2) stands as measured but is not
+     shown to be time-step independent. The cause is not established. Options: (a) keep the defaults and document
+     the sensitivity; (b) tighten PIMPLE's outer convergence (outer tolerance, or a minimum of outer correctors) and
+     repeat Co 1 / Co 2; (c) repeat on the medium level. Details: docs/validation/square_re22000/RESULT.md, "Time-step
+     convergence". No default was changed.
 258. **[CLOSED (owner, 2026-10-28): approved; D-192 Accepted]** [NUMERICS-REVIEW] **k and omega by linearUpwind instead of limitedLinear (D-192, amends the accepted
      D-181).** limitedLinear 1 drove omega negative and crashed the first URANS run (the square cylinder) in its
      first step; linearUpwind on cell-limited gradients ran without a single clip. Accept the change?
