@@ -157,3 +157,86 @@ Rule: as a, the shedding **persists** (lift range ≥ 1.0 in each of [130, 140] 
 each) or is **undecided**. Reading fixed in advance: persists while C decays -> solving the turbulence only on the
 final outer corrector is implicated in C's loss of shedding, and its St and mean Cd are then compared with PIMPLE
 Co 2 by C's 2 % rule; decays -> that setting is not (alone) the cause.
+
+## Matched inflow turbulence, default start-up (QUESTIONS 257 follow-up)
+
+Written and committed before the run; the rule below is not changed after it. The earlier runs and their inflow
+(intensity 2 % and viscosity ratio 10 at the inlet, "Case" above) stay documented as they are. This changes the
+validation case's inputs only, not the app's numerics or defaults.
+
+### What the experiment's approach flow was
+
+ERCOFTAC Knowledge Base Wiki, UFR 2-02 Test Case (https://kbwiki.ercoftac.org/w/index.php/UFR_2-02_Test_Case, opened
+again 2026-10-28):
+- section "Test Case Experiments", paragraph 1: "The approach flow had a turbulence level of about 2 %."
+- same section, paragraph 7: "The approach flow was measured 3 cylinder widths upstream and had a turbulence level of
+  about 2%"; "In RANS calculations this was estimated by assuming a ratio of eddy viscosity to molecular viscosity in
+  the range 10 to 100"; "Bosch and Rodi (1998) found that the value of 10 is more suitable for this case"; "If uniform
+  inflow conditions are to be used in calculations, the inflow boundary should be placed further upstream (5 to 10
+  D)."
+- section "CFD Methods", paragraph 2: "a significant influence of the specification of the turbulent length scale at
+  inflow on the calculation results"; "a length scale based on the assumption of a ratio of eddy to molecular
+  viscosity of 10" was found "to be more realistic than the previously used value of 100"; "a location of the inflow
+  boundary 4.5 D upstream of the cylinder is too close", "the boundary should be shifted further upstream to about
+  10 D".
+
+### The free-stream decay in v2606's kOmegaSST
+
+Read in src/TurbulenceModels/turbulenceModels/Base/kOmegaSST/kOmegaSSTBase.C and .H (installed v2606): beta1 0.075,
+beta2 0.0828, betaStar 0.09 (the coefficients' defaults; the validation case sets none); beta = F1 beta1 + (1 - F1)
+beta2 (`blend`); the k sink betaStar omega k (`epsilonByk`), the omega sink beta omega^2; decayControl off by default
+(kInf = omegaInf = 0). In a uniform free stream the production (grad U = 0), the cross-diffusion term (grad k = grad
+omega = 0) and the diffusion vanish, so along the centre line, convected at U:
+
+    domega/dt = -beta omega^2   ->  omega(t) = omega0 / (1 + beta omega0 t)
+    dk/dt = -betaStar k omega   ->  k(t) = k0 (1 + beta omega0 t)^(-betaStar/beta)
+
+with beta = beta2 where F1 = tanh(arg1^4) is about 0 (F1 8e-5 at the inlet for the values below, 0.2 at 3 D
+upstream; integrating with F1(y) along the centre line changes k at 3 D upstream by 4e-6 relative: negligible).
+
+The inlet of the coarse mesh is at x = -19.49995 D (the mesh's smallest x; the front face is at x = 0), so a parcel
+takes t = (-3 - (-19.49995)) D / U = 16.49995 s (U = 1 m/s, D = 1 m) to reach 3 D upstream. nu = 1/22,000 =
+4.545455e-5 m²/s. The target at x = -3 D: I = 2 %, k = 1.5 (0.02 U)^2 = 6.0000e-4 m²/s².
+
+### The viscosity ratio 10 cannot give 2 % at 3 D upstream from this inlet
+
+With the ratio R at the inlet (omega0 = k0 / (R nu), the app's inlet rule), k(-3 D) = k0 (1 + a k0)^(-betaStar/beta2),
+a = beta2 t / (R nu). As a function of k0 it is largest at a k0 = 1 / (betaStar/beta2 - 1) = 11.5:
+- R = 10: a = 0.0828 x 16.49995 / (10 x 4.545455e-5) = 3005.63; k0 = 3.8262e-3; the largest k(-3 D) is 2.4574e-4,
+  I = 1.280 %: no inlet k reaches 2 %.
+- R = 10 applied at 3 D upstream instead: omega(-3 D) = 6.0e-4 / (10 nu) = 1.32 1/s, and 1/omega0 = 1/1.32 - beta2 t
+  = 0.7576 - 1.3662 < 0: no inlet state decays to it.
+- The smallest inlet ratio that reaches 2 % at 3 D upstream is R = 24.42 (with k0 at the maximum, I0 = 7.9 %). Even
+  an inlet at 10 D upstream (t = 7 s), not allowed here, would give at most 1.965 % with R = 10.
+
+Chosen (QUESTIONS 263 asks the owner): **R = 100 at the inlet**, the upper end of the page's range "10 to 100" (the
+"previously used value" in RANS for this case). With it the decay from the inlet to 3 D upstream is mild, so the
+match is the least sensitive to the extra numerical decay seen in diagnostic b; R = 24.4 would need 7.9 % at the inlet
+and sits exactly at the maximum, where any extra decay misses 2 %. Solving k0 (1 + a k0)^(-1.086957) = 6.0e-4 with a
+= 0.0828 x 16.49995 / (100 x 4.545455e-5) = 300.563 (bisection, the smaller root): **k0 = 7.479588e-4 m²/s², I0 =
+sqrt(2 k0 / 3) / U = 2.23302 %, omega0 = k0 / (100 nu) = 0.164551 1/s**; then 1 + beta2 omega0 t = 1.224809, and at 3 D
+upstream k = 6.0000e-4 (I = 2.0000 %), omega = 0.134348 1/s, nut/nu = 98.3. The app's inputs: Free stream >
+turbulence intensity 2.23302 % (0.022330230635474405) and viscosity ratio 100 (k = 1.5 (U I)^2, omega = k / (nu R)).
+
+### The run
+
+The coarse level as the earlier PIMPLE Co 2 run (run/validation/square_re22000/coarse): the same mesh settings and
+domain (meshed again, 6 processes), k-omega SST, PIMPLE at Co 2, the detected sampling start, end 150 t_c; the inflow
+above; **no start-up perturbation** (both options off, the app's default since D-198). 6 MPI processes, nice 15, a
+solver time limit of 3 h (`scripts/validation/square_study.py level --name coarse --end 150 --cores 6 --mesh-cores 6
+--timeout-h 3 --tag matched --intensity 0.022330230635474405 --viscosity-ratio 100 --set perturb=false --set
+perturb_initial=false`). If by 150 t_c the detection has not found a window with at least 5 shedding cycles, the run
+is continued once to 200 t_c with the app's Continue (D-189), the detection going on (`continue --run coarse_matched
+--end 200`), within the 3 h cap.
+
+### Rule
+
+1. **Inflow check**: the modelled intensity I = sqrt(2k/3) / U at the cell nearest (x, z) = (-3 D, 0), averaged over
+   the written times inside the sampled window (the sampling-switch time and the end; the upstream free stream is
+   steady), is within 2.0 ± 0.2 percentage points (1.8-2.2 %). If not, it is reported and the run still counts, but
+   the inflow is said not to be matched.
+2. **Shedding** (the rule of diagnostic a): "sheds" if the lift range (max - min of Cl) is ≥ 1.0 in both of the last
+   two 10 t_c intervals of the run; "steady" if ≤ 0.2 in both; otherwise "undetermined".
+3. **If it sheds**: this file's original pass rule (ERCOFTAC UFR 2-02, Lyn et al. 1995: St within 10 % of 0.133, mean
+   Cd within 15 % of 2.1) over the window the app's automatic start-up detection chose, which must hold at least 5
+   shedding cycles (the app's cycle count of the lift in the window). A window of fewer cycles gives no verdict.

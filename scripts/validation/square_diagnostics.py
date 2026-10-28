@@ -243,10 +243,47 @@ def cmd_plot(_args) -> None:
     say(f"figures in {FIGURES}")
 
 
+OVERLAY = (("matched inflow, no perturbation, PIMPLE Co 2", "coarse_matched", "#c0392b"),
+           ("swing, PIMPLE Co 2", "coarse", "#2a6f97"), ("swing, PIMPLE Co 1 (C)", "coarse_pimple_co1", "#7f8c8d"),
+           ("initial field, PIMPLE Co 2 (B)", "coarse_initial", "#27ae60"))
+
+
+def cmd_overlay(_args) -> None:
+    """The matched-inflow run's lift history over the earlier runs' (QUESTIONS 257 follow-up): one overlay and one
+    panel per run, offscreen, in FIGURES."""
+    import matplotlib
+
+    matplotlib.use("Agg")  # offscreen
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    FIGURES.mkdir(parents=True, exist_ok=True)
+    fig = plt.figure(figsize=(11, 2.2 * (len(OVERLAY) + 1.5)))
+    grid = fig.add_gridspec(len(OVERLAY) + 1, 1, height_ratios=[1.5] + [1] * len(OVERLAY))
+    top = fig.add_subplot(grid[0])
+    for i, (label, run, colour) in enumerate(OVERLAY):
+        data = np.array(lift(run))
+        say(f"{run}: " + " ".join(f"{a:g}:{r:.2f}" for a, r in ranges(data)))
+        top.plot(data[:, 0], data[:, 1], lw=0.5, color=colour, label=label)
+        ax = fig.add_subplot(grid[i + 1], sharex=top)
+        ax.plot(data[:, 0], data[:, 1], lw=0.4, color=colour)
+        ax.set_ylabel("Cl")
+        ax.set_title(label, fontsize=9, loc="left")
+    top.set_ylabel("Cl")
+    top.set_title("Square cylinder Re 22,000, coarse, 2D URANS: lift histories", fontsize=9, loc="left")
+    top.legend(fontsize=7, loc="upper right")
+    top.set_xlim(0, 150)
+    fig.axes[-1].set_xlabel("t / t_c")
+    fig.tight_layout()
+    fig.savefig(FIGURES / "lift_matched_overlay.png", dpi=130)
+    say(f"wrote {FIGURES / 'lift_matched_overlay.png'}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="cmd", required=True)
-    for name, func in (("restart", cmd_restart), ("rerun", cmd_rerun), ("sample", cmd_sample), ("plot", cmd_plot)):
+    for name, func in (("restart", cmd_restart), ("rerun", cmd_rerun), ("sample", cmd_sample), ("plot", cmd_plot),
+                       ("overlay", cmd_overlay)):
         sub.add_parser(name).set_defaults(func=func)
     args = parser.parse_args()
     args.func(args)

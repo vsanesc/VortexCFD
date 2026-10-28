@@ -44,6 +44,12 @@ def cmd_level(args) -> None:
         except json.JSONDecodeError:
             extra[key] = value
     project = sc.build_project(folder, args.name, end_time=args.end, cores=args.cores, **extra)
+    inflow = {k: v for k, v in (("turbulence_intensity", args.intensity), ("viscosity_ratio", args.viscosity_ratio))
+              if v is not None}
+    if inflow:  # the matched inflow turbulence (SETUP.md, QUESTIONS 257 follow-up)
+        project.update_inflow(**inflow)
+        project.save()
+        extra.update(inflow)
     if args.mesh_cores:
         project.update_mesh(cores=args.mesh_cores)
         project.save()
@@ -72,7 +78,7 @@ def cmd_continue(args) -> None:
     path = WORK / f"{args.run}.json"
     data = json.loads(path.read_text())
     project = Project.open(folder / "square.json")
-    project.update_transient(sampling_start=args.start, end_time=args.end)
+    project.update_transient(end_time=args.end, **({} if args.start is None else {"sampling_start": args.start}))
     project.save()
     tr = data["solve"]["transient"]
     record = RunRecord(data["solve"]["state"], tr["steps"], {}, "", 0, transient=tr,
@@ -128,11 +134,13 @@ def main() -> None:
     level.add_argument("--mesh-only", action="store_true")
     level.add_argument("--tag", default="")
     level.add_argument("--timeout-h", type=float, default=3.0, help="the solver's time limit (hours)")
+    level.add_argument("--intensity", type=float, help="the inlet turbulence intensity (fraction; default 2 %%)")
+    level.add_argument("--viscosity-ratio", type=float, help="the inlet viscosity ratio (default: the app's 10)")
     level.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
     level.set_defaults(func=cmd_level)
     cont = sub.add_parser("continue")
     cont.add_argument("--run", required=True)
-    cont.add_argument("--start", type=float, required=True, help="the sampling start set by hand (t_c)")
+    cont.add_argument("--start", type=float, help="the sampling start set by hand (t_c); default: kept or detected")
     cont.add_argument("--end", type=float, required=True, help="the new end time (t_c)")
     cont.set_defaults(func=cmd_continue)
     collect = sub.add_parser("collect")
