@@ -125,8 +125,10 @@ def cmd_rerun(_args) -> None:
 POINTS = {"upstream x=-10": (-10.0, 0.0), "upstream x=-3": (-3.0, 0.0), "upstream x=-1": (-1.0, 0.0),
           "front face x=-0.05": (-0.05, 0.0), "near wake x=1.5": (1.5, 0.0), "near wake x=2": (2.0, 0.0),
           "near wake x=3": (3.0, 0.0)}
-SAMPLES = (("PIMPLE Co 1 (C)", "coarse_pimple_co1", "150", False), ("PISO Co 1", "coarse_piso_window", "150", False),
-           ("PIMPLE Co 2", "coarse", SWITCH, True), ("PIMPLE Co 2", "coarse", "200", False))
+# PIMPLE Co 2 at the switch: its fields as reconstructed into diagnostic a's case (an unchanged copy; this VTK's
+# OpenFOAM reader cannot read a decomposed case).
+SAMPLES = (("PIMPLE Co 1 (C)", "coarse_pimple_co1", "150"), ("PISO Co 1", "coarse_piso_window", "150"),
+           ("PIMPLE Co 2", "coarse_restart_co1", SWITCH), ("PIMPLE Co 2", "coarse", "200"))
 BETA_STAR, BETA = 0.09, 0.0828  # k-omega SST: beta* and the far-field beta2 (v2606 kOmegaSSTBase)
 
 
@@ -138,12 +140,11 @@ def cmd_sample(_args) -> None:
 
     nu, speed = sc.NU, sc.SPEED
     rows = []
-    for label, run, time_name, decomposed in SAMPLES:
+    for label, run, time_name in SAMPLES:
         case = WORK / run / "case"
         foam = case / "case.foam"
         foam.touch()
         reader = pv.OpenFOAMReader(str(foam))
-        reader.case_type = "decomposed" if decomposed else "reconstructed"
         reader.set_active_time_value(float(time_name))
         reader.enable_all_cell_arrays()
         mesh = reader.read()["internalMesh"]
