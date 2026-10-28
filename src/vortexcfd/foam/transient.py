@@ -421,6 +421,20 @@ def courant_cap_warning(control: TransientControl | None, steps) -> str | None:
             "Transient) to run at the asked Courant number.")
 
 
+# A run that reached its end time without a detected sampling start has no statistics (D-200): said at the end of the
+# run in the monitors and in the report.
+NO_STABLE_WINDOW = ("No statistically stable period was found. Extend the end time or set the sampling start by "
+                    "hand.")
+
+
+def no_window_warning(control: TransientControl | None, state: str | None) -> str | None:
+    """NO_STABLE_WINDOW for a run that ended at its end time ("end_time") while its sampling start was still to be
+    detected; None otherwise (running, stopped, crashed, a statistics stop, a sampling start found or set)."""
+    if control is None or state != "end_time" or control.sampling_start is not None:
+        return None
+    return NO_STABLE_WINDOW
+
+
 def banner(control: TransientControl | None, state: str | None, now: float | None,
            summary_: dict | None = None) -> tuple[str, str | None]:
     """(text, colour state) of the convergence banner of a transient run (state None: running)."""

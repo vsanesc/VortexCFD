@@ -2014,22 +2014,23 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   addendum to the brief): URANS is no longer called "validated": measurement C (PIMPLE at Co 1 losing the shedding on
   the mesh where PISO Co 1 and PIMPLE Co 2 shed) puts the square cylinder's URANS status at "PASS under
   investigation (QUESTIONS 257)"; the entry, the app's notice and the docs were reworded; no default changed.
+  Amended again by D-199 (owner, 2026-10-28, close-out): URANS ships available but not validated, like DDES; the
+  square cylinder is an investigation, not a validation, with no pass verdict.
 - Context: no DDES case was validated in 1.1. The 3D square cylinder DDES was not run (about 300 hours at its
   fastest process count, docs/validation/square_ddes/RESULT.md), the DDES sphere functional run was stopped at
   8.5 of 25 t_c with no statistics (docs/validation/ddes_sphere/RESULT.md), and an Ahmed DDES was estimated at
   15-38 days (QUESTIONS 261). URANS (k-omega SST) passed the square cylinder at Re 22,000 on both levels against
-  ERCOFTAC UFR 2-02 with PIMPLE at Co 2 (docs/validation/square_re22000/RESULT.md), a PASS under investigation
-  (QUESTIONS 257: at Co 1 the same run loses its shedding).
-- Decision: 1.1's scope is transient laminar flow (validated: the circular cylinder at Re 100) and URANS (the square
-  cylinder at Re 22,000: PASS under investigation, QUESTIONS 257); k-omega SST DDES (D-191, D-195, D-196) ships as **experimental and not
+  ERCOFTAC UFR 2-02 with PIMPLE at Co 2 (docs/validation/square_re22000/RESULT.md); the investigation that
+  followed found several sustained states (QUESTIONS 257), and D-199 withdrew that pass verdict.
+- Decision: 1.1's scope is transient laminar flow (validated: the circular cylinder at Re 100) and URANS (available,
+  not validated: D-199); k-omega SST DDES (D-191, D-195, D-196) ships as **experimental and not
   validated**. The Ahmed 25 degree DDES is removed from 1.1 and moved to "Later" (docs/PLAN.md), together with
   QUESTIONS 261 (the DDES pressure-solve cost and the choice of a DDES validation case).
 - App: choosing k-omega SST DDES in Physics shows a persistent inline notice (a warning-styled label in the panel,
-  `workflow.solving.DDES_EXPERIMENTAL`; never a dialog) for as long as DDES is chosen: "Experimental, not
-  validated: DDES runs in this version but has not been checked against a reference case. URANS (k-omega SST) is
-  the main transient turbulence option."
-- Docs: manual chapters 8 and 10 and docs/validation/README.md list the URANS square cylinder as "PASS under
-  investigation (QUESTIONS 257)" (PASS on both levels against ERCOFTAC UFR 2-02 at PIMPLE Co 2) and DDES as "experimental, not validated", with no result presented as a
+  `workflow.solving.DDES_EXPERIMENTAL`; never a dialog) for as long as DDES is chosen; since D-199: "Not validated:
+  DDES runs in this version but has not been checked against a reference case."
+- Docs: manual chapters 8 and 10 and docs/validation/README.md list URANS and DDES as "available, not validated"
+  (D-199; the square cylinder as an investigation) and DDES as "experimental, not validated", with no result presented as a
   validation; the DDES sphere's figures stay outside the repository. Nothing in the repository promises a DDES or
   Ahmed validation in 1.1 any more (PLAN, CHANGELOG, STATUS, the DDES validation folders).
 - Check: tests/test_transient.py::test_ddes_shows_an_inline_experimental_notice, test_ddes_project_checks.
@@ -2082,4 +2083,50 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Check: tests/test_startup_perturbation.py (defaults and presets, the v25 migration, the dictionary and its
   comments, both together, the refused sampling start and the held detection, SolverRun's setExprFields step and
   declaration, the panel's rows, notes and hint, the report and the snapshot); tests/test_transient.py.
+
+## D-199 URANS ships available but not validated in 1.1, like DDES; the square cylinder is an investigation
+- Status: Accepted (owner, 2026-10-28, the task's close-out; QUESTIONS 257 closed, QUESTIONS 263 closed as superseded).
+  Amends D-197 (its "PASS under investigation" for the URANS square cylinder).
+- Context: on the square cylinder at Re 22,000 (coarse, 2D, k-omega SST) the same set-up reached four different
+  sustained states depending on the start-up, the time step and the inflow turbulence (docs/validation/
+  square_re22000/RESULT.md, "Investigation"): the swing start at PIMPLE Co 2 (St 0.135, Cd 2.13), the initial-field
+  start at Co 2 (St 0.144, Cd 2.01), the swing start at Co 1 (a nearly steady wake, Cd 1.51) and the experiment's 2 %
+  approach turbulence with no perturbation (irregular shedding, never detected as settled; St 0.097, Cd 2.43 over
+  100-200 t_c).
+- Decision: URANS (any transient RANS model: k-omega SST in a transient project) ships in 1.1 as **available but
+  not validated**, with the same treatment as DDES. Laminar transient flow stays validated (the circular cylinder at
+  Re 100). No default changes.
+- App: Physics shows a persistent inline notice (a warning-styled label, never a dialog) whenever the flow is
+  transient and the turbulence model is k-omega SST (`workflow.solving.URANS_NOT_VALIDATED`): "Not validated: on the
+  square-cylinder test case, 2D URANS results depended on the start-up and on the inflow turbulence." The DDES notice
+  (D-197) becomes "Not validated: DDES runs in this version but has not been checked against a reference case." (its
+  sentence pointing to URANS removed).
+- Docs: the manual (chapters 8 and 10), docs/validation/README.md, STATUS, CHANGELOG and the square cylinder's
+  SETUP.md and RESULT.md present the square-cylinder URANS work as an investigation: one table of the four states (St,
+  mean Cd, RMS Cl, start-up, inflow) and a conclusion; its original pass rule is withdrawn and no URANS result
+  carries a PASS. Old commit messages are left as they are.
+- Later (docs/PLAN.md, with the Ahmed DDES and QUESTIONS 261): matched free-stream turbulence through kOmegaSST's
+  decay control (its sustaining terms kInf and omegaInf, v2606 kOmegaSSTBase), which removes the free-stream decay that
+  made the viscosity ratio 10 unable to give 2 % at the body (QUESTIONS 263); the medium-mesh and 3D URANS of the
+  square cylinder.
+- Check: tests/test_transient.py::test_urans_shows_an_inline_not_validated_notice,
+  test_ddes_shows_an_inline_experimental_notice.
+
+## D-200 A transient run that ends with no statistically stable period says so
+- Status: Proposed (task 1.1-transient, close-out, owner's item 3).
+- Context: when the automatic start-up detection (D-181, D-186) finds no stable window by the end time, the run ends
+  in state "end_time" with no statistics. Before this change the monitors showed only the green "End time reached"
+  banner and the slots' "start-up: sampling not started" (foam/transient.py `banner`, `slot_text`); the report said
+  "not reached (the start-up transient did not settle)" and "the sampling has not started, so there are no statistics
+  yet" (workflow/report.py, Convergence and the statistics section) without saying what to do; snapshots simply carry
+  no statistics. The square cylinder's matched-inflow run ended this way at 200 t_c.
+- Decision: `foam/transient.NO_STABLE_WINDOW` = "No statistically stable period was found. Extend the end time or set
+  the sampling start by hand." and `no_window_warning(control, state)`: the message for a run that ended at its end
+  time ("end_time") while its sampling start was still to be detected; nothing while running, after a stop, a crash
+  or a statistics stop, or with a sampling start found or set. The monitors' convergence box lists it among the
+  warnings at the end of the run (gui/monitors.py `_update_transient`); the report's Convergence row "Sampling start"
+  and the statistics section give it (workflow/report.py `_unsampled`); a run that ended otherwise before its
+  start-up settled keeps a plain "not reached" note.
+- Check: tests/test_transient.py::test_no_stable_period_by_the_end_time_is_said_in_the_monitors_and_the_report (a
+  synthetic, strongly modulated history that the detection never settles; no solver).
 

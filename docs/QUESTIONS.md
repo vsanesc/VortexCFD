@@ -561,7 +561,7 @@ settled the open ones on 2026-10-17.
 
 ## Task 1.1-transient, Part 2
 
-257. **[OPEN]** [NUMERICS-REVIEW] **PIMPLE as the default of turbulent transient projects (D-185).** Laminar projects
+257. **[CLOSED (owner, 2026-10-28): URANS ships available but not validated, like DDES; the square cylinder is an investigation, not a validation; defaults unchanged; D-199]** [NUMERICS-REVIEW] **PIMPLE as the default of turbulent transient projects (D-185).** Laminar projects
      keep PISO at Co 1; turbulent ones get PIMPLE (residual control 1e-4, at most 10 outer correctors) at Co 2, DDES
      at Co 1. On the laminar cylinder PIMPLE matched PISO within 0.4 % but saved no time (3 outer correctors per
      step); on the square cylinder's mesh with wall layers PIMPLE at Co 2 took 19 % less wall time than PISO at
@@ -607,7 +607,7 @@ settled the open ones on 2026-10-17.
 
 ## Task 1.1-transient, Part 2: matched-inflow follow-up
 
-263. **[OPEN]** **The square cylinder's inflow viscosity ratio: 10 cannot give the experiment's 2 % at 3 D upstream.**
+263. **[CLOSED (owner, 2026-10-28): superseded by D-199; matched free-stream turbulence by kOmegaSST's decay control moves to Later]** **The square cylinder's inflow viscosity ratio: 10 cannot give the experiment's 2 % at 3 D upstream.**
      ERCOFTAC UFR 2-02 (Test Case page): the approach turbulence was "about 2%" measured "3 cylinder widths upstream";
      RANS computations assumed a viscosity ratio "in the range 10 to 100", and "the value of 10 is more suitable". With
      the validation's inlet 19.5 D upstream (not moved, as the brief asked), k-omega SST's free-stream decay (v2606

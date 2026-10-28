@@ -1034,7 +1034,9 @@ class MonitorsPanel(QWidget):
         summary = self.transient_summary()
         note = transient.statistics_text(summary, self.transient.convective_time)
         cap = transient.courant_cap_warning(self.transient, self._recent_steps)
-        self.convergence.set_view(True, (text, colour), [], [cap] if cap else [], "Transient run", note)
+        unsampled = transient.no_window_warning(self.transient, state)  # D-200: no statistics at the end
+        warnings = [w for w in (unsampled, cap) if w]
+        self.convergence.set_view(True, (text, colour), [], warnings, "Transient run", note)
         self._sync_criteria_section()
 
     def _update_convergence(self) -> None:

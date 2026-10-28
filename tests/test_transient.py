@@ -722,8 +722,8 @@ def test_ddes_project_checks(make_window) -> None:
 
 
 def test_ddes_shows_an_inline_experimental_notice(make_window) -> None:
-    """D-197: choosing DDES shows a persistent inline notice in Physics (a label, no dialog) that it is experimental
-    and not validated; it stays while DDES is chosen and goes with it."""
+    """D-197, D-199: choosing DDES shows a persistent inline notice in Physics (a label, no dialog) that it is not
+    validated; it stays while DDES is chosen and goes with it."""
     from PySide6.QtWidgets import QApplication
 
     w = make_window()
@@ -733,12 +733,38 @@ def test_ddes_shows_an_inline_experimental_notice(make_window) -> None:
     assert not panel.physics_ddes_experimental.isVisibleTo(panel)
     w.project.update_physics(turbulence_model="kOmegaSSTDDES")
     notice = panel.physics_ddes_experimental
-    assert notice.isVisibleTo(panel) and "Experimental, not validated" in notice.text() and "URANS" in notice.text()
+    assert notice.isVisibleTo(panel) and notice.text().startswith("Not validated") and "DDES" in notice.text()
+    assert not panel.physics_urans_notice.isVisibleTo(panel)  # one notice: DDES's
     assert QApplication.activeModalWidget() is None
     w.project.update_physics(des_scheme="LUST")  # another DDES edit: the notice stays
     assert notice.isVisibleTo(panel)
     w.project.update_physics(turbulence_model="kOmegaSST")
     assert not notice.isVisibleTo(panel)
+
+
+def test_urans_shows_an_inline_not_validated_notice(make_window) -> None:
+    """D-199: a transient RANS model (URANS, k-omega SST) shows a persistent inline notice in Physics (a label, no
+    dialog) that it is not validated; steady, laminar and DDES projects do not show it."""
+    from PySide6.QtWidgets import QApplication
+
+    w = make_window()
+    panel = w.properties
+    w._select_node("physics", None)
+    notice = panel.physics_urans_notice
+    assert not notice.isVisibleTo(panel)  # steady k-omega SST
+    w.project.update_physics(flow="incompressible_transient")
+    assert notice.isVisibleTo(panel) and notice.text() == (
+        "Not validated: on the square-cylinder test case, 2D URANS results depended on the start-up and on the "
+        "inflow turbulence.")
+    assert QApplication.activeModalWidget() is None
+    w.project.update_transient(end_time=100.0)  # another edit: the notice stays
+    assert notice.isVisibleTo(panel)
+    w.project.update_physics(turbulence_model="laminar")
+    assert not notice.isVisibleTo(panel)
+    w.project.update_physics(turbulence_model="kOmegaSSTDDES")
+    assert not notice.isVisibleTo(panel) and panel.physics_ddes_experimental.isVisibleTo(panel)
+    w.project.update_physics(turbulence_model="kOmegaSST")
+    assert notice.isVisibleTo(panel)
 
 
 def test_a_sampling_start_set_by_hand_after_an_undetected_start_up(make_window, qtbot: QtBot) -> None:
@@ -798,6 +824,43 @@ def test_a_courant_number_held_down_by_the_largest_step_is_reported(make_window,
     w.monitors.load_run(case, capped, ("end_time", (), 59))
     texts = [label.text() for label in w.monitors.convergence.warnings]
     assert any("holds the step" in s for s in texts)
+
+
+def test_no_stable_period_by_the_end_time_is_said_in_the_monitors_and_the_report(make_window) -> None:
+    """D-200: a strongly modulated force history (the lift's amplitude and the drag's mean wander over periods longer
+    than the window) never settles, so the run reaches its end time without a sampling start: the monitors and the
+    report say so and what to do; a running, stopped or sampled run does not get the message."""
+    from vortexcfd.foam.logparse import TimeStep
+    from vortexcfd.workflow import report
+
+    t = np.arange(0.1, 20.05, 0.1)
+    cl = (1.0 + 0.6 * np.sin(2 * np.pi * t / 7.0)) * np.sin(2 * np.pi * t)
+    cd = 1.3 + 0.3 * np.sin(2 * np.pi * t / 5.3) + 0.05 * np.sin(4 * np.pi * t)
+    assert transient.detect_start({"Cd": list(zip(t, cd)), "Cl": list(zip(t, cl))}, 2.0, 0.005, "Cd") is None
+    w = make_window()
+    w.project.update_physics(flow="incompressible_transient")
+    case = w.project.path.parent / "case"
+    folder = case / "postProcessing" / "forceCoeffs1" / "0"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "coefficient.dat").write_text(
+        "# Time\tCd\tCd(f)\tCd(r)\tCl\tCl(f)\tCl(r)\tCmPitch\tCmRoll\tCmYaw\tCs\tCs(f)\tCs(r)\n"
+        + "".join(f"{a:.6g}\t{b}\t0\t0\t{c}\t0\t0\t0\t0\t0\t0\t0\t0\n" for a, b, c in zip(t, cd, cl)))
+    control = transient.TransientControl(1.0, 1.0, 1.0, 20.0, 2.0, 0.005)  # sampling start: to be detected
+    transient.write_control(case, control)
+    write_run_record(case, RunRecord(END_TIME, 200, transient={
+        "end_time": 20.0, "steps": 200, "sampling_start": None, "detected": False, "convective_time": 1.0,
+        "met_time": None, "statistics": None}))
+    steps = [TimeStep(time=float(x), delta_t=0.1) for x in t]
+    w.monitors.load_run(case, steps, ("end_time", (), 200))
+    texts = [label.text() for label in w.monitors.convergence.warnings]
+    assert transient.NO_STABLE_WINDOW in texts
+    assert transient.NO_STABLE_WINDOW == ("No statistically stable period was found. Extend the end time or set the "
+                                          "sampling start by hand.")
+    assert transient.NO_STABLE_WINDOW in report.convergence_section(w.project).body
+    assert transient.NO_STABLE_WINDOW in report.reports_section(w.project).body
+    assert transient.no_window_warning(control, None) is None  # running: the detection may still find it
+    assert transient.no_window_warning(control, "stopped") is None
+    assert transient.no_window_warning(control.with_start(5.0, True), "end_time") is None
 
 
 def test_a_sampling_start_inside_the_perturbation_is_refused(make_window) -> None:
