@@ -1870,7 +1870,7 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   default coefficients: cubeRootVol 1, maxDeltaxyz 2); div(phi,U) `Gauss DEShybrid linear linearUpwind grad(U)
   delta 0.65 <U> <l_ref> 0 1 1 10` (the tutorial's line with the case's reference velocity and length in place of
   its 1 and 1) or `Gauss LUST grad(U)` (the v2606 LES tutorials' scheme, e.g. pisoFoam/LES/motorBike); k and omega
-  limitedLinear 1 (as the tutorial; D-192 replaced it); `wallDist { method meshWave; nRequired yes; }` (the
+  limitedLinear 1 (as the tutorial; D-192 replaced it); `wallDist { method meshWave; nRequired yes; }` (D-195; the
   tutorial has exactDistance, which in a parallel run needs a decomposition method pimpleFoam does not load: the
   first DDES run stopped at "Unknown decompositionMethod type scotch"); the
   initial and boundary fields of SST. The shielding function and the LES-region indicator are written with the
@@ -1884,8 +1884,8 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Check: tests/test_transient.py::test_ddes_dictionaries, test_ddes_project_checks; Part B's functional run.
 
 ## D-192 Transient k and omega: linearUpwind on limited gradients instead of limitedLinear (amends D-181) [NUMERICS-REVIEW]
-- Status: Proposed (task 1.1-transient, Part 2, Part B; it changes a scheme of D-181, which the owner accepted:
-  QUESTIONS 258 asks to accept the change).
+- Status: Accepted (owner, 2026-10-28; QUESTIONS 258 approved). Was Proposed (task 1.1-transient, Part 2, Part B;
+  it changes a scheme of D-181, which the owner accepted: QUESTIONS 258 asked to accept the change).
 - Finding: the first URANS run through the app (the square cylinder at Re 22,000, 2D, k-omega SST, wall functions,
   27,234 cells, max non-orthogonality 58.7) crashed in its first time step: `bounding omega, min: -1212.78`, then a
   floating-point exception in the k solve (symGaussSeidel). Serial copies of the case (scratch, 0.1-3 t_c): PISO
@@ -1956,3 +1956,29 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   one, the monitors' convergence box shows "The largest time step (X s) holds the step: the largest Courant number
   is Y, not the Z asked for. Raise "Largest time step" (Solvers > Transient) ...", live and for a finished run.
 - Check: tests/test_transient.py::test_a_courant_number_held_down_by_the_largest_step_is_reported.
+
+## D-195 The DDES wall distance by meshWave instead of exactDistance [NUMERICS-REVIEW]
+- Status: Proposed, **not approved** (task 1.1-transient, Part 2 closing brief; QUESTIONS 262). Recorded after the
+  fact: commit c6ff8b5 (2026-10-27, titled for D-193) changed this entry of a DDES case's fvSchemes without a
+  [NUMERICS-REVIEW] tag or a decision of its own; the history is left as it is and the change is recorded here.
+- Change: system/fvSchemes of a DDES case (D-191), `wallDist { method exactDistance; nRequired yes; }` (the v2606
+  tutorial incompressible/pimpleFoam/LES/wallMountedHump's) became `wallDist { method meshWave; nRequired yes; }`.
+  Steady, laminar and URANS cases always had meshWave (OpenFOAM's usual choice, no nRequired) and are unchanged.
+- Why: the first DDES run (the sphere, 4 processes) stopped at start-up with "Unknown decompositionMethod type
+  scotch": in a parallel run exactDistance builds a distributed search tree of the wall faces
+  (src/parallel/distributed/patchDistMethods/exact/exactPatchDistMethod.H, v2606) and needs a decomposition
+  method (its exactDistanceCoeffs, or system/decomposeParDict) from a library pimpleFoam does not load. meshWave
+  (src/finiteVolume/fvMesh/wallDist/patchDistMethods/meshWave) works in serial and parallel with no extra input.
+- What it affects: the wall distance y of the turbulence model. In kOmegaSSTDDES it enters the DDES length scale
+  through the shielding function: r_d = nu_eff / (|grad U| (kappa y)^2) (kOmegaSSTDES.C, `r`), f_d (kOmegaSSTDDES.C,
+  `fd`) and l_DDES = l_RAS - f_d max(l_RAS - l_LES, 0); in the SST base model it enters the blending functions F1,
+  F2 and F3 and the cross-diffusion limit (kOmegaSSTBase.C). An error in y moves where the boundary layer is
+  shielded (RANS) and where the model switches to LES. meshWave's header: accurate on regular meshes, approximate
+  on skewed, non-orthogonal ones, the error growing with the distortion; the near-wall cells are corrected for it
+  (correctWalls, on by default). exactDistance is exact on any mesh. The difference was not measured: no DDES run
+  has been compared with both methods.
+- Alternatives not taken: exactDistance with an exactDistanceCoeffs decomposition method (the library question
+  would have to be solved for every core count); computing y once in serial and reading it back. For the owner:
+  QUESTIONS 262.
+- Check: tests/test_transient.py::test_ddes_dictionaries (the entry as written).
+

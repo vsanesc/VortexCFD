@@ -569,7 +569,7 @@ settled the open ones on 2026-10-17.
      PISO Co 1 St 0.1250, mean Cd 1.939; PIMPLE Co 2 St 0.1353, mean Cd 2.129 (8-9 % apart, each stable to 1-2 %
      across the window; the experiment: St 0.132-0.133, Cd 1.9-2.2). Keep
      PIMPLE as the turbulent default, or PISO everywhere with PIMPLE as an option?
-258. **[OPEN]** [NUMERICS-REVIEW] **k and omega by linearUpwind instead of limitedLinear (D-192, amends the accepted
+258. **[CLOSED (owner, 2026-10-28): approved; D-192 Accepted]** [NUMERICS-REVIEW] **k and omega by linearUpwind instead of limitedLinear (D-192, amends the accepted
      D-181).** limitedLinear 1 drove omega negative and crashed the first URANS run (the square cylinder) in its
      first step; linearUpwind on cell-limited gradients ran without a single clip. Accept the change?
 259. **[OPEN]** **The start-up perturbation: when to end it, and for which projects (D-187).** Today it is on by
@@ -592,4 +592,14 @@ settled the open ones on 2026-10-17.
      corrector, fewer outer correctors, or PISO for DDES), a numerics change; (b) a smaller DDES validation case for
      Part 3 (the 2D coarse section extruded in 10 cells, about 0.27 M cells, about 20 h at Co 2 to 70 t_c), or the
      NASA wall-mounted hump of the vault note once the app can set an inflow boundary layer. Which?
+
+## Task 1.1-transient, Part 2 closing
+
+262. **[OPEN]** [NUMERICS-REVIEW] **The DDES wall distance by meshWave (D-195).** Commit c6ff8b5 changed a DDES
+     case's `wallDist` from exactDistance (the wallMountedHump tutorial's) to meshWave without a review tag:
+     exactDistance stopped the first parallel DDES run ("Unknown decompositionMethod type scotch"). The wall
+     distance sets the DDES shielding (f_d, hence where the model is RANS or LES) and SST's blending functions;
+     meshWave is approximate on skewed, non-orthogonal meshes (corrected in the near-wall cells), exactDistance is
+     exact. The difference has not been measured. Keep meshWave, or ask for exactDistance in parallel (it needs a
+     decomposition method configured for it)?
 
