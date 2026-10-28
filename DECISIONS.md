@@ -2000,7 +2000,11 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Dictionaries changed: only system/fvSchemes of a DDES case (div(phi,U)). Steady, laminar and URANS files are
   unchanged.
 - Check: tests/test_transient.py::test_ddes_dictionaries; a short run of the existing DDES sphere case with this
-  entry (below).
+  entry: the sphere project and mesh (574,611 cells) copied, its solver files written by the app (div(phi,U) `Gauss
+  DEShybrid LUST grad(U) linearUpwind grad(U) delta 0.65 1.0 1.0 0.0 1.0 1.0 10.0`), SolverRun on 6 MPI processes
+  stopped with the clean stop after 10 steps: 11 time steps to t = 0.0284 s, the largest Courant number rising to
+  0.999 as the adaptive step grows, no "bounding" line, no fatal error, exit code 0, fd and LESRegion written (53 s,
+  indicative: measured with another workload running). It runs; nothing about accuracy is claimed (D-197).
 
 ## D-197 DDES ships experimental and not validated in 1.1; URANS is the validated transient turbulence option; the Ahmed DDES moves to Later
 - Status: Accepted (owner, 2026-10-28; Part 2 closing brief, decision 4).
