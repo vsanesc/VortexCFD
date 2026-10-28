@@ -1890,6 +1890,17 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   also has linearUpwind for k and omega. The tutorial wingMotion2D_pimpleFoam keeps limitedLinear 1 but starts from
   a converged simpleFoam solution; the wallMountedHump DDES tutorial has limitedLinear 1 on a structured mesh.
   Laminar runs (the cylinder validation) have no k or omega and are unchanged.
+- The scheme, not the inflow or the initial values (Part 2 review, serial copies of the coarse case to t = 0.05 s):
+  with D-181's scheme the first step crashed in every variant: the swinging inlet (omega min -1212.75), a fixed
+  inlet (-1212.29), omega x10 (viscosity ratio 1: -1691.11), k for 0.5 % instead of 2 % with its omega (-1213.94),
+  each a floating-point exception in step 1; with this scheme the unchanged case ran 76 steps without one clip.
+  The negative values come from the first-layer cells at the square's corners, where omega jumps from the wall
+  function's ~9,400 to the free stream's 1.3: limitedLinear's face values there are not bounded by the
+  neighbouring cell values on this non-orthogonal (58.7 deg) mesh, the cell-limited linearUpwind ones are.
+- Dictionaries changed (generated before, at 9dc3f10, and after; 40 files of a steady, a laminar transient, a URANS
+  and a DDES input): only system/fvSchemes of URANS and of DDES (div(phi,k), div(phi,omega), and grad(k),
+  grad(omega) added; for DDES also wallDist meshWave, D-191). Steady and laminar transient files are identical: the
+  cylinder validation (laminar, no k or omega) is unaffected, and its results were not recomputed.
 - Check: tests/test_transient.py::test_adaptive_time_step_dictionaries, test_ddes_dictionaries; the square cylinder
   validation (docs/validation/square_re22000/).
 
