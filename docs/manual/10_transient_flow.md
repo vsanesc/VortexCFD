@@ -1,8 +1,8 @@
 # 10. Transient flow (1.1, in progress)
 
 Release 1.1 adds transient incompressible flow: pimpleFoam with k-ω SST (URANS), no turbulence model (laminar) or
-k-ω SST DDES (scale-resolving; **experimental, not validated**). Steady flow stays the default. Laminar runs are
-validated; the URANS check passed but is under investigation; DDES is not validated (below). The reasons behind each behaviour are D-181 (transient),
+k-ω SST DDES (scale-resolving). Steady flow stays the default. Laminar transient runs are validated; **URANS and
+DDES are available, not validated** (below): Physics says so whenever either is chosen. The reasons behind each behaviour are D-181 (transient),
 D-182 (laminar) and D-185 to D-191 in DECISIONS.md.
 
 ## When to use it
@@ -117,9 +117,8 @@ averaged fields from the restart on.
 
 ## DDES (detached-eddy simulation)
 
-**Experimental, not validated.** DDES runs in 1.1, but no DDES case has been checked against a reference: treat
-its results as unvalidated. Physics shows this notice for as long as DDES is chosen. URANS (k-ω SST) is the
-main transient turbulence option.
+**Available, not validated.** DDES runs in 1.1, but no DDES case has been checked against a reference: treat its
+results as unvalidated. Physics shows this notice for as long as DDES is chosen.
 
 **k-ω SST DDES** (Physics > Turbulence model; transient and 3D only) keeps RANS in the attached boundary layers and
 resolves the large eddies (LES) where the flow has separated. It is much dearer than URANS and needs:
@@ -144,8 +143,24 @@ the Ahmed body with DDES is planned for a later release).
 
 ## Validation
 
-| Case | Model | Verdict |
+| Case | Model | Status |
 |---|---|---|
 | Circular cylinder, Re 100, 2D (docs/validation/cylinder_re100/) | laminar | **validated**: PASS on all three levels (St, mean Cd, RMS Cl) |
-| Square cylinder, Re 22,000, 2D (docs/validation/square_re22000/) | URANS, k-ω SST | **PASS under investigation** (QUESTIONS 257): PASS on both levels against ERCOFTAC UFR 2-02 (Lyn et al. 1995: St 0.133, Cd about 2.1) with PIMPLE at Co 2, but PIMPLE at Co 1 loses the shedding on the same mesh |
-| DDES | k-ω SST DDES | **experimental, not validated**: no DDES result is a validation (docs/validation/ddes_sphere/ is a functional run that was stopped early; docs/validation/square_ddes/ was not run) |
+| Square cylinder, Re 22,000, 2D (docs/validation/square_re22000/) | URANS, k-ω SST | **available, not validated**: an investigation (below) |
+| DDES | k-ω SST DDES | **available, not validated**: no DDES result is a validation (docs/validation/ddes_sphere/ is a functional run that was stopped early; docs/validation/square_ddes/ was not run) |
+
+**URANS: the square-cylinder investigation.** On the coarse 2D mesh of the square cylinder at Re 22,000 (ERCOFTAC UFR
+2-02: St 0.132-0.133, C_D 1.9-2.2, about 2 % approach turbulence at 3 D upstream), k-ω SST URANS reached four
+different sustained states with otherwise the same set-up:
+
+| Start-up | Inflow turbulence at 3 D upstream | Coupling | St | mean Cd | RMS Cl | The wake |
+|---|---|---|---|---|---|---|
+| inflow swing | 1.0 % (inlet 2 %, ratio 10) | PIMPLE Co 2 | 0.135 | 2.13 | 1.41 | shedding, modulated |
+| initial-field perturbation | (inlet 2 %, ratio 10) | PIMPLE Co 2 | 0.144 | 2.01 | 1.14 | shedding, constant amplitude |
+| inflow swing | 0.75 % (inlet 2 %, ratio 10) | PIMPLE Co 1 | — | 1.51 | 0.01 | nearly steady |
+| none (the default) | 2.0 % (inlet 2.23 %, ratio 100) | PIMPLE Co 2 | 0.097 | 2.43 | 1.53 | irregular shedding, never detected as settled |
+
+Which state a run reaches depends on its start-up (the perturbation, the time step and coupling during it) and on the
+free-stream turbulence reaching the body; none of them can be called the model's answer for this case, so URANS
+results of bluff bodies should be treated as indicative and checked for their dependence on the start-up (for
+example two runs with different start-up perturbations). Details: docs/validation/square_re22000/RESULT.md.

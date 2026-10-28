@@ -15,7 +15,7 @@
   snapshots, Compare and the HTML report with the means, the RMS and St; the averaged fields and a written-time
   choice in the Results Scene.
 - **Laminar** option (no turbulence model, D-182).
-- Validation: the circular cylinder at Re 100 (docs/validation/cylinder_re100/).
+- Validation: the circular cylinder at Re 100, laminar (docs/validation/cylinder_re100/): validated.
 - Manual chapter 10, "Transient flow".
 - Development: worktree support, scripts/requirements-dev.txt and `scripts/ship.sh --dry-run` (D-180).
 - PIMPLE with outer correctors and residual control (D-185, [NUMERICS-REVIEW]): "Pressure-velocity coupling" Auto
@@ -29,12 +29,14 @@
 - The start-up detection's tolerance is a setting (default 5 %, D-186).
 - Continue Solver for a transient run: a later end time, the field averages and the statistics going on (D-189).
 - Laminar projects size their prism layers by a first-cell thickness instead of y+ (D-190).
-- k-omega SST DDES for transient 3D projects, **experimental and not validated** (D-191, D-197, [NUMERICS-REVIEW]):
+- k-omega SST DDES for transient 3D projects, **available, not validated** (D-191, D-197, D-199, [NUMERICS-REVIEW]):
   an inline notice in Physics says so; the shielding function and the LES region in the Results Scene, a warning
   when the focus region is too coarse.
-- Validation: the square cylinder at Re 22,000, 2D URANS (docs/validation/square_re22000/): PASS on both levels
-  against ERCOFTAC UFR 2-02 at PIMPLE Co 2, **under investigation** (QUESTIONS 257: PIMPLE at Co 1 loses the
-  shedding on the same mesh).
+- URANS (k-omega SST, transient) is **available, not validated** (D-199): an inline notice in Physics says so. The
+  square cylinder at Re 22,000 (docs/validation/square_re22000/) is an investigation, not a validation: the same 2D
+  set-up reached four sustained states depending on the start-up and the inflow turbulence.
+- A transient run that reaches its end time with no statistically stable period says so in the monitors and the
+  report, with what to do (D-200).
 - A warning when the largest time step keeps the Courant number below the one asked for (D-194).
 
 ### Changed

@@ -13,7 +13,7 @@
         "st": 0.018643525748566963,
         "cd": 0.01529440848810417
       },
-      "verdict": "PASS",
+      "verdict": null,
       "sampling_start": 95.81674986,
       "steps": 112902,
       "solve_s": 7296.9,
@@ -33,12 +33,13 @@
         "st": -0.015035247436885226,
         "cd": -0.008338288691337722
       },
-      "verdict": "PASS",
+      "verdict": null,
       "sampling_start": 82.28165068,
       "steps": 65593,
       "solve_s": 6293.4,
       "max_courant": 11.01501,
       "cores": 8
     }
-  ]
+  ],
+  "note": "The pass rule of SETUP.md is withdrawn (D-199): this case is an investigation, not a validation; 'verdict' is no longer given."
 }

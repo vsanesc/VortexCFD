@@ -1,6 +1,6 @@
 # Status
 
-Updated 2026-10-28 (task/1.1-transient: **transient flow, Part 2 and its closing brief**).
+Updated 2026-10-28 (task/1.1-transient: **transient flow, Part 2, its closing brief and the close-out**).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
@@ -37,8 +37,8 @@ Part 2 (2026-10-27/28; D-184 to D-194, QUESTIONS 257-261; not published):
   teardown and in the app (D-193); a warning when the largest time step holds the Courant number (D-194).
 - Part B: k-omega SST DDES (D-191); k and omega by linearUpwind on limited gradients instead of limitedLinear, which
   crashed the first URANS run (D-192, amends the accepted D-181, QUESTIONS 258). Square cylinder at Re 22,000, 2D
-  URANS: **PASS, under investigation** (medium St 0.1310, Cd 2.082; coarse St 0.1355, Cd 2.132; ERCOFTAC UFR 2-02,
-  PIMPLE at Co 2; see the closing brief below and QUESTIONS 257); PISO at Co 1 gives
+  URANS, first runs (medium St 0.1310, Cd 2.082; coarse St 0.1355, Cd 2.132; ERCOFTAC UFR 2-02, PIMPLE at Co 2):
+  since the close-out an investigation, not a validation (D-199, below); PISO at Co 1 gives
   8-9 % lower St and Cd than PIMPLE over the same window (QUESTIONS 257). The 3D square-cylinder DDES (810,540
   cells, pass rule committed first) was **not run**: 12.9 s per step at its fastest (8 processes), about 300 h;
   the Ahmed DDES estimate is 15-38 days (docs/validation/square_ddes/RESULT.md, QUESTIONS 261). The DDES sphere was
@@ -58,8 +58,8 @@ Part 2 closing brief and its addendum (2026-10-28; D-195 to D-198, QUESTIONS 262
   and QUESTIONS 261 in "Later" (D-197); start-up perturbations are declared options, both off by default: the new
   initial-field perturbation (setExprFields on 0/U only) and the inflow swing (D-198, schema v26, QUESTIONS 259
   closed).
-- 1.1 scope: transient laminar flow validated (the cylinder at Re 100); URANS: the square cylinder is a **PASS under
-  investigation (QUESTIONS 257)**, not called validated; DDES experimental, not validated; the Ahmed body in Later.
+- 1.1 scope (as of the close-out, D-199): transient laminar flow validated (the cylinder at Re 100); URANS and DDES
+  available, not validated; the Ahmed body in Later.
 - Measurement A (the cylinder at Re 100, rules committed first): the inflow swing is equivalent to no perturbation,
   the initial-field perturbation **fails its rule** (RMS Cl +0.85 % against a 0.81 % limit); start-up saved 64 t_c
   (swing) and 42 t_c (initial) of 148. A2 (to 300 t_c): the unperturbed run had not settled in 180-240 (its mean Cd
@@ -91,11 +91,24 @@ start-up (no perturbation) and the inflow turbulence matched to the experiment a
 ratio 100; ratio 10 cannot reach 2 % from the inlet 19.5 D upstream, QUESTIONS 263), rule committed first (f955494):
 inflow matched (1.995-1.999 %), it sheds, but irregularly, and the detection found no window by 200 t_c: no pass
 verdict; for information St 0.097, mean Cd 2.43 over 100-200 t_c. A fourth sustained state (QUESTIONS 257). Solver
-time 4,780 s on 6 processes (indicative only: measured with another workload running). No default changed; URANS stays
-"PASS under investigation".
+time 4,780 s on 6 processes (indicative only: measured with another workload running). No default changed.
 
-What is left of 1.1 (PLAN, "Release 1.1"): QUESTIONS 257 and 263 (the URANS square cylinder); the mesh study and polar sweep
-of a transient project; per-part statistics. Later: a DDES validation and the Ahmed body with DDES (QUESTIONS 261).
+Close-out (2026-10-28; D-199, D-200; not published; no solver run):
+- D-199 (QUESTIONS 257 closed, 263 superseded): URANS ships available but not validated, like DDES: Physics shows an
+  inline notice for a transient k-omega SST project ("Not validated: on the square-cylinder test case, 2D URANS results
+  depended on the start-up and on the inflow turbulence."), the DDES notice reworded the same way; the square cylinder
+  is presented as an investigation (one table of its four sustained states and a conclusion; its pass rule withdrawn,
+  no URANS verdict) in its RESULT.md and SETUP.md, the manual (chapters 8 and 10), the validation README, CHANGELOG
+  and D-197. Later (PLAN): matched free-stream turbulence by kOmegaSST's decay control, the medium-mesh and 3D URANS
+  of the square cylinder, with the Ahmed DDES and QUESTIONS 261.
+- D-200: a transient run that reaches its end time with no statistically stable period now says so, with what to do,
+  in the monitors' convergence box and in the report (before: a green "End time reached" and "sampling not started"
+  in the monitors, "not reached (the start-up transient did not settle)" in the report).
+- FAST_SUITE_LINE
+
+What is left of 1.1 (PLAN, "Release 1.1"): the mesh study and polar sweep of a transient project; per-part
+statistics. Later: matched free-stream turbulence (decay control), the medium-mesh and 3D URANS of the square cylinder,
+a DDES validation and the Ahmed body with DDES (QUESTIONS 261).
 
 ## Previous branch (task/v1.0.1-pillow, merged)
 

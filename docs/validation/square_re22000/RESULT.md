@@ -1,36 +1,59 @@
-# Square cylinder at Re 22,000, 2D URANS: result
+# Square cylinder at Re 22,000, 2D URANS: an investigation (not a validation)
 
-Task 1.1-transient, Part 2, Part B (3a). Set-up and pass rule: [SETUP.md](SETUP.md) (written before the runs; two
-amendments before any result). Numbers: [result.json](result.json). Driver: scripts/validation/square_study.py;
-project builder: tests/validation/square_case.py; OpenFOAM v2606, 4 cores per level, nice 15, the two levels side
-by side.
+Task 1.1-transient, Part 2. Set-up: [SETUP.md](SETUP.md). Numbers: [result.json](result.json) and the files named in
+each section. Drivers: scripts/validation/square_study.py, scripts/validation/square_diagnostics.py; project
+builder: tests/validation/square_case.py; OpenFOAM v2606.
 
-## Verdict: PASS, under investigation (QUESTIONS 257)
+## Status: an investigation; URANS available, not validated (D-199)
 
-The PASS below was measured with PIMPLE at Co 2 (the app's default). Measurement C ("Time-step convergence", at the
-end) found that PIMPLE at Co 1 loses the shedding on the coarse mesh, where PISO at Co 1 and PIMPLE at Co 2 shed: until
-that is understood this case's status is "PASS under investigation" and URANS is not called validated.
+This case was set up as a validation of 2D URANS (k-omega SST) with a pass rule (SETUP.md). The runs that followed
+showed that the same coarse set-up reaches different sustained states depending on the start-up, the time step and
+the inflow turbulence, so the owner closed it as an investigation (D-199, QUESTIONS 257): the pass rule is withdrawn,
+no URANS result here carries a verdict, and URANS ships in 1.1 as available but not validated. The numbers below are
+kept as measured.
 
-The medium level (the deciding one) passes both criteria; the coarse level passes too.
+The four sustained states of the coarse level (27,234 cells, k-omega SST with wall functions, PIMPLE with residual
+control 1e-4, the same mesh and dictionaries otherwise):
 
-| Level | Cells | Steps | Δt range (s) | Sampling from (t_c, detected) | Cycles | St | mean Cd | RMS Cl | Verdict |
-|---|---|---|---|---|---|---|---|---|---|
-| coarse | 27,234 | 112,902 | 0.00040-0.0022 | 95.8 | 14.1 | 0.1355 | 2.132 | 1.422 | PASS |
-| medium | 40,527 | 65,593 | 0.00020-0.0073 | 82.3 | 8.9 | 0.1310 | 2.082 | 1.474 | PASS |
+| State | Start-up | Inflow turbulence (inlet; at 3 D upstream) | Coupling | Window (t_c) | St | mean Cd | RMS Cl | The wake |
+|---|---|---|---|---|---|---|---|---|
+| 1 | inflow swing, ±10° for 10 t_c | 2 %, viscosity ratio 10; 1.0 % | PIMPLE Co 2 | 96-150 | 0.1353 | 2.129 | 1.405 | shedding, modulated |
+| 2 | initial-field perturbation | 2 %, ratio 10 (not sampled at 3 D) | PIMPLE Co 2 | 96-150 | 0.1435 | 2.008 | 1.136 | shedding, constant amplitude |
+| 3 | inflow swing, ±10° for 10 t_c | 2 %, ratio 10; 0.75 % | PIMPLE Co 1 | 96-150 | (0.109) | 1.511 | 0.014 | nearly steady (no shedding) |
+| 4 | none (the default) | 2.23 %, ratio 100; 2.0 % (the experiment's) | PIMPLE Co 2 | 100-200 | 0.097 | 2.425 | 1.531 | irregular shedding, never detected as settled |
 
-Errors against ERCOFTAC UFR 2-02 (Lyn et al. 1995: St 0.133 ± 0.004 measured; Cd ≈ 2.1 inferred from the wake;
-the Evaluation page's Table 1 lists the experiments as St 0.132, C_D 1.9-2.2: both levels are inside that range
-too):
+The experiment (ERCOFTAC UFR 2-02, Lyn et al. 1995): St 0.132-0.133, C_D 1.9-2.2, approach turbulence about 2 % at
+3 D upstream. State 3's "St" is the spectral peak of a lift of amplitude about 0.02, not a shedding frequency; state 4's
+window was set here (the app's detection found none by 200 t_c). Sources: states 1 and 3, "Time-step convergence"
+below; state 2, docs/validation/startup_perturbation/RESULT.md, "B"; state 4, "Matched inflow turbulence" below.
+
+**Conclusion.** On this coarse 2D mesh, k-omega SST URANS of the square cylinder has several sustained states, and
+which one a run reaches is decided by its start-up (the perturbation, the time step and coupling during it) and by
+the free-stream turbulence that reaches the body; a developed shedding is kept at Co 1 when started from it
+(diagnostic a), so the states coexist rather than one being an unconverged form of another. Two of the four states
+fall within the experiment's ranges (states 1 and 2 for St within 10 % and C_D within 1.9-2.2), the default start-up
+with the experiment's inflow turbulence does not (state 4), and none can be called the model's answer for this case.
+What remains open (docs/PLAN.md, "Later"): the medium mesh and 3D, and a free stream that keeps its turbulence to the
+body (kOmegaSST's decay control).
+
+## The first runs (Part B): the coarse and medium levels with the inflow swing at PIMPLE Co 2
+
+| Level | Cells | Steps | Δt range (s) | Sampling from (t_c, detected) | Cycles | St | mean Cd | RMS Cl |
+|---|---|---|---|---|---|---|---|---|
+| coarse | 27,234 | 112,902 | 0.00040-0.0022 | 95.8 | 14.1 | 0.1355 | 2.132 | 1.422 |
+| medium | 40,527 | 65,593 | 0.00020-0.0073 | 82.3 | 8.9 | 0.1310 | 2.082 | 1.474 |
+
+Differences from ERCOFTAC UFR 2-02 (Lyn et al. 1995: St 0.133 ± 0.004 measured; Cd ≈ 2.1 inferred from the wake;
+the Evaluation page's Table 1 lists the experiments as St 0.132, C_D 1.9-2.2):
 
 | Level | St | mean Cd |
 |---|---|---|
 | coarse | +1.9 % | +1.5 % |
 | medium | -1.5 % | -0.8 % |
-| tolerance | 10 % | 15 % |
 
-Both levels are inside the experiment's ±0.004 band for St (0.129-0.137). The two levels bracket the references
-rather than converge monotonically towards them (St 0.1355 -> 0.1310, Cd 2.132 -> 2.082 from coarse to medium):
-with two levels and a modulated signal no extrapolation is attempted. Mean Cl -0.004 / -0.014, Cd RMS 0.19 / 0.14.
+The two levels bracket the references rather than converge monotonically towards them (St 0.1355 -> 0.1310, Cd
+2.132 -> 2.082 from coarse to medium): with two levels and a modulated signal no extrapolation is attempted. Mean Cl
+-0.004 / -0.014, Cd RMS 0.19 / 0.14. SETUP.md's original rule is withdrawn (D-199) and is not applied here.
 
 ## What the runs show
 
@@ -79,7 +102,7 @@ from the force histories:
 
 Each run agrees with itself across the two halves of the window to about 1-2 %, so the difference between them is
 systematic, not sampling noise: on this case the coupling changes the answer by 8-9 %, unlike the laminar cylinder
-(0.1-0.4 %). Both would pass this validation's rule (PISO: St -6.0 %, Cd -7.7 % against 0.133 and 2.1); PIMPLE,
+(0.1-0.4 %). Both lie within the original rule's tolerances, withdrawn by D-199 (PISO: St -6.0 %, Cd -7.7 % against 0.133 and 2.1); PIMPLE,
 which iterates each step to the outer tolerance, is the nearer to the experiment. QUESTIONS 257.
 
 ## Time-step convergence: PIMPLE at Co 1 (QUESTIONS 257; Part 2 closing brief, measurement C)
@@ -116,8 +139,9 @@ nothing is concluded about time-step convergence. What the three runs show:
   The cause is not established (the PIMPLE outer loop's exit at the residual tolerance, which leaves each step's
   coupling only partly converged, and the eddy viscosity of SST damping a weak shedding are candidates; neither was
   tested).
-- The validation's verdict (PASS, on PIMPLE Co 2, the app's default) is unchanged as measured, but it is not shown to
-  be time-step independent. No default was changed. For the owner: QUESTIONS 257.
+- The first runs' agreement with the experiment (PIMPLE Co 2, the app's default) is not shown to be time-step
+  independent. No default was changed. For the owner: QUESTIONS 257 (closed by D-199: an investigation, not a
+  validation).
 
 ## Diagnostics of measurement C (owner's addendum)
 
@@ -258,7 +282,7 @@ For information only (not a verdict; windows set here, not detected):
 |---|---|---|---|---|---|
 | matched inflow, no perturbation, PIMPLE Co 2 | 100-200 | 0.0971 | 2.425 | 1.531 | 2.0 % |
 | matched inflow, no perturbation, PIMPLE Co 2 | 96-150 | 0.0952 | 2.416 | 1.526 | 2.0 % |
-| swing, PIMPLE Co 2 (the PASS run) | 96-150 | 0.1353 | 2.129 | 1.405 | 1.0 % |
+| swing, PIMPLE Co 2 (the first coarse run) | 96-150 | 0.1353 | 2.129 | 1.405 | 1.0 % |
 | swing, PIMPLE Co 1 (C) | 96-150 | 0.1090 | 1.511 | 0.014 | 0.75 % |
 | initial field, PIMPLE Co 2 (B) | 96-150 | 0.1435 | 2.008 | 1.136 | (not sampled) |
 | PISO Co 1, swing | 96-150 | 0.1250 | 1.939 | 1.030 | 0.77 % |
@@ -268,7 +292,7 @@ the pass rule's 10 % and 15 % on both, had a detected window existed. Its "St" i
 irregular signal (about one main cycle per 10 t_c), not a clean shedding frequency.
 
 Reading: with the default start-up and the experiment's approach turbulence at 3 D upstream, this coarse 2D URANS case
-sheds, but on a fourth state, irregular, slower and with more drag than the PASS run's, and the app's detection never
+sheds, but on a fourth state, irregular, slower and with more drag than the first coarse run's, and the app's detection never
 declares it settled. The change of inflow is large in the model's terms (nut/nu about 70 instead of about 4 at 3 D
 upstream, from the ratio 100 needed to keep 2 % over 16.5 D of decay), so this run shows how sensitive the state is
 to the free-stream turbulence as much as to the start-up.

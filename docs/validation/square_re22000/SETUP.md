@@ -2,6 +2,10 @@
 
 Task 1.1-transient, Part 2, Part B (3a). Written before the runs; the pass rule below is not changed after them.
 
+> **The pass rule is withdrawn (D-199, the owner's close-out).** The runs showed several sustained states of the same
+> set-up (RESULT.md, "Status"): this case is an investigation, not a validation, and no URANS result carries a
+> verdict. The rules below are kept as written; those of the later measurements still say what each run was to show.
+
 ## What it checks
 
 Turbulent transient flow (D-181, k-omega SST URANS) with the Part 2 defaults of a turbulent project: PIMPLE with
@@ -66,7 +70,7 @@ started with the **inflow swing**: the inflow direction swinging by ±10° in th
 used. Since D-198 both start-up perturbations are off by default and must be declared; the driver
 (tests/validation/square_case.py) declares the swing so that these runs are reproduced. The runs were not repeated.
 
-## Pass rule
+## Pass rule (withdrawn by D-199)
 
 The vault note's rule for this case (1.1-c), adopted unchanged:
 
