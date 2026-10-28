@@ -44,6 +44,9 @@ def cmd_level(args) -> None:
         except json.JSONDecodeError:
             extra[key] = value
     project = sc.build_project(folder, args.name, end_time=args.end, cores=args.cores, **extra)
+    if args.mesh_cores:
+        project.update_mesh(cores=args.mesh_cores)
+        project.save()
     say(f"square {args.name}: base {sc.LEVELS[args.name]:.4g} m, readiness {meshing.readiness(project)}")
     out = {"level": args.name, "base_m": sc.LEVELS[args.name], "settings": extra,
            "mesh": cylinder_study.mesh(project)}
@@ -121,6 +124,7 @@ def main() -> None:
     level.add_argument("--name", choices=list(sc.LEVELS), required=True)
     level.add_argument("--end", type=float, default=sc.END_TIME)
     level.add_argument("--cores", type=int, default=sc.CORES)
+    level.add_argument("--mesh-cores", type=int, help="snappyHexMesh ranks (default: automatic, D-111)")
     level.add_argument("--mesh-only", action="store_true")
     level.add_argument("--tag", default="")
     level.add_argument("--timeout-h", type=float, default=3.0, help="the solver's time limit (hours)")

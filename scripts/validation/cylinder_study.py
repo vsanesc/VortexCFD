@@ -96,6 +96,9 @@ def cmd_level(args) -> None:
             extra[key] = value
     project = cc.build_project(folder, args.name, end_time=args.end, cores=args.cores, sampling_start=args.start,
                                write_interval=args.write, **extra)
+    if args.mesh_cores:
+        project.update_mesh(cores=args.mesh_cores)
+        project.save()
     say(f"{args.name}: base {cc.LEVELS[args.name]:.4g} m, readiness {meshing.readiness(project)}")
     out = {"level": args.name, "base_m": cc.LEVELS[args.name], "mesh": mesh(project)}
     if not args.mesh_only:
@@ -145,6 +148,7 @@ def main() -> None:
     level.add_argument("--name", choices=list(cc.LEVELS), required=True)
     level.add_argument("--end", type=float, default=cc.END_TIME)
     level.add_argument("--cores", type=int, default=cc.CORES)
+    level.add_argument("--mesh-cores", type=int, help="snappyHexMesh ranks (default: automatic, D-111)")
     level.add_argument("--mesh-only", action="store_true")
     level.add_argument("--start", type=float, default=None, help="a set sampling start (t_c); default: detected")
     level.add_argument("--write", type=float, default=None, help="the write interval (t_c); default: the end time")
