@@ -543,7 +543,7 @@ GROUPS: dict[str, dict] = {
              "shear and so lets the resolved turbulence grow sooner in a shear layer (on by default, as the "
              "wallMountedHump tutorial)."),
             ("des_scheme", "U convection (DDES)", lambda: ChoiceField(choices("des_scheme")),
-             "DEShybrid (default): central differencing where the LES region is resolved, linearUpwind elsewhere. "
+             "DEShybrid (default): LUST where the LES region is resolved, linearUpwind elsewhere. "
              "LUST: 75 % central, 25 % linearUpwind everywhere (the OpenFOAM LES tutorials' scheme)."),
         ),
     },

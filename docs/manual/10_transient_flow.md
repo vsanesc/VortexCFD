@@ -115,7 +115,8 @@ resolves the large eddies (LES) where the flow has separated. It is much dearer 
 
 Settings (Physics, shown with DDES): the length scale **Δ** (Δω̃, the default of the OpenFOAM tutorial
 wallMountedHump; the cube root of the volume; the largest cell side), the **σ variant** in the LES region (on) and
-the **U convection** (DEShybrid, central where the LES region is resolved, the default; or LUST). The Results Scene
+the **U convection** (DEShybrid, LUST where the LES region is resolved and linearUpwind elsewhere, the default; or
+LUST everywhere). The Results Scene
 offers the **DDES shielding function f_d** (near 0 in the RANS-shielded boundary layer) and the **LES region** (1
 where the model is in LES mode) at the written times: check that the boundary layers stay RANS and the wake is LES.
 

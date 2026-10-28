@@ -667,8 +667,8 @@ def test_ddes_dictionaries() -> None:
     assert les["LESModel"] == "kOmegaSSTDDES" and les["delta"] == "DeltaOmegaTilde"
     assert les["kOmegaSSTDDESCoeffs"] == {"useSigma": True}
     schemes = files["system/fvSchemes"].content
-    assert schemes["divSchemes"]["div(phi,U)"] == ("Gauss", "DEShybrid", "linear", "linearUpwind", "grad(U)",
-                                                   "delta", 0.65, 4.0, 2.0, 0.0, 1.0, 1.0, 10.0)
+    assert schemes["divSchemes"]["div(phi,U)"] == ("Gauss", "DEShybrid", "LUST", "grad(U)", "linearUpwind",
+                                                   "grad(U)", "delta", 0.65, 4.0, 2.0, 0.0, 1.0, 1.0, 10.0)
     assert schemes["divSchemes"]["div(phi,k)"] == ("Gauss", "linearUpwind", "grad(k)")
     assert schemes["wallDist"] == {"method": "meshWave", "nRequired": True}
     control = files["system/controlDict"].content

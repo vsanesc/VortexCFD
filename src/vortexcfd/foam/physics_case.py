@@ -598,14 +598,18 @@ DES_HYBRID_NUT_LIMIT = 10.0
 
 
 def ddes_u_scheme(ddes: DDESScheme) -> tuple:
-    """div(phi,U) of a DDES run (D-191) [NUMERICS-REVIEW]: DEShybrid, central (linear) where the LES region is
-    resolved and linearUpwind grad(U) in the RANS region or where it is not (Travin et al. 2000, Spalart et al.
-    2012), as the wallMountedHump tutorial; or LUST grad(U) (75 % linear, 25 % linearUpwind everywhere), the scheme
-    of the v2606 LES tutorials (pisoFoam/LES/motorBike among them)."""
+    """div(phi,U) of a DDES run (D-191, D-196) [NUMERICS-REVIEW]: DEShybrid blending LUST grad(U) where the LES
+    region is resolved and linearUpwind grad(U) in the RANS region or where it is not (Travin et al. 2000, Spalart
+    et al. 2012; the owner's choice, QUESTIONS 260: LUST in the LES region instead of the wallMountedHump tutorial's
+    linear). v2606 builds both of DEShybrid's schemes with surfaceInterpolationScheme::New(mesh, faceFlux, is)
+    (src/TurbulenceModels/schemes/DEShybrid/DEShybrid.H), and LUST is a vector surfaceInterpolationScheme
+    (src/finiteVolume/interpolation/surfaceInterpolation/schemes/LUST), so it reads "LUST grad(U)" as its first
+    scheme. Or plain LUST grad(U) (75 % linear, 25 % linearUpwind everywhere), the scheme of the v2606 LES tutorials
+    (pisoFoam/LES/motorBike among them)."""
     if ddes.scheme == "LUST":
         return ("Gauss", "LUST", "grad(U)")
-    return ("Gauss", "DEShybrid", "linear", "linearUpwind", "grad(U)", "delta", DES_HYBRID_CDES, ddes.speed,
-            ddes.length, *DES_HYBRID_SIGMA, DES_HYBRID_B_LIMIT, DES_HYBRID_NUT_LIMIT)
+    return ("Gauss", "DEShybrid", "LUST", "grad(U)", "linearUpwind", "grad(U)", "delta", DES_HYBRID_CDES,
+            ddes.speed, ddes.length, *DES_HYBRID_SIGMA, DES_HYBRID_B_LIMIT, DES_HYBRID_NUT_LIMIT)
 
 
 def transient_fv_solution(solvers: Solvers, laminar: bool = False) -> FoamFileSpec:

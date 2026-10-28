@@ -15,7 +15,7 @@ VALUE_LABELS: dict[str, dict[str, str]] = {
                          "kOmegaSSTDDES": "k-ω SST DDES (transient, 3D)"},
     "des_delta": {"DeltaOmegaTilde": "Δω̃ (vorticity-aligned)", "cubeRootVol": "Cube root of the volume",
                   "maxDeltaxyz": "Largest cell side"},
-    "des_scheme": {"DEShybrid": "DEShybrid (central in the LES region)", "LUST": "LUST"},
+    "des_scheme": {"DEShybrid": "DEShybrid (LUST in the LES region)", "LUST": "LUST"},
     "time_step": {"adaptive": "Adaptive (from the Courant number)", "fixed": "Fixed"},
     "time_unit": {"flow_through": "Flow-through times (l_ref / U)", "s": "Seconds"},
     "algorithm": {"auto": "Auto (PISO laminar, PIMPLE turbulent)", "piso": "PISO (Courant up to 1)",

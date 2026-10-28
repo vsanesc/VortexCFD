@@ -1867,9 +1867,9 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   DEShybrid, src/functionObjects/field/turbulenceFields; the tutorial incompressible/pimpleFoam/LES/wallMountedHump,
   setup kOmegaSSTDDES-DeltaOmegaTilde-useSigmaTrue): turbulenceProperties `simulationType LES; LES { LESModel
   kOmegaSSTDDES; delta <des_delta>; kOmegaSSTDDESCoeffs { useSigma <...>; } <delta>Coeffs {} }` (the deltas' own
-  default coefficients: cubeRootVol 1, maxDeltaxyz 2); div(phi,U) `Gauss DEShybrid linear linearUpwind grad(U)
-  delta 0.65 <U> <l_ref> 0 1 1 10` (the tutorial's line with the case's reference velocity and length in place of
-  its 1 and 1) or `Gauss LUST grad(U)` (the v2606 LES tutorials' scheme, e.g. pisoFoam/LES/motorBike); k and omega
+  default coefficients: cubeRootVol 1, maxDeltaxyz 2); div(phi,U) `Gauss DEShybrid LUST grad(U) linearUpwind
+  grad(U) delta 0.65 <U> <l_ref> 0 1 1 10` (D-196; it was the tutorial's `linear` in the LES region; the case's
+  reference velocity and length in place of the tutorial's 1 and 1) or `Gauss LUST grad(U)` (the v2606 LES tutorials' scheme, e.g. pisoFoam/LES/motorBike); k and omega
   limitedLinear 1 (as the tutorial; D-192 replaced it); `wallDist { method meshWave; nRequired yes; }` (D-195; the
   tutorial has exactDistance, which in a parallel run needs a decomposition method pimpleFoam does not load: the
   first DDES run stopped at "Unknown decompositionMethod type scotch"); the
@@ -1981,4 +1981,23 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   would have to be solved for every core count); computing y once in serial and reading it back. For the owner:
   QUESTIONS 262.
 - Check: tests/test_transient.py::test_ddes_dictionaries (the entry as written).
+
+## D-196 The DDES U convection: DEShybrid with LUST in the LES region and linearUpwind in the RANS region [NUMERICS-REVIEW]
+- Status: Accepted (owner, 2026-10-28; QUESTIONS 260 closed). Amends D-191's default U scheme.
+- Decision: div(phi,U) of a DDES case with the default `des_scheme` "DEShybrid" is `Gauss DEShybrid LUST grad(U)
+  linearUpwind grad(U) delta 0.65 <U> <l_ref> 0 1 1 10`: LUST (75 % linear, 25 % linearUpwind) where DEShybrid's
+  blending factor selects the LES-region scheme, linearUpwind on the limited grad(U) in the RANS region; the
+  coefficients after the two schemes are unchanged (D-191). It was `linear` in the LES region (the
+  wallMountedHump tutorial). The "LUST" choice (LUST everywhere) is unchanged.
+- v2606 accepts it (read in the installed sources): DEShybrid's constructors build both schemes with
+  `surfaceInterpolationScheme<Type>::New(mesh, faceFlux, is)` (src/TurbulenceModels/schemes/DEShybrid/
+  DEShybrid.H), so either may be any surface interpolation scheme registered for vectors; LUST is
+  (src/finiteVolume/interpolation/surfaceInterpolation/schemes/LUST/LUST.C, `makeSurfaceInterpolationTypeScheme(LUST,
+  vector)`, a linearUpwind with the flux constructor) and reads its gradient scheme name next, hence "LUST grad(U)".
+  DEShybrid's weights and explicit correction blend both schemes' (`(1 - b) w1 + b w2`; LUST's correction is
+  0.25 x linearUpwind's).
+- Dictionaries changed: only system/fvSchemes of a DDES case (div(phi,U)). Steady, laminar and URANS files are
+  unchanged.
+- Check: tests/test_transient.py::test_ddes_dictionaries; a short run of the existing DDES sphere case with this
+  entry (below).
 
