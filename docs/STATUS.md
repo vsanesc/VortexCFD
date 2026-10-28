@@ -1,6 +1,6 @@
 # Status
 
-Updated 2026-10-28 (task/1.1-transient: **transient flow, Part 2: PIMPLE, start-up perturbation, Continue, DDES**).
+Updated 2026-10-28 (task/1.1-transient: **transient flow, Part 2 and its closing brief**).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
@@ -37,7 +37,8 @@ Part 2 (2026-10-27/28; D-184 to D-194, QUESTIONS 257-261; not published):
   teardown and in the app (D-193); a warning when the largest time step holds the Courant number (D-194).
 - Part B: k-omega SST DDES (D-191); k and omega by linearUpwind on limited gradients instead of limitedLinear, which
   crashed the first URANS run (D-192, amends the accepted D-181, QUESTIONS 258). Square cylinder at Re 22,000, 2D
-  URANS: **PASS** (medium St 0.1310, Cd 2.082; coarse St 0.1355, Cd 2.132; ERCOFTAC UFR 2-02); PISO at Co 1 gives
+  URANS: **PASS, under investigation** (medium St 0.1310, Cd 2.082; coarse St 0.1355, Cd 2.132; ERCOFTAC UFR 2-02,
+  PIMPLE at Co 2; see the closing brief below and QUESTIONS 257); PISO at Co 1 gives
   8-9 % lower St and Cd than PIMPLE over the same window (QUESTIONS 257). The 3D square-cylinder DDES (810,540
   cells, pass rule committed first) was **not run**: 12.9 s per step at its fastest (8 processes), about 300 h;
   the Ahmed DDES estimate is 15-38 days (docs/validation/square_ddes/RESULT.md, QUESTIONS 261). The DDES sphere was
@@ -49,8 +50,44 @@ Part 2 (2026-10-27/28; D-184 to D-194, QUESTIONS 257-261; not published):
 - Public benchmark dictionaries byte-identical to origin/main (`diff -r`, 51 files); fast suite: 1492 passed,
   1 skipped.
 
-What is left of 1.1 (PLAN, "Release 1.1"): the mesh study and polar sweep of a transient project; per-part
-statistics; a DDES validation that fits the machine (QUESTIONS 261); the Ahmed body.
+Part 2 closing brief and its addendum (2026-10-28; D-195 to D-198, QUESTIONS 262; not published):
+- Owner decisions recorded: D-192 Accepted (QUESTIONS 258 closed); the DDES wall distance by meshWave recorded as
+  D-195, [NUMERICS-REVIEW], not approved (QUESTIONS 262); the DDES U scheme DEShybrid with LUST in the LES region and
+  linearUpwind in the RANS region (D-196, QUESTIONS 260 closed; read in the v2606 sources, 11 sphere steps on 6
+  processes ran clean); DDES ships experimental and not validated, with an inline notice in Physics, the Ahmed DDES
+  and QUESTIONS 261 in "Later" (D-197); start-up perturbations are declared options, both off by default: the new
+  initial-field perturbation (setExprFields on 0/U only) and the inflow swing (D-198, schema v26, QUESTIONS 259
+  closed).
+- 1.1 scope: transient laminar flow validated (the cylinder at Re 100); URANS: the square cylinder is a **PASS under
+  investigation (QUESTIONS 257)**, not called validated; DDES experimental, not validated; the Ahmed body in Later.
+- Measurement A (the cylinder at Re 100, rules committed first): the inflow swing is equivalent to no perturbation,
+  the initial-field perturbation **fails its rule** (RMS Cl +0.85 % against a 0.81 % limit); start-up saved 64 t_c
+  (swing) and 42 t_c (initial) of 148. A2 (to 300 t_c): the unperturbed run had not settled in 180-240 (its mean Cd
+  and RMS Cl drift by more than its half-to-half spread); over 240-300 the swing is equivalent, the initial-field run
+  fails again (mean Cd, 0.012 %).
+- Measurement B (the square cylinder, initial-field vs swing): **not equivalent** (St +6 %, Cd -6 %, RMS Cl -19 %):
+  the two starts settle on different sustained states.
+- Measurement C (QUESTIONS 257): PIMPLE at Co 1 loses the shedding (St 0.109, Cd 1.51, RMS Cl 0.014): not within 2 %
+  of Co 2, no time-step convergence shown. Diagnostics (rules committed first): (a) restarted from PIMPLE Co 2's
+  developed shedding, Co 1 keeps it (statistics within 0.1 % of Co 2): two states, the start-up selects one; (b) the
+  approach turbulence is about half the experiment's 2 % (0.75-1.0 % at 3 D upstream), C's near-wake eddy viscosity
+  2-35 times the other runs'; (c) C with turbOnFinalIterOnly false
+  decays exactly as C: not the cause. Conclusion in QUESTIONS 257: the coarse 2D URANS square cylinder has several
+  sustained states and the start-up selects one; lift histories in ~/vortexcfd-research/1.1-urans-diagnostics/.
+- Defaults unchanged. Measurement wall times are indicative only (another workload ran on the machine). One breach of
+  the brief's limits: run C's meshing used 8 processes for 12 s (the automatic count); every later run set
+  `--mesh-cores`.
+- Public benchmark dictionaries byte-identical to origin/main (`diff -r`, 51 files); transient dictionaries changed in this
+  brief (generated at 7c325ea and at the end, 7 inputs): a DDES case's fvSchemes (div(phi,U), D-196); with the
+  perturbations off (the new default) a transient external case's 0/U inlet (fixedValue instead of the swing's table)
+  and transientControl's notBefore 0; with the swing declared, comment blocks in 0/U and controlDict and
+  transientControl's startupPerturbation; with the initial-field option, system/setExprFieldsDict (new) and the same
+  declarations. Fast suite (-n 6, offscreen, nice 15): 1501 passed, 1 skipped; an earlier run in this brief had 1
+  failure (scripts/validation/window_compare.py did not isolate the settings, fixed in ec0be81). No OpenFOAM process
+  left running.
+
+What is left of 1.1 (PLAN, "Release 1.1"): QUESTIONS 257 (the URANS square cylinder); the mesh study and polar sweep
+of a transient project; per-part statistics. Later: a DDES validation and the Ahmed body with DDES (QUESTIONS 261).
 
 ## Previous branch (task/v1.0.1-pillow, merged)
 
