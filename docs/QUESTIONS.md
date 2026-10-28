@@ -518,7 +518,137 @@ settled the open ones on 2026-10-17.
      VortexCFD logo: start the app from the WSLg Start-menu entry (after `scripts/install.sh --desktop-only`) and from
      the shortcut scripts/windows/make_shortcut.ps1 makes (run it from Windows PowerShell). WSLg may still draw a
      small Linux badge over the icon; the app cannot remove it.
+
+
 247. **[CLOSED (owner, 2026-10-26): certifi updated to 2026.10.23 in 1.0.1, see D-183]** **certifi has a critical advisory (D-183).** The pinned certifi==2026.7.22 (scripts/requirements-v1.txt,
      through requests and pooch) is affected by GHSA-6q48-6c7w-9gw2 (critical: it bundles emSign root CAs whose
      intermediate CA keys were compromised), fixed in 2026.10.18. Task v1.0.1-pillow did not change it (Pillow only).
      Update certifi in 1.0.1 too, as its own item?
+
+## Task 1.1-transient (Parts 0, A, B, C)
+
+248. **[CLOSED (owner, 2026-10-28): checked, as meant; scope later revised by D-197 and D-199]** **The 1.1 roadmap section was not in the repository.** docs/PLAN.md had no 1.1 section; the owner's
+     decisions T1-T6 were taken from the task brief and are now written in PLAN ("Release 1.1: transient flow").
+     Please check they are as you meant them.
+249. **[CLOSED (owner, 2026-10-27): accepted, keep l_ref / U and the name; D-181]** **"Flow-through time" is l_ref / U (D-181).** The app's time unit is the convective time of the
+     reference length (the diameter of a cylinder, the chord of a wing), not the domain length over U. The start-up
+     window and the statistics stop are in it (default 20). Keep this meaning (and the name), or use "convective
+     times"?
+250. **[CLOSED (owner, 2026-10-27): accepted as written; D-181 Accepted]** [NUMERICS-REVIEW] **The transient schemes and solution settings (D-181).** backward in time;
+     Gauss linearUpwind grad(U) on cellLimited grad(U); k and omega Gauss limitedLinear 1; PISO (1 outer, 2
+     pressure correctors), no non-orthogonal correctors, no relaxation; the cylinder2D tutorial's p tolerance 1e-6
+     (U, k, omega 1e-6) with relTol 0 on the final corrector. Accept, or prefer Gauss linear for U in laminar runs?
+251. **[CLOSED (owner, 2026-10-27): accepted on condition that the tolerance is editable (default 5 %) and the sampling start can be set by hand; both done in Part 2, D-186]** [NUMERICS-REVIEW] **The start-up detection and the sampling switch (D-181).** Settled when, over two
+     consecutive windows, the stop quantity's mean changes by at most the tolerance (0.5 %) and the ranges of Cd and
+     Cl by at most 5 %; the app then stops pimpleFoam cleanly, adds fieldAverage from the latest time and continues
+     (the D-126 switch mechanism). The 5 % range tolerance is fixed (not a setting). Accept?
+252. **[CLOSED (owner, 2026-10-27, Part 2 brief): hide the y+ sizing and offer a first-cell thickness; done, D-190]** **Laminar projects and the y+ layer sizing (D-182).** The y+ layer sizing assumes a turbulent boundary
+     layer (at Re 100 it would give a first layer of about 0.1 D); the cylinder validation uses relative layers. Should
+     the app switch a laminar project to relative layers by itself, or only warn?
+253. **[CLOSED (Part 2, Part 0): replaced by sourced values, SETUP.md "References"; verdict unchanged]** **The cylinder references (docs/validation/cylinder_re100/SETUP.md).** St 0.164-0.166 (Williamson
+     1996), mean Cd about 1.33 and RMS Cl about 0.23 (Park, Kwon & Choi 1998; Qu et al. 2013; Posdziech & Grundmann
+     2007) are the values these papers are commonly quoted with; they were not re-read here (no access to the
+     papers). Please confirm them, in particular Qu et al. 2013's Re 100 table.
+254. **[CLOSED (owner, 2026-10-28): Continue done in Part 2; DDES and the Ahmed body per D-197; the transient mesh study, polar sweep and per-part statistics stay out of 1.1 as known limitations and move to Later]** **Left for the next 1.1 parts.** Continue for a transient run (it starts from the beginning each
+     time; Continue is off for it), the mesh study and polar sweep of a transient project (refused with a message),
+     the transient per-part coefficients' statistics (all walls only), DDES and the Ahmed body.
+255. **[CLOSED (owner, 2026-10-27, Part 2 brief): convert them; done, D-188]** **Changing "Times in" does not convert the values (D-181).** The four time fields keep their numbers
+     and change their unit (the suffix shows " t_c" or " s"). Convert them instead?
+256. **[OPEN]** **ship.sh from a worktree (D-180).** It merges the pull request on GitHub without --delete-branch,
+     deletes the remote branch itself, and fast-forwards main where it is checked out (that tree must be clean);
+     the local task branch stays in the worktree. For a long-lived branch like task/1.1-transient the next push
+     recreates the remote branch. Please try `scripts/ship.sh --dry-run` in both folders before the first real use.
+
+## Task 1.1-transient, Part 2
+
+257. **[CLOSED (owner, 2026-10-28): URANS ships available but not validated, like DDES; the square cylinder is an investigation, not a validation; defaults unchanged; D-199]** [NUMERICS-REVIEW] **PIMPLE as the default of turbulent transient projects (D-185).** Laminar projects
+     keep PISO at Co 1; turbulent ones get PIMPLE (residual control 1e-4, at most 10 outer correctors) at Co 2, DDES
+     at Co 1. On the laminar cylinder PIMPLE matched PISO within 0.4 % but saved no time (3 outer correctors per
+     step); on the square cylinder's mesh with wall layers PIMPLE at Co 2 took 19 % less wall time than PISO at
+     Co 1 over the first 15 t_c (its RESULT.md). Accuracy on the square cylinder over the sampled window 96-150 t_c:
+     PISO Co 1 St 0.1250, mean Cd 1.939; PIMPLE Co 2 St 0.1353, mean Cd 2.129 (8-9 % apart, each stable to 1-2 %
+     across the window; the experiment: St 0.132-0.133, Cd 1.9-2.2). Keep
+     PIMPLE as the turbulent default, or PISO everywhere with PIMPLE as an option?
+     **Measurement C (2026-10-28; rule committed first, 8f73cbc):** PIMPLE at Co 1, the same start-up and window:
+     St 0.1090, mean Cd 1.511, RMS Cl 0.014 against PIMPLE Co 2's 0.1353 / 2.129 / 1.405: **not within 2 %** (St
+     -19.4 %, Cd -29.0 %), so no time-step convergence can be claimed and PISO is not shown to be the outlier. At Co 1
+     PIMPLE's shedding decays after the swing ends (lift range 2.4 -> 0.03 per 10 t_c by 50 t_c) to a nearly steady,
+     symmetric wake; PISO Co 1 and PIMPLE Co 2 shed throughout with different amplitudes. My reading: on this coarse
+     2D URANS mesh the answer depends on the time step and the coupling, and halving the step moved it away from the
+     experiment rather than towards a limit; the square cylinder PASS (PIMPLE Co 2) stands as measured but is not
+     shown to be time-step independent. The cause is not established. Options: (a) keep the defaults and document
+     the sensitivity; (b) tighten PIMPLE's outer convergence (outer tolerance, or a minimum of outer correctors) and
+     repeat Co 1 / Co 2; (c) repeat on the medium level. Details: docs/validation/square_re22000/RESULT.md, "Time-step
+     convergence". No default was changed.
+     **Diagnostics (owner's addendum; rules committed first, bd7273a) and my conclusion:** (a) PIMPLE Co 1 restarted
+     from the Co 2 run's developed shedding at 95.8 t_c keeps it (St 0.1352, Cd 2.131, RMS Cl 1.405, within 0.1 % of
+     Co 2): two sustained states, the start-up picks one. (b) The modelled approach turbulence at 3 D upstream is
+     0.75-1.0 % against the experiment's "about 2%" (ERCOFTAC UFR 2-02), the inlet being 19.5 D upstream; C's
+     near-wake nut/nu is 2-35 times the shedding runs'. (c) C with `turbOnFinalIterOnly false` decays exactly as C
+     (St 0.108, Cd 1.512): not the cause. With B (the initial-field start at Co 2 settles on yet another shedding
+     state, St 0.1435, Cd 2.008), the coarse 2D URANS square cylinder has **several sustained states, and the
+     start-up (perturbation, time step, coupling) selects which one a run reaches**; Co 1 is not "converged" towards
+     any one of them. The PASS (PIMPLE Co 2, the swing) is therefore one of several possible answers of the same
+     set-up and should stay "PASS under investigation". Not tested and possible next steps, for the owner: (1) the
+     medium level with the same three starts (is the multiplicity a coarse-mesh effect?); (2) the inlet moved to about
+     10 D upstream, or its intensity raised so that about 2 % reaches the body (b1); (3) a reporting rule in the app
+     that flags a transient run whose statistics depend on its start (for example two starts compared) before calling
+     a URANS result validated. Lift histories: ~/vortexcfd-research/1.1-urans-diagnostics/. No default was changed.
+     **Matched-inflow run (follow-up; rule committed first, f955494):** the default start-up (no perturbation), the
+     inflow giving the experiment's 2 % at 3 D upstream (inlet 2.23 %, viscosity ratio 100: QUESTIONS 263), PIMPLE
+     Co 2, to 150 t_c then 200 t_c. Inflow check: 1.995-1.999 % at 3 D upstream (matched). It sheds (lift range 4-5
+     at the end), but irregularly and modulated, and the app's detection found no window by 200 t_c, so the pass rule
+     gives no verdict. For information over 100-200 t_c: St 0.097 (-27 %), mean Cd 2.43 (+15.5 %), RMS Cl 1.53.
+     My reading: what a user gets with the default start-up and a matched inflow on this coarse 2D mesh is a fourth
+     state, further from the experiment than the PASS run, which the app would not even report statistics for
+     without a sampling start set by hand. The coarse 2D URANS square cylinder does not give one answer; the PASS
+     should stay "under investigation". Next steps for the owner as above (the medium level; a decision on the inflow
+     turbulence, QUESTIONS 263); no default was changed.
+
+## Task 1.1-transient, Part 2: matched-inflow follow-up
+
+263. **[CLOSED (owner, 2026-10-28): superseded by D-199; matched free-stream turbulence by kOmegaSST's decay control moves to Later]** **The square cylinder's inflow viscosity ratio: 10 cannot give the experiment's 2 % at 3 D upstream.**
+     ERCOFTAC UFR 2-02 (Test Case page): the approach turbulence was "about 2%" measured "3 cylinder widths upstream";
+     RANS computations assumed a viscosity ratio "in the range 10 to 100", and "the value of 10 is more suitable". With
+     the validation's inlet 19.5 D upstream (not moved, as the brief asked), k-omega SST's free-stream decay (v2606
+     constants beta2 0.0828, betaStar 0.09) leaves at most 1.28 % at 3 D upstream with ratio 10, whatever the inlet
+     intensity; ratio 10 applied at 3 D upstream has no inlet state at all; the smallest inlet ratio that reaches 2 %
+     is 24.4 (inlet 7.9 %). The matched-inflow run used ratio 100 (inlet 2.23 %), the top of the page's range, as the
+     match least sensitive to extra numerical decay; it put nut/nu about 70 at 3 D upstream. Keep ratio 100 for the
+     matched inflow, use the smallest ratio that reaches 2 % (about 24.4, inlet about 7.9 %), or move the inlet to the
+     page's 5-10 D (even at 10 D, ratio 10 reaches at most 1.97 %)? Details: docs/validation/square_re22000/SETUP.md,
+     "Matched inflow turbulence".
+258. **[CLOSED (owner, 2026-10-28): approved; D-192 Accepted]** [NUMERICS-REVIEW] **k and omega by linearUpwind instead of limitedLinear (D-192, amends the accepted
+     D-181).** limitedLinear 1 drove omega negative and crashed the first URANS run (the square cylinder) in its
+     first step; linearUpwind on cell-limited gradients ran without a single clip. Accept the change?
+259. **[CLOSED (owner, 2026-10-28): a fully declared option, never applied silently; a second mechanism (the initial-field perturbation), the swing kept as a separate option, both off by default; D-198]** **The start-up perturbation: when to end it, and for which projects (D-187).** Today it is on by
+     default for every transient external flow and lasts a fixed 10 flow-through times (on the square cylinder
+     5.6-10.6 % of the solver time; the earliest detection is then 50 t_c). Two proposals, not implemented: (a)
+     end it once the lift shows a developed asymmetric oscillation (for example its amplitude over the last period
+     above a fraction of Cd, or a few zero crossings of Cl), then hold the detection for one more window; (b) turn
+     it on by default only in bluff-body presets (2D sections and the external-flow presets used for cylinders),
+     off for streamlined bodies at incidence that shed without help. Adopt (a), (b), both, or keep it as it is?
+260. **[CLOSED (owner, 2026-10-28): DEShybrid with LUST in the LES region and linearUpwind in the RANS region; D-196]** [NUMERICS-REVIEW] **The DDES U scheme (D-191).** The default is `Gauss DEShybrid linear linearUpwind
+     grad(U) delta 0.65 <U> <l_ref> 0 1 1 10` (central in the resolved LES region, linearUpwind elsewhere: the
+     vault note and the wallMountedHump tutorial), and `Gauss LUST grad(U)` is the other choice in Physics. If the
+     decision was DEShybrid blending LUST (LUST in the LES region instead of linear), it is a one-entry change:
+     confirm which.
+261. **[DEFERRED to Later (owner, 2026-10-28): DDES ships experimental and not validated in 1.1; this question and the Ahmed DDES move to Later; D-197]** [NUMERICS-REVIEW] **DDES cost: the pressure solve, and which DDES case for Part 3.** The 3D square
+     cylinder DDES (810,540 cells) costs 12.9 s per step at its fastest count (8 processes; 6 to 12 are within 15 %),
+     about 3.5 PIMPLE outer correctors and 490-560 GAMG iterations for p per step: about 300 hours for the committed
+     100 t_c, so it was not run (docs/validation/square_ddes/RESULT.md); an Ahmed DDES of 8-12 M cells would take
+     15-38 days. Options: (a) a cheaper pressure solve for transient runs (a relative tolerance on the final
+     corrector, fewer outer correctors, or PISO for DDES), a numerics change; (b) a smaller DDES validation case for
+     Part 3 (the 2D coarse section extruded in 10 cells, about 0.27 M cells, about 20 h at Co 2 to 70 t_c), or the
+     NASA wall-mounted hump of the vault note once the app can set an inflow boundary layer. Which?
+
+## Task 1.1-transient, Part 2 closing
+
+262. **[OPEN]** [NUMERICS-REVIEW] **The DDES wall distance by meshWave (D-195).** Commit c6ff8b5 changed a DDES
+     case's `wallDist` from exactDistance (the wallMountedHump tutorial's) to meshWave without a review tag:
+     exactDistance stopped the first parallel DDES run ("Unknown decompositionMethod type scotch"). The wall
+     distance sets the DDES shielding (f_d, hence where the model is RANS or LES) and SST's blending functions;
+     meshWave is approximate on skewed, non-orthogonal meshes (corrected in the near-wall cells), exactDistance is
+     exact. The difference has not been measured. Keep meshWave, or ask for exactDistance in parallel (it needs a
+     decomposition method configured for it)?
+

@@ -1,0 +1,164 @@
+{
+  "window_tc": [
+    96.0,
+    150.0
+  ],
+  "rule": "relative",
+  "reference": "pimple_co2",
+  "runs": {
+    "pimple_co2": {
+      "folder": "run/validation/square_re22000/coarse",
+      "convective_time": 1.0,
+      "not_before_tc": 10.0,
+      "window": [
+        96.0,
+        150.0
+      ],
+      "whole": {
+        "st": 0.1352989160810808,
+        "cycles": 7.3057797337865,
+        "cd_mean": 2.1287435506923864,
+        "cl_rms": 1.4053472043885522
+      },
+      "first_half": {
+        "st": 0.13586053954893118,
+        "cycles": 3.668067491999524,
+        "cd_mean": 2.1544275793160295,
+        "cl_rms": 1.4214598476061546
+      },
+      "second_half": {
+        "st": 0.13678660495002756,
+        "cycles": 3.6928202163076973,
+        "cd_mean": 2.103049819998671,
+        "cl_rms": 1.386391918752604
+      },
+      "halves_diff": {
+        "st": 0.000926065401096382,
+        "cd_mean": 0.05137775931735833,
+        "cl_rms": 0.0350679288535507
+      },
+      "detected_tc": 96.0000000000004,
+      "steps_to_detected": 54002,
+      "steps_total": 112902
+    },
+    "restart_co1": {
+      "folder": "run/validation/square_re22000/coarse_restart_co1",
+      "convective_time": 1.0,
+      "not_before_tc": 10.0,
+      "window": [
+        96.0,
+        150.0
+      ],
+      "whole": {
+        "st": 0.13524076061196788,
+        "cycles": 7.302955654028478,
+        "cd_mean": 2.1308979478948853,
+        "cl_rms": 1.4048483801347549
+      },
+      "first_half": {
+        "st": 0.13583269888059243,
+        "cycles": 3.6673782873010685,
+        "cd_mean": 2.1567596632045984,
+        "cl_rms": 1.4216095805797755
+      },
+      "second_half": {
+        "st": 0.1367662749596375,
+        "cycles": 3.692637068408666,
+        "cd_mean": 2.1050323684257997,
+        "cl_rms": 1.3853083353331557
+      },
+      "halves_diff": {
+        "st": 0.0009335760790450676,
+        "cd_mean": 0.05172729477879878,
+        "cl_rms": 0.03630124524661982
+      },
+      "detected_tc": 136.00000000000097,
+      "steps_to_detected": 44744,
+      "steps_total": 60416
+    },
+    "pimple_co1": {
+      "folder": "run/validation/square_re22000/coarse_pimple_co1",
+      "convective_time": 1.0,
+      "not_before_tc": 10.0,
+      "window": [
+        96.0,
+        150.0
+      ],
+      "whole": {
+        "st": 0.10903730337581162,
+        "cycles": 5.8879980266983205,
+        "cd_mean": 1.5113508798222604,
+        "cl_rms": 0.013901355466000137
+      },
+      "first_half": {
+        "st": 0.10196570420743352,
+        "cycles": 2.7529904017232543,
+        "cd_mean": 1.510985625412847,
+        "cl_rms": 0.01768469759801358
+      },
+      "second_half": {
+        "st": 0.11203708833505312,
+        "cycles": 3.0249554498402165,
+        "cd_mean": 1.511716110833255,
+        "cl_rms": 0.00815452739430531
+      },
+      "halves_diff": {
+        "st": 0.010071384127619598,
+        "cd_mean": 0.0007304854204079891,
+        "cl_rms": 0.009530170203708268
+      },
+      "detected_tc": null,
+      "steps_to_detected": null,
+      "steps_total": 141315
+    }
+  },
+  "comparisons": {
+    "restart_co1": {
+      "quantities": {
+        "st": {
+          "diff": 5.8155469112919356e-05,
+          "relative": 0.00042982952707520906,
+          "limit": 0.002705978321621616,
+          "within": true
+        },
+        "cd_mean": {
+          "diff": 0.002154397202498881,
+          "relative": 0.0010120510767011605,
+          "limit": 0.04257487101384773,
+          "within": true
+        },
+        "cl_rms": {
+          "diff": 0.0004988242537973253,
+          "relative": 0.000354947341297311,
+          "limit": 0.028106944087771046,
+          "within": null
+        }
+      },
+      "verdict": "agree"
+    },
+    "pimple_co1": {
+      "quantities": {
+        "st": {
+          "diff": 0.02626161270526918,
+          "relative": 0.19410068806117664,
+          "limit": 0.002705978321621616,
+          "within": false
+        },
+        "cd_mean": {
+          "diff": 0.6173926708701261,
+          "relative": 0.2900267956980142,
+          "limit": 0.04257487101384773,
+          "within": false
+        },
+        "cl_rms": {
+          "diff": 1.391445848922552,
+          "relative": 0.9901082412783192,
+          "limit": 0.028106944087771046,
+          "within": null
+        }
+      },
+      "verdict": "do not agree"
+    }
+  },
+  "tolerance": 0.02
+}

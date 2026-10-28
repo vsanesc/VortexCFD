@@ -22,6 +22,16 @@ class FieldSpec:
     source: str  # the OpenFOAM field file it comes from
     component: int | None = None  # 0, 1, 2 for a vector component (-1: along the free stream); None: scalar or magnitude
     magnitude: bool = False
+    # The square root of a mean squared fluctuation (D-181): of a scalar (pPrime2Mean) or of a diagonal component of
+    # a symmetric tensor (UPrime2Mean: xx 0, yy 3, zz 5).
+    rms: bool = False
+
+    @property
+    def field_class(self) -> str:
+        """The volume field class the source must have."""
+        if self.rms and self.component is not None:
+            return "volSymmTensorField"
+        return "volVectorField" if (self.component is not None or self.magnitude) else "volScalarField"
 
     @property
     def title(self) -> str:
@@ -46,6 +56,20 @@ FIELD_SPECS = (
     # component along the free stream (negative where the near-wall flow runs back).
     FieldSpec("Cf", "Cf", "", "wallShearStress", magnitude=True),
     FieldSpec("Cf_x", "Cf_x (free-stream direction)", "", "wallShearStress", component=-1),
+    # The time-averaged fields of a transient run (fieldAverage, D-181): the means and the RMS of the fluctuations.
+    # DDES (D-191): written by the turbulenceFields function object at the write times.
+    FieldSpec("fd", "DDES shielding function f_d (0: RANS-shielded boundary layer)", "", "turbulenceProperties:fd"),
+    FieldSpec("LESRegion", "DDES LES region (1: LES mode, 0: RANS)", "", "turbulenceProperties:LESRegion"),
+    FieldSpec("pMean", "p mean (kinematic)", "m²/s²", "pMean"),
+    FieldSpec("CpMean", "Cp mean", "", "pMean"),
+    FieldSpec("UMean_mag", "|U mean|", "m/s", "UMean", magnitude=True),
+    FieldSpec("UMean_x", "Ux mean", "m/s", "UMean", component=0),
+    FieldSpec("UMean_y", "Uy mean", "m/s", "UMean", component=1),
+    FieldSpec("UMean_z", "Uz mean", "m/s", "UMean", component=2),
+    FieldSpec("p_rms", "p RMS (kinematic)", "m²/s²", "pPrime2Mean", rms=True),
+    FieldSpec("Ux_rms", "Ux RMS", "m/s", "UPrime2Mean", component=0, rms=True),
+    FieldSpec("Uy_rms", "Uy RMS", "m/s", "UPrime2Mean", component=3, rms=True),
+    FieldSpec("Uz_rms", "Uz RMS", "m/s", "UPrime2Mean", component=5, rms=True),
 )
 FIELDS_BY_KEY = {f.key: f for f in FIELD_SPECS}
 
@@ -74,6 +98,22 @@ def latest_result_time(case_dir: Path) -> str | None:
     return best[1] if best else None
 
 
+def result_times(case_dir: Path) -> list[str]:
+    """The names of every time directory after 0 that holds field files, in time order (the Results Scene's time
+    choice, D-181)."""
+    case_dir = Path(case_dir)
+    if not case_dir.is_dir():
+        return []
+    found = []
+    for child in case_dir.iterdir():
+        value = _time_value(child.name)
+        if value is None or value <= 0 or not child.is_dir():
+            continue
+        if any(f.is_file() for f in child.iterdir()):
+            found.append((value, child.name))
+    return [name for _value, name in sorted(found)]
+
+
 _CLASS_RE = re.compile(r"^\s*class\s+(\w+)\s*;", re.MULTILINE)
 
 
@@ -98,9 +138,7 @@ def available_fields(case_dir: Path, time: str | None = None) -> list[FieldSpec]
     classes = {spec.source: field_class(folder / spec.source) for spec in FIELD_SPECS}
     out = []
     for spec in FIELD_SPECS:
-        cls = classes[spec.source]
-        vector_spec = spec.component is not None or spec.magnitude
-        if cls == ("volVectorField" if vector_spec else "volScalarField"):
+        if classes[spec.source] == spec.field_class:
             out.append(spec)
     return out
 
@@ -118,8 +156,11 @@ def field_values(spec: FieldSpec, data: dict, u_ref: float, direction=(1.0, 0.0,
     from vortexcfd.foam.wall_fields import skin_friction, skin_friction_along
 
     raw = np.asarray(data[spec.source], dtype=float)
-    if spec.key == "Cp":
+    if spec.key in ("Cp", "CpMean"):
         return pressure_coefficient(raw, u_ref)
+    if spec.rms:  # a mean squared fluctuation: its root (never negative but for round-off)
+        square = raw[:, spec.component] if spec.component is not None else raw
+        return np.sqrt(np.clip(square, 0.0, None))
     if spec.key == "Cf":
         return skin_friction(raw, u_ref)
     if spec.key == "Cf_x":

@@ -1,0 +1,55 @@
+{
+  "cells": 810540,
+  "rows": [
+    {
+      "procs": 4,
+      "steps": 80,
+      "wall_s": 1448.3,
+      "s_per_step": 17.561525423728817,
+      "dt_last": 0.00010245839,
+      "s_per_step_per_Mcell": 21.666451283994395,
+      "speedup_vs_first": 1.0,
+      "efficiency_vs_first": 1.0
+    },
+    {
+      "procs": 6,
+      "steps": 80,
+      "wall_s": 1225.2,
+      "s_per_step": 13.250508474576272,
+      "dt_last": 8.5443628e-05,
+      "s_per_step_per_Mcell": 16.347753935125066,
+      "speedup_vs_first": 1.3253472844022618,
+      "efficiency_vs_first": 0.8835648562681745
+    },
+    {
+      "procs": 8,
+      "steps": 80,
+      "wall_s": 1154.8,
+      "s_per_step": 12.85966101694915,
+      "dt_last": 9.2224505e-05,
+      "s_per_step_per_Mcell": 15.865547680495904,
+      "speedup_vs_first": 1.3656289540278368,
+      "efficiency_vs_first": 0.6828144770139184
+    },
+    {
+      "procs": 10,
+      "steps": 80,
+      "wall_s": 1116.7,
+      "s_per_step": 14.049491525423726,
+      "dt_last": 8.5998342e-05,
+      "s_per_step_per_Mcell": 17.333495602220403,
+      "speedup_vs_first": 1.2499758722192738,
+      "efficiency_vs_first": 0.4999903488877095
+    },
+    {
+      "procs": 12,
+      "steps": 80,
+      "wall_s": 1289.0,
+      "s_per_step": 14.739999999999997,
+      "dt_last": 8.0098615e-05,
+      "s_per_step_per_Mcell": 18.185407259357955,
+      "speedup_vs_first": 1.1914196352597572,
+      "efficiency_vs_first": 0.3971398784199191
+    }
+  ]
+}

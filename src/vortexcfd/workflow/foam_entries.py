@@ -13,7 +13,7 @@ from pathlib import Path
 
 from vortexcfd.core.model import Simulation
 from vortexcfd.core.project import Project
-from vortexcfd.foam.dictfile import write_foam_file
+from vortexcfd.foam.case_writer import write_spec
 from vortexcfd.foam.mesh_case import build_mesh_files
 from vortexcfd.foam.physics_case import build_solver_files
 
@@ -221,7 +221,7 @@ def case_file(project: Project, entry: Entry) -> tuple[Path, bool]:
         return real, True
     preview = project.folder / PREVIEW_DIR
     for rel, spec in case_files(project).items():
-        write_foam_file(preview / rel, spec.content, object_name=Path(rel).name, class_name=spec.class_name)
+        write_spec(preview / rel, spec)
     return preview / entry.file, False
 
 

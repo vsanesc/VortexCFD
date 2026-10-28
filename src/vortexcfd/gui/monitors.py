@@ -1,6 +1,7 @@
 """Right column: live residual chart and report slots (empty states until a solver runs)."""
 
 import math
+from collections import deque
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
@@ -26,6 +27,7 @@ from vortexcfd.foam.forces import MASS_WARNING, imbalance_text
 from vortexcfd.foam.logparse import TimeStep
 from vortexcfd.foam.postprocessing import ReportMonitor
 from vortexcfd.foam.residuals import ResidualHistory
+from vortexcfd.foam import transient
 from vortexcfd.gui.icons import make_glyph
 from vortexcfd.gui.panel_widgets import FloatingPanel
 from vortexcfd.gui.settings_store import settings
@@ -188,7 +190,8 @@ class ResidualChart(ZoomPanMixin, QWidget):
         # the iteration axis: 1-2-5 ticks for the shown range, minor marks, a light grid (D-169)
         self._plot_area = QRectF(area)
         grid = QColor(t.border)
-        self.x_ticks = draw_x_axis(painter, area, x0, x1, fm, grid, QColor(t.muted_text), integer=True)
+        self.x_ticks = draw_x_axis(painter, area, x0, x1, fm, grid, QColor(t.muted_text),
+                                   integer=self.X_CAPTION == "Iteration")
         painter.save()
         painter.setClipRect(area.adjusted(-2, -2, 2, 2))
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -293,6 +296,8 @@ class ReportSlots(QWidget):
         self.values: dict[int, QLabel] = {}
         self.means: dict[int, QLabel] = {}  # windowed mean and oscillation (D-118)
         self.window_of = lambda _report_id: 100  # iterations averaged for a report (set by the panel)
+        # A transient run (D-181): the slot's line from (report id, points), instead of the windowed mean; None: steady.
+        self.mean_text_of = None
         self.mass_resolution: float | None = None  # the smallest imbalance the files show (%, set by the panel)
         self.subtitles: dict[int, QLabel] = {}
         self.sparks: dict[int, Sparkline] = {}
@@ -434,6 +439,10 @@ class ReportSlots(QWidget):
             resolution = self.mass_resolution if mass else None
             self.values[slot].setText(imbalance_text(points[-1][1], resolution, 4) if points else EMPTY)
             stats = None
+            if points and self.mean_text_of is not None and has_running_mean(report_id):
+                self.means[slot].setText(self.mean_text_of(report_id, points))
+                self.sparks[slot].set_values([v for _, v in points])
+                continue
             if points and not report_id.startswith("yplus"):
                 stats = window_stats(points, self.window_of(report_id), quantity=report_id)
             text = stats.text() if stats is not None else ""
@@ -458,6 +467,12 @@ class ReportSlots(QWidget):
             button.setIconSize(QSize(m.u, m.u))
         for button in self.chart_buttons.values():
             button.setFixedSize(m.u, m.u)
+
+
+def has_running_mean(report_id: str | None) -> bool:
+    """A transient run's slot shows the running mean of a force or moment coefficient (D-181), not of y+ or the mass
+    imbalance."""
+    return bool(report_id) and not report_id.startswith("yplus") and report_id != "mass_imbalance"
 
 
 def set_state(label: QLabel, state: str | None) -> None:
@@ -509,6 +524,10 @@ def drift_warning(quantity: str) -> str:
     """The soft warning of a force coefficient still changing while the residual criteria hold (D-178)."""
     label = quantity_label(quantity)
     return f"Residuals met, but {label} is still changing: add an asymptotic or mean-stable criterion on it"
+
+
+# How often the statistics of a running transient run are computed again (s; the Strouhal number's FFT).
+TRANSIENT_STATS_S = 2.0
 
 
 def banner_for(state: str | None, stopped_by: tuple[str, ...], iterations: int | None) -> tuple[str, str | None]:
@@ -738,6 +757,7 @@ class MonitorsPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.case_dir: Path | None = None  # case of the shown run
+        self._recent_steps: deque = deque(maxlen=transient.CAP_STEPS)  # the Courant cap warning (D-194)
         self.setObjectName("panel")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.header = SectionHeader("Residuals")
@@ -819,6 +839,11 @@ class MonitorsPanel(QWidget):
         self.project_stopping: StoppingCriteria | None = None
         self.run_criteria_known = True
         self.outcome: tuple[str | None, tuple[str, ...], int | None] | None = None
+        # A transient run (D-181): its control file (the sampling start appears when detected) and the recorded
+        # statistics of a finished run (None: computed from the files).
+        self.transient: transient.TransientControl | None = None
+        self.transient_record: dict | None = None
+        self._transient_stats: tuple[float, dict | None] = (0.0, None)
         self._dirty = False
         self._timer = QTimer(self)
         self._timer.setInterval(REFRESH_MS)
@@ -833,6 +858,9 @@ class MonitorsPanel(QWidget):
         self.outcome = None
         self.stopping = self.run_stopping = None
         self.run_criteria_known = True
+        self.transient = self.transient_record = None
+        self._recent_steps: deque = deque(maxlen=transient.CAP_STEPS)  # the Courant cap warning (D-194)
+        self._transient_stats = (0.0, None)
         self.chart.set_series({})
         self.kpis.set_series(None)
         self.set_stage("")
@@ -873,6 +901,7 @@ class MonitorsPanel(QWidget):
         self.run_criteria_known = True
         self.reports = ReportMonitor(case_dir)
         self.case_dir = Path(case_dir)
+        self.transient = transient.read_control(case_dir)
         self.outcome = (None, (), None)
         self._timer.start()
         self._update_convergence()
@@ -892,6 +921,7 @@ class MonitorsPanel(QWidget):
     def add_step(self, step: TimeStep) -> None:
         """One completed solver iteration (logparse.TimeStep), in the GUI thread."""
         self.history.add(step)
+        self._recent_steps.append(step)  # the Courant cap warning of a transient run (D-194)
         self._dirty = True
 
     def end_run(self) -> None:
@@ -910,8 +940,10 @@ class MonitorsPanel(QWidget):
         self.stopping = judged if judged is not None else stopping
         self.run_criteria_known = stopping is not None
         self.history.extend(steps)
+        self._recent_steps.extend(steps)
         self.reports = ReportMonitor(case_dir)
         self.case_dir = Path(case_dir)
+        self.transient = transient.read_control(case_dir)
         self.outcome = outcome
         self._dirty = True
         self.refresh()
@@ -929,8 +961,14 @@ class MonitorsPanel(QWidget):
         if not self._dirty:
             return
         self._dirty = False
+        if self.transient is not None and self.outcome is not None and self.outcome[0] is None:
+            self.transient = transient.read_control(self.case_dir) or self.transient  # a detected sampling start
+        self.chart.X_CAPTION = "Time [s]" if self.transient is not None else ResidualChart.X_CAPTION
         self.chart.set_series(self.history.decimated())
         self.kpis.window_of = self.mean_window
+        start = self.transient.sampling_start if self.transient is not None else None
+        self.kpis.mean_text_of = ((lambda _rid, points: transient.slot_text(points, start))
+                                  if self.transient is not None else None)
         self.kpis.mass_resolution = self.reports.mass_resolution() if self.reports is not None else None
         self.kpis.set_series(self.reports.series if self.reports is not None else None)
         self._update_convergence()
@@ -959,7 +997,52 @@ class MonitorsPanel(QWidget):
                   if r and not r.startswith("yplus") and r != "mass_imbalance" and not r.startswith("x_cp")]
         return list(dict.fromkeys(names))
 
+    def set_transient_record(self, record: dict | None) -> None:
+        """The transient part of the shown run's record (D-181): its statistics and when it stopped."""
+        self.transient_record = record
+        self._dirty = True
+        self.refresh()
+
+    def transient_summary(self) -> dict | None:
+        """The statistics of the shown transient run: the record's for a finished run, else computed from the files
+        (at most every TRANSIENT_STATS_S seconds while it runs)."""
+        import time
+
+        if self.transient is None or self.transient.sampling_start is None or self.reports is None:
+            return None
+        running = self.outcome is not None and self.outcome[0] is None
+        if not running and self.transient_record and self.transient_record.get("statistics"):
+            return self.transient_record["statistics"]
+        stamp, cached = self._transient_stats
+        if cached is not None and running and time.monotonic() - stamp < TRANSIENT_STATS_S:
+            return cached
+        series = {q: self.reports.series(q) for q in ("Cd", "Cl", "CmPitch")}
+        series = {q: rows for q, rows in series.items() if rows}
+        found = transient.summary(series, self.transient.sampling_start, self.transient.length,
+                                  self.transient.speed) if series else None
+        self._transient_stats = (time.monotonic(), found)
+        return found
+
+    def _update_transient(self) -> None:
+        """The convergence box of a transient run (D-181): the banner (time, sampling, the end) and the statistics."""
+        state = self.outcome[0] if self.outcome is not None else None
+        steps = self.history.series.get("p") or []
+        now = steps[-1][0] if steps else None
+        text, colour = transient.banner(self.transient, state, now, self.transient_record)
+        if self.outcome is None:
+            text, colour = BANNER_NO_RUN, None
+        summary = self.transient_summary()
+        note = transient.statistics_text(summary, self.transient.convective_time)
+        cap = transient.courant_cap_warning(self.transient, self._recent_steps)
+        unsampled = transient.no_window_warning(self.transient, state)  # D-200: no statistics at the end
+        warnings = [w for w in (unsampled, cap) if w]
+        self.convergence.set_view(True, (text, colour), [], warnings, "Transient run", note)
+        self._sync_criteria_section()
+
     def _update_convergence(self) -> None:
+        if self.transient is not None:
+            self._update_transient()
+            return
         stop = self.judged_criteria()
         has = stop is not None and bool(stop.criteria)
         series_of = self.reports.series if self.reports is not None else (lambda _q: [])
@@ -1160,6 +1243,11 @@ class MonitorsPanel(QWidget):
     def _fill_chart(self, report_id: str) -> None:
         window = self.chart_windows[report_id]
         points = self.reports.series(report_id) if self.reports is not None else []
+        if self.transient is not None:  # the running mean from the sampling start (D-181)
+            start = self.transient.sampling_start
+            running = transient.running_mean_points(points, start) if has_running_mean(report_id) else []
+            window.set_transient(points, running, start)
+            return
         window.set_data(points, self.mean_window(report_id))
 
     def _update_charts(self) -> None:

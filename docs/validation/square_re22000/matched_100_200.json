@@ -1,0 +1,106 @@
+{
+  "window_tc": [
+    100.0,
+    200.0
+  ],
+  "rule": "relative",
+  "reference": "swing_co2",
+  "runs": {
+    "swing_co2": {
+      "folder": "run/validation/square_re22000/coarse",
+      "convective_time": 1.0,
+      "not_before_tc": 10.0,
+      "window": [
+        100.0,
+        200.0
+      ],
+      "whole": {
+        "st": 0.13549191450102582,
+        "cycles": 13.549174506872005,
+        "cd_mean": 2.1254187692192876,
+        "cl_rms": 1.4209724266751853
+      },
+      "first_half": {
+        "st": 0.13523779908793093,
+        "cycles": 6.761630715250967,
+        "cd_mean": 2.115046749803715,
+        "cl_rms": 1.402707482723059
+      },
+      "second_half": {
+        "st": 0.13567435591792285,
+        "cycles": 6.783706777316103,
+        "cd_mean": 2.135798212681937,
+        "cl_rms": 1.4384636344292527
+      },
+      "halves_diff": {
+        "st": 0.00043655682999191314,
+        "cd_mean": 0.020751462878221716,
+        "cl_rms": 0.03575615170619373
+      },
+      "detected_tc": 96.0000000000004,
+      "steps_to_detected": 54002,
+      "steps_total": 112902
+    },
+    "matched": {
+      "folder": "run/validation/square_re22000/coarse_matched",
+      "convective_time": 1.0,
+      "not_before_tc": 0.0,
+      "window": [
+        100.0,
+        200.0
+      ],
+      "whole": {
+        "st": 0.09709444944933301,
+        "cycles": 9.709436206432851,
+        "cd_mean": 2.425448264555408,
+        "cl_rms": 1.530905883645041
+      },
+      "first_half": {
+        "st": 0.09568647733079472,
+        "cycles": 4.784315254756776,
+        "cd_mean": 2.420672060954912,
+        "cl_rms": 1.5312949354902732
+      },
+      "second_half": {
+        "st": 0.09506474723323464,
+        "cycles": 4.753237361661732,
+        "cd_mean": 2.430224459558738,
+        "cl_rms": 1.5301954974686536
+      },
+      "halves_diff": {
+        "st": 0.000621730097560072,
+        "cd_mean": 0.009552398603826173,
+        "cl_rms": 0.0010994380216196031
+      },
+      "detected_tc": null,
+      "steps_to_detected": null,
+      "steps_total": 111247
+    }
+  },
+  "comparisons": {
+    "matched": {
+      "quantities": {
+        "st": {
+          "diff": 0.03839746505169281,
+          "relative": 0.28339303635274926,
+          "limit": 0.0027098382900205167,
+          "within": false
+        },
+        "cd_mean": {
+          "diff": 0.30002949533612044,
+          "relative": 0.141162532147172,
+          "limit": 0.04250837538438575,
+          "within": false
+        },
+        "cl_rms": {
+          "diff": 0.10993345696985579,
+          "relative": 0.07736494734600861,
+          "limit": 0.028419448533503706,
+          "within": null
+        }
+      },
+      "verdict": "do not agree"
+    }
+  },
+  "tolerance": 0.02
+}

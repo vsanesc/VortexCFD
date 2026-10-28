@@ -128,6 +128,31 @@ the next run; the monitors show the criteria of the run they judge ("Criteria of
 Solvers also has the **Live view** (on by default) and its interval (**Live view every**, default 50 iterations): what
 the Results Scene shows while the solver runs; it only samples and never changes the solution.
 
+## Transient
+
+On the Solvers node of a transient project (Physics > Flow: Incompressible, transient; D-181). Chapter 10 explains
+the choices.
+
+| Field | Default | What it does |
+|---|---|---|
+| Time step | Adaptive | Adaptive: each step from the Max Courant number; Fixed: the step set below |
+| Max Courant number | 1 | U Δt / Δx at its largest in the mesh; 1 resolves the flow in time with the PISO mode |
+| Time step Δt | Auto | The fixed step, or the adaptive run's first step (auto: t_c / 200 fixed, t_c / 1000 adaptive) |
+| Largest time step | Auto | An adaptive step never grows above it (auto: t_c / 50) |
+| Outer correctors | 1 | PIMPLE outer correctors per step (1 = PISO); raise only above Co 1 |
+| Pressure correctors | 2 | Pressure corrections per outer corrector |
+| Times in | Flow-through times | The unit of the end time, write interval, sampling start and window: t_c = l_ref / U, or seconds |
+| End time | 200 t_c | The run ends here |
+| Write interval | 20 t_c | The full and averaged fields are written this often and at the end |
+| Sampling starts at | Auto | The statistics start here; Auto: detected once the start-up transient is over |
+| Initial-field perturbation | off | External flow, declared start-up perturbation (D-198): a small cross-flow velocity (up to 0.1 U) behind the body in the initial field only; boundary conditions unchanged; no sampling before 5 t_c |
+| Inflow swing | off | External flow, declared start-up perturbation (D-187, D-198): the inflow direction swings by the Swing angle (default 10°) at 0.2 U / l_ref for the Swing time (default 10 t_c), then +x; no sampling before its end |
+| Window | 20 t_c | The window of the start-up detection and of the statistics stop |
+| Stop when statistically converged | off | Also end once the running mean of the coefficient below is stable over the window |
+| Statistics of | Cd | The coefficient of the statistics stop and of the detection's mean |
+| Tolerance | 0.5 % | The running mean's range over the window, relative to its value (floor 0.01) |
+| Start from | The free stream | Or the latest time of this project's steady solution on the current mesh |
+
 ## Probes
 
 A point probe of p and U written every iteration. The **Location** is one "(x, y, z)" field in metres: type or paste

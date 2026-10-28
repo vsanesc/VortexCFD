@@ -114,3 +114,15 @@ times from docs/validation/naca0012/RESULT.md, Round 3. Used by tests/test_repor
 
 ## `mass_flow_run/`
 Real output (ESI OpenFOAM v2606) of the owner's ~/simulation_2 (a 12-core run to the 2000-iteration limit, copied read-only on 2026-10-24 for D-178): the header and the last 120 rows of `postProcessing/massFlow_inlet/1002/` and `massFlow_outlet/1002/surfaceFieldValue.dat` (both fluxes written as 2.114049e-01), the first 38 lines of `system/controlDict` (writePrecision 6), the last iteration of `log.simpleFoam` (its time step continuity errors) and the "Total volume" line of `logs/log.checkMesh`. Unchanged otherwise.
+
+## `project_v24.json`
+A default external project saved at schema v24 (written from the v25 model's defaults without `solvers.transient`):
+the last schema before transient flow (D-181). It must load as a steady k-omega SST project with the default
+transient settings (tests/test_transient.py).
+
+## `project_v25.json`
+A real schema v25 project written by the app (the square-cylinder validation's coarse level,
+run/validation/square_re22000/coarse/square.json, 2026-10-27; no absolute paths in it): a transient k-omega SST
+project with the inflow swing on (`perturb: true`, the v25 default) and no `perturb_initial` (it did not exist). It
+must load at v26 with both start-up perturbations off and every other setting unchanged (tests/test_transient.py,
+D-198).

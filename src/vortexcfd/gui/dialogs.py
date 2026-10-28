@@ -103,6 +103,16 @@ class Dialogs:
             max(100, limit // 2), 1, 10_000_000, 100)
         return value if ok else None
 
+    def ask_more_time(self, latest: float, end: float, unit: str) -> float | None:
+        """The new end time of a transient solution continued from ``latest`` (D-189), in ``unit`` (" t_c" or " s");
+        None: cancelled."""
+        value, ok = QInputDialog.getDouble(
+            self.parent, "Continue solver",
+            f"The transient solution reached t = {latest:.6g}{unit} (end time {end:.6g}{unit}).\n"
+            f"Continue it to which end time? The field averages and the statistics go on from the same sampling "
+            f"start.", max(end, latest) * 1.5, latest * (1 + 1e-9), 1e12, 4)
+        return value if ok else None
+
     def ask_continue_met(self, latest: int, limit: int, stopping, met_iteration: int | None):
         """Continue after "Criteria met" (D-176): (more iterations, {criterion index: new value}) or None
         (cancelled)."""

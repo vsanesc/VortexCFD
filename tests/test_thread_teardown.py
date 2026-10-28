@@ -115,3 +115,78 @@ def test_the_intersection_checker_stops(qtbot: QtBot, tmp_path: Path) -> None:
     qtbot.waitUntil(lambda: checker._thread is None or not checker._thread.is_alive(), timeout=10000)
     QApplication.processEvents()
     assert not checker.busy() and len(delivered) == 0  # nothing reported after the shutdown
+
+
+def _renderers() -> int:
+    import gc
+
+    import vtkmodules.vtkRenderingOpenGL2 as gl
+
+    return sum(isinstance(o, gl.vtkOpenGLRenderer) for o in gc.get_objects())
+
+
+def test_a_viewer_window_whose_vtk_objects_are_left_in_cycles(qtbot: QtBot, tmp_path: Path) -> None:
+    """D-193, part 1 of 2: a viewer window with a mesh, ended as a test ends it (closed, deleted by the fixtures).
+    Its renderers sit in reference cycles; the next test checks that the teardown freed them."""
+    w = _window(qtbot, tmp_path, FakeDialogs())
+    w.viewer.add_mesh(pv.Sphere())
+    w.viewer.render()
+    assert _renderers() > 0
+    qtbot.addWidget(w)
+
+
+def test_the_teardown_freed_the_previous_windows_vtk_objects_with_no_context_current() -> None:
+    """D-193, part 2 of 2: tests/conftest.py's flush (gui/teardown.flush_deletions) freed the previous test's
+    renderers before this test began (they used to survive into it and be freed by a later collection, possibly
+    with another window's OpenGL context current), and left no OpenGL context current."""
+    from PySide6.QtGui import QOpenGLContext
+
+    assert _renderers() == 0 and QOpenGLContext.currentContext() is None
+
+
+def _vtk_objects() -> int:
+    import gc
+
+    from vtkmodules.vtkCommonCore import vtkObjectBase
+
+    return sum(isinstance(o, vtkObjectBase) for o in gc.get_objects())
+
+
+def test_closing_the_window_frees_its_vtk_garbage_with_no_context_current(qtbot: QtBot, tmp_path: Path) -> None:
+    """D-193 in the application: closing the main window leaves no unreachable VTK object for a later collection,
+    and no OpenGL context current."""
+    import gc
+
+    from PySide6.QtGui import QOpenGLContext
+
+    w = _window(qtbot, tmp_path, FakeDialogs())
+    for _ in range(3):  # scenes replaced: their actors become garbage
+        w.viewer.clear()
+        w.viewer.add_mesh(pv.Sphere())
+        w.viewer.render()
+    w.close()
+    assert QOpenGLContext.currentContext() is None
+    left = _vtk_objects()
+    gc.collect()
+    assert _vtk_objects() == left  # nothing VTK was left in cycles for a later collection
+    qtbot.addWidget(w)
+
+
+def test_an_exported_image_leaves_no_vtk_garbage(qtbot: QtBot, tmp_path: Path) -> None:
+    """D-193: the offscreen plotter of an image export is freed at the end of the export, not by a later
+    collection while the viewer's context is current."""
+    import gc
+
+    from vortexcfd.gui.image_export import render_image
+
+    w = _window(qtbot, tmp_path, FakeDialogs())
+    w.viewer.add_mesh(pv.Sphere())
+    w.viewer.render()
+    gc.collect()
+    before = _vtk_objects()
+    image = render_image(w.viewer, (64, 48))
+    assert image.actors >= 1
+    after = _vtk_objects()
+    gc.collect()
+    assert _vtk_objects() == after and after <= before + 5
+    qtbot.addWidget(w)

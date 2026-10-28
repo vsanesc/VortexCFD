@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 24
+CURRENT_SCHEMA_VERSION: int = 26
 
 
 class StrictModel(BaseModel):
@@ -214,6 +214,10 @@ class Mesh(StrictModel):
     # Default since schema v10: absolute sizing for y+ 50, the wall-function range (D-086).
     layer_sizing: Literal["relative", "absolute_yplus"] = "absolute_yplus"
     target_yplus: float = Field(default=50.0, gt=0)
+    # A laminar project's first-layer height (m) with absolute sizing (schema v25, D-190): y+ assumes a turbulent
+    # boundary layer, so a laminar project sizes its first layer by this instead of target_yplus. None: auto,
+    # LAMINAR_FIRST_FRACTION * sqrt(nu L / U), a tenth of the laminar boundary layer's scale L / sqrt(Re_L).
+    first_layer_height: float | None = Field(default=None, gt=0)
     # The prism-layer controls of absolute (y+) sizing (schema v13, D-106): "robust", the default, caps
     # the layer count (the expansion ratio raised up to 1.3 to keep the planned stack thickness) and
     # writes the 5.4 layer controls; "legacy" keeps the controls and the uncapped count of every
@@ -255,19 +259,43 @@ class Mesh(StrictModel):
 
 
 class Physics(StrictModel):
-    """Flow physics. Only steady incompressible kOmegaSST for now.
+    """Flow physics: incompressible, steady (simpleFoam, the default) or transient (pimpleFoam, schema v25, D-181);
+    k-omega SST or laminar (no turbulence model, schema v25, D-182).
 
     ``nu`` is the kinematic viscosity (m2/s); ``rho_ref`` (kg/m3) is used only to scale forces
     (the solver is incompressible, pressure is kinematic); ``speed_of_sound`` (m/s) only gives the Mach number.
     """
 
-    flow: Literal["incompressible_steady"] = "incompressible_steady"
+    flow: Literal["incompressible_steady", "incompressible_transient"] = "incompressible_steady"
     nu: float = Field(default=1.5e-5, gt=0)
     rho_ref: float = Field(default=1.225, gt=0)
-    turbulence_model: Literal["kOmegaSST"] = "kOmegaSST"
+    turbulence_model: Literal["kOmegaSST", "laminar", "kOmegaSSTDDES"] = "kOmegaSST"
+    # DDES (k-omega SST DDES, transient and 3D only, schema v25, D-191) [NUMERICS-REVIEW]: the LES length scale, the
+    # sigma variant of the production term in the LES region, and the U convection scheme. Unused otherwise.
+    des_delta: Literal["DeltaOmegaTilde", "cubeRootVol", "maxDeltaxyz"] = "DeltaOmegaTilde"
+    des_use_sigma: bool = True
+    des_scheme: Literal["DEShybrid", "LUST"] = "DEShybrid"
     # The speed of sound of the Mach number shown (m/s, schema v24, D-168): a reference value only, never written to
     # the case (the solver is incompressible). Default 343 m/s: air at 20 °C.
     speed_of_sound: float = Field(default=343.0, gt=0)
+
+    @property
+    def transient(self) -> bool:
+        return self.flow == "incompressible_transient"
+
+    @property
+    def laminar(self) -> bool:
+        return self.turbulence_model == "laminar"
+
+    @property
+    def ddes(self) -> bool:
+        return self.turbulence_model == "kOmegaSSTDDES"
+
+    @model_validator(mode="after")
+    def _ddes_is_transient(self) -> "Physics":
+        if self.ddes and not self.transient:
+            raise ValueError("DDES resolves turbulence in time: it needs the transient flow (Physics > Flow)")
+        return self
 
 
 class Inflow(StrictModel):
@@ -370,6 +398,119 @@ class StoppingCriteria(StrictModel):
     oscillation_window: int = Field(default=100, ge=4)
 
 
+# The initial-field perturbation (D-198) counts as lasting this many flow-through times: the free stream carries it
+# five reference lengths downstream, past the near wake where it sits; the sampling never starts before.
+INITIAL_PERTURB_END = 5.0
+
+# The transient settings that are times in ``Transient.time_unit`` (converted when it changes, D-188).
+TRANSIENT_TIME_FIELDS = ("end_time", "write_interval", "sampling_start", "window", "perturb_time")
+
+
+class Transient(StrictModel):
+    """The time stepping, statistics and end of a transient run (schema v25, D-181) [NUMERICS-REVIEW].
+
+    Times (``end_time``, ``write_interval``, ``sampling_start``, ``window``) are in ``time_unit``: "flow_through",
+    the time the free stream takes to pass the reference length, t_c = l_ref / U (the convective time unit), or "s".
+
+    Time step: "adaptive" (pimpleFoam's adjustTimeStep: the step follows the maximum Courant number ``max_courant``,
+    never above ``max_delta_t``, starting from ``delta_t``) or "fixed" (``delta_t``). ``delta_t`` None: 1/1000 of t_c
+    (adaptive: the first step, cut at once to the Courant limit by pimpleFoam) or 1/200 of t_c (fixed);
+    ``max_delta_t`` None: 1/50 of t_c (at least 250 steps per period at a Strouhal number of 0.2).
+
+    Pressure-velocity coupling (D-185): ``algorithm`` "piso" (one outer corrector per step, the step at a Courant
+    number up to about 1), "pimple" (up to ``outer_correctors`` outer correctors per step, left once the initial
+    residuals of U and the turbulence fields are below ``outer_tolerance``, so a step can run at a Courant number of
+    2-5) or "auto": PISO for a laminar project, PIMPLE for a turbulent one (``resolved_algorithm``). ``max_courant``
+    None: 1 (PISO) or 2 (PIMPLE). ``correctors``: pressure corrections per outer corrector.
+
+    Start-up perturbations (D-198): two declared options of a transient external flow, both off by default (schema
+    v26); never applied unless the user turns them on. ``perturb_initial``: a small, localised cross-flow component
+    is added to the initial velocity field only (foam/physics_case.initial_perturbation_text; the boundary
+    conditions are untouched, so after t = 0 the run is exactly the set-up); it counts as lasting
+    INITIAL_PERTURB_END flow-through times. ``perturb`` (the inflow swing, D-187): the inflow direction oscillates by
+    ``perturb_angle`` degrees towards and away from the lift direction at 0.2 U / l_ref for the first
+    ``perturb_time`` (in ``time_unit``; default 10 t_c, two periods). The sampling never starts before the end of
+    either (the start-up detection's windows both begin after it; a sampling start set by hand before it is
+    refused).
+
+    Statistics: from ``sampling_start`` (None: detected from the force history once the start-up transient has
+    passed, foam/transient.detect_start, the ranges of Cd and Cl settled within ``detect_tolerance``, D-186) to the
+    end, the time-averaged fields (fieldAverage: mean and prime2Mean of U
+    and p), the mean and RMS of every force coefficient and the Strouhal number of the lift. End: ``end_time``; with
+    ``statistics_stop`` also once the running mean of ``stop_quantity`` is stable within ``tolerance`` over the last
+    ``window`` (foam/transient.running_mean_stable). ``start_from`` "steady": the initial fields are the latest time
+    of the project's steady solution on the same mesh (D-181)."""
+
+    time_step: Literal["adaptive", "fixed"] = "adaptive"
+    max_courant: float | None = Field(default=None, gt=0, le=50)  # None: 1 (PISO) or 2 (PIMPLE), D-185
+    delta_t: float | None = Field(default=None, gt=0)  # s
+    max_delta_t: float | None = Field(default=None, gt=0)  # s
+    algorithm: Literal["auto", "piso", "pimple"] = "auto"
+    outer_correctors: int = Field(default=10, ge=1, le=100)  # PIMPLE: the most per step
+    outer_tolerance: float = Field(default=1e-4, gt=0, lt=1)  # PIMPLE: residualControl tolerance (relTol 0)
+    correctors: int = Field(default=2, ge=1, le=20)
+    perturb_initial: bool = False  # D-198: the initial-field perturbation
+    perturb: bool = False  # D-187, D-198: the inflow swing
+    perturb_angle: float = Field(default=10.0, gt=0, le=30)  # degrees
+    perturb_time: float = Field(default=10.0, gt=0)  # time_unit
+    time_unit: Literal["flow_through", "s"] = "flow_through"
+    end_time: float = Field(default=200.0, gt=0)
+    write_interval: float = Field(default=20.0, gt=0)
+    sampling_start: float | None = Field(default=None, ge=0)
+    start_from: Literal["free_stream", "steady"] = "free_stream"
+    statistics_stop: bool = False
+    stop_quantity: str = "Cd"
+    window: float = Field(default=20.0, gt=0)
+    tolerance: float = Field(default=0.005, gt=0)  # relative
+    detect_tolerance: float = Field(default=0.05, gt=0, le=1)  # relative: the ranges' change (D-186)
+
+    def perturbation_end(self, convective_time: float | None) -> float:
+        """The end of the start-up perturbations that are on (D-198), in ``time_unit``: the inflow swing's
+        ``perturb_time`` and the initial-field perturbation's INITIAL_PERTURB_END flow-through times (converted with
+        ``convective_time`` = t_c in seconds when the unit is "s"; unknown t_c leaves the initial one out); 0 with
+        neither. Internal flow never has them (the caller checks)."""
+        end = self.perturb_time if self.perturb else 0.0
+        if self.perturb_initial:
+            if self.time_unit == "flow_through":
+                end = max(end, INITIAL_PERTURB_END)
+            elif convective_time:
+                end = max(end, INITIAL_PERTURB_END * convective_time)
+        return end
+
+    def resolved_algorithm(self, laminar: bool) -> str:
+        """"piso" or "pimple" (D-185): "auto" is PISO for a laminar project (the cylinder2D tutorial) and PIMPLE for a
+        turbulent one (wall-resolved layers make Courant-1 steps tiny)."""
+        if self.algorithm != "auto":
+            return self.algorithm
+        return "piso" if laminar else "pimple"
+
+    def converted_times(self, unit: str, convective_time: float) -> dict:
+        """The time settings (TIME_FIELDS) in ``unit`` ("flow_through" or "s"), converted from the current unit with
+        t_c = ``convective_time`` seconds (D-188); {} when the unit does not change."""
+        if unit == self.time_unit or convective_time <= 0:
+            return {}
+        factor = convective_time if unit == "s" else 1.0 / convective_time
+        out = {}
+        for name in TRANSIENT_TIME_FIELDS:
+            value = getattr(self, name)
+            out[name] = None if value is None else value * factor
+        return out
+
+    def resolved_max_courant(self, laminar: bool, ddes: bool = False) -> float:
+        """The target largest Courant number: the user's, else 1 (PISO, and DDES: the resolved eddies need Co about
+        1 in the focus region, D-191) or 2 (PIMPLE)."""
+        if self.max_courant is not None:
+            return self.max_courant
+        return 1.0 if ddes or self.resolved_algorithm(laminar) == "piso" else 2.0
+
+    @field_validator("stop_quantity")
+    @classmethod
+    def _known_stop_quantity(cls, value: str) -> str:
+        if not is_criterion_quantity(value) or default_floor(value) is None:
+            raise ValueError(f"not a force or moment coefficient: {value!r}")
+        return value
+
+
 class Solvers(StrictModel):
     """Solver run settings. ``iterations`` is the iteration limit (the always-present stopping
     criterion); the other criteria are in ``stopping``. ``cores``: MPI ranks of the solver (1 =
@@ -385,6 +526,8 @@ class Solvers(StrictModel):
     # sampled every ``live_view_interval`` iterations; never written for the benchmark and validation drivers.
     live_view: bool = True
     live_view_interval: int = Field(default=50, gt=0)
+    # A transient project's time stepping, statistics and end (schema v25, D-181); a steady run ignores it.
+    transient: Transient = Field(default_factory=Transient)
 
 
 # Number of report slots in the monitors panel (the one place to change it).

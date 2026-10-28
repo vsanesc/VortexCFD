@@ -154,7 +154,8 @@ def test_group_fields_have_units_and_tooltips(make_window) -> None:
     for gkind, fields in p.group_fields.items():
         for key, widget in fields.items():
             assert widget.toolTip(), (gkind, key)
-            if isinstance(widget, QAbstractSpinBox) and key not in ("iterations", "write_interval"):
+            # counts and the Courant number have no unit (D-181)
+            if isinstance(widget, QAbstractSpinBox) and key not in ("iterations", "write_interval", "max_courant"):
                 assert widget.suffix().strip(), (gkind, key)
     assert w._items[("inflow", None)].text(0) == "Free stream"
     select(w, "inflow")

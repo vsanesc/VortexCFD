@@ -1,14 +1,73 @@
 # Changelog
 
-## 1.0.1 (unreleased)
+## 1.1.0 (2026-10-28)
+
+Transient incompressible flow. Scope of this release:
+- **Validated:** laminar transient flow (the circular cylinder at Re 100, docs/validation/cylinder_re100/).
+- **Available, not validated:** URANS (k-omega SST, transient; D-199) and k-omega SST DDES (experimental; D-197).
+  Physics shows an inline notice for each.
+
+### Added
+- **Transient incompressible flow** (D-181, [NUMERICS-REVIEW]): Physics > Flow "Incompressible, transient" runs
+  pimpleFoam (k-omega SST URANS or laminar); steady stays the default. An adaptive time step from a maximum Courant
+  number (default 1) or a fixed one, a largest step, outer and pressure correctors; second-order schemes (backward,
+  linearUpwind, limitedLinear for k and omega). Times in flow-through times (l_ref / U) or seconds.
+- The sampling window: set, or detected from the force history once the start-up transient is over; field averages
+  (fieldAverage: mean and RMS of U and p), the time-weighted mean and RMS of Cd, Cl and CmPitch, and the Strouhal
+  number from the lift spectrum. The end time and an optional statistical stop (the running mean stable over a
+  window). A start from the project's steady solution.
+- Monitors, report charts, the live view and Write Fields Now in time; the running mean in the report slots and charts;
+  snapshots, Compare and the HTML report with the means, the RMS and St; the averaged fields and a written-time
+  choice in the Results Scene.
+- **Laminar** option (no turbulence model, D-182).
+- Validation: the circular cylinder at Re 100, laminar (docs/validation/cylinder_re100/): validated.
+- Manual chapter 10, "Transient flow".
+- Development: worktree support, scripts/requirements-dev.txt and `scripts/ship.sh --dry-run` (D-180).
+- PIMPLE with outer correctors and residual control (D-185, [NUMERICS-REVIEW]): "Pressure-velocity coupling" Auto
+  (PISO for laminar, PIMPLE for turbulent projects), PISO or PIMPLE, a target Courant number of 2-5.
+- Two start-up perturbations for transient external flow, declared options, **both off by default** (D-187, D-198,
+  [NUMERICS-REVIEW]): the initial-field perturbation (a small cross-flow velocity behind the body in the initial
+  field only, applied by setExprFields; the boundary conditions untouched) and the inflow swing (the inflow turns by
+  ±10 degrees at 0.2 U / l_ref for the first 10 flow-through times). Each has its own control with a one-line
+  explanation; when on it is declared in the case files, the solver log, the run record, the report and the
+  snapshots; never sampled.
+- The start-up detection's tolerance is a setting (default 5 %, D-186).
+- Continue Solver for a transient run: a later end time, the field averages and the statistics going on (D-189).
+- Laminar projects size their prism layers by a first-cell thickness instead of y+ (D-190).
+- k-omega SST DDES for transient 3D projects, **available, not validated** (D-191, D-197, D-199, [NUMERICS-REVIEW]):
+  an inline notice in Physics says so; the shielding function and the LES region in the Results Scene, a warning
+  when the focus region is too coarse.
+- URANS (k-omega SST, transient) is **available, not validated** (D-199): an inline notice in Physics says so. The
+  square cylinder at Re 22,000 (docs/validation/square_re22000/) is an investigation, not a validation: the same 2D
+  set-up reached four sustained states depending on the start-up and the inflow turbulence.
+- A transient run that reaches its end time with no statistically stable period says so in the monitors and the
+  report, with what to do (D-200).
+- A warning when the largest time step keeps the Courant number below the one asked for (D-194).
+
+### Changed
+- Project schema v26 (older projects open unchanged as steady k-omega SST; a v25 project opens with both start-up
+  perturbations off, D-198). The public benchmarks' dictionaries are
+  unchanged.
+- Changing the time unit of the transient settings converts the values already entered (D-188).
+- scripts/ship.sh refuses a branch with no commits ahead of origin/main before running anything (D-184).
+- Transient k and omega use linearUpwind on limited gradients (D-192, accepted, [NUMERICS-REVIEW]): limitedLinear
+  crashed a URANS run in its first step.
+- DDES: the U convection is DEShybrid with LUST in the LES region and linearUpwind in the RANS region (D-196); the wall
+  distance is computed by meshWave (D-195, accepted for the experimental DDES; to be revisited with the Ahmed body,
+  QUESTIONS 262).
 
 ### Security
-
-- Security: Pillow updated to 13.0.0, fixing 41 advisories (the open Dependabot alerts, among them heap overflows in
-  the JPEG, TIFF and FlashPix decoders and an argument injection in the Ghostscript call), and certifi updated to
-  2026.10.23, fixing 1 advisory (GHSA-6q48-6c7w-9gw2: the emSign ECC Root CA - G3, whose intermediate CAs' keys were
+- Pillow updated to 13.0.0, fixing 41 advisories (the open Dependabot alerts, among them heap overflows in the JPEG,
+  TIFF and FlashPix decoders and an argument injection in the Ghostscript call), and certifi updated to 2026.10.23,
+  fixing 1 advisory (GHSA-6q48-6c7w-9gw2: the emSign ECC Root CA - G3, whose intermediate CAs' keys were
   compromised, is no longer trusted); D-183. VortexCFD does not open user images (Pillow writes the PNG exports and
-  the .ico); nothing else changed.
+  the .ico); nothing else changed. Already published on main (pull request #37); planned as 1.0.1, which was never
+  released on its own.
+
+### Known limitations
+- A transient project has no mesh study and no polar sweep (both refused with a message).
+- The transient statistics (mean and RMS of the coefficients) are for all walls only, not per part.
+- URANS and DDES are available but not validated (see the scope above).
 
 ## 1.0.0 (2026-10-24)
 

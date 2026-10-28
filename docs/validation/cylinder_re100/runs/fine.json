@@ -1,0 +1,70 @@
+{
+  "level": "fine",
+  "base_m": 0.7071067811865475,
+  "mesh": {
+    "cells": 63369,
+    "mesh_ok": true,
+    "mesh_s": 18.6,
+    "cores": 8,
+    "max_non_orthogonality": 46.553876
+  },
+  "solve": {
+    "state": "end_time",
+    "steps": 56366,
+    "solve_s": 2664.6,
+    "delta_t": [
+      0.0011999976,
+      0.003813668
+    ],
+    "first_delta_t": 0.0011999976,
+    "max_courant": 1.0050889,
+    "transient": {
+      "end_time": 200.0,
+      "steps": 56366,
+      "sampling_start": 135.8547907,
+      "detected": true,
+      "convective_time": 1.0,
+      "met_time": null,
+      "statistics": {
+        "start": 135.8547907,
+        "coefficients": {
+          "Cd": {
+            "mean": 1.3390722125523042,
+            "rms": 0.006640215339695038,
+            "min": 1.32953618,
+            "max": 1.34848506,
+            "start": 135.8547907,
+            "end": 200.0,
+            "samples": 18429
+          },
+          "Cl": {
+            "mean": -0.0011936322148436952,
+            "rms": 0.2309020812080656,
+            "min": -0.325601286,
+            "max": 0.325602316,
+            "start": 135.8547907,
+            "end": 200.0,
+            "samples": 18429
+          },
+          "CmPitch": {
+            "mean": 8.44639746153475e-05,
+            "rms": 0.0027911731186083463,
+            "min": -0.0039435408,
+            "max": 0.00394318226,
+            "start": 135.8547907,
+            "end": 200.0,
+            "samples": 18429
+          }
+        },
+        "strouhal": 0.16492550861835945,
+        "cycles": 10.57918126923362
+      }
+    },
+    "averaged_fields": [
+      "UMean",
+      "UPrime2Mean",
+      "pMean",
+      "pPrime2Mean"
+    ]
+  }
+}

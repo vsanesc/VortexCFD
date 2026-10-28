@@ -102,7 +102,7 @@ from vortexcfd.geometry.refinement_volumes import domain_fraction
 from vortexcfd.gui.mesh_worker import MeshWorker
 from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam.run_record import RunRecord, read_run_record, record_stopping, write_run_record
-from vortexcfd.foam.solver_run import CRITERIA_MET, read_stages, stage2_criteria
+from vortexcfd.foam.solver_run import CRITERIA_MET, END_TIME, read_stages, solver_log, stage2_criteria
 from vortexcfd.workflow import duplicate as duplicate_files
 from vortexcfd.workflow import flow_numbers, solving
 from vortexcfd.gui.solver_worker import SolverWorker
@@ -111,7 +111,7 @@ from vortexcfd.gui.tree_actions import TreeActionsMixin
 from vortexcfd.gui.compare_control import CompareControlMixin
 from vortexcfd.core.model import BOUNDARY_KIND_LABELS
 from vortexcfd.gui.panel_widgets import FloatingPanel
-from vortexcfd.foam.results import latest_result_time
+from vortexcfd.foam.results import latest_result_time, result_times
 from vortexcfd.gui import paraview
 from vortexcfd.gui.colormaps import COLORMAPS, DEFAULT_COLORMAP
 from vortexcfd.gui.copy_worker import CopyWorker
@@ -197,6 +197,9 @@ MESH_CHANGED_TEXT = ("The mesh settings changed since this solution was computed
                      "solution belongs to the mesh it was computed on and cannot go on on another one. Generate the "
                      "mesh again (that clears the solution), or clear the solution now and run the solver once the "
                      "mesh is generated.")
+TRANSIENT_CHANGED_TEXT = ("The physics, the boundary conditions or the time stepping changed since this transient "
+                          "solution was computed. A transient solution continues only with its own set-up (a later "
+                          "end time, another write interval or statistics stop are fine): start over.")
 SETTINGS_CHANGED_TEXT = ("The physics, the boundary conditions or the solver settings changed since this solution "
                          "was computed (the mesh did not).\n\nContinue from the current solution: it is the "
                          "starting point of the new set-up (its fields are kept, the new conditions apply from the "
@@ -1878,7 +1881,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         act.setIconText("Continue Solver" if mode == "continue" else "Run Solver")
         act.setEnabled(not running and reason is None)
         act.setToolTip("The solver is running (Solution > Stop Solver)" if running else reason if reason is not None
-                       else (continue_tip or "Run simpleFoam on the mesh")
+                       else (continue_tip or f"Run {self._solver_name()} on the mesh")
                        + (f"\nThe mesh has warnings ({warning}); the solver can run." if warning else "")
                        + (f"\nWarning: {drift}" if drift else "")
                        + (f"\nWarning: {compressibility}" if compressibility else ""))
@@ -1890,7 +1893,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.act_write_now.setToolTip(WRITE_NOW_TIP if running else "Only while the solver runs: " + WRITE_NOW_TIP)
         case = case_dir_for(self._project) if self.has_project else None
         has_solution = case is not None and (self.run_record is not None or self.results_time() is not None
-                                             or (case / "log.simpleFoam").is_file())
+                                             or solver_log(case).is_file())
         clear_why = ("The solver is running: stop it first." if running else "Meshing is running."
                      if self.mesh_worker.is_running() else None if has_solution else "No solution to clear.")
         self.act_clear_solution.setEnabled(clear_why is None)
@@ -2017,6 +2020,9 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         if reason is not None:
             self.show_message(reason, "error")
             return
+        if record.transient is not None:  # a later end time (D-189)
+            self._continue_transient(record)
+            return
         limit = self._project.sim.solvers.iterations
         if record.state == CRITERIA_MET:  # more iterations and, if wanted, tighter criteria in one edit (D-176)
             stopping = self._project.sim.solvers.stopping
@@ -2067,6 +2073,40 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
                  " with the changed set-up (the current solution is the starting point)" if rewrite else "")
         self._begin_run(case_dir, resume)
 
+    def _continue_transient(self, record) -> None:
+        """Continue Solver for a transient solution (D-189): asks for the new end time (in the project's time unit)
+        and goes on from the latest written time, the field averages and the statistics from the same sampling
+        start; a changed set-up can only start over."""
+        if solving.settings_changed(self._project, record):
+            if self.dialogs.choose("Continue solver", TRANSIENT_CHANGED_TEXT,
+                                   [("start_over", "Start over")]) == "start_over":
+                self._start_solver()
+            return
+        settings = self._project.sim.solvers.transient
+        t_c = float(record.transient.get("convective_time") or 1.0)
+        scale = t_c if settings.time_unit == "flow_through" else 1.0
+        unit = " t_c" if settings.time_unit == "flow_through" else " s"
+        latest = float(record.transient.get("end_time") or 0.0) / scale
+        end = self.dialogs.ask_more_time(latest, settings.end_time, unit)
+        if end is None:
+            return
+        self._run_edit(lambda: self._project.update_transient(end_time=float(end)))
+        if not self._saved_for_run():
+            return
+        try:
+            case_dir, resume = solving.prepare_continue(self._project, record, interactive=True,
+                                                        planes=self._live_planes())
+        except (solving.SolvingNotReady, MeshingNotReady) as exc:
+            self.show_message(str(exc), "error")
+            return
+        except OSError as exc:
+            self.show_message(f"Could not write the solver case: {exc}", "error")
+            return
+        self._continued = (record, False)
+        log.info("Continuing pimpleFoam from t = %.6g s (%d time steps) to t = %.6g%s", latest * scale,
+                 resume.iteration, float(end), unit)
+        self._begin_run(case_dir, resume)
+
     def _begin_run(self, case_dir: Path, resume) -> None:
         """Start the solver worker on ``case_dir`` (``resume``: a continued solution) and show it running."""
         self._solve_hash = solving.results_hash(self._project)
@@ -2084,10 +2124,10 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             else:
                 self.monitors.set_stage(stage_text(1))
         self.top_bar.set_run_state("Solving")
-        log.info("Running simpleFoam in %s", case_dir)
+        log.info("Running %s in %s", self._solver_name(), case_dir)
         cores = self._project.sim.solvers.cores
         if cores > 1:
-            log.info("Running simpleFoam on %d cores (decomposePar, mpirun, reconstructPar)", cores)
+            log.info("Running %s on %d cores (decomposePar, mpirun, reconstructPar)", self._solver_name(), cores)
         self._solve_case_dir = case_dir
         self.solver_worker.start(case_dir, timeout_s=self.solver_timeout_s, stopping=self._solve_stopping,
                                  cores=cores, resume=resume)
@@ -2148,8 +2188,9 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.live_toggle.setVisible(False)
 
     @staticmethod
-    def _written_times(case_dir: Path) -> set[int]:
-        """The written times of the case and of processor0 (as iterations)."""
+    def _written_times(case_dir: Path) -> set[int | float]:
+        """The written times of the case and of processor0 (as iterations; a transient run's times stay times,
+        D-181)."""
         out = set()
         for folder in (Path(case_dir), Path(case_dir) / "processor0"):
             if folder.is_dir():
@@ -2159,7 +2200,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
                     except ValueError:
                         continue
                     if value > 0 and child.is_dir() and any(f.is_file() for f in child.iterdir()):
-                        out.add(int(round(value)))
+                        out.add(int(round(value)) if value == round(value) else value)
         return out
 
     def poll_live(self) -> None:
@@ -2177,8 +2218,8 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
                 self._written_known |= set(new)
                 self._write_now_after = None
                 self._written_now += new
-                log.info("Fields written at iteration %d (the solver goes on)", new[-1])
-                self.show_message(f"Fields written at iteration {new[-1]}: shown in the Results Scene", "success",
+                log.info("Fields written at %s (the solver goes on)", self._moment(new[-1]))
+                self.show_message(f"Fields written at {self._moment(new[-1])}: shown in the Results Scene", "success",
                                   log_it=False)
                 self._show_written_time(case, new[-1])
         if not self._project.sim.solvers.live_view:
@@ -2196,7 +2237,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         if not data.patches and not data.planes:
             return
         self._live_data = data
-        self.live_badge.setText(f"Live \u00b7 iteration {sample.iteration:,}")
+        self.live_badge.setText(f"Live \u00b7 {self._moment(sample.iteration)}")
         self.live_badge.setVisible(True)
         self.live_toggle.setVisible(True)
         self.results_tab.setVisible(True)
@@ -2219,7 +2260,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         """A time written on request during the run: the scene stops following the live samples and reads it (the
         decomposed case when it is only in the processor directories)."""
         self.live_toggle.setChecked(False)
-        self.live_badge.setText(f"Iteration {iteration:,} (written while running)")
+        self.live_badge.setText(f"{self._moment(iteration).capitalize()} (written while running)")
         self.live_badge.setVisible(True)
         self.live_toggle.setVisible(True)
         self.results_tab.setVisible(True)
@@ -2233,8 +2274,18 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
 
     def _on_live_toggled(self, on: bool) -> None:
         if on and getattr(self, "_live_data", None) is not None:
-            self.live_badge.setText(f"Live \u00b7 iteration {self._live_data.live:,}")
+            self.live_badge.setText(f"Live \u00b7 {self._moment(self._live_data.live)}")
             self._show_results_data(self._live_data)
+
+    def _moment(self, value) -> str:
+        """An iteration ("iteration 1,200"), or a transient run's time ("t = 0.0153 s", D-181)."""
+        if self.has_project and self._project.sim.physics.transient:
+            return f"t = {float(value):.6g} s"
+        return f"iteration {int(value):,}"
+
+    def _solver_name(self) -> str:
+        """The project's solver: pimpleFoam for transient flow (D-181), else simpleFoam."""
+        return "pimpleFoam" if self.has_project and self._project.sim.physics.transient else "simpleFoam"
 
     def write_fields_now(self) -> None:
         """Solution > Write fields now (D-172): the full fields at the current iteration, without stopping the run."""
@@ -2242,15 +2293,16 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             self.show_message("Write fields now: the solver is not running", "warning")
             return
         steps = self.monitors.history.series.get("p") or []
-        now = int(steps[-1][0]) if steps else 0
+        now = (steps[-1][0] if self._project.sim.physics.transient else int(steps[-1][0])) if steps else 0
         if not self.solver_worker.request_write_now():
             self.show_message("Write fields now: the solver cannot take it yet (its iterations have not started)",
                               "warning")
             return
         self._write_now_after = now
-        log.info("Write fields now requested at iteration %d: OpenFOAM writes them at the end of the next iteration",
-                 now)
-        self.show_message("Writing the fields at the end of the next iteration...", log_it=False)
+        step = "time step" if self._project.sim.physics.transient else "iteration"
+        log.info("Write fields now requested at %s: OpenFOAM writes them at the end of the next %s",
+                 self._moment(now), step)
+        self.show_message(f"Writing the fields at the end of the next {step}...", log_it=False)
 
     def clear_solution(self, confirm: bool = True) -> None:
         """Solution > Clear solution: delete the solver results (the written times, postProcessing, the processor
@@ -2290,7 +2342,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         log.info("Loaded the last solver run: %s after %d iterations",
                  self.run_record.label, self.run_record.iterations)
         try:
-            text = (case_dir / "log.simpleFoam").read_text(encoding="utf-8", errors="replace")
+            text = solver_log(case_dir).read_text(encoding="utf-8", errors="replace")
         except OSError:
             text = ""
         record = self.run_record
@@ -2301,6 +2353,8 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.monitors.load_run(case_dir, parse_log_text(text),
                                (record.state, record.stopped_by, record.met_iteration or record.iterations),
                                run_stopping, judged)
+        if record.transient is not None:  # D-181
+            self.monitors.set_transient_record(record.transient)
         if record.stages:  # a two-stage run (D-126)
             last = record.stages[-1]
             self.monitors.set_stage(stage_text(int(last["stage"]), record.switch_iteration,
@@ -2333,7 +2387,11 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.monitors.add_step(step)
 
     def _on_solver_stage(self, stage: int, switch: int, reason: str) -> None:
-        """The second turbulence stage began (D-126): the monitors say so and judge the criteria as SolverRun does."""
+        """The second turbulence stage began (D-126): the monitors say so and judge the criteria as SolverRun does. A
+        transient run's sampling switch (D-181) only refreshes the monitors (they read the new sampling start)."""
+        if reason == "sampling":
+            self.monitors.refresh()
+            return
         self.monitors.set_stage(stage_text(stage, switch, reason))
         if self._solve_stopping is not None and self._solve_stopping.criteria:
             self.monitors.set_run_stopping(stage2_criteria(self._solve_stopping, switch))
@@ -2355,7 +2413,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         return RunRecord(result.state, result.iterations, residuals, self._solve_hash or "", result.exit_code,
                          criteria, stopped_by, labels, result.met_iteration, round(duration, 1), result.cores,
                          tuple(result.stages), result.switch_iteration, stopping.model_dump(),
-                         (*earlier, segment), getattr(self, "_solve_settings_hash", ""))
+                         (*earlier, segment), getattr(self, "_solve_settings_hash", ""), result.transient)
 
     def _on_solver_done(self, result) -> None:
         self.top_bar.set_run_state(None)
@@ -2380,6 +2438,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             self._update_mesh_button()
             return
         met_at = result.met_iteration or result.iterations
+        self.monitors.transient_record = result.transient  # set_outcome redraws with it
         self.monitors.set_outcome(result.state, stopped_by, met_at)
         self.monitors.end_run()
         if result.crash:
@@ -2391,13 +2450,19 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             log.warning("Could not save the run record: %s", exc)
         residuals = ", ".join(f"{k} {v:.3g}" for k, v in result.final_residuals.items()) or "none"
         text = f"Solver: {record.label} after {result.iterations} iterations"
+        if result.transient is not None:  # D-181
+            text = (f"Solver: {record.label} after {result.iterations:,} time steps "
+                    f"(t = {float(result.transient.get('end_time') or 0.0):.4g} s)")
+            st = (result.transient.get("statistics") or {}).get("strouhal")
+            if st is not None:
+                text += f"; St {st:.4g}"
         if stopped_by:
             at = (f" at iteration {result.met_iteration}"
                   if result.met_iteration is not None and result.met_iteration != result.iterations else "")
             text += f" ({'; '.join(stopped_by)}{at})"
         elif result.state == "iteration_limit" and criteria:
             text += " without meeting the stopping criteria"
-        if result.state == CRITERIA_MET:
+        if result.state in (CRITERIA_MET, END_TIME):  # a transient run's end time is its planned end (D-181)
             log.info("%s (final residuals: %s)", text, residuals)
             self.show_message(text, "success", log_it=False)
         elif result.state == "crashed":
@@ -2508,6 +2573,13 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
             spin.setDecimals(6)
             spin.setToolTip(tip)
             spin.setVisible(False)
+        # The written time shown (D-181): the latest unless one is chosen; offered when the case has several.
+        self.time_combo = QComboBox()
+        self.time_combo.setToolTip("The written time shown (the latest by default). A transient run's averaged "
+                                   "fields (p mean, U mean, the RMS) are in the times written after the sampling start")
+        self.time_combo.setVisible(False)
+        self.time_combo.activated.connect(self._on_time_chosen)
+        self._chosen_time: str | None = None
         self.display_combo = QComboBox()
         self.display_combo.addItems(list(DISPLAY_MODES))
         self.display_combo.setToolTip("Show the field on the walls, on the section plane, or both")
@@ -2536,7 +2608,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
                                     "shows, e.g. the fields written with Write fields now)")
         self.live_toggle.setVisible(False)
         self.live_toggle.toggled.connect(self._on_live_toggled)
-        for widget in (self.field_combo, self.colormap_combo, self.range_combo, self.range_min,
+        for widget in (self.field_combo, self.time_combo, self.colormap_combo, self.range_combo, self.range_min,
                        self.range_max, self.display_combo, self.separation_toggle, self.sections_button,
                        self.live_toggle, self.live_badge):
             row.addWidget(widget)
@@ -2555,13 +2627,38 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         self.results_controls.hide()
 
     def _results_widgets(self) -> list[QWidget]:
-        return [self.field_combo, self.colormap_combo, self.range_combo, self.range_min, self.range_max,
-                self.display_combo, self.separation_toggle, self.sections_button]
+        return [self.field_combo, self.time_combo, self.colormap_combo, self.range_combo, self.range_min,
+                self.range_max, self.display_combo, self.separation_toggle, self.sections_button]
 
     def results_time(self) -> str | None:
-        """The latest time directory with results in the project's case, or None."""
+        """The time directory shown: the one chosen in the time selector while it exists (D-181), else the latest
+        with results in the project's case, or None."""
         case_dir = case_dir_for(self._project)
-        return latest_result_time(case_dir) if case_dir is not None else None
+        if case_dir is None:
+            return None
+        if self._chosen_time is not None and (case_dir / self._chosen_time).is_dir():
+            return self._chosen_time
+        return latest_result_time(case_dir)
+
+    def _fill_time_combo(self) -> None:
+        """The written times (the latest first), shown when there are several (D-181)."""
+        case_dir = case_dir_for(self._project) if self.has_project else None
+        times = list(reversed(result_times(case_dir))) if case_dir is not None else []
+        transient = self.has_project and self._project.sim.physics.transient
+        self.time_combo.blockSignals(True)
+        self.time_combo.clear()
+        for i, name in enumerate(times):
+            label = f"t = {name} s" if transient else f"Iteration {name}"
+            self.time_combo.addItem(f"Latest: {label}" if i == 0 else label, name)
+        chosen = self.time_combo.findData(self._chosen_time) if self._chosen_time is not None else 0
+        self.time_combo.setCurrentIndex(max(chosen, 0))
+        self.time_combo.blockSignals(False)
+        self.time_combo.setVisible(len(times) > 1)
+
+    def _on_time_chosen(self, index: int) -> None:
+        name = self.time_combo.itemData(index)
+        self._chosen_time = None if index <= 0 else name
+        self._update_results_tab()
 
     def _update_results_tab(self) -> None:
         """Show the Results Scene tab only when the case has results; refresh its controls."""
@@ -2577,6 +2674,7 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
                 self._set_scene_mode("geometry")
             return
         self._fill_field_combo(time)
+        self._fill_time_combo()
         self.results_stale_label.setVisible(self.results_stale)
         self._update_paraview_button()
         if self._scene_mode == "results" and time != self._results_shown_time:
@@ -4042,6 +4140,12 @@ class MainWindow(CompareControlMixin, TreeActionsMixin, StudyControlMixin, QMain
         console_log.detach(self._console_handler)
         if self.viewer is not None:
             self.viewer.close()  # pyvista finalizes the render window and the interactor
+            self.viewer.deep_clean()  # its renderers drop their props, cameras and lights
+        # VTK objects left in reference cycles (earlier scenes, the closed viewer's) are freed here, with no OpenGL
+        # context current, not by a later collection under another context (D-193)
+        from vortexcfd.gui.teardown import collect_garbage
+
+        collect_garbage()
 
     def event(self, event) -> bool:
         if event.type() == QEvent.Type.DeferredDelete:  # deleted without an accepted close (tests, scripts)

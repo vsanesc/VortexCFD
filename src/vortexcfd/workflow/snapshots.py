@@ -35,7 +35,7 @@ from vortexcfd.foam.run_record import read_run_record
 
 SNAPSHOT_DIR = "snapshots"
 FORMAT_VERSION = 1
-SOLVER_LOG = "log.simpleFoam"
+from vortexcfd.foam.solver_run import solver_log  # log.simpleFoam or log.pimpleFoam (D-181)
 MAX_POINTS = 2000  # per series, decimated like the live chart (foam/residuals.decimate)
 CURRENT_RUN = "Current run"
 
@@ -78,6 +78,9 @@ class Snapshot:
     line_plots: dict[str, LineData] = field(default_factory=dict)
     mesh: dict[str, object] = field(default_factory=dict)
     setup: dict[str, str] = field(default_factory=dict)
+    # A transient run (D-181): the sampling start (s), the Strouhal number and its cycles, the RMS of each force
+    # coefficient over the sampling window; empty for a steady run (and in older snapshots).
+    transient: dict = field(default_factory=dict)
     read_only: bool = False  # loaded from another project (never saved there)
     path: str | None = None  # where it is stored (None: the current run, not saved)
 
@@ -144,6 +147,12 @@ def setup_summary(sim: Simulation, numbers=None) -> dict[str, str]:
     out["reference: CofR"] = _text(rep.center_of_rotation)
     for b in sim.boundaries:
         out[f"boundary: {b.patch}"] = _text(b.model_dump(exclude={"patch"}))
+    if sim.physics.transient and not sim.internal:  # the declared start-up perturbations (D-198)
+        t = sim.solvers.transient
+        unit = "t_c" if t.time_unit == "flow_through" else "s"
+        declared = (["initial field"] if t.perturb_initial else []) + (
+            [f"inflow swing \u00b1{t.perturb_angle:g}\u00b0 for {t.perturb_time:g} {unit}"] if t.perturb else [])
+        out["transient: start-up perturbation"] = ", ".join(declared) or "none"
     return out
 
 
@@ -200,7 +209,7 @@ def capture(project: Project, name: str, now: datetime | None = None, points=Non
         raise SnapshotError("Save the project first.")
     case = project.folder / "case"
     record = read_run_record(case)
-    log = case / SOLVER_LOG
+    log = solver_log(case)
     if record is None and not log.is_file():
         raise SnapshotError("The project has no solver run to keep: run the solver first.")
     sim = project.sim
@@ -214,6 +223,14 @@ def capture(project: Project, name: str, now: datetime | None = None, points=Non
         history.extend(parse_log_text(log.read_text(encoding="utf-8", errors="replace")).time_steps)
         snap.residuals = {k: [(float(t), float(v)) for t, v in decimate(points, MAX_POINTS)]
                           for k, points in history.series.items()}
+    statistics = ((record.transient or {}).get("statistics") or {}) if record is not None else {}
+    transient_stats = statistics.get("coefficients") or {}
+    if statistics:
+        snap.transient = {"sampling_start": statistics.get("start"), "strouhal": statistics.get("strouhal"),
+                          "cycles": statistics.get("cycles"),
+                          "rms": {name: c["rms"] for name, c in transient_stats.items()}}
+        if "perturbation" in record.transient:  # the declared start-up perturbations (D-198)
+            snap.transient["perturbation"] = list(record.transient["perturbation"])
     if (case / "postProcessing").is_dir():
         from vortexcfd.workflow.solving import report_scope
 
@@ -228,8 +245,12 @@ def capture(project: Project, name: str, now: datetime | None = None, points=Non
                 continue
             window = _window(sim, report_id)
             stats = window_stats(series, window, quantity=report_id)
+            mean = stats.mean if stats is not None else None
+            sampled = (transient_stats or {}).get(report_id)
+            if sampled is not None:  # a transient run: the time-weighted mean over the sampling window (D-181)
+                mean, window = float(sampled["mean"]), int(sampled["samples"])
             snap.reports[report_id] = ReportData(report_label(report_id), decimate(series, MAX_POINTS),
-                                                 series[-1][1], stats.mean if stats is not None else None, window)
+                                                 series[-1][1], mean, window)
     mesh = read_mesh_record(case)
     if mesh is not None:
         r = mesh.report
@@ -365,6 +386,16 @@ def value_rows(snaps: list[Snapshot]) -> list[ValueRow]:
         values = tuple(None if d is None else (d.mean if use_mean else d.final) for d in data)
         label = next(d.label for d in data if d is not None)
         rows.append(ValueRow(rid, label, values, "windowed mean" if use_mean else "final"))
+    if any(s.transient for s in snaps):  # transient runs (D-181): the Strouhal number and the RMS
+        rows.append(ValueRow("transient:St", "Strouhal number",
+                             tuple(_float(s.transient.get("strouhal")) for s in snaps), "sampling window"))
+        names: list[str] = []
+        for s in snaps:
+            names += [n for n in (s.transient.get("rms") or {}) if n not in names]
+        for name in names:
+            rows.append(ValueRow(f"transient:rms:{name}", f"{report_label(name)} RMS",
+                                 tuple(_float((s.transient.get("rms") or {}).get(name)) for s in snaps),
+                                 "sampling window"))
     return rows
 
 

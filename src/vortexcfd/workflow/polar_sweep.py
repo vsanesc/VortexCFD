@@ -13,8 +13,7 @@ import shutil
 from pathlib import Path
 
 from vortexcfd.core.project import Project
-from vortexcfd.foam.case_writer import enable_clean_stop
-from vortexcfd.foam.dictfile import write_foam_file
+from vortexcfd.foam.case_writer import enable_clean_stop, write_spec
 from vortexcfd.foam.mesh_case import MARKER_NAME, build_mesh_files, prepare_case_dir, write_domain_guard, write_seed_edge_meshes
 from vortexcfd.foam.physics_case import build_solver_files
 from vortexcfd.foam.polar_sweep import SWEEP_DIR_NAME, SweepRecord, new_record, point_dir, read_record, resume_record
@@ -47,6 +46,8 @@ def sweep_readiness(project: Project, *, busy: str | None = None) -> str | None:
         return "Save the project first."
     if busy:
         return busy
+    if project.sim.physics.transient:  # D-181: the studies record steady values (1.1: transient studies later)
+        return "The polar sweep runs steady projects only for now: set Physics > Flow to steady."
     if not project.sim.studies.polar.enabled:
         return "The polar sweep is off: enable it first (Reports & Monitors > Polar sweep)."
     alphas = project.sim.studies.polar.alphas()
@@ -127,7 +128,7 @@ def point_writer(project: Project):
         if (case / "0").is_dir():
             shutil.rmtree(case / "0")
         for rel, spec in enable_clean_stop(build_solver_files(for_case(point, case))).items():
-            write_foam_file(case / rel, spec.content, object_name=Path(rel).name, class_name=spec.class_name)
+            write_spec(case / rel, spec)
 
     return write
 

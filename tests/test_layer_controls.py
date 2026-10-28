@@ -111,7 +111,7 @@ def test_v12_project_migrates_to_the_legacy_layer_controls() -> None:
     stored = json.loads((DATA / "project_v12.json").read_text())
     assert stored["schema_version"] == 12 and "layer_controls" not in stored["mesh"]
     sim = load_simulation(DATA / "project_v12.json")
-    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 24
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 26
     assert sim.mesh.layer_controls == "legacy" and sim.mesh.expansion_ratio == 1.2  # stored settings kept
     assert sim.inflow.speed == 30.0 and sim.reports.reference_length == 1.5
     assert migrate({"schema_version": 12})["mesh"] == {**V13_MESH_FIELDS, **V14_MESH_FIELDS}

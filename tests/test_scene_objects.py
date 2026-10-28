@@ -98,7 +98,7 @@ def test_a_v19_project_migrates_to_v20_without_objects() -> None:
     stored = json.loads((DATA / "project_v19.json").read_text())
     assert stored["schema_version"] == 19
     sim = load_simulation(DATA / "project_v19.json")
-    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 24
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 26
     assert sim.results.objects == [] and sim.results.views == [] and sim.name == "v19 project"
 
 

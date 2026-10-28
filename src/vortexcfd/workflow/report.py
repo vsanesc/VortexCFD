@@ -30,6 +30,7 @@ from vortexcfd.core.project import Project
 from vortexcfd.core.reports import FLOW_QUANTITIES, FLOW_QUANTITY_LABELS, report_label
 from vortexcfd.workflow import flow_numbers, plot_axes
 from vortexcfd.foam.convergence import window_stats
+from vortexcfd.foam.transient import NO_STABLE_WINDOW
 from vortexcfd.foam.forces import imbalance_text
 from vortexcfd.foam.logparse import parse_log_text
 from vortexcfd.foam import mesh_study, polar_sweep
@@ -39,7 +40,7 @@ from vortexcfd.foam.residuals import ResidualHistory
 from vortexcfd.foam.run_record import read_run_record
 
 REPORTS_DIR = "reports"
-SOLVER_LOG = "log.simpleFoam"
+from vortexcfd.foam.solver_run import solver_log  # log.simpleFoam or log.pimpleFoam (D-181)
 STYLE = """
 body { font-family: Helvetica, Arial, sans-serif; margin: 2em auto; max-width: 960px; color: #1d2330; line-height: 1.45; }
 header.brand { display: flex; align-items: center; gap: 0.6em; } header.brand h1 { margin: 0; }
@@ -251,6 +252,14 @@ def residual_png(text: str) -> bytes | None:
     return buffer.getvalue()
 
 
+def _unsampled(record) -> str:
+    """Why a transient run has no sampling start: no stable period by its end time (D-200), or a run that ended
+    before the start-up transient settled."""
+    if record.state == "end_time":
+        return f"not reached. {NO_STABLE_WINDOW}"
+    return "not reached (the start-up transient had not settled when the run ended)"
+
+
 def convergence_section(project: Project) -> Section:
     case = case_dir(project)
     record = read_run_record(case) if case is not None else None
@@ -266,10 +275,24 @@ def convergence_section(project: Project) -> Section:
             ("Up to date", "yes" if record.inputs_hash == results_hash(project) else "no: the set-up changed since")]
     if record.switch_iteration is not None:
         rows.append(("Turbulence stage 2 from iteration", str(record.switch_iteration)))
+    if record.transient is not None:  # D-181: time steps, not iterations
+        tr = record.transient
+        start = tr.get("sampling_start")
+        rows = [("Stop reason", record.label), ("Time steps", f"{record.iterations:,}"),
+                ("End of the run", _num(tr.get("end_time"), "t = {:.6g} s")),
+                ("Flow-through time l_ref / U", _num(tr.get("convective_time"), "{:.6g} s")),
+                ("Sampling start", _unsampled(record) if start is None else
+                 f"t = {start:.6g} s ({'detected' if tr.get('detected') else 'set'})"),
+                *([("Statistics converged at", f"t = {tr['met_time']:.6g} s")] if tr.get("met_time") else []),
+                *([("Start-up perturbation", "; ".join(tr["perturbation"]) or "none")]  # declared (D-198)
+                  if "perturbation" in tr else []),
+                ("Solver time", _num(record.duration_s, "{:.0f} s") + f" on {record.cores} cores"),
+                ("Up to date", rows[-1][1])]
     body = _pairs(rows)
-    log = case / SOLVER_LOG
+    log = solver_log(case)
     png = residual_png(log.read_text(errors="replace")) if log.is_file() else None
-    body += (f"<figure>{_img(png, 'residuals')}<figcaption>Initial residuals per iteration ({SOLVER_LOG})</figcaption></figure>"
+    per = "time" if record.transient is not None else "iteration"
+    body += (f"<figure>{_img(png, 'residuals')}<figcaption>Initial residuals per {per} ({log.name})</figcaption></figure>"
              if png is not None else _note("No solver log: no residual plot."))
     return Section("Convergence", body)
 
@@ -322,6 +345,23 @@ def reports_section(project: Project) -> Section:
         balance = monitor.mass_balance()
     if not rows:
         return Section(title, None, "The run wrote no report data.")
+    record = read_run_record(case)
+    statistics = ((record.transient or {}).get("statistics") if record is not None else None) or {}
+    if record is not None and record.transient is not None:  # a transient run (D-181): the sampling statistics
+        stats_rows = [[report_label(name), _num(c["mean"], "{:.6g}"), _num(c["rms"], "{:.4g}"),
+                       _num(c["min"], "{:.6g}"), _num(c["max"], "{:.6g}")]
+                      for name, c in (statistics.get("coefficients") or {}).items()]
+        if not stats_rows:
+            return Section(title, _note(f"Transient run: no statistics; sampling start {_unsampled(record)}"))
+        body = _table(["Quantity", "Mean", "RMS", "Min", "Max"], stats_rows, numeric_from=1)
+        st = statistics.get("strouhal")
+        start = statistics.get("start")
+        body += _pairs([("Strouhal number St = f l_ref / U (lift)", _num(st, "{:.4g}")),
+                        ("Cycles in the sampling window", _num(statistics.get("cycles"), "{:.3g}"))])
+        body += _note(f"Time-weighted statistics over the sampling window from t = {start:.6g} s to the end of the "
+                      "run; RMS of the fluctuation about the mean; the Strouhal number from the lift's spectral peak "
+                      "(D-181).")
+        return Section(title, body)
     body = _table(["Where", "Quantity", "Windowed mean", "Half range (share of the mean) over iterations"], rows,
                   numeric_from=2)
     body += _note("Means over the last iterations: the window of a mean-stable criterion on the quantity, else the "

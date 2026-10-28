@@ -12,8 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from vortexcfd.core.project import Project
-from vortexcfd.foam.case_writer import enable_clean_stop
-from vortexcfd.foam.dictfile import write_foam_file
+from vortexcfd.foam.case_writer import enable_clean_stop, write_spec
 from vortexcfd.foam.mesh_case import (
     TRI_SURFACE,
     MeshCaseInput,
@@ -216,6 +215,8 @@ def study_readiness(project: Project, *, busy: str | None = None) -> str | None:
         return "Save the project first."
     if busy:
         return busy
+    if project.sim.physics.transient:  # D-181: the studies record steady values (1.1: transient studies later)
+        return "The mesh study runs steady projects only for now: set Physics > Flow to steady."
     if not project.sim.studies.mesh.quantities:
         return "Choose at least one quantity to study."
     if project.sim.internal:  # D-129: no force coefficients; an inlet, outlet, plane or pressure drop may be gone
@@ -321,6 +322,6 @@ def solver_writer(project: Project):
             if (case / name).is_dir():
                 shutil.rmtree(case / name)
         for rel, spec in enable_clean_stop(build_solver_files(for_case(inp, case))).items():
-            write_foam_file(case / rel, spec.content, object_name=Path(rel).name, class_name=spec.class_name)
+            write_spec(case / rel, spec)
 
     return write

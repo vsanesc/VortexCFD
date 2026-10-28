@@ -28,6 +28,14 @@ The stage-2 entries are then merged into system/fvSchemes, controlDict starts fr
 solver command continues (the same decomposition; the log is appended) to the criteria, which may be met no
 earlier than the switch plus the iterations their first evaluation needs (``stage2_criteria``). A stop in either
 stage ends the run with its latest time written; the result keeps both stages (``SolverRunResult.stages``).
+
+Transient runs (D-181; the case holds foam/transient.TRANSIENT_FILE): the solver is the controlDict's application
+(pimpleFoam, log.pimpleFoam). Without a sampling start set by the user, the app watches the force history after every
+time step and, once the start-up transient is over (foam/transient.settled_at), stops the solver cleanly, adds
+fieldAverage from the latest written time to controlDict and continues from it (the same command and decomposition,
+the log appended): the sampling starts there. With the statistics stop the run ends once the running mean of its
+quantity is stable (``running_mean_stable``): "criteria met". At the end time the state is ``end_time``. The result's
+``transient`` holds the end time, the time steps, the sampling start and the statistics (foam/transient.summary).
 """
 
 import threading
@@ -36,6 +44,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from vortexcfd.core.model import StoppingCriteria
+from vortexcfd.foam.case_writer import insert_comment
 from vortexcfd.foam.dictfile import read_foam_file, set_foam_entry
 from vortexcfd.foam import convergence
 from vortexcfd.foam.logparse import LogParser, TimeStep
@@ -49,20 +58,50 @@ from vortexcfd.foam.parallel import (
 from vortexcfd.foam.postprocessing import ReportMonitor
 from vortexcfd.foam.residuals import ResidualHistory
 from vortexcfd.foam.runner import FoamRun, RunResult
+from vortexcfd.foam import transient
 
 SOLVER = "simpleFoam"
 LOG_NAME = f"log.{SOLVER}"
+SOLVERS = ("simpleFoam", "pimpleFoam")  # the applications the app runs (D-181)
 
 CRITERIA_MET = "criteria_met"
 ITERATION_LIMIT = "iteration_limit"
+END_TIME = "end_time"  # a transient run reached its end time (D-181)
 STOPPED = "stopped"
 CRASHED = "crashed"
 STATE_LABELS = {
     CRITERIA_MET: "Criteria met",
     ITERATION_LIMIT: "Iteration limit",
+    END_TIME: "End time reached",
     STOPPED: "Stopped",
     CRASHED: "Crashed",
 }
+# A transient run's start-up and stop are checked every this fraction of their window (simulated time, D-181).
+CHECK_FRACTION = 0.02
+STATISTICS_STOP = "statistics"  # the condition name of the transient statistics stop (D-181)
+# The force coefficients whose statistics a transient run records (all walls).
+TRANSIENT_COEFFICIENTS = ("Cd", "Cl", "CmPitch")
+
+
+def case_solver(case_dir: Path) -> str:
+    """The solver application of a case (its controlDict's ``application``): simpleFoam unless it names another of
+    SOLVERS (a transient case: pimpleFoam, D-181)."""
+    try:
+        name = str(read_foam_file(Path(case_dir) / "system" / "controlDict").get("application", SOLVER))
+    except (OSError, ValueError, TypeError, KeyError):
+        return SOLVER
+    return name if name in SOLVERS else SOLVER
+
+
+def solver_log(case_dir: Path) -> Path:
+    """The solver log of a case: log.<application>; a case whose controlDict is gone but that has one of the
+    solvers' logs keeps that one."""
+    case_dir = Path(case_dir)
+    if not (case_dir / "system" / "controlDict").is_file():
+        for name in SOLVERS:
+            if (case_dir / f"log.{name}").is_file():
+                return case_dir / f"log.{name}"
+    return case_dir / f"log.{case_solver(case_dir)}"
 
 
 @dataclass
@@ -86,6 +125,9 @@ class SolverRunResult:
     # which its condition was met. Empty for a single-stage run.
     stages: tuple[dict, ...] = ()
     switch_iteration: int | None = None  # the last iteration of stage 1 (stage 2 starts after it)
+    # A transient run (D-181): end_time (the last time), steps, sampling_start, detected, met_time and statistics
+    # (foam/transient.summary). None for a steady run.
+    transient: dict | None = None
 
     @property
     def label(self) -> str:
@@ -173,7 +215,8 @@ class ContinueFrom:
     """A run that continues a solution from its latest written time (D-171): the case starts from latestTime, the
     log is appended, the postProcessing files go on in a new start-time directory (followed by the readers, D-126).
 
-    ``iteration``: the latest written time (the run starts after it); ``history``: the solution's earlier iterations
+    ``iteration``: the latest written time (the run starts after it; a transient solution's time steps so far,
+    D-189); ``history``: the solution's earlier iterations
     (its log), so the app-side criteria's windows reach back into them; ``reuse_decomposition``: a parallel case whose
     processor directories hold the latest time on the same core count runs on them (no decomposePar); otherwise a
     parallel run decomposes the latest time again; ``reconstruct_first``: the latest time is only in the processor
@@ -234,7 +277,13 @@ class SolverRun:
         self.cores = max(1, int(cores))
         self.binding = binding  # mpirun placement (foam/parallel.BINDINGS, D-064)
         self._on_stage = on_stage  # (stage, the switch iteration, the switch reason): the second stage began
-        self._stage2 = read_stages(self.case_dir)  # D-126: None for a single-stage case
+        self.solver = case_solver(self.case_dir)
+        self.log_name = f"log.{self.solver}"
+        self._transient = transient.read_control(self.case_dir)  # D-181: None for a steady case
+        self._sampling_detected = False
+        self._next_check = 0.0  # the next time at which a transient run's statistics are checked
+        self._met_time: float | None = None
+        self._stage2 = None if self._transient is not None else read_stages(self.case_dir)  # D-126
         self._stage = 1
         self._switching = False  # stage 1's switch condition was met; the clean stop is on its way
         self._switch_reason: str | None = None
@@ -246,7 +295,8 @@ class SolverRun:
         self._stopping = stopping if convergence.app_side(stopping) or two_stage_criteria else None
         self._run_stopping = self._stopping  # stage 2 replaces it by stage2_criteria
         self._history = ResidualHistory()
-        self._reports = ReportMonitor(self.case_dir) if self._stopping is not None else None
+        watch = self._stopping is not None or self._transient is not None
+        self._reports = ReportMonitor(self.case_dir) if watch else None
         self._met: tuple[str, ...] = ()
         self._met_iteration: int | None = None
         self._pending: TimeStep | None = None  # completed iteration whose criteria are not checked yet
@@ -308,7 +358,8 @@ class SolverRun:
     def _forward(self, events: list) -> None:
         for event in events:
             if isinstance(event, TimeStep):
-                if (self._stopping is not None or self._stage2 is not None) and not self._met and not self._switching:
+                watched = self._stopping is not None or self._stage2 is not None or self._transient is not None
+                if watched and not self._met and not self._switching:
                     self._history.add(event)
                     self._pending = event
                 if self._on_step is not None:
@@ -326,6 +377,9 @@ class SolverRun:
         and writes iteration n + 2, then ends (measured on the coarse sphere)."""
         step, self._pending = self._pending, None
         if self._met or self._switching or step is None:
+            return
+        if self._transient is not None:
+            self._check_transient(step)
             return
         met: tuple[str, ...] = ()
         if self._stopping is not None:
@@ -356,6 +410,45 @@ class SolverRun:
             runner = self._runner
         if runner is not None:
             runner.request_stop()
+
+    def _check_transient(self, step: TimeStep) -> None:
+        """Reader thread, a transient run (D-181): before the sampling starts, whether the start-up transient is over
+        (then the clean stop of the switch); after it, the statistics stop."""
+        control = self._transient
+        assert self._reports is not None
+        now = float(step.time)
+        # Every CHECK_FRACTION of the window, not every step: each check reads the whole history, and the reader
+        # thread must keep up with the solver's output (a detection or stop later by at most W / 50).
+        if now < self._next_check:
+            return
+        self._next_check = now + control.window * CHECK_FRACTION
+        self._reports.poll()
+        reports = self._reports
+        quantities = {control.stop_quantity, *transient.DETECT_RANGES}
+        series = {}
+        for quantity in quantities:
+            rows = [row for row in reports.series(quantity) if row[0] <= now]
+            if rows:
+                series[quantity] = rows
+        if control.sampling_start is None:
+            if transient.settled_at(series, now, control.window, control.tolerance, control.stop_quantity,
+                                    range_tolerance=control.range_tolerance, not_before=control.not_before):
+                with self._lock:
+                    self._switching = True
+                    self._switch_met_at = now
+                    runner = self._runner
+                if runner is not None:
+                    runner.request_stop()
+            return
+        if not control.statistics_stop or control.stop_quantity not in series:
+            return
+        if transient.running_mean_stable(series[control.stop_quantity], control.sampling_start, now, control.window,
+                                         control.tolerance):
+            with self._lock:
+                self._met, self._met_time = (STATISTICS_STOP,), now
+                runner = self._runner
+            if runner is not None:
+                runner.request_stop()
 
     @property
     def criteria_met(self) -> tuple[str, ...]:
@@ -401,6 +494,39 @@ class SolverRun:
         self._forward_line(summary + "\n")
         return summary, None
 
+    def _perturb_initial_field(self) -> str | None:
+        """setExprFields on the case's 0/U (the declared initial-field perturbation, D-198; log.setExprFields); the
+        comment block declaring a start-up perturbation in 0/U is put back (setExprFields writes the file anew).
+        Returns an error message, or None."""
+        field = self.case_dir / "0" / "U"
+        try:
+            lines = field.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            lines = []
+        comment = [line[3:] for line in lines if line.startswith("// ") and not line.startswith("// *")]
+        self._forward_line("Initial-field perturbation (declared): setExprFields on 0/U\n")
+        res = self._step(["setExprFields"], "log.setExprFields", self._forward_line)
+        if res.timed_out or res.stop_requested:
+            with self._lock:
+                self._stop = True
+            return None
+        if res.exit_code != 0:
+            return f"setExprFields failed (exit code {res.exit_code}): see log.setExprFields"
+        if comment and field.is_file():
+            insert_comment(field, "\n".join(comment))
+        return None
+
+    def _declare_perturbations(self, log_file: Path) -> bool:
+        """Write the declared start-up perturbations (D-198) at the top of the solver log of a run from the start (and
+        show them in the console); False when there are none (the solver then writes the log as usual)."""
+        lines = self._transient.perturbations if self._transient is not None else ()
+        if not lines:
+            return False
+        text = "".join(f"VortexCFD start-up perturbation: {line}\n" for line in lines)
+        log_file.write_text(text, encoding="utf-8")
+        self._forward_line(text)
+        return True
+
     def _reconstruct(self, new_times: bool = False) -> bool:
         """reconstructPar of the latest time, or (``new_times``) of every time not reconstructed yet: the times
         written on request during the run (D-172), appended to log.reconstructPar."""
@@ -418,14 +544,14 @@ class SolverRun:
         except Exception as exc:  # noqa: BLE001 - the GUI must always hear of the end of a run
             with self._lock:
                 self._runner = None
-            result = SolverRunResult(CRASHED, None, 0, {}, f"Could not run {SOLVER}: {type(exc).__name__}: {exc}",
-                                     self.case_dir / LOG_NAME, cores=self.cores)
+            result = SolverRunResult(CRASHED, None, 0, {}, f"Could not run {self.solver}: {type(exc).__name__}: {exc}",
+                                     self.case_dir / self.log_name, cores=self.cores)
         self._result = result
         if self._on_done is not None:
             self._on_done(result)
 
     def _execute(self) -> SolverRunResult:
-        log_file = self.case_dir / LOG_NAME
+        log_file = self.case_dir / self.log_name
         res: RunResult | None = None
         error: str | None = None
         decomposition: str | None = None
@@ -436,24 +562,34 @@ class SolverRun:
             if resume is not None and resume.reconstruct_first and not resume.reuse_decomposition:
                 if not self._reconstruct():  # the latest time was only in the processor directories
                     error = "reconstructPar failed: the latest time cannot be continued (see log.reconstructPar)"
-            if error is None and self.cores > 1 and not (resume is not None and resume.reuse_decomposition):
+            if resume is None and (self.case_dir / transient.INITIAL_PERTURB_FILE).is_file():
+                error = self._perturb_initial_field()  # D-198: once, on the serial 0/U, before decomposePar
+                with self._lock:
+                    stopped_early = self._stop
+            go_on = error is None and not stopped_early
+            if go_on and self.cores > 1 and not (resume is not None and resume.reuse_decomposition):
                 decomposition, error = self._decompose(latest_time=resume is not None)
                 with self._lock:
                     stopped_early = self._stop
-            elif error is None and self.cores > 1:
+            elif go_on and self.cores > 1:
                 self._forward_line(f"Continuing on the existing decomposition ({self.cores} subdomains)\n")
             if error is None and not stopped_early:
-                command = solver_command(SOLVER, self.cores, self.binding)
-                res = self._step(command, LOG_NAME, self._line, clean_stop=True, append=resume is not None)
+                command = solver_command(self.solver, self.cores, self.binding)
+                declared = resume is None and self._declare_perturbations(log_file)
+                res = self._step(command, self.log_name, self._line, clean_stop=True,
+                                 append=resume is not None or declared)
                 if self._switch_ready(res):
                     self._stage1_duration = res.duration_s
                     res = self._second_stage(command)
+                elif self._sampling_ready(res):
+                    self._stage1_duration = res.duration_s
+                    res = self._start_sampling(command)
                 if self.cores > 1 and res.exit_code == 0:
                     reconstructed = self._reconstruct()
                     if self._written_now:  # the times written on request, reconstructed for ParaView (D-172)
                         self._reconstruct(new_times=True)
         except Exception as exc:  # noqa: BLE001 - classified as crashed below
-            error = f"Could not run {SOLVER}: {exc}"
+            error = f"Could not run {self.solver}: {exc}"
         self._forward(self.parser.close())
         with self._lock:
             self._runner = None
@@ -475,7 +611,11 @@ class SolverRun:
             stopped = stop or res.stop_requested or res.timed_out
             if self._switching and self._stage == 1 and not stop and not res.timed_out:
                 stopped = False  # stage 1 ended at the switch but stage 2 could not start: see the exit code
+            if self._switching and self._transient is not None and not stop and not res.timed_out:
+                stopped = False  # the sampling switch could not continue: see the exit code
             state = classify(res.exit_code, stopped, self.parser, criteria_stop)
+            if state == ITERATION_LIMIT and self._transient is not None:
+                state = END_TIME
             if state != CRITERIA_MET:
                 met, met_iteration = (), None
             result = SolverRunResult(
@@ -483,10 +623,89 @@ class SolverRun:
                 self.parser.crash or self.parser.fatal_error, res.log_file, self._stage1_duration + res.duration_s,
                 met, met_iteration, self.cores, decomposition, reconstructed, stages, switch_iteration,
             )
+        if self._transient is not None:
+            result.transient = self._transient_summary(result.state)
+            if result.state == CRITERIA_MET:
+                result.met_iteration = None  # a time, in ``transient["met_time"]``
         return result
 
+    def _transient_summary(self, state: str) -> dict:
+        """The transient part of the result (D-181): the last time, the steps, the sampling start and the statistics
+        of the force coefficients from it."""
+        control = self._transient
+        steps = self.parser.time_steps
+        earlier = self.resume.history if self.resume is not None else ()
+        last = steps[-1].time if steps else (earlier[-1].time if earlier else 0.0)
+        out = {"end_time": last, "steps": self._last_iteration(),
+               "sampling_start": control.sampling_start, "detected": control.detected,
+               "convective_time": control.convective_time,
+               "met_time": self._met_time if state == CRITERIA_MET else None, "statistics": None,
+               "perturbation": list(control.perturbations)}  # the declared start-up perturbations (D-198)
+        if control.sampling_start is None:
+            return out
+        try:
+            monitor = ReportMonitor(self.case_dir)
+            monitor.poll()
+            series = {q: monitor.series(q) for q in TRANSIENT_COEFFICIENTS}
+            series = {q: rows for q, rows in series.items() if rows}
+            out["statistics"] = transient.summary(series, control.sampling_start, control.length, control.speed)
+        except (OSError, ValueError, KeyError) as exc:  # the result must still be returned
+            out["statistics_error"] = str(exc)
+        return out
+
+    def _sampling_ready(self, res: RunResult) -> bool:
+        """A transient run stopped at the detected end of its start-up transient (the app's clean stop, exit code 0, no
+        user stop or timeout): the sampling switch."""
+        with self._lock:
+            stop = self._stop
+        return (self._transient is not None and self._transient.sampling_start is None and self._switching
+                and not stop and res.exit_code == 0 and not res.timed_out
+                and self.parser.crash is None and self.parser.fatal_error is None)
+
+    def _latest_time(self) -> float | None:
+        """The latest written time of the case (serial) or of processor0 (parallel)."""
+        from vortexcfd.foam.results import latest_result_time
+
+        found = [latest_result_time(folder) for folder in (self.case_dir, self.case_dir / "processor0")
+                 if folder.is_dir()]
+        values = [float(name) for name in found if name is not None]
+        return max(values) if values else None
+
+    def _start_sampling(self, command: list[str]) -> RunResult:
+        """The sampling switch (D-181) [NUMERICS-REVIEW]: fieldAverage from the latest written time added to
+        controlDict, the control file updated, and the solver again from that time (the log appended)."""
+        from foamlib import FoamFile
+
+        start = self._latest_time()
+        if start is None:
+            start = self.parser.time_steps[-1].time if self.parser.time_steps else 0.0
+        control = self._transient.with_start(start, detected=True)
+        entry = dict(control.field_average)
+        entry["timeStart"] = start
+        control_dict = FoamFile(self.case_dir / "system" / "controlDict")
+        control_dict["functions", transient.FIELD_AVERAGE] = entry
+        control_dict["startFrom"] = "latestTime"
+        try:  # the write times count from the restart: the interval that still ends on the end time
+            interval = float(control_dict["writeInterval"])
+            control_dict["writeInterval"] = transient.even_interval(control.end_time - start, interval)
+        except (KeyError, TypeError, ValueError):
+            pass
+        transient.write_control(self.case_dir, control)
+        with self._lock:
+            self._transient = control
+            self._switching = False
+            self._sampling_detected = True
+        self._forward_line(f"Start-up transient over at t = {self._switch_met_at:.6g} s: sampling (field averages "
+                           f"and statistics) from t = {start:.6g} s\n")
+        if self._on_stage is not None:
+            self._on_stage(2, 0, "sampling")
+        return self._step(command, self.log_name, self._line, clean_stop=True, append=True)
+
     def _last_iteration(self) -> int:
-        """The last iteration of the solution: this run's, or the one it continued from when it ran none."""
+        """The last iteration of the solution: this run's, or the one it continued from when it ran none; a transient
+        run's time steps (D-181)."""
+        if self._transient is not None:  # a continued one counts the solution's earlier steps too (D-189)
+            return len(self.parser.time_steps) + (self.resume.iteration if self.resume is not None else 0)
         return max(_iterations(self.parser), self.resume.iteration if self.resume is not None else 0)
 
     def _switch_ready(self, res: RunResult) -> bool:
@@ -511,7 +730,7 @@ class SolverRun:
                            f"{self._switch_met_at}): k and omega {STAGE2_SCHEME}\n")
         if self._on_stage is not None:
             self._on_stage(2, switch, self._switch_reason or "")
-        return self._step(command, LOG_NAME, self._line, clean_stop=True, append=True)
+        return self._step(command, self.log_name, self._line, clean_stop=True, append=True)
 
     def _stages_summary(self) -> tuple[tuple[dict, ...], int | None]:
         if self._stage2 is None:

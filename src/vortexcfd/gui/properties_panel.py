@@ -37,7 +37,7 @@ from vortexcfd.core.model import (
     Part,
     ResidualCriterion,
 )
-from vortexcfd.core.model import BOUNDARY_KIND_LABELS, BOUNDARY_KINDS
+from vortexcfd.core.model import BOUNDARY_KIND_LABELS, BOUNDARY_KINDS, TRANSIENT_TIME_FIELDS
 from vortexcfd.core.model import (DIMENSION_LABELS, DIMENSIONS, MAX_CURVATURE_LEVELS, WALL_RESOLVED_AUTO_YPLUS, Probe,
                                    SurfaceRegion)
 from vortexcfd.core.reports import (PROBE_NAME_RE, criterion_quantities, default_floor, missing_reference,
@@ -71,6 +71,7 @@ from vortexcfd.workflow.foam_entries import VOLUME_FIELDS, is_mapped
 from vortexcfd.workflow.refinement import OVERLAP_NOTE
 from vortexcfd.workflow.meshing import (
     flow_speed,
+    laminar_first_layer_auto,
     MeshingNotReady,
     estimate_with_volumes,
     fluid_location,
@@ -378,6 +379,12 @@ MESH_SETTINGS = (
     ("target_yplus", "Target y+", lambda: _dspin(0.01, 1000.0, 3, " y+"),
      "The dimensionless wall distance of the first cell centre. Default 50: the wall-function range (30-300). "
      "About 1 resolves the viscous sublayer (wall-resolved, many more cells)."),
+    ("first_layer_height", "First-cell thickness", lambda: _auto(_dspin(1e-6, 1e3, 6, " m"),
+                                                               "Auto: 0.1 \u221a(\u03bd L / U), a tenth of the laminar "
+                                                               "boundary layer's scale L / \u221aRe"),
+     "Laminar projects: the height of the first prism layer at the walls (there is no y+ to target in a laminar "
+     "boundary layer). Auto: 0.1 \u221a(\u03bd L / U) on the surface size length L, about ten layers inside the "
+     "boundary layer."),
     ("layers", "Layer count", lambda: _spin(0, MAX_LAYERS, " layers"),
      "The number of prism layers on every part wall (relative sizing). With y+ sizing it is computed and shown here. "
      "0: no layers."),
@@ -397,7 +404,9 @@ MESH_SETTINGS = (
      "core, at most 8). Meshing scales better than the solver; it can use more cores. 1 meshes in serial; with "
      "more the mesh is reconstructed into one serial mesh afterwards."),
 )
-MESH_OPTIONAL = frozenset({"base_size", "surface_level_min", "surface_level_max", "cores"})
+MESH_OPTIONAL = frozenset({"base_size", "surface_level_min", "surface_level_max", "cores", "first_layer_height"})
+# The label of absolute sizing in a laminar project (D-190): its first layer is the first-cell thickness, not a y+.
+LAMINAR_SIZING_LABEL = "Absolute: from a first-cell thickness"
 CURVATURE_NOTE = ("Curvature refinement adds cells where a surface bends (small radii, leading edges), up to the extra "
                   "levels set here beyond the maximum surface level.")
 LAYERS_NOTE = ("Prism layers are thin cells stacked on the part walls to resolve the boundary layer. Sized from a "
@@ -506,8 +515,10 @@ GROUPS: dict[str, dict] = {
     "physics": {
         "model": lambda sim: sim.physics, "update": "update_physics", "section": ("physics_fluid", "Fluid"),
         "fields": (
-            ("flow", "Flow", lambda: _fixed_value("flow"),
-             "Steady incompressible flow (simpleFoam), the only flow type of v1."),
+            ("flow", "Flow", lambda: ChoiceField(choices("flow")),
+             "Steady (simpleFoam, the default): the time-averaged flow, for attached or mildly separated flow. "
+             "Transient (pimpleFoam): the flow in time, for vortex shedding and unsteady wakes; its time step, "
+             "sampling window and end time are on the Solvers node."),
             ("nu", "Kinematic viscosity", lambda: _sci(" m\u00b2/s"),
              "\u03bd of the fluid in m\u00b2/s. Default 1.5e-05: air at about 20 \u00b0C."),
             ("rho_ref", "Reference density", lambda: _dspin(0.001, 100000.0, 4, " kg/m\u00b3"),
@@ -517,8 +528,23 @@ GROUPS: dict[str, dict] = {
              "Only gives the Mach number Ma = U / a shown with the free stream (the solver is incompressible and "
              "never uses it). Default 343 m/s: air at 20 \u00b0C (water about 1480 m/s). Above Ma 0.3 the "
              "incompressible results lose accuracy."),
-            ("turbulence_model", "Turbulence model", lambda: _fixed_value("turbulence_model"),
-             "RANS turbulence model: k-\u03c9 SST, the only model of v1 (robust for attached and separated flow)."),
+            ("turbulence_model", "Turbulence model", lambda: ChoiceField(choices("turbulence_model")),
+             "k-\u03c9 SST: the RANS model (URANS when transient), robust for attached and separated flow. Laminar: no "
+             "turbulence model, for low Reynolds numbers only (a circular cylinder below Re of about 190, a plate "
+             "below about 5e5). k-\u03c9 SST DDES (transient, 3D only): RANS in the attached boundary layers, LES "
+             "(resolved eddies) in the separated regions; it needs a fine, nearly isotropic mesh where the eddies "
+             "are (a refinement volume), a Courant number about 1 and a long average."),
+            ("des_delta", "DDES length scale \u0394", lambda: ChoiceField(choices("des_delta")),
+             "The LES filter width. \u0394\u03c9\u0303 (default, the wallMountedHump tutorial): the cell's size across the "
+             "vorticity, which lets the separated shear layer leave RANS mode sooner (Shur et al. 2015). Cube root "
+             "of the volume. Largest cell side (the original DES choice, safest on stretched cells)."),
+            ("des_use_sigma", "\u03c3 variant in the LES region", QCheckBox,
+             "Replaces the strain rate in the LES region's production by the \u03c3 operator, which vanishes in 2D "
+             "shear and so lets the resolved turbulence grow sooner in a shear layer (on by default, as the "
+             "wallMountedHump tutorial)."),
+            ("des_scheme", "U convection (DDES)", lambda: ChoiceField(choices("des_scheme")),
+             "DEShybrid (default): LUST where the LES region is resolved, linearUpwind elsewhere. "
+             "LUST: 75 % central, 25 % linearUpwind everywhere (the OpenFOAM LES tutorials' scheme)."),
         ),
     },
     "inflow": {
@@ -569,6 +595,114 @@ GROUPS: dict[str, dict] = {
         ),
     },
 }
+
+def _stop_quantity() -> QComboBox:
+    box = QComboBox()
+    for quantity in ("Cd", "Cl", "CmPitch"):
+        box.addItem(report_label(quantity), quantity)
+    return box
+
+
+# The transient settings (D-181), on the Solvers node of a transient project.
+GROUPS["transient"] = {
+    "model": lambda sim: sim.solvers.transient, "update": "update_transient", "section": ("solver_transient", "Transient"),
+    "fields": (
+        ("time_step", "Time step", lambda: ChoiceField(choices("time_step")),
+         "Adaptive: pimpleFoam sets every step from the largest Courant number in the mesh (below), never above the "
+         "largest step. Fixed: the step below, whatever the Courant number."),
+        ("algorithm", "Pressure-velocity coupling", lambda: ChoiceField(choices("algorithm")),
+         "PISO: one outer corrector per time step, the step at a Courant number up to about 1 (cheapest per step; "
+         "the default of a laminar project). PIMPLE: the step is solved again (outer correctors) until U's residual "
+         "is below the outer tolerance, so it can run at a Courant number of 2-5: fewer, dearer steps (the default "
+         "of a turbulent project, whose wall layers make Courant-1 steps tiny)."),
+        ("max_courant", "Max Courant number", lambda: _auto(_dspin(0.05, 50.0, 2),
+                                                            "Auto: 1 with PISO and DDES, 2 with PIMPLE"),
+         "Co = U \u0394t / \u0394x, the cells a fluid particle crosses in one step, at its largest in the mesh. Auto: 1 "
+         "(PISO) or 2 (PIMPLE). PIMPLE allows 2-5; a larger number resolves less of the unsteadiness."),
+        ("delta_t", "Time step \u0394t", lambda: _auto(_dspin(1e-9, 1e6, 9, " s"),
+                                                     "Auto: 1/1000 of l_ref / U (adaptive: the first step, cut at once "
+                                                     "to the Courant limit) or 1/200 of it (fixed)"),
+         "The fixed step, or the first step of an adaptive run (seconds)."),
+        ("max_delta_t", "Largest time step", lambda: _auto(_dspin(1e-9, 1e6, 9, " s"),
+                                                           "Auto: 1/50 of l_ref / U (at least 250 steps per shedding "
+                                                           "period at a Strouhal number of 0.2)"),
+         "An adaptive step never grows above this (seconds), so a slow flow is still sampled finely enough for "
+         "its frequencies."),
+        ("outer_correctors", "Most outer correctors", lambda: _spin(1, 100, " per step"),
+         "PIMPLE: the most outer correctors per time step (default 10); the loop usually ends earlier, at the outer "
+         "tolerance. PISO always runs one."),
+        ("outer_tolerance", "Outer tolerance", lambda: _sci(),
+         "PIMPLE: the outer loop of a step ends once the initial residual of U (and k, omega) is below this "
+         "(residualControl, relTol 0; default 1e-4)."),
+        ("correctors", "Pressure correctors", lambda: _spin(1, 20, " per outer"),
+         "Pressure corrections per outer corrector (nCorrectors). Default 2, as the OpenFOAM tutorials."),
+        ("time_unit", "Times in", lambda: ChoiceField(choices("time_unit")),
+         "The unit of the end time, write interval, sampling start and window: flow-through times of the reference "
+         "length (t_c = l_ref / U, shown below) or seconds. Changing it converts the values already entered."),
+        ("end_time", "End time", lambda: _dspin(1e-6, 1e9, 4, " t_c"),
+         "The run ends at this time (endTime). Default 200 flow-through times: about 30 shedding periods of a "
+         "bluff body."),
+        ("write_interval", "Write interval", lambda: _dspin(1e-6, 1e9, 4, " t_c"),
+         "The full fields (and the averaged fields) are written every this much time and at the end."),
+        ("sampling_start", "Sampling starts at", lambda: _auto(_dspin(0.0, 1e9, 4, " t_c"),
+                                                              "Auto: detected once the start-up transient is over"),
+         "The statistics (averaged fields, mean and RMS of the coefficients, Strouhal number) are taken from this "
+         "time on. Auto: from when the force history is statistically steady (the stop quantity's mean and the "
+         "ranges of Cd and Cl stop changing between two windows)."),
+        ("detect_tolerance", "Start-up detection tolerance", lambda: _percent(0.001, 1.0, 2),
+         "The start-up transient is over when the ranges (max - min) of Cd and Cl change by at most this between "
+         "two consecutive windows (and the mean of the quantity below by at most the tolerance further down). "
+         "Default 5 %. Or set the sampling start by hand above."),
+        ("perturb_initial", "Initial-field perturbation", QCheckBox,
+         "Start-up perturbation, off by default (D-198). External flow: adds a small cross-flow velocity (up to "
+         "10 % of U, along the lift direction) in a blob of radius 0.25 l_ref centred 0.5 l_ref behind the body, to "
+         "the initial velocity field only. The boundary conditions are not touched: after t = 0 the run is exactly "
+         "the set-up. It breaks the symmetry of a symmetric body's start, so shedding begins sooner. The sampling "
+         "never starts before 5 flow-through times."),
+        ("perturb", "Inflow swing", QCheckBox,
+         "Start-up perturbation, off by default (D-187, D-198). External flow: for the time below, the inflow "
+         "direction swings by the angle below towards the lift direction and away, at 0.2 U / l_ref (a bluff "
+         "body's shedding frequency), then flows along +x again. The sampling never starts before it has ended."),
+        ("perturb_angle", "Swing angle", lambda: _dspin(0.1, 30.0, 1, " \u00b0"),
+         "The largest angle of the inflow during the swing (default 10\u00b0)."),
+        ("perturb_time", "Swing time", lambda: _dspin(1e-6, 1e9, 4, " t_c"),
+         "How long the inflow swings (default 10 flow-through times: two periods), in the unit of the times."),
+        ("window", "Window", lambda: _dspin(1e-6, 1e9, 4, " t_c"),
+         "The window of the start-up detection and of the statistics stop (in the unit above). Default 20 "
+         "flow-through times: several periods of a bluff body's shedding."),
+        ("statistics_stop", "Stop when statistically converged", QCheckBox,
+         "Also end the run once the running mean of the quantity below has varied by at most the tolerance over "
+         "the last window (the end time still applies)."),
+        ("stop_quantity", "Statistics of", lambda: _stop_quantity(),
+         "The coefficient whose running mean decides the statistics stop (and whose mean the start-up detection "
+         "watches)."),
+        ("tolerance", "Tolerance", lambda: _percent(0.0001, 1.0, 2),
+         "The running mean's (max - min) over the window, relative to its value (floor 0.01). Default 0.5 %."),
+        ("start_from", "Start from", lambda: ChoiceField(choices("start_from")),
+         "The initial fields: the free stream, or the latest time of this project's steady solution on the current "
+         "mesh (run the project steady first; its solution is replaced by the transient one)."),
+    ),
+}
+# The one-line explanation shown under a row (not only in its tooltip): what a declared start-up perturbation does to
+# the flow (D-198).
+FIELD_NOTES = {
+    ("transient", "perturb_initial"): "Adds a small sideways velocity behind the body to the initial field only; the "
+                                      "boundary conditions are unchanged.",
+    ("transient", "perturb"): "Turns the inflow direction back and forth by the angle below for the time below, then "
+                              "the inflow is along +x as set.",
+}
+# The hint of a transient external flow with neither start-up perturbation (D-198): a hint, never turned on for the
+# user.
+PERTURB_HINT = ("Hint: a symmetric bluff body (a cylinder, a sphere) started from rest can take more than 100 "
+                "flow-through times to start shedding; the initial-field perturbation above shortens that. It stays "
+                "off unless you turn it on.")
+# The transient settings in the chosen time unit (their suffix: " t_c" or " s"): core.model.TRANSIENT_TIME_FIELDS.
+# The rows of PIMPLE only, and of the inflow swing (external flow, declared) only (D-185, D-187, D-198).
+DES_ROWS = ("physics_des_delta", "physics_des_use_sigma", "physics_des_scheme")
+PIMPLE_ROWS = ("transient_outer_correctors", "transient_outer_tolerance")
+PERTURB_ROWS = ("transient_perturb_angle", "transient_perturb_time")
+# The Solvers rows a transient project does not use (it ends at its end time, D-181).
+STEADY_ONLY_SOLVER_ROWS = ("solvers_iterations", "solvers_write_interval", "solvers_relaxation")
 
 # The Reynolds and Mach numbers' tooltips (D-168).
 RE_TIP = ("Re = U\u221e l_ref / \u03bd: the free-stream speed, the reference length (Reference Values > l_ref: set, or the "
@@ -1093,6 +1227,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self._layout.addWidget(self.mesh_empty)
         # Physics / Free stream / Solvers nodes and the Body attitude (Geometry): one generic group each.
         self.group_fields: dict[str, dict[str, QWidget]] = {}
+        self.field_notes: dict[str, QLabel] = {}
         for gkind, spec in GROUPS.items():
             fields: dict[str, QWidget] = {}
             header = self._section(*spec["section"])
@@ -1104,7 +1239,12 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                 widget = factory()
                 widget.setToolTip(tip)
                 fields[key] = widget
-                self._layout.addWidget(self._make_row(f"{gkind}_{key}", label, widget))
+                host: QWidget = widget
+                if (gkind, key) in FIELD_NOTES:  # a visible one-line explanation under it (D-198)
+                    host, note = self._with_note(widget)
+                    note.setText(FIELD_NOTES[gkind, key])
+                    self.field_notes[f"{gkind}_{key}"] = note
+                self._layout.addWidget(self._make_row(f"{gkind}_{key}", label, host))
                 _connect_commit(widget, lambda k=key, g=gkind: self._commit_group(g, k))
             self.group_fields[gkind] = fields
             if gkind == "inflow":  # the angle of attack lives in Geometry > Body attitude: said and linked (D-167)
@@ -1115,6 +1255,18 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                 self.inflow_alpha.setToolTip("The angle of attack is a rotation of the parts, set in Geometry > Body "
                                              "attitude (the link selects it); the free stream stays along +x.")
                 self.inflow_alpha.linkActivated.connect(self.node_requested.emit)
+            if gkind == "physics":  # URANS and DDES: not validated (D-197, D-199); DDES's mesh and averaging (D-191)
+                self.physics_urans_notice = self._note(solving.URANS_NOT_VALIDATED)
+                self._set_warn(self.physics_urans_notice, True)
+                self.physics_ddes_experimental = self._note(solving.DDES_EXPERIMENTAL)
+                self._set_warn(self.physics_ddes_experimental, True)
+                self.physics_ddes_warning = self._note("")
+                self.physics_ddes_note = self._note("")
+            if gkind == "transient":  # the time unit (D-181)
+                self.transient_perturb_hint = self._note(PERTURB_HINT)
+                self.transient_convective = self._ro_row("transient_convective", "Flow-through time")
+                self.transient_convective.setToolTip("t_c = l_ref / U: the reference length (Reference Values) "
+                                                     "over the free-stream speed, the unit of the times above")
             if gkind == "geometry":  # the rotation centre of the body attitude (D-120, D-148)
                 self.attitude_centre = self._ro_row("geometry_centre", "Rotation centre")
                 self.attitude_centre.setToolTip("The angle of attack turns the parts about the y axis through this "
@@ -1692,8 +1844,16 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         est = estimate_with_volumes(self._project, box) if box.bounds is not None else None
         length = surface_length(self._project, box) if box.bounds is not None else None
         self._surface_length = length
-        self.mesh_yplus_note.setVisible(mesh.layer_sizing == "absolute_yplus")
-        yplus_used = mesh.layer_sizing == "absolute_yplus"
+        laminar = self._project.sim.physics.laminar  # no y+ sizing: a first-cell thickness instead (D-190)
+        self.mesh_yplus_note.setVisible(mesh.layer_sizing == "absolute_yplus" and not laminar)
+        yplus_used = mesh.layer_sizing == "absolute_yplus" and not laminar
+        self._rows["mset_target_yplus"].setVisible(not laminar)
+        self._rows["mset_first_layer_height"].setVisible(laminar)
+        self.mesh_fields["first_layer_height"].setEnabled(mesh.layer_sizing == "absolute_yplus")
+        sizing = self.mesh_fields["layer_sizing"]
+        text = LAMINAR_SIZING_LABEL if laminar else dict(LAYER_SIZINGS)["absolute_yplus"]
+        sizing.labels["absolute_yplus"].setText(text)  # the option's text is its label (ChoiceField)
+        sizing.buttons["absolute_yplus"].setAccessibleName(text)
         tips = {key: tip for key, _l, _f, tip in MESH_SETTINGS}
         self.mesh_fields["target_yplus"].setEnabled(yplus_used)
         self.mesh_fields["target_yplus"].setToolTip(
@@ -1704,6 +1864,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                         "surface_level_max": est.level_max}
             cores = mesh_cores(self._project, box, PHYSICAL_CORES)
             computed["cores"] = cores.recommended
+            if length is not None and laminar:
+                computed["first_layer_height"] = laminar_first_layer_auto(self._project, length.value)
             self.mesh_fields["cores"].setToolTip(f"{tips['cores']}\nIn use: {cores.describe()}")
         widgets = [getattr(w, "spin", w) for w in self.mesh_fields.values()] + list(self.mesh_fields.values())
         for w in widgets:
@@ -1747,7 +1909,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             layers_field.setValue(plan.count)  # shown only: the stored Mesh.layers is not changed
             layers_field.blockSignals(False)
         if plan is not None:
-            self.mesh_first_layer.setText(f"{plan.first:.4g} m (for y+ {mesh.target_yplus:g})")
+            self.mesh_first_layer.setText(f"{plan.first:.4g} m (" + ("first-cell thickness" if laminar else
+                                                                     f"for y+ {mesh.target_yplus:g}") + ")")
             notes = [f"cap; planned {plan.planned_count}"] if plan.capped else []
             notes += ["limit 30"] if plan.warning else []
             self.mesh_layer_count.setText(f"{plan.count}" + (f" ({', '.join(notes)})" if notes else ""))
@@ -1823,6 +1986,8 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         """The group of the selected node; the Body attitude only for external flow (D-120, D-129)."""
         if gkind == "geometry":
             return self._kind in ("geometry", "parts") and not self._project.sim.internal
+        if gkind == "transient":
+            return self._kind == "solvers" and self._project.sim.physics.transient
         return self._kind == gkind
 
     def _refresh_groups(self) -> None:
@@ -1846,6 +2011,42 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             finally:
                 for w in widgets:
                     w.blockSignals(False)
+        for key in DES_ROWS:  # the DDES settings only with DDES (D-191)
+            self._rows[key].setVisible(self._group_shown("physics") and sim.physics.ddes)
+        ddes_shown = self._group_shown("physics") and sim.physics.ddes
+        self.physics_ddes_experimental.setVisible(ddes_shown)  # always while DDES is chosen (D-197)
+        physics = sim.physics  # a transient RANS model (URANS): always while chosen (D-199)
+        self.physics_urans_notice.setVisible(self._group_shown("physics") and physics.transient
+                                             and not physics.laminar and not physics.ddes)
+        warning = solving.ddes_mesh_warning(self._project) if ddes_shown else None
+        self.physics_ddes_warning.setText(warning or "")
+        self._set_warn(self.physics_ddes_warning, True)
+        self.physics_ddes_warning.setVisible(warning is not None)
+        self.physics_ddes_note.setText(solving.ddes_averaging_text(self._project) if ddes_shown else "")
+        self.physics_ddes_note.setVisible(ddes_shown)
+        if self._group_shown("transient"):  # D-181: a transient run ends at its end time
+            for key in STEADY_ONLY_SOLVER_ROWS:
+                self._rows[key].setVisible(False)
+            unit = " t_c" if sim.solvers.transient.time_unit == "flow_through" else " s"
+            for key in TRANSIENT_TIME_FIELDS:  # the times' unit follows the choice
+                field = self.group_fields["transient"][key]
+                (field.spin if isinstance(field, AutoField) else field).setSuffix(unit)
+            settings = sim.solvers.transient
+            pimple = settings.resolved_algorithm(sim.physics.laminar) == "pimple"
+            self.group_fields["transient"]["max_courant"].set_state(  # Auto shows the number in use (D-185)
+                settings.max_courant, settings.resolved_max_courant(sim.physics.laminar, sim.physics.ddes))
+            for key in PIMPLE_ROWS:
+                self._rows[key].setVisible(pimple)
+            self._rows["transient_perturb"].setVisible(not sim.internal)
+            self._rows["transient_perturb_initial"].setVisible(not sim.internal)
+            for key in PERTURB_ROWS:
+                self._rows[key].setVisible(not sim.internal and settings.perturb)
+        self.transient_perturb_hint.setVisible(  # a hint only: neither perturbation is turned on for the user (D-198)
+            self._group_shown("transient") and not sim.internal and not sim.solvers.transient.perturb
+            and not sim.solvers.transient.perturb_initial)
+        self._rows["transient_convective"].setVisible(self._group_shown("transient"))
+        if self._group_shown("transient"):
+            self.transient_convective.setText(self._convective_time_text())
         attitude = self._group_shown("geometry")
         self._rows["geometry_centre"].setVisible(attitude)
         self.attitude_note.setVisible(attitude)
@@ -1932,12 +2133,35 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         ref = reference_values(bounds, self._project.sim.reports)
         return f"({format_vector(ref.cofr)}) m" + (f" \u2014 {CENTRE_AUTO_LABEL}" if ref.cofr_auto else " (set)")
 
+    def _convective_time_text(self) -> str:
+        """t_c = l_ref / U of the Transient group (D-181)."""
+        sim = self._project.sim
+        try:
+            _box, _names, bounds = parts_layout(self._project)
+        except (MeshingNotReady, TypeError, ValueError, OSError):  # no part file, or an unsaved project
+            bounds = None
+        if bounds is None:
+            return "\u2014 (import a part)"
+        length = reference_values(bounds, sim.reports).l_ref
+        return f"{length / sim.inflow.speed:.4g} s (l_ref {length:.4g} m / U {sim.inflow.speed:g} m/s)"
+
+    def _convective_time(self) -> float | None:
+        """t_c = l_ref / U in seconds, None without a part."""
+        return solving.convective_time(self._project)
+
     def _commit_group(self, gkind: str, key: str) -> None:
         if not self._group_shown(gkind):
             return
         value = _widget_get(self.group_fields[gkind][key])
+        fields = {key: value}
+        if gkind == "transient" and key == "time_unit":  # the values entered are converted (D-188)
+            t_c = self._convective_time()
+            if t_c is None:
+                self.message.emit("The times keep their numbers: t_c = l_ref / U is not known yet (import a part).")
+            else:
+                fields.update(self._project.sim.solvers.transient.converted_times(value, t_c))
         try:
-            getattr(self._project, GROUPS[gkind]["update"])(**{key: value})
+            getattr(self._project, GROUPS[gkind]["update"])(**fields)
         except (ValueError, TypeError) as exc:  # includes pydantic errors
             self.message.emit(str(exc))
         self.refresh()  # reverts a rejected value

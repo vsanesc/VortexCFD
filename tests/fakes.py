@@ -48,6 +48,8 @@ class FakeDialogs:
         self.choices_asked: list = []  # (title, text, the choice keys)
         self.more_iterations = None  # ask_more_iterations' answer
         self.more_iterations_asked: list = []
+        self.more_time = None  # ask_more_time's answer (a transient end time, D-189)
+        self.more_time_asked: list = []
         self.continue_met = None  # ask_continue_met's answer: (more iterations, {index: value}) or None
         self.continue_met_asked: list = []
         self.chart_export_asked: list = []
@@ -111,6 +113,10 @@ class FakeDialogs:
     def ask_more_iterations(self, latest, limit):
         self.more_iterations_asked.append((latest, limit))
         return self.more_iterations
+
+    def ask_more_time(self, latest, end, unit):
+        self.more_time_asked.append((latest, end, unit))
+        return self.more_time
 
     def ask_continue_met(self, latest, limit, stopping, met_iteration):
         self.continue_met_asked.append((latest, limit, stopping.model_copy(deep=True), met_iteration))

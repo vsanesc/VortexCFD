@@ -1,0 +1,164 @@
+{
+  "window_tc": [
+    96.0,
+    150.0
+  ],
+  "rule": "relative",
+  "reference": "pimple_co2",
+  "runs": {
+    "pimple_co2": {
+      "folder": "run/validation/square_re22000/coarse",
+      "convective_time": 1.0,
+      "not_before_tc": 10.0,
+      "window": [
+        96.0,
+        150.0
+      ],
+      "whole": {
+        "st": 0.1352989160810808,
+        "cycles": 7.3057797337865,
+        "cd_mean": 2.1287435506923864,
+        "cl_rms": 1.4053472043885522
+      },
+      "first_half": {
+        "st": 0.13586053954893118,
+        "cycles": 3.668067491999524,
+        "cd_mean": 2.1544275793160295,
+        "cl_rms": 1.4214598476061546
+      },
+      "second_half": {
+        "st": 0.13678660495002756,
+        "cycles": 3.6928202163076973,
+        "cd_mean": 2.103049819998671,
+        "cl_rms": 1.386391918752604
+      },
+      "halves_diff": {
+        "st": 0.000926065401096382,
+        "cd_mean": 0.05137775931735833,
+        "cl_rms": 0.0350679288535507
+      },
+      "detected_tc": 96.0000000000004,
+      "steps_to_detected": 54002,
+      "steps_total": 112902
+    },
+    "pimple_co1": {
+      "folder": "run/validation/square_re22000/coarse_pimple_co1",
+      "convective_time": 1.0,
+      "not_before_tc": 10.0,
+      "window": [
+        96.0,
+        150.0
+      ],
+      "whole": {
+        "st": 0.10903730337581162,
+        "cycles": 5.8879980266983205,
+        "cd_mean": 1.5113508798222604,
+        "cl_rms": 0.013901355466000137
+      },
+      "first_half": {
+        "st": 0.10196570420743352,
+        "cycles": 2.7529904017232543,
+        "cd_mean": 1.510985625412847,
+        "cl_rms": 0.01768469759801358
+      },
+      "second_half": {
+        "st": 0.11203708833505312,
+        "cycles": 3.0249554498402165,
+        "cd_mean": 1.511716110833255,
+        "cl_rms": 0.00815452739430531
+      },
+      "halves_diff": {
+        "st": 0.010071384127619598,
+        "cd_mean": 0.0007304854204079891,
+        "cl_rms": 0.009530170203708268
+      },
+      "detected_tc": null,
+      "steps_to_detected": null,
+      "steps_total": 141315
+    },
+    "piso_co1": {
+      "folder": "run/validation/square_re22000/coarse_piso_window",
+      "convective_time": 1.0,
+      "not_before_tc": 10.0,
+      "window": [
+        96.0,
+        150.0
+      ],
+      "whole": {
+        "st": 0.12497526934625677,
+        "cycles": 6.748594308596493,
+        "cd_mean": 1.9390676407328886,
+        "cl_rms": 1.030250903787374
+      },
+      "first_half": {
+        "st": 0.124960175996015,
+        "cycles": 3.3738445274594158,
+        "cd_mean": 1.9399782670702093,
+        "cl_rms": 1.0160164806913137
+      },
+      "second_half": {
+        "st": 0.12506643926833858,
+        "cycles": 3.376682551114193,
+        "cd_mean": 1.9381582687962176,
+        "cl_rms": 1.0345310284837608
+      },
+      "halves_diff": {
+        "st": 0.00010626327232357569,
+        "cd_mean": 0.0018199982739917075,
+        "cl_rms": 0.0185145477924471
+      },
+      "detected_tc": 79.20000000000016,
+      "steps_to_detected": 83445,
+      "steps_total": 157885
+    }
+  },
+  "comparisons": {
+    "pimple_co1": {
+      "quantities": {
+        "st": {
+          "diff": 0.02626161270526918,
+          "relative": 0.19410068806117664,
+          "limit": 0.002705978321621616,
+          "within": false
+        },
+        "cd_mean": {
+          "diff": 0.6173926708701261,
+          "relative": 0.2900267956980142,
+          "limit": 0.04257487101384773,
+          "within": false
+        },
+        "cl_rms": {
+          "diff": 1.391445848922552,
+          "relative": 0.9901082412783192,
+          "limit": 0.028106944087771046,
+          "within": null
+        }
+      },
+      "verdict": "do not agree"
+    },
+    "piso_co1": {
+      "quantities": {
+        "st": {
+          "diff": 0.010323646734824027,
+          "relative": 0.07630250879938578,
+          "limit": 0.002705978321621616,
+          "within": false
+        },
+        "cd_mean": {
+          "diff": 0.1896759099594978,
+          "relative": 0.08910228284558024,
+          "limit": 0.04257487101384773,
+          "within": false
+        },
+        "cl_rms": {
+          "diff": 0.37509630060117827,
+          "relative": 0.26690649786034737,
+          "limit": 0.028106944087771046,
+          "within": null
+        }
+      },
+      "verdict": "do not agree"
+    }
+  },
+  "tolerance": 0.02
+}

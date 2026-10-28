@@ -1688,6 +1688,35 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Decision: `main_window.APP_ID = "vortexcfd"`; `set_app_identity()` runs before the QApplication exists: `QGuiApplication.setDesktopFileName` (the Wayland app id), `setApplicationName` (the class of WM_CLASS under xcb; the settings keep their explicit organisation and application, D-141) and RESOURCE_NAME (its instance name, unless already set). scripts/install.sh writes the icons (the PNGs and now vortexcfd.ico), the launcher and `$XDG_DATA_HOME/applications/vortexcfd.desktop` (default ~/.local/share/applications) in one function: Name=VortexCFD, Icon=<absolute path of the 256 px PNG> (the prefix made absolute with realpath -m), StartupWMClass=vortexcfd, then `update-desktop-database <dir>` when it is installed; `--desktop-only` does only that for an existing install. Idempotent: a second run writes the same files. scripts/windows/make_shortcut.ps1 (run by the owner from Windows PowerShell, never by an agent) makes VortexCFD.lnk in the Start menu and on the desktop: `wsl.exe -d <Distro> -- <venv>/bin/vortexcfd`, minimised, with the logo's .ico copied to %LOCALAPPDATA%\VortexCFD\ (an icon path on \\wsl$ is read only while the distribution runs). Manual 1.2 and 1.5. WSLg may still add a small Linux badge, which the app cannot remove (QUESTIONS 246: the owner checks the taskbar on the real display).
 - Check: tests/test_branding.py (the desktop file name, the application name and RESOURCE_NAME before the QApplication); tests/test_install_script.py (--desktop-only in a temporary HOME and XDG_DATA_HOME: the entry's lines, the icon's absolute path, the .ico, the launcher link, update-desktop-database called with the folder, a second run byte-identical; without update-desktop-database; the PowerShell script's command line, icon copy and places).
 
+## D-180 Worktrees: their own venv, ship.sh publishes from a worktree
+- Status: Proposed (task 1.1-transient, Part 0).
+- Context: release 1.1 is developed in a git worktree (~/proyectos/vortexcfd-1.1) while the main checkout holds other work. scripts/ship.sh ended with `gh pr merge --delete-branch`, `git checkout main` and `git pull`: in a worktree `git checkout main` fails while main is checked out in the main folder (git refuses a branch checked out twice), and gh's --delete-branch switches the local checkout to main too.
+- Decision: (1) each worktree has its own `.venv`, made from scripts/requirements-dev.txt (new: scripts/requirements-v1.txt plus the test tools pinned at the main checkout's versions) and an editable install of that folder; CONTRIBUTING.md "Worktrees" gives the commands (create, the venv, `git merge origin/main` for a long-lived branch, remove). (2) scripts/ship.sh: the same refusals (task/* branch, clean tree) plus a dirty main worktree; the same full suite first; push, `gh pr create --fill`, `gh pr merge <branch> --merge` (no --delete-branch), `git push origin --delete <branch>`, `git fetch origin`, then main fast-forwarded (`--ff-only`) to origin/main where it is checked out (`git worktree list`), or as a ref only (`git fetch origin main:main`) when no worktree has it; from the main checkout itself (not a linked worktree, main checked out nowhere) it checks out main and deletes the local task branch, which is the old ending. (3) `--dry-run`: the checks, then every command printed, none run (the suite included). (4) Settings isolation (D-141) already covers worktrees: tests and scripts use a temporary `VORTEXCFD_SETTINGS_DIR`; checked, no change.
+- Check: tests/test_ship_script.py (throw-away repositories with a linked worktree: from the worktree main is fast-forwarded where it is checked out and never checked out; main checked out nowhere: the ref only; from the main checkout: main checked out and the branch deleted; refusals: a dirty tree, a dirty main worktree, a branch not task/*); `scripts/ship.sh --dry-run` in this worktree.
+- Alternatives considered: `git -C <main checkout> pull` (merges rather than fast-forwards; would mix in local commits of main); keeping gh's --delete-branch (it checks out main locally).
+
+## D-181 Transient incompressible flow with pimpleFoam: time step, statistics, end, results (schema v25) [NUMERICS-REVIEW]
+- Status: Accepted (owner, 2026-10-27; QUESTIONS 249, 250 and 251). Was Proposed (task 1.1-transient, Part A; the owner's decisions T1-T6 of the 1.1 roadmap). Every written dictionary entry, scheme and default below is [NUMERICS-REVIEW]. The owner accepted the transient schemes, "flow-through time = l_ref / U", and the start-up detection rule on two conditions, both implemented in Part 2 (D-186): the detection tolerance is editable (default 5 %) and the user can set the sampling start by hand.
+- Model (schema v25; v24 -> v25 fills nothing: every older project is steady k-omega SST): `Physics.flow` gains "incompressible_transient" (steady stays the default, T1); `Solvers.transient` (`core.model.Transient`): `time_step` adaptive (default) or fixed, `max_courant` 1, `delta_t` and `max_delta_t` (s; None = 1/1000 (adaptive's first step) or 1/200 (fixed) and 1/50 of t_c), `outer_correctors` 1, `correctors` 2, `time_unit` "flow_through" (t_c = l_ref / U, the reference length of the coefficients over the free-stream speed) or "s", `end_time` 200, `write_interval` 20, `sampling_start` None (= detected), `window` 20, `tolerance` 0.005, `statistics_stop` off, `stop_quantity` Cd (a force or moment coefficient), `start_from` free_stream or steady. A steady project's results and solution hashes leave `transient` out, so every steady project keeps its hash; a transient project's hash has it.
+- Case files (foam/physics_case; keywords read in the v2606 sources and tutorials: applications/solvers/incompressible/pimpleFoam/pimpleFoam.C, src/finiteVolume/cfdTools/general/include/setDeltaT.H and setInitialDeltaT.H, src/functionObjects/field/fieldAverage, tutorials incompressible/pimpleFoam/laminar/cylinder2D and RAS/{TJunction,pitzDaily,propeller,ellipsekkLOmega}):
+  - controlDict: application pimpleFoam, endTime in s, deltaT, adjustTimeStep (yes for adaptive), maxCo, maxDeltaT, writeControl adjustableRunTime (adaptive: the steps land on the write times) or runTime (fixed), the write interval shortened to divide the run evenly so that the end time is written (`transient.even_interval`; OpenFOAM counts write times from the run's start time, so the sampling switch sets it again for the time left after its restart: found on the cylinder, whose coarse and medium levels lost their final fields), writePrecision and timePrecision 8, the same function objects as steady (force coefficients, forces, mass flow, y+ and wall shear stress at write times, probes, the live view every N steps) and no runTimeControl; fieldAverage1 (U and p: mean, prime2Mean, base time; every step; written at write times) from a sampling start set by the user. setInitialDeltaT cuts the first step to the Courant limit of the initial field at once, so the automatic first step only has to be small enough to be harmless; setDeltaT grows a step by at most 1.2 per step.
+  - fvSchemes: ddt backward (second order, three time levels, variable steps handled by backwardDdtScheme, an Euler first step): Euler's first-order error damps a shedding's amplitude and lowers its frequency. div(phi,U) Gauss linearUpwind grad(U) on the steady default's cellLimited grad(U) (as RAS/propeller and pitzDaily), without the steady "bounded" correction; k and omega Gauss limitedLinear 1, a bounded (TVD) second-order scheme (RAS/TJunction, ellipsekkLOmega), where the steady default is first-order upwind: a URANS run must not damp the resolved unsteadiness through first-order turbulence transport; laplacian, interpolation, snGrad and wallDist as the steady default. Alternatives considered: Euler (first order), Gauss linear for U (the cylinder2D tutorial's; less robust on snappyHexMesh layers), LUST (a scale-resolving scheme: for the DDES of a later 1.1 part), the D-126 stage-2 linearUpwind for k and omega (not bounded without the steady correction).
+  - fvSolution: the steady default's solvers (GAMG p relTol 0.01; U, k, omega smoothSolver symGaussSeidel relTol 0.1) with the cylinder2D tutorial's absolute p tolerance 1e-6 (U, k, omega 1e-6): the final corrector solves to it every step, and the steady default's 1e-7 nearly doubled the final pressure solve's iterations on the cylinder; plus pFinal, UFinal, kFinal, omegaFinal with relTol 0; PIMPLE momentumPredictor yes, nOuterCorrectors (default 1: the PISO mode, enough at Co up to about 1), nCorrectors (default 2, the tutorials'), nNonOrthogonalCorrectors 0 (as steady); no under-relaxation.
+  - system/transientControl (foam/transient.TRANSIENT_FILE, ignored by OpenFOAM): t_c, l_ref, U, the end time, the window and tolerance in seconds, the stop settings, the sampling start and the fieldAverage entry.
+  - A transient run never uses the two turbulence stages (D-126): it is second order from the start.
+- Statistics (foam/transient.py; time-weighted because the steps vary): the mean is the trapezoidal integral over the window divided by its length, the RMS the root of the time-weighted mean square of the fluctuation about it (the standard deviation; for a zero-mean lift the RMS of the lift). Strouhal number: the lift interpolated onto a uniform grid at its median step, mean removed, Hann window, zero-padded to 8 times the next power of two, the peak bin refined by a parabola through the log magnitudes; St = f l_ref / U, shown with the number of cycles in the window (a warning below 3).
+- The sampling window (T4): a start set by the user (time or flow-through times), or detected: the start-up transient is over when, over the two consecutive windows [t - 2W, t - W] and [t - W, t], the time-weighted mean of the stop quantity changes by at most the tolerance and the ranges (max - min) of Cd and Cl (and of the stop quantity) by at most 5 %, each relative to max(|value|, 0.01) (the D-058 normalisation). The ranges, not the means, of the lift: a window that is not a whole number of periods moves a lift's mean by a large share of its amplitude and its range hardly. SolverRun checks this every W/50 of simulated time (each check reads the whole history; checking every step made the reader thread fall behind the solver on a 20,000-step run); when it holds it stops the solver with the clean stop, adds fieldAverage1 with timeStart = the latest written time to controlDict, writes the start into transientControl and runs the same command from latestTime (the decomposition kept, the log appended), as the D-126 switch does: the field averages and the coefficients' statistics then share that start. fieldAverage is not added while the solver runs: its read() resets the averaging (fieldAverage.C), and a runtime re-read of controlDict re-reads every function object.
+- The end (T5): the end time (state "end_time", "End time reached"), and with the statistics stop the running mean (cumulative, time-weighted, from the sampling start) of the stop quantity varying by at most the tolerance (relative, floor 0.01) over the last window, evaluated once the sampling has lasted two windows: the asymptotic criterion's range measure (D-058) applied to the running mean (state "criteria_met", condition "statistics"). The record keeps the time it was met.
+- Start (T3): from the free stream, or from the project's steady solution on the current mesh (a new mesh deletes the results, D-051, so a solution in the case is always on its mesh): its latest time is kept aside while the case is cleared, then every 0/ field the solver files write that it has takes its internalField with the new boundary conditions (D-171's rule); fields it lacks (k and omega after a laminar run) keep the free-stream start. A transient solution is not continued (Continue is off for it; left for a later 1.1 part).
+- Results (T6): SolverRunResult and RunRecord gain `transient` (the end time, the steps, the sampling start and whether it was detected, t_c, the time the statistics stop was met, and the statistics: mean, RMS, min and max of Cd, Cl and CmPitch, St and its cycles); `iterations` is the number of time steps. The monitors: the residual chart against time, the report slots' "running mean m, RMS r (from t = s)" (or "start-up: sampling not started"), the convergence box's transient banner (time, phase, the end) and the statistics; the report charts (D-170) show the instantaneous history and the running mean against time, and export time, value and running mean. The live view's samples and Write fields now keep their times (sample folders are times, not rounded to iterations). Snapshots keep the sampling means, the RMS and St (`Snapshot.transient`, rows "Strouhal number" and "<coefficient> RMS" in Compare); the HTML report's Convergence section gives the time steps, the end, t_c and the sampling start, its Forces section the statistics table and St. The Results Scene lists the averaged fields (p mean, Cp mean, U mean, p RMS and the Ux, Uy, Uz RMS from pPrime2Mean and UPrime2Mean's diagonal) and offers every written time (the latest by default). The mesh study and the polar sweep refuse a transient project for now.
+- Log (foam/logparse): pimpleFoam prints "Courant Number mean: max:" and "deltaT = " before the step's "Time = " line; they are kept until that line opens the step (`TimeStep.delta_t`). The solver log is log.<application> (`solver_run.solver_log`).
+- Check: tests/test_transient.py (the dictionaries of adaptive and fixed steps and of a set sampling start; the pimpleFoam log; time-weighted statistics on uneven steps; St of 0.165, 1 and 7.3 Hz signals; the detection on a growing then saturated shedding; the running-mean stop; SolverRun with fake runners: the sampling switch, the statistics stop, the end time; the record; the start from a steady solution; a v24 project steady and its hash; the GUI rows, a run through the window and its monitors; the mean fields; the studies refusing; the snapshot and the report). One real run: docs/validation/cylinder_re100/RESULT.md, "Short run".
+
+## D-182 A laminar option (no turbulence model) [NUMERICS-REVIEW]
+- Status: Accepted (owner, 2026-10-27). Was Proposed (task 1.1-transient, Part B: the cylinder at Re 100 is laminar).
+- Decision: `Physics.turbulence_model` "laminar" (schema v25): constant/turbulenceProperties `simulationType laminar;` (the tutorial pimpleFoam/laminar/cylinder2D), only 0/U and 0/p written, no k or omega schemes and solvers in a transient case (a steady laminar case keeps the steady files, whose unused k and omega entries OpenFOAM ignores). Steady or transient. The y+ function object works with the laminar model (nuEff = nu). The layer sizing from a target y+ assumes a turbulent boundary layer: a laminar project should use relative layers (open question in QUESTIONS).
+- Check: tests/test_transient.py::test_laminar_writes_u_and_p_only; the cylinder validation (docs/validation/cylinder_re100/).
+
 ## D-183 Pillow 13.0.0 and certifi 2026.10.23 for the security advisories (1.0.1)
 - Status: Accepted (owner, 2026-10-26). Was Proposed (task v1.0.1-pillow).
 - Finding: GitHub Dependabot reported 41 open alerts (alert 1 of 42 was withdrawn by GitHub), all for pillow==12.3.0 in scripts/requirements-v1.txt: 5 critical (GHSA-8g5g-8vmr-9782 ImagingJpegDecode, GHSA-5x8w-8jj5-q52h FlashPix JPEG, GHSA-332p-7hrc-92wf TIFF write to BytesIO, GHSA-v9pv-5gc8-w2m6 multi-frame loaders, GHSA-w889-685w-c8fh Ghostscript argument injection), 23 high, 13 moderate. Every one is first fixed in 13.0.0 (GitHub advisory database); none affects 13.0.0; none is left without a fixed release. VortexCFD opens no user images: Pillow writes the PNG image exports and the logo's .ico and comes with matplotlib and PyVista.
@@ -1695,4 +1724,409 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Check: `pip check` clean; the fast suite; the image-export, report, snapshot, line-plot and branding tests; scripts/brand/make_logo.py rewrites every file byte-identical (the .ico and PNGs included); scripts/install.sh in a temporary HOME and prefix, `vortexcfd --version` 1.0.0; the public benchmarks' dictionaries (scripts/validation/public_dicts.py) byte-identical to main's with Pillow 12.3.0 (`diff -r`, 51 files).
 - certifi (QUESTIONS 247): the audit of every pin against the GitHub advisory database (pip-audit is not installed) found certifi==2026.7.22 affected by GHSA-6q48-6c7w-9gw2 (critical: the bundled emSign ECC Root CA - G3, eight of whose eMudhra intermediate CAs have compromised keys; 2026.10.18 removed every emSign root, 2026.10.19 restored the unaffected ones). Pinned certifi==2026.10.23 (the newest release; requests 2.34.2 requires certifi>=2023.5.7): its cacert.pem has no emSign ECC Root CA - G3 (emSign Root CA - G1 only); still MPL-2.0, no file marked "Incompatible With Secondary Licenses" (THIRD_PARTY_LICENSES.md). Check: `pip check` clean; the audit over all 46 pins reports 0 advisories; scripts/install.sh in a temporary HOME and prefix, `vortexcfd --version` 1.0.0.
 - Alternatives considered: none; no Pillow release below 13.0.0 fixes the alerts, and no certifi below 2026.10.18.
+
+
+## D-184 ship.sh refuses a branch with nothing to publish
+- Status: Proposed (task 1.1-transient, Part 2, Part A item 7).
+- Context: on main, scripts/ship.sh ran the full suite and pushed a task branch that had no commits ahead of
+  origin/main (an empty pull request).
+- Decision: right after the branch and tree checks, before the confirmation, the suite or any push, the script fetches
+  origin/main (read-only; a repository without an origin compares with main) and counts the commits of HEAD ahead of
+  it; with none it prints "<branch> has no commits ahead of origin/main: nothing to publish. Aborting." and exits 1.
+  The list of commits to publish is now the commits ahead of that base (it was main..HEAD, the local main). The dry
+  run behaves the same (the fetch is the only command it runs).
+- Check: tests/test_ship_script.py::test_refuses_a_branch_with_no_commits_ahead_of_origin_main_before_the_suite
+  (a bare origin: one commit ahead goes on; after the commit is pushed to origin's main, refused with no suite and no
+  push printed).
+
+## D-186 The start-up detection's tolerance is editable; the sampling start can be set by hand [NUMERICS-REVIEW]
+- Status: Accepted (owner, 2026-10-28). Was Proposed (task 1.1-transient, Part 2, Part A item 3; the owner's condition for accepting the detection rule
+  of D-181, QUESTIONS 251).
+- Decision: `Transient.detect_tolerance` (schema v25, default 0.05): the largest relative change of the ranges
+  (max - min) of Cd and Cl (and of the stop quantity) between two consecutive windows for which the start-up
+  transient counts as over. It was the fixed `foam/transient.RANGE_TOLERANCE`; that constant stays as the default.
+  The control file carries it (`rangeTolerance`; older case files read without it get 0.05) and SolverRun's
+  detection uses it. The Solvers > Transient group shows "Start-up detection tolerance" (percent) next to the
+  window. The sampling start set by hand was already there ("Sampling starts at", Auto unchecked: a time in the
+  chosen unit; fieldAverage then starts at it and no detection runs); its tooltip now points to it from the
+  tolerance's.
+- Check: tests/test_transient.py::test_the_detection_tolerance_and_the_end_of_the_perturbation (a looser tolerance
+  settles a slowly growing oscillation earlier), test_the_start_up_perturbation_swings_the_inflow_and_holds_the_detection
+  (the control file), test_fixed_time_step_and_a_set_sampling_start (the set start).
+
+## D-188 Changing the time unit converts the transient times
+- Status: Proposed (task 1.1-transient, Part 2, Part A item 6; QUESTIONS 255).
+- Decision: choosing "Times in" (flow-through times or seconds) converts the end time, write interval, sampling
+  start, window and perturbation time already entered with t_c = l_ref / U (`Transient.converted_times`;
+  `core.model.TRANSIENT_TIME_FIELDS` is the one list of those fields), in the same undo step as the unit. Without
+  a part (t_c unknown) the numbers are kept and a message says so.
+- Check: tests/test_transient.py::test_changing_the_time_unit_converts_the_values (there and back; one undo).
+
+## D-189 Continue a transient run to a later end time [NUMERICS-REVIEW]
+- Status: Accepted (owner, 2026-10-28). Was Proposed (task 1.1-transient, Part 2, Part A item 4; the transient counterpart of D-171).
+- Decision: a transient solution that was stopped, reached its end time or met the statistics stop, with a written
+  time, can be continued: Continue Solver asks for the new end time (in the project's unit), writes controlDict
+  again (startFrom latestTime, the new end, the write interval that ends on it counted from the restart, the live
+  view) and keeps the fieldAverage entry with its original timeStart when the sampling has started: OpenFOAM's
+  fieldAverage (v2606, restartOnRestart off) reads the means of the latest time back and goes on. The control file
+  keeps the sampling start, whether it was detected and the end of the start-up perturbation; a start-up not yet
+  over is still detected. SolverRun counts the solution's earlier time steps (`ContinueFrom.iteration` is the step
+  count of a transient solution) and its statistics run over the whole force history from the same sampling start
+  (every postProcessing start-time directory). The record's segments go on as D-171's.
+- What may change: how far a run goes and how it is sampled (`workflow.solving.TRANSIENT_RUN_LENGTH`: end time,
+  write interval, the statistics stop, its quantity, window and tolerance, the sampling start and the detection
+  tolerance) is not part of a transient solution's set-up hash. A solution whose start-up was never detected (a
+  modulated flow whose ranges keep changing) can be given its sampling start by hand and continued: the statistics
+  are taken from that start over the whole force history, the field averages from the restart (they cannot go back
+  in time); any other
+  change (time stepping, schemes, physics, boundaries) can only start over ("Start over" is the one choice).
+  Steady projects' hashes are unchanged (a steady hash has no transient settings, D-181).
+- Check: tests/test_transient.py::test_a_transient_run_continues_to_a_later_end_time (controlDict, the record's
+  steps 100 -> 150, statistics from the same start to the new end, segments),
+  test_a_changed_transient_set_up_can_only_start_over, test_a_sampling_start_set_by_hand_after_an_undetected_start_up.
+
+## D-190 A laminar project sizes its prism layers by a first-cell thickness, not y+ [NUMERICS-REVIEW]
+- Status: Accepted (owner, 2026-10-28). Was Proposed (task 1.1-transient, Part 2, Part A item 5; QUESTIONS 252).
+- Context: y+ sizing assumes a turbulent boundary layer; at Re 100 it gives a first layer of about 0.1 D.
+- Decision: in a laminar project absolute layer sizing uses `Mesh.first_layer_height` (m, schema v25; None: auto,
+  `workflow.meshing.LAMINAR_FIRST_FRACTION` 0.1 x sqrt(nu L / U) on the surface size length L, a tenth of the laminar
+  boundary layer's scale L / sqrt(Re_L), about ten layers inside it) instead of the y+ estimate; everything after
+  the first layer (the count, the caps, the controls) is unchanged. The Mesh node hides "Target y+" and its note and
+  shows "First-cell thickness" (Auto or a value); the sizing choice reads "Absolute: from a first-cell thickness".
+  The mesh hash of a laminar project with absolute sizing gains a marker (its mesh is out of date when the project
+  turns laminar); a project without the field keeps its hash.
+- Check: tests/test_transient.py::test_a_laminar_project_sizes_its_layers_by_a_first_cell_thickness.
+
+## D-185 PIMPLE with outer correctors and residual control; PISO or PIMPLE by case type [NUMERICS-REVIEW]
+- Status: Accepted (owner, 2026-10-28; the PIMPLE turbulent default unchanged per D-199). Was Proposed (task 1.1-transient, Part 2, Part A item 1).
+- Context: wall-resolved meshes make Courant-1 steps tiny; outer correctors let a step run at a Courant number of 2-5.
+- Decision: `Transient.algorithm` "auto" (default), "piso" or "pimple"; `max_courant` None (auto), `outer_correctors`
+  (the most per step, default 10, PIMPLE only), `outer_tolerance` (default 1e-4). PISO writes nOuterCorrectors 1.
+  PIMPLE writes `residualControl { U | "(U|k|omega)" { tolerance <outer_tolerance>; relTol 0; } }` in the PIMPLE
+  dictionary, the form of the v2606 tutorial compressible/rhoPimpleFoam/RAS/angledDuct ("(U|k|epsilon)" tolerance
+  1e-4, relTol 0; read in src/finiteVolume/cfdTools/general/solutionControl/pimpleControl: the check starts at the
+  second outer corrector, the last one is always "Final"), and no under-relaxation, as pimpleFoam/RAS/propeller
+  (maxCo 2, 2 outer correctors, factors 1) and pimpleFoam/RAS/TJunction (maxCo 5, factors 1).
+- Defaults per case type: laminar -> PISO at Co 1 (the tutorial pimpleFoam/laminar/cylinder2D: no outer correctors);
+  turbulent URANS -> PIMPLE at Co 2 (pimpleFoam/RAS/propeller; wall layers make the Courant limit fall on the
+  thinnest cells); DDES -> PIMPLE at Co 1 (D-191: Spalart 2001 asks for a local CFL about 1 in the focus region; the
+  v2606 LES tutorials all use outer correctors). The pimpleFoam tutorials' settings were tabulated for this
+  (docs/validation/cylinder_re100/RESULT.md, "Part 2").
+- Measured (the coarse cylinder, 17,182 cells, 4 cores, two 4-core runs at a time, statistics over 60-120 t_c,
+  the same start-up perturbation): PISO Co 1 St 0.16383, Cd 1.33993, 265 s; PIMPLE Co 2 St 0.16403 (+0.12 %), Cd
+  1.33538 (-0.34 %), 334 s (3 outer correctors per step); PIMPLE with max_courant 5 reached Co 3.7 (the automatic
+  largest step, t_c / 50, caps it) St 0.16400 (+0.10 %), Cd 1.33495 (-0.37 %), 252 s. Accuracy within 1 %; on this
+  mesh, whose Courant limit is set by the wake cells, PIMPLE saves nothing (3 outer correctors cost what the larger
+  step gains), which is why PISO stays the laminar default. On the square cylinder's wall-function mesh (5 prism
+  layers) the first 15 t_c took PISO at Co 1 759 s (16,139 steps) and PIMPLE at Co 2 613 s (8,768 steps): 19 %
+  less, which supports PIMPLE as the turbulent default (docs/validation/square_re22000/RESULT.md).
+  Accuracy on that case (Part 2 review, statistics over 96-150 t_c): PISO at Co 1 St 0.1250, Cd 1.939; PIMPLE at
+  Co 2 St 0.1353, Cd 2.129: 8-9 % apart, each self-consistent to 1-2 % across the window's halves. On a turbulent
+  case with wall layers the coupling is not neutral; PIMPLE was the nearer to the experiment (St 0.132-0.133,
+  Cd 1.9-2.2). Not a reason to change any default without the owner (QUESTIONS 257). Measurement C (closing brief,
+  rule committed first): PIMPLE at Co 1 over the same window, St 0.1090 and Cd 1.511 (-19 % and -29 % from PIMPLE
+  Co 2): its shedding decays after the start-up swing to a nearly steady wake; no time-step convergence is shown
+  (docs/validation/square_re22000/RESULT.md, "Time-step convergence"). Defaults unchanged.
+- Check: tests/test_transient.py::test_piso_or_pimple_per_case_type_and_by_choice,
+  test_adaptive_time_step_dictionaries, test_the_rows_of_a_transient_project.
+
+## D-187 A start-up perturbation for transient external flow: the inflow swings at 0.2 U / l_ref [NUMERICS-REVIEW]
+- Status: Accepted (owner, 2026-10-28; as amended by D-198). Was Proposed (task 1.1-transient, Part 2, Part A item 2). Amended by D-198: the swing is now a declared option,
+  off by default (it was on by default), beside a second one, the initial-field perturbation.
+- Context: from rest, a symmetric body's shedding grows from round-off: on the coarse cylinder the start-up was
+  detected only at 151.7 t_c and 3 sampled cycles took 345 s of solver time on 4 cores (Part 1's requirement: 5 min).
+- Decision: `Transient.perturb` (default on), `perturb_angle` (default 10 deg), `perturb_time` (default 10 t_c, in
+  the time unit). For external flow the inlet is uniformFixedValue with a table Function1 (v2606, linear, clamped):
+  the free stream's direction oscillates in the x-z plane as angle * sin(2 pi f t), f = 0.2 U / l_ref, speed
+  unchanged, 40 points per period, then +x. The control file carries the end (`notBefore`), and the detection's two
+  windows must both start after it (`settled_at(not_before=...)`). Internal flow and steady runs are unchanged.
+- Alternatives measured on copies of the coarse case (Cl amplitude per 5 t_c): a constant 5 deg inflow for 5 t_c
+  (the first implementation: saturated shedding only at about 65 t_c; a circular cylinder sees a turned inflow as
+  the same symmetric problem turned, only the switch breaks the symmetry), the oscillating inflow (10 deg, 2 periods:
+  amplitude 0.28-0.37 from 10 t_c, saturated by about 35 t_c) and a brief wall rotation (surface speed 0.5 U for 2
+  t_c: saturated by about 30 t_c). The oscillating inflow was chosen: it applies to any body and leaves the walls'
+  conditions untouched.
+- Measured (coarse cylinder, PISO, 4 cores, the run beside another 4-core run): start-up detected at 83.9 t_c (151.7
+  without), 3 sampled cycles after 226 s of solver time (345 s without): Part 1's requirement is met. The
+  statistics agree with Part 1's coarse level (St 0.16383 vs 0.16385, Cd 1.3400 vs 1.3402).
+- Scope (Part 2 review): on by default for every transient external-flow project (laminar, URANS and DDES, any
+  body, from the free stream or from a steady solution); internal flow and steady runs never have it. The sampling
+  never starts inside it: the detection's two windows must both begin after its end (`settled_at`), and a sampling
+  start set by hand before its end is refused by `workflow.solving.transient_problem` (the run cannot start). Its
+  cost on the square cylinder: the 10 t_c took 5,817 steps and 406 s of solver time on the coarse level (5.6 % of
+  the run) and 6,348 steps and 665 s on the medium one (10.6 %); the earliest possible detection is 10 + 2 x 20 =
+  50 t_c. Proposals for the owner: QUESTIONS 259.
+- Check: tests/test_transient.py::test_the_start_up_perturbation_swings_the_inflow_and_holds_the_detection,
+  test_the_detection_tolerance_and_the_end_of_the_perturbation; RESULT.md "Part 2"., test_a_sampling_start_inside_the_perturbation_is_refused.
+
+## D-191 k-omega SST DDES, transient and 3D only [NUMERICS-REVIEW]
+- Status: Accepted (owner, 2026-10-28; DDES experimental per D-197). Was Proposed (task 1.1-transient, Part 2, Part B); ships experimental and not validated in 1.1 (D-197). Every
+  dictionary entry and default below is [NUMERICS-REVIEW]; the vault note "1.1 URANS y DES" (read-only) flags one open point: kOmegaSSTDDES's GbyNu
+  returns the unlimited production (`// Unlimited`), not checked against Gritskevich et al. 2012.
+- Model (schema v25): `Physics.turbulence_model` "kOmegaSSTDDES" (rejected unless the flow is transient; a 2D project
+  cannot run it: DDES resolves 3D turbulence); `des_delta` ("DeltaOmegaTilde" default, "cubeRootVol",
+  "maxDeltaxyz"), `des_use_sigma` (default true), `des_scheme` ("DEShybrid" default, "LUST"). These three are not in
+  the hash of a non-DDES project (steady and URANS hashes unchanged).
+- Case files (read in v2606: src/TurbulenceModels/turbulenceModels/DES, LES/LESdeltas, src/TurbulenceModels/schemes/
+  DEShybrid, src/functionObjects/field/turbulenceFields; the tutorial incompressible/pimpleFoam/LES/wallMountedHump,
+  setup kOmegaSSTDDES-DeltaOmegaTilde-useSigmaTrue): turbulenceProperties `simulationType LES; LES { LESModel
+  kOmegaSSTDDES; delta <des_delta>; kOmegaSSTDDESCoeffs { useSigma <...>; } <delta>Coeffs {} }` (the deltas' own
+  default coefficients: cubeRootVol 1, maxDeltaxyz 2); div(phi,U) `Gauss DEShybrid LUST grad(U) linearUpwind
+  grad(U) delta 0.65 <U> <l_ref> 0 1 1 10` (D-196; it was the tutorial's `linear` in the LES region; the case's
+  reference velocity and length in place of the tutorial's 1 and 1) or `Gauss LUST grad(U)` (the v2606 LES tutorials' scheme, e.g. pisoFoam/LES/motorBike); k and omega
+  limitedLinear 1 (as the tutorial; D-192 replaced it); `wallDist { method meshWave; nRequired yes; }` (D-195; the
+  tutorial has exactDistance, which in a parallel run needs a decomposition method pimpleFoam does not load: the
+  first DDES run stopped at "Unknown decompositionMethod type scotch"); the
+  initial and boundary fields of SST. The shielding function and the LES-region indicator are written with the
+  fields by a turbulenceFields function object (`fields (fd LESRegion)`, files turbulenceProperties:fd and
+  turbulenceProperties:LESRegion) and offered in the Results Scene. PIMPLE with residual control at Co 1 by default
+  (D-185).
+- Guidance: Physics shows a warning when the focus region is too coarse (no enabled refinement volume; its cell
+  coarser than 0.068 l_ref, the coarser cylinder grid in Spalart, NASA/CR-2001-211032, section 4.2; fewer than 32
+  cells across its smallest extent, section 2.4.2 "a minimum of 32^3") and the recommended averaging: at least 50
+  flow-through times after the start-up (a working value of this app, not from a source).
+- Check: tests/test_transient.py::test_ddes_dictionaries, test_ddes_project_checks; Part B's functional run.
+
+## D-192 Transient k and omega: linearUpwind on limited gradients instead of limitedLinear (amends D-181) [NUMERICS-REVIEW]
+- Status: Accepted (owner, 2026-10-28; QUESTIONS 258 approved). Was Proposed (task 1.1-transient, Part 2, Part B;
+  it changes a scheme of D-181, which the owner accepted: QUESTIONS 258 asked to accept the change).
+- Finding: the first URANS run through the app (the square cylinder at Re 22,000, 2D, k-omega SST, wall functions,
+  27,234 cells, max non-orthogonality 58.7) crashed in its first time step: `bounding omega, min: -1212.78`, then a
+  floating-point exception in the k solve (symGaussSeidel). Serial copies of the case (scratch, 0.1-3 t_c): PISO
+  instead of PIMPLE, one non-orthogonal corrector and Euler in time all crashed the same way; first-order upwind
+  for k and omega ran; limitedLinear 1 switched on in place after an upwind start (runTimeModifiable, re-read
+  logged) kept clipping omega every step (min -267, still -148 at 3 t_c); Gauss linearUpwind on cellLimited Gauss
+  linear 1 gradients ran from the free stream with no clipping at all (763 steps to 1 t_c), and from the upwind
+  start too (635 steps). Part 1 validated only laminar runs, so this never showed.
+- Decision: transient k and omega (URANS and DDES): `div(phi,k) Gauss linearUpwind grad(k)`, `div(phi,omega) Gauss
+  linearUpwind grad(omega)`, `grad(k)` and `grad(omega)` `cellLimited Gauss linear 1`: second order (D-181's
+  reason stands: first-order turbulence transport would damp the resolved unsteadiness), the scheme of D-126's
+  second stage without the steady-state "bounded" correction; the v2606 tutorial pimpleFoam/RAS/rotatingFanInRoom
+  also has linearUpwind for k and omega. The tutorial wingMotion2D_pimpleFoam keeps limitedLinear 1 but starts from
+  a converged simpleFoam solution; the wallMountedHump DDES tutorial has limitedLinear 1 on a structured mesh.
+  Laminar runs (the cylinder validation) have no k or omega and are unchanged.
+- The scheme, not the inflow or the initial values (Part 2 review, serial copies of the coarse case to t = 0.05 s):
+  with D-181's scheme the first step crashed in every variant: the swinging inlet (omega min -1212.75), a fixed
+  inlet (-1212.29), omega x10 (viscosity ratio 1: -1691.11), k for 0.5 % instead of 2 % with its omega (-1213.94),
+  each a floating-point exception in step 1; with this scheme the unchanged case ran 76 steps without one clip.
+  The negative values come from the first-layer cells at the square's corners, where omega jumps from the wall
+  function's ~9,400 to the free stream's 1.3: limitedLinear's face values there are not bounded by the
+  neighbouring cell values on this non-orthogonal (58.7 deg) mesh, the cell-limited linearUpwind ones are.
+- Dictionaries changed (generated before, at 9dc3f10, and after; 40 files of a steady, a laminar transient, a URANS
+  and a DDES input): only system/fvSchemes of URANS and of DDES (div(phi,k), div(phi,omega), and grad(k),
+  grad(omega) added; for DDES also wallDist meshWave, D-191). Steady and laminar transient files are identical: the
+  cylinder validation (laminar, no k or omega) is unaffected, and its results were not recomputed.
+- Check: tests/test_transient.py::test_adaptive_time_step_dictionaries, test_ddes_dictionaries; the square cylinder
+  validation (docs/validation/square_re22000/).
+
+## D-193 A window's VTK objects are freed at the teardown, with no OpenGL context current
+- Status: Proposed (task 1.1-transient, Part 2, Part A item 8; QUESTIONS 82 family).
+- Finding: GUI test files in one process (`pytest -v --capture=sys`, the machine loaded by OpenFOAM runs) crashed in
+  run 1 of a 20-run loop: "Fatal Python error: Segmentation fault" in tests/test_domain_operations.py::
+  test_viewer_draws_the_surface_and_highlights_a_role[c_type] (the test of QUESTIONS 82's xdist crash), inside the
+  new window's pyvistaqt `initializeGL` (rw.OpenGLInit), only the main thread alive. A probe showed a viewer
+  window's four vtkOpenGLRenderer objects outliving the window: they were still alive at the start of the next test
+  and were freed only by a later cyclic collection (2,831 objects at once), i.e. at an arbitrary allocation. On
+  this offscreen platform Qt reports "QOpenGLWidget is not supported", so the viewers render through pyvistaqt's
+  fallback contexts; its documented invariant 5 is that GL objects freed against the wrong context corrupt the
+  driver heap and crash at a distance. A collection inside a new viewer's initializeGL, or inside a deletion (a
+  QOpenGLWidget makes its own context current to free its framebuffer while PySide allocates), frees an older
+  window's VTK objects with another context current: the segfault in initializeGL, and the abort reported from
+  ship.sh inside MainWindow.event (DeferredDelete -> the C++ destructors, no Python frame above).
+- Decision: `gui/teardown.collect_garbage` (doneCurrent on the current OpenGL context, then gc.collect) runs in
+  `flush_deletions` before and after the deferred deletions; tests/conftest.py's autouse flush runs before each test
+  as well as after it (pytest-qt deletes the qtbot widgets in a hook after the fixtures' teardown). Every earlier
+  window's VTK objects are then freed at a fixed point, with no context current, before a new window exists.
+- In the application (Part 2 review): only two objects own VTK render windows, the main window's viewer
+  (gui/main_window.py, QtInteractor) and image export's temporary offscreen plotter (gui/image_export.render_image);
+  Snapshots, Compare and the detached monitor and report-chart windows hold none. Closing the main window
+  finalized its render window (D-164) but its renderers stayed reachable from the window and their cyclic garbage
+  was left to a later collection; the export plotter's too. Now `_release_background` closes the viewer, calls its
+  deep_clean (the renderers drop their props, cameras and lights) and `collect_garbage()`; `render_image` closes,
+  deep-cleans and drops its plotter and calls `collect_garbage()`. Checks:
+  test_closing_the_window_frees_its_vtk_garbage_with_no_context_current and
+  test_an_exported_image_leaves_no_vtk_garbage (both fail on the previous code).
+- Check: tests/test_thread_teardown.py::test_a_viewer_window_whose_vtk_objects_are_left_in_cycles and
+  test_the_teardown_freed_the_previous_windows_vtk_objects_with_no_context_current (fails with the old teardown,
+  4 renderers left); 20 consecutive single-process runs of the GUI test files under a nice 15 fast suite (STATUS).
+
+## D-194 A warning when the largest time step holds the Courant number below the asked one
+- Status: Proposed (task 1.1-transient, Part 2 review, point 4).
+- Context: on the coarse cylinder a PIMPLE run asked for Co 5 reached only 3.7: the automatic largest time step
+  (t_c / 50) held the step, and nothing said so.
+- Decision: an adaptive run's control file records the asked largest Courant number and the largest time step
+  (`maxCourant`, `maxDeltaT`; a fixed step records neither). `foam/transient.courant_cap_warning`: over the last 50
+  steps, when at least 80 % sit at the largest step and the largest Courant number stays below 90 % of the asked
+  one, the monitors' convergence box shows "The largest time step (X s) holds the step: the largest Courant number
+  is Y, not the Z asked for. Raise "Largest time step" (Solvers > Transient) ...", live and for a finished run.
+- Check: tests/test_transient.py::test_a_courant_number_held_down_by_the_largest_step_is_reported.
+
+## D-195 The DDES wall distance by meshWave instead of exactDistance [NUMERICS-REVIEW]
+- Status: Accepted (owner, 2026-10-28; meshWave for the experimental DDES, to be revisited with the Ahmed body, QUESTIONS 262). Was Proposed, not approved (task 1.1-transient, Part 2 closing brief; QUESTIONS 262). Recorded after the
+  fact: commit c6ff8b5 (2026-10-27, titled for D-193) changed this entry of a DDES case's fvSchemes without a
+  [NUMERICS-REVIEW] tag or a decision of its own; the history is left as it is and the change is recorded here.
+- Change: system/fvSchemes of a DDES case (D-191), `wallDist { method exactDistance; nRequired yes; }` (the v2606
+  tutorial incompressible/pimpleFoam/LES/wallMountedHump's) became `wallDist { method meshWave; nRequired yes; }`.
+  Steady, laminar and URANS cases always had meshWave (OpenFOAM's usual choice, no nRequired) and are unchanged.
+- Why: the first DDES run (the sphere, 4 processes) stopped at start-up with "Unknown decompositionMethod type
+  scotch": in a parallel run exactDistance builds a distributed search tree of the wall faces
+  (src/parallel/distributed/patchDistMethods/exact/exactPatchDistMethod.H, v2606) and needs a decomposition
+  method (its exactDistanceCoeffs, or system/decomposeParDict) from a library pimpleFoam does not load. meshWave
+  (src/finiteVolume/fvMesh/wallDist/patchDistMethods/meshWave) works in serial and parallel with no extra input.
+- What it affects: the wall distance y of the turbulence model. In kOmegaSSTDDES it enters the DDES length scale
+  through the shielding function: r_d = nu_eff / (|grad U| (kappa y)^2) (kOmegaSSTDES.C, `r`), f_d (kOmegaSSTDDES.C,
+  `fd`) and l_DDES = l_RAS - f_d max(l_RAS - l_LES, 0); in the SST base model it enters the blending functions F1,
+  F2 and F3 and the cross-diffusion limit (kOmegaSSTBase.C). An error in y moves where the boundary layer is
+  shielded (RANS) and where the model switches to LES. meshWave's header: accurate on regular meshes, approximate
+  on skewed, non-orthogonal ones, the error growing with the distortion; the near-wall cells are corrected for it
+  (correctWalls, on by default). exactDistance is exact on any mesh. The difference was not measured: no DDES run
+  has been compared with both methods.
+- Alternatives not taken: exactDistance with an exactDistanceCoeffs decomposition method (the library question
+  would have to be solved for every core count); computing y once in serial and reading it back. For the owner:
+  QUESTIONS 262.
+- Check: tests/test_transient.py::test_ddes_dictionaries (the entry as written).
+
+## D-196 The DDES U convection: DEShybrid with LUST in the LES region and linearUpwind in the RANS region [NUMERICS-REVIEW]
+- Status: Accepted (owner, 2026-10-28; QUESTIONS 260 closed). Amends D-191's default U scheme.
+- Decision: div(phi,U) of a DDES case with the default `des_scheme` "DEShybrid" is `Gauss DEShybrid LUST grad(U)
+  linearUpwind grad(U) delta 0.65 <U> <l_ref> 0 1 1 10`: LUST (75 % linear, 25 % linearUpwind) where DEShybrid's
+  blending factor selects the LES-region scheme, linearUpwind on the limited grad(U) in the RANS region; the
+  coefficients after the two schemes are unchanged (D-191). It was `linear` in the LES region (the
+  wallMountedHump tutorial). The "LUST" choice (LUST everywhere) is unchanged.
+- v2606 accepts it (read in the installed sources): DEShybrid's constructors build both schemes with
+  `surfaceInterpolationScheme<Type>::New(mesh, faceFlux, is)` (src/TurbulenceModels/schemes/DEShybrid/
+  DEShybrid.H), so either may be any surface interpolation scheme registered for vectors; LUST is
+  (src/finiteVolume/interpolation/surfaceInterpolation/schemes/LUST/LUST.C, `makeSurfaceInterpolationTypeScheme(LUST,
+  vector)`, a linearUpwind with the flux constructor) and reads its gradient scheme name next, hence "LUST grad(U)".
+  DEShybrid's weights and explicit correction blend both schemes' (`(1 - b) w1 + b w2`; LUST's correction is
+  0.25 x linearUpwind's).
+- Dictionaries changed: only system/fvSchemes of a DDES case (div(phi,U)). Steady, laminar and URANS files are
+  unchanged.
+- Check: tests/test_transient.py::test_ddes_dictionaries; a short run of the existing DDES sphere case with this
+  entry: the sphere project and mesh (574,611 cells) copied, its solver files written by the app (div(phi,U) `Gauss
+  DEShybrid LUST grad(U) linearUpwind grad(U) delta 0.65 1.0 1.0 0.0 1.0 1.0 10.0`), SolverRun on 6 MPI processes
+  stopped with the clean stop after 10 steps: 11 time steps to t = 0.0284 s, the largest Courant number rising to
+  0.999 as the adaptive step grows, no "bounding" line, no fatal error, exit code 0, fd and LESRegion written (53 s,
+  indicative: measured with another workload running). It runs; nothing about accuracy is claimed (D-197).
+
+## D-197 DDES ships experimental and not validated in 1.1; the Ahmed DDES moves to Later
+- Status: Accepted (owner, 2026-10-28; Part 2 closing brief, decision 4). Amended in place the same day (owner's
+  addendum to the brief): URANS is no longer called "validated": measurement C (PIMPLE at Co 1 losing the shedding on
+  the mesh where PISO Co 1 and PIMPLE Co 2 shed) puts the square cylinder's URANS status at "PASS under
+  investigation (QUESTIONS 257)"; the entry, the app's notice and the docs were reworded; no default changed.
+  Amended again by D-199 (owner, 2026-10-28, close-out): URANS ships available but not validated, like DDES; the
+  square cylinder is an investigation, not a validation, with no pass verdict.
+- Context: no DDES case was validated in 1.1. The 3D square cylinder DDES was not run (about 300 hours at its
+  fastest process count, docs/validation/square_ddes/RESULT.md), the DDES sphere functional run was stopped at
+  8.5 of 25 t_c with no statistics (docs/validation/ddes_sphere/RESULT.md), and an Ahmed DDES was estimated at
+  15-38 days (QUESTIONS 261). URANS (k-omega SST) passed the square cylinder at Re 22,000 on both levels against
+  ERCOFTAC UFR 2-02 with PIMPLE at Co 2 (docs/validation/square_re22000/RESULT.md); the investigation that
+  followed found several sustained states (QUESTIONS 257), and D-199 withdrew that pass verdict.
+- Decision: 1.1's scope is transient laminar flow (validated: the circular cylinder at Re 100) and URANS (available,
+  not validated: D-199); k-omega SST DDES (D-191, D-195, D-196) ships as **experimental and not
+  validated**. The Ahmed 25 degree DDES is removed from 1.1 and moved to "Later" (docs/PLAN.md), together with
+  QUESTIONS 261 (the DDES pressure-solve cost and the choice of a DDES validation case).
+- App: choosing k-omega SST DDES in Physics shows a persistent inline notice (a warning-styled label in the panel,
+  `workflow.solving.DDES_EXPERIMENTAL`; never a dialog) for as long as DDES is chosen; since D-199: "Not validated:
+  DDES runs in this version but has not been checked against a reference case."
+- Docs: manual chapters 8 and 10 and docs/validation/README.md list URANS and DDES as "available, not validated"
+  (D-199; the square cylinder as an investigation) and DDES as "experimental, not validated", with no result presented as a
+  validation; the DDES sphere's figures stay outside the repository. Nothing in the repository promises a DDES or
+  Ahmed validation in 1.1 any more (PLAN, CHANGELOG, STATUS, the DDES validation folders).
+- Check: tests/test_transient.py::test_ddes_shows_an_inline_experimental_notice, test_ddes_project_checks.
+
+## D-198 Start-up perturbations are declared options, both off by default: the initial-field perturbation and the inflow swing (schema v26) [NUMERICS-REVIEW]
+- Status: Accepted (owner, 2026-10-28; QUESTIONS 259 closed: the owner's requirement is that a start-up perturbation
+  is a fully declared option, never applied silently). Amends D-187. The perturbation's amplitude, shape and end are
+  this task's choice: [NUMERICS-REVIEW].
+- Model (schema v26): `Transient.perturb_initial` (new) and `Transient.perturb` (the inflow swing of D-187, with
+  `perturb_angle` and `perturb_time`), both **False** by default for every project and preset. The v25 -> v26
+  migration sets both off (the swing was on by default in v25) and changes nothing else; fixture
+  tests/data/project_v25.json (a real v25 file with the swing on). A preset never turns one on (presets carry no
+  solver settings).
+- The initial-field perturbation (new): a cross-flow velocity added to the **initial** velocity field only,
+  w(x) = A U exp(-|x - x0|^2 / (2 s^2)) along the lift direction (+z), A = 0.1, s = 0.25 l_ref, x0 = 0.5 l_ref
+  behind the parts' largest x, on the centre of their y and z extents (a 2D section leaves y out: one cell across
+  its span). One sign across the wake's centre line: the antisymmetric (sinuous) mode of a symmetric wake, placed
+  where the shear layers separate and the recirculation forms, so the mirror symmetry of a symmetric body's start
+  is broken where the shedding begins (from rest it grows only from round-off: 151.7 t_c to a detected start-up on
+  the coarse cylinder). A small amplitude (a tenth of U, on a blob of half a reference length) so that it seeds the
+  instability without imposing a flow; its non-solenoidal part is removed by the first pressure solution. The
+  boundary conditions are untouched: after t = 0 the physics and the boundary conditions are exactly the user's
+  set-up. It counts as lasting INITIAL_PERTURB_END = 5 t_c (the free stream carries it five reference lengths
+  downstream, past the near wake). Applied by OpenFOAM's setExprFields (v2606, read in
+  applications/utilities/preProcessing/setExprFields; checked on the coarse cylinder: peak 0.098 U on the cell
+  centres, Ux unchanged, the boundary conditions written back): system/setExprFieldsDict holds the expression
+  (`readFields ( U );` first: without it v2606's setExprFields aborts, "Attempted non-const reference to const
+  object", on an expression that reads the field it sets). SolverRun runs `setExprFields` once (log.setExprFields)
+  on the serial 0/U before decomposePar, for a run from the start only (never for Continue); a failure stops the run
+  before the solver. Works after a start from the steady solution too (it adds to whatever 0/U holds).
+- The inflow swing (D-187): unchanged, now a separate declared option.
+- Declared everywhere when on: its own checkbox in Solvers > Transient with a visible one-line explanation under
+  it ("Initial-field perturbation", "Inflow swing"; the swing's angle and time rows only with it on); with both off
+  a muted hint suggests the initial-field option for symmetric bluff bodies (it never turns it on); a comment block
+  under the FoamFile header of system/controlDict (every declared option), of 0/U (the swing's inlet table; put back
+  after setExprFields rewrites the file) and of system/setExprFieldsDict (`FoamFileSpec.comment`, `.text`;
+  `case_writer.write_spec` is now the one writer of case files from specs); the control file's
+  `startupPerturbation` (one sentence each, physics_case.perturbation_lines); the solver log's first lines
+  ("VortexCFD start-up perturbation: ...") and the console; the run record's `transient.perturbation`; the HTML
+  report's Convergence row "Start-up perturbation"; the snapshot's `transient.perturbation` and its set-up row
+  "transient: start-up perturbation" (Compare); the SETUP.md of each validation that used one (the square cylinder,
+  the cylinder's Part 2 runs, the DDES sphere and square: all the swing, ±10 deg for 10 t_c; not rerun).
+- The sampling never starts before a perturbation ends: the control file's `notBefore` is the latest end of those
+  declared (the detection's two windows both begin after it, as D-187), and `workflow.solving.transient_problem`
+  refuses a sampling start set by hand before it (`Transient.perturbation_end`).
+- Dictionaries changed: with both off, a transient external case's 0/U inlet is fixedValue (it was the swing's
+  table by default) and transientControl's notBefore is 0; steady cases never had either and are unchanged. With
+  an option on: the comment blocks, system/setExprFieldsDict and transientControl's startupPerturbation.
+- Measured: docs/validation/startup_perturbation/ (the rules committed before the runs).
+- Check: tests/test_startup_perturbation.py (defaults and presets, the v25 migration, the dictionary and its
+  comments, both together, the refused sampling start and the held detection, SolverRun's setExprFields step and
+  declaration, the panel's rows, notes and hint, the report and the snapshot); tests/test_transient.py.
+
+## D-199 URANS ships available but not validated in 1.1, like DDES; the square cylinder is an investigation
+- Status: Accepted (owner, 2026-10-28, the task's close-out; QUESTIONS 257 closed, QUESTIONS 263 closed as superseded).
+  Amends D-197 (its "PASS under investigation" for the URANS square cylinder).
+- Context: on the square cylinder at Re 22,000 (coarse, 2D, k-omega SST) the same set-up reached four different
+  sustained states depending on the start-up, the time step and the inflow turbulence (docs/validation/
+  square_re22000/RESULT.md, "Investigation"): the swing start at PIMPLE Co 2 (St 0.135, Cd 2.13), the initial-field
+  start at Co 2 (St 0.144, Cd 2.01), the swing start at Co 1 (a nearly steady wake, Cd 1.51) and the experiment's 2 %
+  approach turbulence with no perturbation (irregular shedding, never detected as settled; St 0.097, Cd 2.43 over
+  100-200 t_c).
+- Decision: URANS (any transient RANS model: k-omega SST in a transient project) ships in 1.1 as **available but
+  not validated**, with the same treatment as DDES. Laminar transient flow stays validated (the circular cylinder at
+  Re 100). No default changes.
+- App: Physics shows a persistent inline notice (a warning-styled label, never a dialog) whenever the flow is
+  transient and the turbulence model is k-omega SST (`workflow.solving.URANS_NOT_VALIDATED`): "Not validated: on the
+  square-cylinder test case, 2D URANS results depended on the start-up and on the inflow turbulence." The DDES notice
+  (D-197) becomes "Not validated: DDES runs in this version but has not been checked against a reference case." (its
+  sentence pointing to URANS removed).
+- Docs: the manual (chapters 8 and 10), docs/validation/README.md, STATUS, CHANGELOG and the square cylinder's
+  SETUP.md and RESULT.md present the square-cylinder URANS work as an investigation: one table of the four states (St,
+  mean Cd, RMS Cl, start-up, inflow) and a conclusion; its original pass rule is withdrawn and no URANS result
+  carries a PASS. Old commit messages are left as they are.
+- Later (docs/PLAN.md, with the Ahmed DDES and QUESTIONS 261): matched free-stream turbulence through kOmegaSST's
+  decay control (its sustaining terms kInf and omegaInf, v2606 kOmegaSSTBase), which removes the free-stream decay that
+  made the viscosity ratio 10 unable to give 2 % at the body (QUESTIONS 263); the medium-mesh and 3D URANS of the
+  square cylinder.
+- Check: tests/test_transient.py::test_urans_shows_an_inline_not_validated_notice,
+  test_ddes_shows_an_inline_experimental_notice.
+
+## D-200 A transient run that ends with no statistically stable period says so
+- Status: Proposed (task 1.1-transient, close-out, owner's item 3).
+- Context: when the automatic start-up detection (D-181, D-186) finds no stable window by the end time, the run ends
+  in state "end_time" with no statistics. Before this change the monitors showed only the green "End time reached"
+  banner and the slots' "start-up: sampling not started" (foam/transient.py `banner`, `slot_text`); the report said
+  "not reached (the start-up transient did not settle)" and "the sampling has not started, so there are no statistics
+  yet" (workflow/report.py, Convergence and the statistics section) without saying what to do; snapshots simply carry
+  no statistics. The square cylinder's matched-inflow run ended this way at 200 t_c.
+- Decision: `foam/transient.NO_STABLE_WINDOW` = "No statistically stable period was found. Extend the end time or set
+  the sampling start by hand." and `no_window_warning(control, state)`: the message for a run that ended at its end
+  time ("end_time") while its sampling start was still to be detected; nothing while running, after a stop, a crash
+  or a statistics stop, or with a sampling start found or set. The monitors' convergence box lists it among the
+  warnings at the end of the run (gui/monitors.py `_update_transient`); the report's Convergence row "Sampling start"
+  and the statistics section give it (workflow/report.py `_unsampled`); a run that ended otherwise before its
+  start-up settled keeps a plain "not reached" note.
+- Check: tests/test_transient.py::test_no_stable_period_by_the_end_time_is_said_in_the_monitors_and_the_report (a
+  synthetic, strongly modulated history that the detection never settles; no solver).
 

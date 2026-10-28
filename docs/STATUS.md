@@ -1,11 +1,119 @@
 # Status
 
-Updated 2026-10-26 (task/v1.0.1-pillow: **Pillow 13.0.0 and certifi 2026.10.23 for the security advisories**).
+Updated 2026-10-28 (task/1.1-transient: **transient flow, Part 2, its closing brief and the close-out**).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
 
-**task/v1.0.1-pillow** (not yet published; no push, no merge). Security update for 1.0.1 (D-183, accepted by the
+**task/1.1-transient** (worktree ~/proyectos/vortexcfd-1.1; not yet published; no push, no merge). One commit per part:
+- Part 0 (D-180): worktree support: the worktree's own .venv from scripts/requirements-dev.txt (new: the pinned
+  runtime plus the test tools), settings isolation checked (D-141, unchanged), scripts/ship.sh publishes from a
+  worktree (GitHub merge, main fast-forwarded where it is checked out) with `--dry-run`, CONTRIBUTING "Worktrees".
+- Part A (D-181, D-182, [NUMERICS-REVIEW], schema v25): transient incompressible flow with pimpleFoam (T1-T6) and the
+  laminar option: adaptive / fixed time step, second-order transient schemes, the detected or set sampling window,
+  field averages, time-weighted mean and RMS, the Strouhal number, the end time and the statistics stop, the start
+  from a steady solution; monitors, report charts, live view, Write Fields Now, snapshots, Compare, the report and the
+  Results Scene (averaged fields, the time choice) in time. tests/test_transient.py.
+- Part B: the circular cylinder at Re 100 (laminar, 2D), three levels through the app:
+  docs/validation/cylinder_re100/ (SETUP.md, RESULT.md, result.json), tests/validation/test_cylinder.py. **PASS** on
+  all three levels; fine (63,369 cells): St 0.1649, mean Cd 1.3391 (-0.8 % of the sourced 1.35), RMS Cl 0.2309 (-8.7 % of 0.253); St GCI 0.09 %,
+  Cd oscillatory within 0.1 %.
+- Machine time: about 90 minutes of OpenFOAM runs (4 cores each, at most 8 at once, nice 15), including two aborted
+  trial runs; no OpenFOAM process left running.
+- Part C: manual chapter 10 (transient flow) and the Transient section of chapter 9, PLAN (1.1 progress),
+  QUESTIONS 248-256, CHANGELOG (unreleased 1.1), ARCHITECTURE.
+- The public benchmarks' meshing and solver dictionaries (scripts/validation/public_dicts.py, main's sources against
+  the branch): byte-identical (`diff -r`, 51 files). The existing validations are untouched (no file under
+  docs/validation/ other than cylinder_re100/ and its README row changed).
+
+Part 2 (2026-10-27/28; D-184 to D-194, QUESTIONS 257-261; not published):
+- Part 0: main merged (docs only), QUESTIONS 247-255 renumbered 248-256, the owner's decisions recorded, the cylinder
+  references sourced (arXiv 1609.04364 Table 3, arXiv 1409.6676 Table 2): the verdict stays PASS.
+- Part A: PIMPLE with residual control, PISO / PIMPLE by case type (D-185); the detection tolerance editable (D-186);
+  the start-up perturbation, the inflow swinging ±10 deg for 10 t_c (D-187; 3 sampled cycles on the coarse cylinder
+  after 226 s instead of 345 s; a hand-set sampling start inside it is refused); the time unit converts the values
+  (D-188); Continue for a transient run (D-189); laminar layers by a first-cell thickness (D-190); ship.sh refuses an
+  empty branch (D-184); a window's VTK objects freed at the teardown with no OpenGL context current, in the test
+  teardown and in the app (D-193); a warning when the largest time step holds the Courant number (D-194).
+- Part B: k-omega SST DDES (D-191); k and omega by linearUpwind on limited gradients instead of limitedLinear, which
+  crashed the first URANS run (D-192, amends the accepted D-181, QUESTIONS 258). Square cylinder at Re 22,000, 2D
+  URANS, first runs (medium St 0.1310, Cd 2.082; coarse St 0.1355, Cd 2.132; ERCOFTAC UFR 2-02, PIMPLE at Co 2):
+  since the close-out an investigation, not a validation (D-199, below); PISO at Co 1 gives
+  8-9 % lower St and Cd than PIMPLE over the same window (QUESTIONS 257). The 3D square-cylinder DDES (810,540
+  cells, pass rule committed first) was **not run**: 12.9 s per step at its fastest (8 processes), about 300 h;
+  the Ahmed DDES estimate is 15-38 days (docs/validation/square_ddes/RESULT.md, QUESTIONS 261). The DDES sphere was
+  **killed at 8.5 of 25 t_c** by the overnight shutdown: no statistics, no verdict.
+- The Qt abort (D-193): a GUI-files run crashed once (segfault in a new viewer's initializeGL), the mechanism shown
+  by a probe and by tests that fail on the old teardown. The 20-run proof was killed overnight and not repeated; a
+  loop of tests/test_domain_operations.py under load did not crash in 100 iterations with the old code (35 min) nor
+  in 52 with the new (20 min): that loop cannot reproduce the crash, so it proves nothing either way.
+- Public benchmark dictionaries byte-identical to origin/main (`diff -r`, 51 files); fast suite: 1492 passed,
+  1 skipped.
+
+Part 2 closing brief and its addendum (2026-10-28; D-195 to D-198, QUESTIONS 262; not published):
+- Owner decisions recorded: D-192 Accepted (QUESTIONS 258 closed); the DDES wall distance by meshWave recorded as
+  D-195, [NUMERICS-REVIEW], not approved (QUESTIONS 262); the DDES U scheme DEShybrid with LUST in the LES region and
+  linearUpwind in the RANS region (D-196, QUESTIONS 260 closed; read in the v2606 sources, 11 sphere steps on 6
+  processes ran clean); DDES ships experimental and not validated, with an inline notice in Physics, the Ahmed DDES
+  and QUESTIONS 261 in "Later" (D-197); start-up perturbations are declared options, both off by default: the new
+  initial-field perturbation (setExprFields on 0/U only) and the inflow swing (D-198, schema v26, QUESTIONS 259
+  closed).
+- 1.1 scope (as of the close-out, D-199): transient laminar flow validated (the cylinder at Re 100); URANS and DDES
+  available, not validated; the Ahmed body in Later.
+- Measurement A (the cylinder at Re 100, rules committed first): the inflow swing is equivalent to no perturbation,
+  the initial-field perturbation **fails its rule** (RMS Cl +0.85 % against a 0.81 % limit); start-up saved 64 t_c
+  (swing) and 42 t_c (initial) of 148. A2 (to 300 t_c): the unperturbed run had not settled in 180-240 (its mean Cd
+  and RMS Cl drift by more than its half-to-half spread); over 240-300 the swing is equivalent, the initial-field run
+  fails again (mean Cd, 0.012 %).
+- Measurement B (the square cylinder, initial-field vs swing): **not equivalent** (St +6 %, Cd -6 %, RMS Cl -19 %):
+  the two starts settle on different sustained states.
+- Measurement C (QUESTIONS 257): PIMPLE at Co 1 loses the shedding (St 0.109, Cd 1.51, RMS Cl 0.014): not within 2 %
+  of Co 2, no time-step convergence shown. Diagnostics (rules committed first): (a) restarted from PIMPLE Co 2's
+  developed shedding, Co 1 keeps it (statistics within 0.1 % of Co 2): two states, the start-up selects one; (b) the
+  approach turbulence is about half the experiment's 2 % (0.75-1.0 % at 3 D upstream), C's near-wake eddy viscosity
+  2-35 times the other runs'; (c) C with turbOnFinalIterOnly false
+  decays exactly as C: not the cause. Conclusion in QUESTIONS 257: the coarse 2D URANS square cylinder has several
+  sustained states and the start-up selects one; lift histories in ~/vortexcfd-research/1.1-urans-diagnostics/.
+- Defaults unchanged. Measurement wall times are indicative only (another workload ran on the machine). One breach of
+  the brief's limits: run C's meshing used 8 processes for 12 s (the automatic count); every later run set
+  `--mesh-cores`.
+- Public benchmark dictionaries byte-identical to origin/main (`diff -r`, 51 files); transient dictionaries changed in this
+  brief (generated at 7c325ea and at the end, 7 inputs): a DDES case's fvSchemes (div(phi,U), D-196); with the
+  perturbations off (the new default) a transient external case's 0/U inlet (fixedValue instead of the swing's table)
+  and transientControl's notBefore 0; with the swing declared, comment blocks in 0/U and controlDict and
+  transientControl's startupPerturbation; with the initial-field option, system/setExprFieldsDict (new) and the same
+  declarations. Fast suite (-n 6, offscreen, nice 15): 1501 passed, 1 skipped; an earlier run in this brief had 1
+  failure (scripts/validation/window_compare.py did not isolate the settings, fixed in ec0be81). No OpenFOAM process
+  left running.
+
+Matched-inflow follow-up (2026-10-28; QUESTIONS 263, not published): the square cylinder's coarse level with the default
+start-up (no perturbation) and the inflow turbulence matched to the experiment at 3 D upstream (inlet 2.23 %, viscosity
+ratio 100; ratio 10 cannot reach 2 % from the inlet 19.5 D upstream, QUESTIONS 263), rule committed first (f955494):
+inflow matched (1.995-1.999 %), it sheds, but irregularly, and the detection found no window by 200 t_c: no pass
+verdict; for information St 0.097, mean Cd 2.43 over 100-200 t_c. A fourth sustained state (QUESTIONS 257). Solver
+time 4,780 s on 6 processes (indicative only: measured with another workload running). No default changed.
+
+Close-out (2026-10-28; D-199, D-200; not published; no solver run):
+- D-199 (QUESTIONS 257 closed, 263 superseded): URANS ships available but not validated, like DDES: Physics shows an
+  inline notice for a transient k-omega SST project ("Not validated: on the square-cylinder test case, 2D URANS results
+  depended on the start-up and on the inflow turbulence."), the DDES notice reworded the same way; the square cylinder
+  is presented as an investigation (one table of its four sustained states and a conclusion; its pass rule withdrawn,
+  no URANS verdict) in its RESULT.md and SETUP.md, the manual (chapters 8 and 10), the validation README, CHANGELOG
+  and D-197. Later (PLAN): matched free-stream turbulence by kOmegaSST's decay control, the medium-mesh and 3D URANS
+  of the square cylinder, with the Ahmed DDES and QUESTIONS 261.
+- D-200: a transient run that reaches its end time with no statistically stable period now says so, with what to do,
+  in the monitors' convergence box and in the report (before: a green "End time reached" and "sampling not started"
+  in the monitors, "not reached (the start-up transient did not settle)" in the report).
+- Fast suite (-n 6, offscreen, nice 15): 1503 passed, 1 skipped. Public benchmark dictionaries byte-identical to
+  origin/main (`diff -r`, 51 files).
+
+What is left of 1.1 (PLAN, "Release 1.1"): the mesh study and polar sweep of a transient project; per-part
+statistics. Later: matched free-stream turbulence (decay control), the medium-mesh and 3D URANS of the square cylinder,
+a DDES validation and the Ahmed body with DDES (QUESTIONS 261).
+
+## Previous branch (task/v1.0.1-pillow, merged)
+
+**task/v1.0.1-pillow** (merged into main as 1.0.1, unreleased). Security update for 1.0.1 (D-183, accepted by the
 owner 2026-10-26; D-183, not D-180, because task/1.1-transient already uses D-180 to D-182 and QUESTIONS up to 246):
 - pillow 12.3.0 -> 13.0.0 in scripts/requirements-v1.txt and THIRD_PARTY_LICENSES.md: fixes all 41 open Dependabot
   alerts (5 critical, 23 high, 13 moderate; alert 1 of 42 withdrawn by GitHub); none affects 13.0.0. CHANGELOG 1.0.1
@@ -18,7 +126,7 @@ owner 2026-10-26; D-183, not D-180, because task/1.1-transient already uses D-18
   over all 46 pins now reports 0 advisories; `pip check` clean; the isolated install again ends with
   `vortexcfd --version` 1.0.0.
 
-## Previous branch
+## Earlier branch
 
 **task/gui-2** (merged). A second round of GUI work the owner asked for after using the
 app; one commit per item:

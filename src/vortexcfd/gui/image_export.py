@@ -87,6 +87,13 @@ def render_image(plotter, size: tuple[int, int], transparent: bool = False) -> R
         pixels = off.screenshot(transparent_background=transparent, return_img=True)
     finally:
         off.close()
+        off.deep_clean()
+        del off
+        # the offscreen plotter's VTK objects are freed now, with no OpenGL context current, not by a later
+        # collection while the viewer's context is current (D-193)
+        from vortexcfd.gui.teardown import collect_garbage
+
+        collect_garbage()
     return RenderedImage(np.asarray(pixels), actors, bars)
 
 

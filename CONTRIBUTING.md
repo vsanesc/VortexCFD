@@ -16,11 +16,64 @@ python3 -m venv .venv
 ```
 
 ```bash
-.venv/bin/pip install -e ".[dev]"
+.venv/bin/pip install -r scripts/requirements-dev.txt
 ```
+
+```bash
+.venv/bin/pip install --no-deps -e .
+```
+
+scripts/requirements-dev.txt pins the runtime dependencies (scripts/requirements-v1.txt) and the test tools, so every
+checkout and worktree tests against the same versions.
 
 New dependencies are discussed in an issue first, and their licence is added to THIRD_PARTY_LICENSES.md (the
 combined work is GPL-3.0; see README.md).
+
+## Worktrees
+
+A long-lived line of work (a release such as 1.1) can live in a git worktree beside the main checkout, so both can be
+worked on at once. Each worktree is a folder of its own with its own branch, its own `.venv` and its own `run/`;
+the git history and the stash are shared.
+
+Create one from the main checkout (the branch is new and starts at main):
+
+```bash
+git worktree add -b task/1.1-transient ../vortexcfd-1.1 main
+```
+
+Give it its own virtual environment (never reuse the main checkout's: its editable install points at the main
+folder), then check that the package is imported from the worktree:
+
+```bash
+cd ../vortexcfd-1.1 && python3 -m venv .venv && .venv/bin/pip install -r scripts/requirements-dev.txt && .venv/bin/pip install --no-deps -e .
+```
+
+```bash
+.venv/bin/python -c "import vortexcfd; print(vortexcfd.__file__)"
+```
+
+Tests and scripts never share settings between folders: tests/conftest.py and every script set
+`VORTEXCFD_SETTINGS_DIR` to a temporary folder (D-141), so QSettings, the Recent list and the presets of a test run
+are its own. The app started by hand from either folder uses the user's real settings, as an installed app does.
+
+A long-lived branch takes the work published on main by merging it (not rebasing: the branch's commits may already
+be on GitHub):
+
+```bash
+git fetch origin && git merge origin/main
+```
+
+Publishing (the owner only): scripts/ship.sh runs from the worktree as from the main checkout (D-180). It refuses a
+dirty tree, runs the full suite, pushes the branch, opens and merges the pull request on GitHub, deletes the remote
+branch and fast-forwards main where it is checked out (the main checkout must be clean); it never checks out main in
+the worktree, and the task branch stays checked out there. `scripts/ship.sh --dry-run` prints what it would do.
+
+Remove a worktree once its branch is published (from the main checkout; this deletes the folder, its `.venv` and its
+`run/`):
+
+```bash
+git worktree remove ../vortexcfd-1.1
+```
 
 ## Code rules
 
