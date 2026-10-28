@@ -14,7 +14,9 @@ The medium level (the deciding one) passes both criteria; the coarse level passe
 | coarse | 27,234 | 112,902 | 0.00040-0.0022 | 95.8 | 14.1 | 0.1355 | 2.132 | 1.422 | PASS |
 | medium | 40,527 | 65,593 | 0.00020-0.0073 | 82.3 | 8.9 | 0.1310 | 2.082 | 1.474 | PASS |
 
-Errors against ERCOFTAC UFR 2-02 (Lyn et al. 1995: St 0.133 ± 0.004 measured; Cd ≈ 2.1 inferred from the wake):
+Errors against ERCOFTAC UFR 2-02 (Lyn et al. 1995: St 0.133 ± 0.004 measured; Cd ≈ 2.1 inferred from the wake;
+the Evaluation page's Table 1 lists the experiments as St 0.132, C_D 1.9-2.2: both levels are inside that range
+too):
 
 | Level | St | mean Cd |
 |---|---|---|

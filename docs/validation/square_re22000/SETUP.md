@@ -53,7 +53,10 @@ ERCOFTAC Knowledge Base Wiki, UFR 2-02 "Flow past a square cylinder"
 (https://kbwiki.ercoftac.org/w/index.php/UFR_2-02_Test_Case, opened 2026-10-27), on the experiments of Lyn, Einav,
 Rodi and Park (1995, J. Fluid Mech. 304, 285-319): Re = UD/nu = 22,000, a 40 mm cylinder, blockage 7.1 %, approach
 turbulence about 2 %; "St of 0.133 ± 0.004"; "CD ≈ 2.1", not measured but inferred from the velocity distribution
-in the wake. The page recommends the inflow 5 to 10 D upstream.
+in the wake. The page recommends the inflow 5 to 10 D upstream. The Evaluation page (https://kbwiki.ercoftac.org/w/index.php?title=UFR_2-02_Evaluation,
+opened 2026-10-28), Table 1 "Global parameters for flow past square cylinder", row "Experiments": St 0.132, C_D
+1.9-2.2, L_R/D 1.38 (C_L' not measured: "there are no experimental results available for comparison"). Added in
+the Part 2 review; the references and the rule above are unchanged.
 
 ## Pass rule
 
