@@ -20,26 +20,33 @@
 - Development: worktree support, scripts/requirements-dev.txt and `scripts/ship.sh --dry-run` (D-180).
 - PIMPLE with outer correctors and residual control (D-185, [NUMERICS-REVIEW]): "Pressure-velocity coupling" Auto
   (PISO for laminar, PIMPLE for turbulent projects), PISO or PIMPLE, a target Courant number of 2-5.
-- A start-up perturbation for transient external flow (D-187, [NUMERICS-REVIEW]): the inflow swings by 10 degrees
-  at 0.2 U / l_ref for the first 10 flow-through times, so shedding develops within a few tens of flow-through
-  times; never sampled.
+- Two start-up perturbations for transient external flow, declared options, **both off by default** (D-187, D-198,
+  [NUMERICS-REVIEW]): the initial-field perturbation (a small cross-flow velocity behind the body in the initial
+  field only, applied by setExprFields; the boundary conditions untouched) and the inflow swing (the inflow turns by
+  ±10 degrees at 0.2 U / l_ref for the first 10 flow-through times). Each has its own control with a one-line
+  explanation; when on it is declared in the case files, the solver log, the run record, the report and the
+  snapshots; never sampled.
 - The start-up detection's tolerance is a setting (default 5 %, D-186).
 - Continue Solver for a transient run: a later end time, the field averages and the statistics going on (D-189).
 - Laminar projects size their prism layers by a first-cell thickness instead of y+ (D-190).
 - k-omega SST DDES for transient 3D projects, **experimental and not validated** (D-191, D-197, [NUMERICS-REVIEW]):
   an inline notice in Physics says so; the shielding function and the LES region in the Results Scene, a warning
-  when the focus region is too coarse. URANS is the validated transient turbulence option.
+  when the focus region is too coarse.
 - Validation: the square cylinder at Re 22,000, 2D URANS (docs/validation/square_re22000/): PASS on both levels
-  against ERCOFTAC UFR 2-02.
+  against ERCOFTAC UFR 2-02 at PIMPLE Co 2, **under investigation** (QUESTIONS 257: PIMPLE at Co 1 loses the
+  shedding on the same mesh).
 - A warning when the largest time step keeps the Courant number below the one asked for (D-194).
 
 ### Changed
-- Project schema v25 (older projects open unchanged as steady k-omega SST). The public benchmarks' dictionaries are
+- Project schema v26 (older projects open unchanged as steady k-omega SST; a v25 project opens with both start-up
+  perturbations off, D-198). The public benchmarks' dictionaries are
   unchanged.
 - Changing the time unit of the transient settings converts the values already entered (D-188).
 - scripts/ship.sh refuses a branch with no commits ahead of origin/main before running anything (D-184).
-- Transient k and omega use linearUpwind on limited gradients (D-192, [NUMERICS-REVIEW]): limitedLinear crashed a URANS
-  run in its first step.
+- Transient k and omega use linearUpwind on limited gradients (D-192, accepted, [NUMERICS-REVIEW]): limitedLinear
+  crashed a URANS run in its first step.
+- DDES: the U convection is DEShybrid with LUST in the LES region and linearUpwind in the RANS region (D-196); the wall
+  distance is computed by meshWave (D-195, under review: QUESTIONS 262).
 
 ## 1.0.1 (unreleased)
 

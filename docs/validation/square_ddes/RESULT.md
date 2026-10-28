@@ -26,7 +26,7 @@ aspect ratio of 358 between the 0.2 D spanwise spacing and the wall layers): the
 
 ## The run's estimate and the options
 
-Steps per flow-through time at Co 1: about 834 (the validated 2D medium level ran 417 per t_c at Co 2 in its
+Steps per flow-through time at Co 1: about 834 (the 2D URANS medium level ran 417 per t_c at Co 2 in its
 developed flow, 28,352 steps over 82-150 t_c). Wall time at 8 processes, 15.9 s per step per million cells:
 
 | Option | Steps | Estimate | What it does to the comparison |

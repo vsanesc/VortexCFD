@@ -1,5 +1,5 @@
 """Square cylinder at Re 22,000 with k-omega SST DDES in 3D (task 1.1-transient Part 2, Step 3;
-docs/validation/square_ddes/SETUP.md): the validated 2D medium mesh of docs/validation/square_re22000/ extruded over
+docs/validation/square_ddes/SETUP.md): the 2D URANS medium mesh of docs/validation/square_re22000/ extruded over
 a span of 4 D in 20 cells with periodic sides, the app's DDES solver files written onto it, a scaling test and the
 run.
 
@@ -38,7 +38,7 @@ from tests.validation import square_case as sc  # noqa: E402
 from vortexcfd.foam.dictfile import read_foam_file, write_foam_file  # noqa: E402
 
 WORK = ROOT / "run" / "validation" / "square_ddes"
-SOURCE_2D = ROOT / "run" / "validation" / "square_re22000" / "medium"  # the validated medium level (its project)
+SOURCE_2D = ROOT / "run" / "validation" / "square_re22000" / "medium"  # the 2D URANS medium level (its project)
 OUT = ROOT / "docs" / "validation" / "square_ddes"
 say = cylinder_study.say
 
@@ -127,7 +127,7 @@ def _points(case: Path):
 
 
 def ddes_project():
-    """The validated medium project (not saved back) as a DDES project of the 3D extrusion: k-omega SST DDES with
+    """The 2D URANS medium project (not saved back) as a DDES project of the 3D extrusion: k-omega SST DDES with
     the app's DDES defaults (D-191), A_ref = D x span, the transient settings of SETUP.md."""
     from vortexcfd.core.project import Project
 

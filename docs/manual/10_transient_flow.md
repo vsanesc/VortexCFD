@@ -1,8 +1,8 @@
 # 10. Transient flow (1.1, in progress)
 
 Release 1.1 adds transient incompressible flow: pimpleFoam with k-ω SST (URANS), no turbulence model (laminar) or
-k-ω SST DDES (scale-resolving; **experimental, not validated**). Steady flow stays the default. Laminar and URANS
-runs are validated (below); DDES is not. The reasons behind each behaviour are D-181 (transient),
+k-ω SST DDES (scale-resolving; **experimental, not validated**). Steady flow stays the default. Laminar runs are
+validated; the URANS check passed but is under investigation; DDES is not validated (below). The reasons behind each behaviour are D-181 (transient),
 D-182 (laminar) and D-185 to D-191 in DECISIONS.md.
 
 ## When to use it
@@ -118,8 +118,8 @@ averaged fields from the restart on.
 ## DDES (detached-eddy simulation)
 
 **Experimental, not validated.** DDES runs in 1.1, but no DDES case has been checked against a reference: treat
-its results as unvalidated. Physics shows this notice for as long as DDES is chosen. For validated transient
-turbulence results use URANS (k-ω SST).
+its results as unvalidated. Physics shows this notice for as long as DDES is chosen. URANS (k-ω SST) is the
+main transient turbulence option.
 
 **k-ω SST DDES** (Physics > Turbulence model; transient and 3D only) keeps RANS in the attached boundary layers and
 resolves the large eddies (LES) where the flow has separated. It is much dearer than URANS and needs:
@@ -147,5 +147,5 @@ the Ahmed body with DDES is planned for a later release).
 | Case | Model | Verdict |
 |---|---|---|
 | Circular cylinder, Re 100, 2D (docs/validation/cylinder_re100/) | laminar | **validated**: PASS on all three levels (St, mean Cd, RMS Cl) |
-| Square cylinder, Re 22,000, 2D (docs/validation/square_re22000/) | URANS, k-ω SST | **validated**: PASS on both levels against ERCOFTAC UFR 2-02 (Lyn et al. 1995: St 0.133, Cd about 2.1) |
+| Square cylinder, Re 22,000, 2D (docs/validation/square_re22000/) | URANS, k-ω SST | **PASS under investigation** (QUESTIONS 257): PASS on both levels against ERCOFTAC UFR 2-02 (Lyn et al. 1995: St 0.133, Cd about 2.1) with PIMPLE at Co 2, but PIMPLE at Co 1 loses the shedding on the same mesh |
 | DDES | k-ω SST DDES | **experimental, not validated**: no DDES result is a validation (docs/validation/ddes_sphere/ is a functional run that was stopped early; docs/validation/square_ddes/ was not run) |

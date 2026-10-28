@@ -5,7 +5,11 @@ amendments before any result). Numbers: [result.json](result.json). Driver: scri
 project builder: tests/validation/square_case.py; OpenFOAM v2606, 4 cores per level, nice 15, the two levels side
 by side.
 
-## Verdict: PASS
+## Verdict: PASS, under investigation (QUESTIONS 257)
+
+The PASS below was measured with PIMPLE at Co 2 (the app's default). Measurement C ("Time-step convergence", at the
+end) found that PIMPLE at Co 1 loses the shedding on the coarse mesh, where PISO at Co 1 and PIMPLE at Co 2 shed: until
+that is understood this case's status is "PASS under investigation" and URANS is not called validated.
 
 The medium level (the deciding one) passes both criteria; the coarse level passes too.
 

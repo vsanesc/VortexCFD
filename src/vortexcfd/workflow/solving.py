@@ -181,10 +181,10 @@ def ddes_mesh_warning(project: Project) -> str | None:
     return f"The mesh may be too coarse for DDES in the focus region '{focus.name}': " + "; ".join(notes) + "."
 
 
-# DDES ships experimental and not validated in 1.1; URANS is the validated transient turbulence option (D-197). Shown
-# inline in Physics whenever DDES is chosen (never a dialog).
+# DDES ships experimental and not validated in 1.1 (D-197). Shown inline in Physics whenever DDES is chosen (never a
+# dialog).
 DDES_EXPERIMENTAL = ("Experimental, not validated: DDES runs in this version but has not been checked against a "
-                     "reference case. For validated transient turbulence results use URANS (k-omega SST).")
+                     "reference case. URANS (k-omega SST) is the main transient turbulence option.")
 
 
 def ddes_averaging_text(project: Project) -> str:

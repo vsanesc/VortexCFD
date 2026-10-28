@@ -10,12 +10,12 @@ is not changed after them.
 
 k-omega SST DDES (D-191; the app's defaults: Δω̃, the σ variant, DEShybrid with linear in the resolved LES region and
 linearUpwind elsewhere, k and omega by linearUpwind on limited gradients (D-192), PIMPLE with residual control at
-Co 1, the start-up perturbation: the inflow swing, ±10° for 10 t_c, declared since D-198) on the case validated in 2D URANS (docs/validation/square_re22000/), now in 3D with
+Co 1, the start-up perturbation: the inflow swing, ±10° for 10 t_c, declared since D-198) on the case of the 2D URANS check (docs/validation/square_re22000/; PASS under investigation, QUESTIONS 257), now in 3D with
 resolved spanwise turbulence.
 
 ## Mesh
 
-The validated 2D medium mesh (40,527 cells, the app's mesher, 4 prism layers at y+ 50 with wall functions; a wake
+The 2D URANS medium mesh (40,527 cells, the app's mesher, 4 prism layers at y+ 50 with wall functions; a wake
 box from 0.5 D ahead of the front face to 14.5 D behind it at 0.0625 D) extruded in the spanwise direction:
 
 | Item | Value | Source |
