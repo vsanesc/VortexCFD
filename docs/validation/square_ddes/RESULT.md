@@ -1,5 +1,8 @@
 # Square cylinder at Re 22,000, 3D DDES: not run (cost)
 
+> **DDES is experimental and not validated in 1.1 (D-197).** This case was not run. No result here is a validation. The Ahmed DDES
+> and the choice of a DDES validation case are in "Later" (docs/PLAN.md, QUESTIONS 261).
+
 Task 1.1-transient, Part 2, Step 3. Set-up and pass rule: [SETUP.md](SETUP.md) (committed in 539e779 before any
 run). No verdict: the run was not launched because its estimate is far above the 12 hours allowed.
 

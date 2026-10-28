@@ -703,6 +703,7 @@ def test_ddes_project_checks(make_window) -> None:
     assert "focus region" in solving.ddes_mesh_warning(w.project)
     assert panel.physics_ddes_warning.isVisibleTo(panel) and "Recommended averaging" in panel.physics_ddes_note.text()
     w.project.update_physics(flow="incompressible_steady", turbulence_model="kOmegaSST")
+    assert not panel.physics_ddes_experimental.isVisibleTo(panel)
     assert solving.results_hash(w.project) == before  # the DDES fields are not in a non-DDES hash
     w.project.update_physics(flow="incompressible_transient", turbulence_model="kOmegaSSTDDES")
     sim = w.project.sim
@@ -714,6 +715,26 @@ def test_ddes_project_checks(make_window) -> None:
     assert "cells across" in solving.ddes_mesh_warning(w.project)
     w.project._sim = w.project.sim.model_copy(update={"dimension": "2d"})
     assert "2D" in (solving.transient_problem(w.project, [], [], [], []) or "")
+
+
+def test_ddes_shows_an_inline_experimental_notice(make_window) -> None:
+    """D-197: choosing DDES shows a persistent inline notice in Physics (a label, no dialog) that it is experimental
+    and not validated; it stays while DDES is chosen and goes with it."""
+    from PySide6.QtWidgets import QApplication
+
+    w = make_window()
+    panel = w.properties
+    w.project.update_physics(flow="incompressible_transient")
+    w._select_node("physics", None)
+    assert not panel.physics_ddes_experimental.isVisibleTo(panel)
+    w.project.update_physics(turbulence_model="kOmegaSSTDDES")
+    notice = panel.physics_ddes_experimental
+    assert notice.isVisibleTo(panel) and "Experimental, not validated" in notice.text() and "URANS" in notice.text()
+    assert QApplication.activeModalWidget() is None
+    w.project.update_physics(des_scheme="LUST")  # another DDES edit: the notice stays
+    assert notice.isVisibleTo(panel)
+    w.project.update_physics(turbulence_model="kOmegaSST")
+    assert not notice.isVisibleTo(panel)
 
 
 def test_a_sampling_start_set_by_hand_after_an_undetected_start_up(make_window, qtbot: QtBot) -> None:

@@ -281,6 +281,9 @@ averaged fields, the mean and RMS of every force coefficient and the Strouhal nu
 optional statistical stop (T5); monitors, report charts, live view, snapshots, Compare, the report and Results in
 time (T6). Then DDES and the Ahmed body.
 
+Scope of 1.1 (owner, 2026-10-28, D-197): transient laminar flow and URANS, both validated; k-omega SST DDES
+ships experimental and not validated; the Ahmed 25 degree DDES is in "Later" (below).
+
 Progress (task/1.1-transient, in the worktree ~/proyectos/vortexcfd-1.1):
 
 | Part | Content | State |
@@ -289,7 +292,9 @@ Progress (task/1.1-transient, in the worktree ~/proyectos/vortexcfd-1.1):
 | A | Transient flow with pimpleFoam, T1-T6 (D-181), the laminar option (D-182) | **done** (Proposed, [NUMERICS-REVIEW]) |
 | B | Validation: the circular cylinder at Re 100 (laminar, 2D), three-level mesh study | **done**: docs/validation/cylinder_re100/RESULT.md |
 | C | Docs: manual chapter 10, STATUS, PLAN, QUESTIONS, CHANGELOG | **done** |
-| left | Continue a transient run; transient mesh study and polar sweep; DDES (scale-resolving: LUST, its own validation); the Ahmed body with DDES | not started |
+| 2 | PIMPLE, start-up perturbations, Continue for transient runs, DDES (experimental), the square cylinder URANS validation | **done** (Proposed, [NUMERICS-REVIEW]; D-184 to D-198) |
+| left | Transient mesh study and polar sweep; per-part statistics | not started |
+| Later | The Ahmed 25 degree body with DDES; a DDES validation case that fits the machine and the DDES pressure-solve cost (QUESTIONS 261) | moved out of 1.1 (D-197) |
 
 ## Next plan: the post-v1 backlog
 

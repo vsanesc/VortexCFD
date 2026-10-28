@@ -1231,7 +1231,9 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                 self.inflow_alpha.setToolTip("The angle of attack is a rotation of the parts, set in Geometry > Body "
                                              "attitude (the link selects it); the free stream stays along +x.")
                 self.inflow_alpha.linkActivated.connect(self.node_requested.emit)
-            if gkind == "physics":  # DDES guidance (D-191): the mesh and the averaging
+            if gkind == "physics":  # DDES: experimental (D-197), the mesh and the averaging (D-191)
+                self.physics_ddes_experimental = self._note(solving.DDES_EXPERIMENTAL)
+                self._set_warn(self.physics_ddes_experimental, True)
                 self.physics_ddes_warning = self._note("")
                 self.physics_ddes_note = self._note("")
             if gkind == "transient":  # the time unit (D-181)
@@ -1985,6 +1987,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         for key in DES_ROWS:  # the DDES settings only with DDES (D-191)
             self._rows[key].setVisible(self._group_shown("physics") and sim.physics.ddes)
         ddes_shown = self._group_shown("physics") and sim.physics.ddes
+        self.physics_ddes_experimental.setVisible(ddes_shown)  # always while DDES is chosen (D-197)
         warning = solving.ddes_mesh_warning(self._project) if ddes_shown else None
         self.physics_ddes_warning.setText(warning or "")
         self._set_warn(self.physics_ddes_warning, True)

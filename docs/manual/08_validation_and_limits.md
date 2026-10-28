@@ -12,6 +12,9 @@ Each case was run through the app's own pipeline and is recorded in docs/validat
 | Turbulent smooth pipe, Re 1e5 | internal flow: mass-flow and total-pressure inlets, static outlet | **PASS**: Darcy f +1.36 % against Prandtl-Karman, mass balance 0.0 %, the total-pressure inlet within 0.03 %; one mesh level (no GCI) | docs/validation/pipe/RESULT.md |
 | Backward-facing step, 2D, Re_H 36,000 (NASA TMR) | internal 2D wall-resolved flow: reattachment length | **PASS WITH NOTE**: x_r 6.434 H on the finest level, +2.8 % against the experiment (-1.0 % against TMR SST); three valid levels, oscillatory, no GCI | docs/validation/bfs/RESULT.md |
 | Parallel speed-up | the solver's speed-up with the MPI ranks | a measurement: about 3 on 8 cores (memory bound) | docs/validation/parallel/README.md |
+| Circular cylinder, 2D, laminar, Re 100 (1.1) | transient laminar flow: St, mean Cd, RMS Cl | **PASS** on all three levels: fine St 0.1649, mean Cd 1.3391 (-0.8 %) | docs/validation/cylinder_re100/RESULT.md |
+| Square cylinder, 2D, URANS k-omega SST, Re 22,000 (1.1) | transient turbulent flow (URANS): St and mean Cd against ERCOFTAC UFR 2-02 (Lyn et al. 1995) | **PASS** on both levels: medium St 0.1310 (-1.5 %), mean Cd 2.082 (-0.8 %) | docs/validation/square_re22000/RESULT.md |
+| k-omega SST DDES (1.1) | scale-resolving transient flow | **experimental, not validated**: no DDES case has been compared with a reference | chapter 10, "DDES" |
 
 ## 8.2 Known limitations of v1
 
@@ -32,6 +35,8 @@ Each case was run through the app's own pipeline and is recorded in docs/validat
   role in external flow.
 - **A solution belongs to its mesh**: Continue Solver goes on from the latest written time (2.7), but not after
   the mesh changed: the run then starts from the initial fields.
+- **Release 1.1: DDES is experimental and not validated.** URANS (k-omega SST) and laminar transient runs are
+  validated (table above); DDES runs, but its results have not been checked against a reference case.
 - **One platform**: WSL2 Ubuntu 24.04 with Python 3.12 (the install script refuses others unless `--ignore-os`).
   The installation was tested in isolation and by the owner in a clean WSL2 Ubuntu 24.04; that WSLg lists the
   desktop entry in the Windows Start menu has not been seen yet.

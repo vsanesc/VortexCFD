@@ -584,7 +584,7 @@ settled the open ones on 2026-10-17.
      vault note and the wallMountedHump tutorial), and `Gauss LUST grad(U)` is the other choice in Physics. If the
      decision was DEShybrid blending LUST (LUST in the LES region instead of linear), it is a one-entry change:
      confirm which.
-261. **[OPEN]** [NUMERICS-REVIEW] **DDES cost: the pressure solve, and which DDES case for Part 3.** The 3D square
+261. **[DEFERRED to Later (owner, 2026-10-28): DDES ships experimental and not validated in 1.1; this question and the Ahmed DDES move to Later; D-197]** [NUMERICS-REVIEW] **DDES cost: the pressure solve, and which DDES case for Part 3.** The 3D square
      cylinder DDES (810,540 cells) costs 12.9 s per step at its fastest count (8 processes; 6 to 12 are within 15 %),
      about 3.5 PIMPLE outer correctors and 490-560 GAMG iterations for p per step: about 300 hours for the committed
      100 t_c, so it was not run (docs/validation/square_ddes/RESULT.md); an Ahmed DDES of 8-12 M cells would take

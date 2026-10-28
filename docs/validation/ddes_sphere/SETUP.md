@@ -1,5 +1,8 @@
 # DDES functional run: a sphere at Re 10,000 (no verdict)
 
+> **DDES is experimental and not validated in 1.1 (D-197).** This is a functional run with no pass rule. No result here is a validation. The Ahmed DDES
+> and the choice of a DDES validation case are in "Later" (docs/PLAN.md, QUESTIONS 261).
+
 Task 1.1-transient, Part 2, Part B (3b). Written before the run.
 
 ## Why a functional run

@@ -1,5 +1,8 @@
 # Square cylinder at Re 22,000, 3D DDES: set-up
 
+> **DDES is experimental and not validated in 1.1 (D-197).** This set-up was written for a DDES validation that was not run (its cost). No result here is a validation. The Ahmed DDES
+> and the choice of a DDES validation case are in "Later" (docs/PLAN.md, QUESTIONS 261).
+
 Task 1.1-transient, Part 2, Step 3. Written and committed before the scaling test and the run; the pass rule below
 is not changed after them.
 

@@ -1856,8 +1856,8 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   test_the_detection_tolerance_and_the_end_of_the_perturbation; RESULT.md "Part 2"., test_a_sampling_start_inside_the_perturbation_is_refused.
 
 ## D-191 k-omega SST DDES, transient and 3D only [NUMERICS-REVIEW]
-- Status: Proposed (task 1.1-transient, Part 2, Part B). Every dictionary entry and default below is
-  [NUMERICS-REVIEW]; the vault note "1.1 URANS y DES" (read-only) flags one open point: kOmegaSSTDDES's GbyNu
+- Status: Proposed (task 1.1-transient, Part 2, Part B); ships experimental and not validated in 1.1 (D-197). Every
+  dictionary entry and default below is [NUMERICS-REVIEW]; the vault note "1.1 URANS y DES" (read-only) flags one open point: kOmegaSSTDDES's GbyNu
   returns the unlimited production (`// Unlimited`), not checked against Gritskevich et al. 2012.
 - Model (schema v25): `Physics.turbulence_model` "kOmegaSSTDDES" (rejected unless the flow is transient; a 2D project
   cannot run it: DDES resolves 3D turbulence); `des_delta` ("DeltaOmegaTilde" default, "cubeRootVol",
@@ -2000,4 +2000,25 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   unchanged.
 - Check: tests/test_transient.py::test_ddes_dictionaries; a short run of the existing DDES sphere case with this
   entry (below).
+
+## D-197 DDES ships experimental and not validated in 1.1; URANS is the validated transient turbulence option; the Ahmed DDES moves to Later
+- Status: Accepted (owner, 2026-10-28; Part 2 closing brief, decision 4).
+- Context: no DDES case was validated in 1.1. The 3D square cylinder DDES was not run (about 300 hours at its
+  fastest process count, docs/validation/square_ddes/RESULT.md), the DDES sphere functional run was stopped at
+  8.5 of 25 t_c with no statistics (docs/validation/ddes_sphere/RESULT.md), and an Ahmed DDES was estimated at
+  15-38 days (QUESTIONS 261). URANS (k-omega SST) passed the square cylinder at Re 22,000 on both levels against
+  ERCOFTAC UFR 2-02 (docs/validation/square_re22000/RESULT.md).
+- Decision: 1.1's scope is transient laminar flow and URANS, both validated (the circular cylinder at Re 100, the
+  square cylinder at Re 22,000); k-omega SST DDES (D-191, D-195, D-196) ships as **experimental and not
+  validated**. The Ahmed 25 degree DDES is removed from 1.1 and moved to "Later" (docs/PLAN.md), together with
+  QUESTIONS 261 (the DDES pressure-solve cost and the choice of a DDES validation case).
+- App: choosing k-omega SST DDES in Physics shows a persistent inline notice (a warning-styled label in the panel,
+  `workflow.solving.DDES_EXPERIMENTAL`; never a dialog) for as long as DDES is chosen: "Experimental, not
+  validated: DDES runs in this version but has not been checked against a reference case. For validated transient
+  turbulence results use URANS (k-omega SST)."
+- Docs: manual chapters 8 and 10 and docs/validation/README.md list URANS as validated (the square cylinder, PASS on
+  both levels, ERCOFTAC UFR 2-02) and DDES as "experimental, not validated", with no result presented as a
+  validation; the DDES sphere's figures stay outside the repository. Nothing in the repository promises a DDES or
+  Ahmed validation in 1.1 any more (PLAN, CHANGELOG, STATUS, the DDES validation folders).
+- Check: tests/test_transient.py::test_ddes_shows_an_inline_experimental_notice, test_ddes_project_checks.
 

@@ -26,8 +26,11 @@
 - The start-up detection's tolerance is a setting (default 5 %, D-186).
 - Continue Solver for a transient run: a later end time, the field averages and the statistics going on (D-189).
 - Laminar projects size their prism layers by a first-cell thickness instead of y+ (D-190).
-- k-omega SST DDES for transient 3D projects (D-191, [NUMERICS-REVIEW]): the shielding function and the LES region
-  in the Results Scene, a warning when the focus region is too coarse.
+- k-omega SST DDES for transient 3D projects, **experimental and not validated** (D-191, D-197, [NUMERICS-REVIEW]):
+  an inline notice in Physics says so; the shielding function and the LES region in the Results Scene, a warning
+  when the focus region is too coarse. URANS is the validated transient turbulence option.
+- Validation: the square cylinder at Re 22,000, 2D URANS (docs/validation/square_re22000/): PASS on both levels
+  against ERCOFTAC UFR 2-02.
 - A warning when the largest time step keeps the Courant number below the one asked for (D-194).
 
 ### Changed

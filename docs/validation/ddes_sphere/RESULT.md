@@ -1,5 +1,8 @@
 # DDES functional run, sphere at Re 10,000: killed before completion, no verdict
 
+> **DDES is experimental and not validated in 1.1 (D-197).** This functional run was stopped early. No result here is a validation. The Ahmed DDES
+> and the choice of a DDES validation case are in "Later" (docs/PLAN.md, QUESTIONS 261).
+
 Task 1.1-transient, Part 2. Set-up: [SETUP.md](SETUP.md). The run (4 cores) was stopped when the machine was shut
 down overnight, at t = 8.46 t_c of the 25 planned; the sampling (from 15 t_c) never started. No statistics, no
 verdict.
