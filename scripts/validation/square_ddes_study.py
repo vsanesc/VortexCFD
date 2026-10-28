@@ -25,6 +25,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+from vortexcfd.core.display_guard import apply_display_guard  # noqa: E402
+from vortexcfd.core.user_dirs import isolate_settings  # noqa: E402
+
+apply_display_guard()
+isolate_settings()  # never the user's settings or Recent list (D-141); before the cylinder driver is loaded
 _spec = importlib.util.spec_from_file_location("cylinder_study", Path(__file__).with_name("cylinder_study.py"))
 cylinder_study = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(cylinder_study)  # the display guard and the isolated settings come with it
@@ -90,7 +95,9 @@ def build_mesh(case: Path) -> int:
                                         "stopAt": "endTime", "endTime": 1, "deltaT": 1, "writeControl": "timeStep",
                                         "writeInterval": 1})
     write(case, "system/extrudeMeshDict", {
-        "constructFrom": "patch", "sourceCase": f'"{src}"', "sourcePatches": ["back"], "exposedPatchName": "frontAndBack",  # (the name must exist in the source mesh)
+        # the exposed patch's name must exist in the source mesh
+        "constructFrom": "patch", "sourceCase": f'"{src}"', "sourcePatches": ["back"],
+        "exposedPatchName": "frontAndBack",
         "flipNormals": True, "extrudeModel": "linearDirection", "nLayers": NZ, "expansionRatio": 1.0,
         "linearDirectionCoeffs": {"direction": [0, 1, 0], "thickness": SPAN * sc.SIDE},
         "mergeFaces": False, "mergeTol": 0})

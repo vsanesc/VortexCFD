@@ -150,7 +150,8 @@ def test_an_unassigned_project_hashes_as_before(tmp_path: Path) -> None:
     part = project.sim.geometry.parts[0]
     mesh = {k: v for k, v in project.sim.mesh.model_dump().items()
             if k not in V10_MESH_FIELDS and k not in V13_MESH_FIELDS and k not in V14_MESH_FIELDS
-            and k != "cores"}  # the v9 fields (the v15 meshing cores are never hashed, D-111)
+            and k != "cores"  # the v9 fields (the v15 meshing cores are never hashed, D-111)
+            and not (k == "first_layer_height" and v is None)}  # unset, it is not hashed (D-190)
     payload = {
         "parts": [[part.name, part.units, _hash_file(project.resolve_part_path(part)), None, None]],
         "domain": project.sim.domain.model_dump(exclude={"ground", "boundary_types", "units", "wall_layers"}),  # pre-v16
