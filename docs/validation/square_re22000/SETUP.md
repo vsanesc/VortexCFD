@@ -102,3 +102,58 @@ way; the result and its reading go to QUESTIONS 257 for the owner.
 
 Machine: another workload ran on the other cores: wall times are indicative only, measured with another workload
 running.
+
+## Diagnostics of measurement C (owner's addendum)
+
+Written and committed before any of these runs or samples; the rules are not changed after them. One solver job at
+a time, at most 6 MPI processes, nice 15. Driver: scripts/validation/square_diagnostics.py. The lift histories
+(Cl against t, offscreen PNG) go to ~/vortexcfd-research/1.1-urans-diagnostics/ (outside the repository), for C,
+the a and c runs and PIMPLE Co 2. "Lift range" below is max(Cl) − min(Cl) over a 10 t_c interval.
+
+### a. Restart from PIMPLE Co 2 at the sampling switch, continued at PIMPLE Co 1
+
+The PIMPLE Co 2 coarse run's fields at t = 95.81674986 t_c (the time its sampling switch wrote, with the old-time
+fields the backward scheme needs; reconstructed from its processor folders) are copied with its mesh into a new case
+and continued to 150 t_c with the same settings except a largest Courant number of 1 (PIMPLE, at most 10 outer
+correctors, residual control 1e-4), 6 processes. The question: does the developed shedding decay at Co 1 (Co 1 has
+only the nearly steady state) or persist (two states; the start-up picks one)?
+
+Rule: the shedding **persists** if the lift range is at least 1.0 in each of [130, 140] and [140, 150] t_c; it
+**decays** if the lift range is at most 0.2 in each of them (C's level from 20 t_c on was 0.02-0.23); anything else
+is **undecided** (still evolving at 150 t_c) and is reported as such. Reading fixed in advance: persists -> at Co 1
+the two states coexist and the start-up selects one; decays -> at PIMPLE Co 1 only the nearly steady state is
+sustained on this mesh. St, mean Cd and RMS Cl over 96-150 are reported beside C and PIMPLE Co 2.
+
+### b. Eddy viscosity and inflow turbulence (no solver run)
+
+From the written fields (instantaneous: C at 150 t_c, PISO Co 1 at 150, PIMPLE Co 2 at 95.8 and 200), at the cell
+nearest each point on the centre line z = 0 (the square spans x 0 to 1, z -0.5 to 0.5): upstream x = -10, -3, -1;
+the front face x = -0.05; the near wake x = 1.5, 2, 3 (x in D). Reported: nut/nu, k and the modelled turbulence
+intensity I = sqrt(2k/3) / U. The inlet values (k and omega of 0/, from the inlet intensity 2 % and the viscosity
+ratio 10) and their analytic free-stream decay under k-omega SST's far-field terms (dk/dt = -beta* k omega,
+domega/dt = -beta omega^2, beta* = 0.09, beta = 0.0828, convected at U) are compared with the sampled values.
+
+Reference (ERCOFTAC UFR 2-02 Test Case page, https://kbwiki.ercoftac.org/w/index.php/UFR_2-02_Test_Case, opened
+2026-10-28): "The approach flow was measured 3 cylinder widths upstream and had a turbulence level of about 2%";
+"no information is available from the measurements on the length scale of the turbulence"; computations are
+recommended an eddy-to-molecular viscosity ratio at inflow of 10 ("the value of 10 is more suitable for this case")
+and a uniform inflow 5 to 10 D upstream.
+
+Rules: (b1) the modelled approach turbulence is **consistent** with the experiment if I at x = -3 D is between 1.5 %
+and 2.5 %, **lower** below 1.5 %, **higher** above 2.5 % (in every run sampled). (b2) C's near-wake eddy viscosity is
+**higher** if its nut/nu exceeds both PISO Co 1's and PIMPLE Co 2's (each of its sampled times) by more than a factor
+2 at at least two of the three near-wake points, **lower** if it is below both by more than a factor 2 at at least
+two, otherwise **comparable**. A higher value makes eddy-viscosity damping of the shedding a candidate in C, not a
+proof; the front-face values are reported only.
+
+### c. C rerun with turbOnFinalIterOnly false (diagnostic only)
+
+C exactly (`--set algorithm=pimple --set max_courant=1 --set perturb=true --set sampling_start=96`, end 150 t_c, 6
+processes, the mesh on 6), except that system/fvSolution's PIMPLE dictionary gets `turbOnFinalIterOnly false` (v2606
+pimpleControl: k and omega are then solved in every outer corrector, not only in the final one) written into the
+case after the app has written it. No app code or setting changes; the entry is not kept. [NUMERICS-REVIEW]
+
+Rule: as a, the shedding **persists** (lift range ≥ 1.0 in each of [130, 140] and [140, 150]), **decays** (≤ 0.2 in
+each) or is **undecided**. Reading fixed in advance: persists while C decays -> solving the turbulence only on the
+final outer corrector is implicated in C's loss of shedding, and its St and mean Cd are then compared with PIMPLE
+Co 2 by C's 2 % rule; decays -> that setting is not (alone) the cause.

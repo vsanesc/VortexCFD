@@ -62,8 +62,10 @@ def mesh(project) -> dict:
             "max_non_orthogonality": report.max_non_orthogonality}
 
 
-def solve(project, timeout_s: float = 3 * 3600) -> dict:
+def solve(project, timeout_s: float = 3 * 3600, before_run=None) -> dict:
     case = solving.prepare_solver_case(project)
+    if before_run is not None:  # a diagnostic's change to the written case (never an app setting)
+        before_run(case)
     t0 = time.monotonic()
     run = SolverRun(case, cores=project.sim.solvers.cores, timeout_s=timeout_s,
                     on_line=lambda line: line.startswith("Start-up transient") and say(line.strip()))
