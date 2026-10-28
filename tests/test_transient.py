@@ -773,3 +773,16 @@ def test_a_courant_number_held_down_by_the_largest_step_is_reported(make_window,
     w.monitors.load_run(case, capped, ("end_time", (), 59))
     texts = [label.text() for label in w.monitors.convergence.warnings]
     assert any("holds the step" in s for s in texts)
+
+
+def test_a_sampling_start_inside_the_perturbation_is_refused(make_window) -> None:
+    """D-187: a sampling start set by hand before the perturbation ends cannot run; at or after it, or with the
+    perturbation off, it can (the detection already never samples it: settled_at's not_before)."""
+    w = make_window()
+    w.project.update_physics(flow="incompressible_transient")
+    w.project.update_transient(sampling_start=5.0)  # perturbation: 10 flow-through times
+    assert "inside the start-up perturbation" in (solving.transient_problem(w.project, [], [], [], []) or "")
+    w.project.update_transient(sampling_start=10.0)
+    assert solving.transient_problem(w.project, [], [], [], []) is None
+    w.project.update_transient(sampling_start=5.0, perturb=False)
+    assert solving.transient_problem(w.project, [], [], [], []) is None

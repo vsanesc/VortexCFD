@@ -1841,8 +1841,15 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Measured (coarse cylinder, PISO, 4 cores, the run beside another 4-core run): start-up detected at 83.9 t_c (151.7
   without), 3 sampled cycles after 226 s of solver time (345 s without): Part 1's requirement is met. The
   statistics agree with Part 1's coarse level (St 0.16383 vs 0.16385, Cd 1.3400 vs 1.3402).
+- Scope (Part 2 review): on by default for every transient external-flow project (laminar, URANS and DDES, any
+  body, from the free stream or from a steady solution); internal flow and steady runs never have it. The sampling
+  never starts inside it: the detection's two windows must both begin after its end (`settled_at`), and a sampling
+  start set by hand before its end is refused by `workflow.solving.transient_problem` (the run cannot start). Its
+  cost on the square cylinder: the 10 t_c took 5,817 steps and 406 s of solver time on the coarse level (5.6 % of
+  the run) and 6,348 steps and 665 s on the medium one (10.6 %); the earliest possible detection is 10 + 2 x 20 =
+  50 t_c. Proposals for the owner: QUESTIONS 259.
 - Check: tests/test_transient.py::test_the_start_up_perturbation_swings_the_inflow_and_holds_the_detection,
-  test_the_detection_tolerance_and_the_end_of_the_perturbation; RESULT.md "Part 2".
+  test_the_detection_tolerance_and_the_end_of_the_perturbation; RESULT.md "Part 2"., test_a_sampling_start_inside_the_perturbation_is_refused.
 
 ## D-191 k-omega SST DDES, transient and 3D only [NUMERICS-REVIEW]
 - Status: Proposed (task 1.1-transient, Part 2, Part B). Every dictionary entry and default below is

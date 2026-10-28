@@ -109,6 +109,12 @@ def transient_problem(project: Project, names, probes, locations, drops) -> str 
         why = missing_reference(settings.stop_quantity, names, probes, locations, drops, sim.internal)
         if why is not None:
             return f"The statistics stop watches {report_label(settings.stop_quantity)}: {why}."
+    if (settings.perturb and not sim.internal and settings.sampling_start is not None
+            and settings.sampling_start < settings.perturb_time):  # D-187: never sample the perturbation
+        unit = "flow-through times" if settings.time_unit == "flow_through" else "s"
+        return (f"The sampling starts at {settings.sampling_start:g} {unit}, inside the start-up perturbation (it "
+                f"ends at {settings.perturb_time:g} {unit}): start the sampling later, or turn the perturbation off "
+                "(Solvers > Transient).")
     if sim.physics.ddes and sim.dimension == "2d":
         return ("DDES resolves three-dimensional turbulence: a 2D project cannot use it. Choose k-\u03c9 SST (URANS) "
                 "or make the project 3D.")

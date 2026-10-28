@@ -570,4 +570,11 @@ settled the open ones on 2026-10-17.
 258. **[OPEN]** [NUMERICS-REVIEW] **k and omega by linearUpwind instead of limitedLinear (D-192, amends the accepted
      D-181).** limitedLinear 1 drove omega negative and crashed the first URANS run (the square cylinder) in its
      first step; linearUpwind on cell-limited gradients ran without a single clip. Accept the change?
+259. **[OPEN]** **The start-up perturbation: when to end it, and for which projects (D-187).** Today it is on by
+     default for every transient external flow and lasts a fixed 10 flow-through times (on the square cylinder
+     5.6-10.6 % of the solver time; the earliest detection is then 50 t_c). Two proposals, not implemented: (a)
+     end it once the lift shows a developed asymmetric oscillation (for example its amplitude over the last period
+     above a fraction of Cd, or a few zero crossings of Cl), then hold the detection for one more window; (b) turn
+     it on by default only in bluff-body presets (2D sections and the external-flow presets used for cylinders),
+     off for streamlined bodies at incidence that shed without help. Adopt (a), (b), both, or keep it as it is?
 
