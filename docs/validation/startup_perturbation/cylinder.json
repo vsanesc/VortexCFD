@@ -1,0 +1,163 @@
+{
+  "window_tc": [
+    180.0,
+    240.0
+  ],
+  "rule": "halves",
+  "reference": "none",
+  "runs": {
+    "none": {
+      "folder": "run/validation/cylinder_re100/coarse_none",
+      "convective_time": 1.0,
+      "not_before_tc": 0.0,
+      "window": [
+        180.0,
+        240.0
+      ],
+      "whole": {
+        "st": 0.1638309156186456,
+        "cycles": 9.829073463651234,
+        "cd_mean": 1.339789536006958,
+        "cl_rms": 0.22833320801412854
+      },
+      "first_half": {
+        "st": 0.16381527692464667,
+        "cycles": 4.913255903606774,
+        "cd_mean": 1.3397677475070933,
+        "cl_rms": 0.22887313622910513
+      },
+      "second_half": {
+        "st": 0.1637994256589934,
+        "cycles": 4.913281708227982,
+        "cd_mean": 1.3398091989837182,
+        "cl_rms": 0.2277673728316671
+      },
+      "halves_diff": {
+        "st": 1.5851265653288316e-05,
+        "cd_mean": 4.145147662493187e-05,
+        "cl_rms": 0.0011057633974380365
+      },
+      "detected_tc": 148.0000000000011,
+      "steps_to_detected": 20712,
+      "steps_total": 34008
+    },
+    "initial": {
+      "folder": "run/validation/cylinder_re100/coarse_initial",
+      "convective_time": 1.0,
+      "not_before_tc": 5.0,
+      "window": [
+        180.0,
+        240.0
+      ],
+      "whole": {
+        "st": 0.16383224666778656,
+        "cycles": 9.829888927038127,
+        "cd_mean": 1.3398539141113852,
+        "cl_rms": 0.23026278680986476
+      },
+      "first_half": {
+        "st": 0.1638499760536345,
+        "cycles": 4.914827496707216,
+        "cd_mean": 1.339922469459483,
+        "cl_rms": 0.23118521430667677
+      },
+      "second_half": {
+        "st": 0.16382248449299056,
+        "cycles": 4.914176514436858,
+        "cd_mean": 1.3397843056928151,
+        "cl_rms": 0.2293386510919871
+      },
+      "halves_diff": {
+        "st": 2.749156064393854e-05,
+        "cd_mean": 0.00013816376666775376,
+        "cl_rms": 0.0018465632146896782
+      },
+      "detected_tc": 105.80000000000052,
+      "steps_to_detected": 15119,
+      "steps_total": 34515
+    },
+    "swing": {
+      "folder": "run/validation/cylinder_re100/coarse_swing",
+      "convective_time": 1.0,
+      "not_before_tc": 10.0,
+      "window": [
+        180.0,
+        240.0
+      ],
+      "whole": {
+        "st": 0.1638311483250081,
+        "cycles": 9.829434746957427,
+        "cd_mean": 1.3397866562241625,
+        "cl_rms": 0.22878306461827733
+      },
+      "first_half": {
+        "st": 0.16382578559671926,
+        "cycles": 4.913518662383909,
+        "cd_mean": 1.3397950735166277,
+        "cl_rms": 0.22958519917104614
+      },
+      "second_half": {
+        "st": 0.1638020185583155,
+        "cycles": 4.913760799055501,
+        "cd_mean": 1.3397760585431329,
+        "cl_rms": 0.22795986388856118
+      },
+      "halves_diff": {
+        "st": 2.3767038403760266e-05,
+        "cd_mean": 1.9014973494879683e-05,
+        "cl_rms": 0.0016253352824849576
+      },
+      "detected_tc": 84.00000000000023,
+      "steps_to_detected": 12171,
+      "steps_total": 34718
+    }
+  },
+  "comparisons": {
+    "initial": {
+      "quantities": {
+        "st": {
+          "diff": 1.3310491409623815e-06,
+          "relative": 8.12452970757184e-06,
+          "limit": 2.749156064393854e-05,
+          "within": true
+        },
+        "cd_mean": {
+          "diff": 6.437810442716518e-05,
+          "relative": 4.805090851734406e-05,
+          "limit": 0.00013816376666775376,
+          "within": true
+        },
+        "cl_rms": {
+          "diff": 0.0019295787957362143,
+          "relative": 0.008450714692436757,
+          "limit": 0.0018465632146896782,
+          "within": false
+        }
+      },
+      "verdict": "not equivalent"
+    },
+    "swing": {
+      "quantities": {
+        "st": {
+          "diff": 2.3270636251293553e-07,
+          "relative": 1.4204056763902455e-06,
+          "limit": 2.3767038403760266e-05,
+          "within": true
+        },
+        "cd_mean": {
+          "diff": 2.8797827955617805e-06,
+          "relative": 2.1494292335977945e-06,
+          "limit": 4.145147662493187e-05,
+          "within": true
+        },
+        "cl_rms": {
+          "diff": 0.00044985660414878503,
+          "relative": 0.0019701759899985695,
+          "limit": 0.0016253352824849576,
+          "within": true
+        }
+      },
+      "verdict": "equivalent"
+    }
+  }
+}
