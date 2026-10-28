@@ -1,6 +1,6 @@
 # Status
 
-Updated 2026-10-26 (task/1.1-transient: **release 1.1 started: transient flow, first part**).
+Updated 2026-10-28 (task/1.1-transient: **transient flow, Part 2: PIMPLE, start-up perturbation, Continue, DDES**).
 Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every task (CLAUDE.md).
 
 ## Current branch
@@ -26,8 +26,31 @@ Phases and sub-phases are those of docs/PLAN.md. Updated at the end of every tas
   the branch): byte-identical (`diff -r`, 51 files). The existing validations are untouched (no file under
   docs/validation/ other than cylinder_re100/ and its README row changed).
 
-What is left of 1.1 (PLAN, "Release 1.1"): Continue for a transient run; the mesh study and polar sweep of a
-transient project; per-part statistics; DDES; the Ahmed body.
+Part 2 (2026-10-27/28; D-184 to D-194, QUESTIONS 257-261; not published):
+- Part 0: main merged (docs only), QUESTIONS 247-255 renumbered 248-256, the owner's decisions recorded, the cylinder
+  references sourced (arXiv 1609.04364 Table 3, arXiv 1409.6676 Table 2): the verdict stays PASS.
+- Part A: PIMPLE with residual control, PISO / PIMPLE by case type (D-185); the detection tolerance editable (D-186);
+  the start-up perturbation, the inflow swinging ±10 deg for 10 t_c (D-187; 3 sampled cycles on the coarse cylinder
+  after 226 s instead of 345 s; a hand-set sampling start inside it is refused); the time unit converts the values
+  (D-188); Continue for a transient run (D-189); laminar layers by a first-cell thickness (D-190); ship.sh refuses an
+  empty branch (D-184); a window's VTK objects freed at the teardown with no OpenGL context current, in the test
+  teardown and in the app (D-193); a warning when the largest time step holds the Courant number (D-194).
+- Part B: k-omega SST DDES (D-191); k and omega by linearUpwind on limited gradients instead of limitedLinear, which
+  crashed the first URANS run (D-192, amends the accepted D-181, QUESTIONS 258). Square cylinder at Re 22,000, 2D
+  URANS: **PASS** (medium St 0.1310, Cd 2.082; coarse St 0.1355, Cd 2.132; ERCOFTAC UFR 2-02); PISO at Co 1 gives
+  8-9 % lower St and Cd than PIMPLE over the same window (QUESTIONS 257). The 3D square-cylinder DDES (810,540
+  cells, pass rule committed first) was **not run**: 12.9 s per step at its fastest (8 processes), about 300 h;
+  the Ahmed DDES estimate is 15-38 days (docs/validation/square_ddes/RESULT.md, QUESTIONS 261). The DDES sphere was
+  **killed at 8.5 of 25 t_c** by the overnight shutdown: no statistics, no verdict.
+- The Qt abort (D-193): a GUI-files run crashed once (segfault in a new viewer's initializeGL), the mechanism shown
+  by a probe and by tests that fail on the old teardown. The 20-run proof was killed overnight and not repeated; a
+  loop of tests/test_domain_operations.py under load did not crash in 100 iterations with the old code (35 min) nor
+  in 52 with the new (20 min): that loop cannot reproduce the crash, so it proves nothing either way.
+- Public benchmark dictionaries byte-identical to origin/main (`diff -r`, 51 files); fast suite: 1492 passed,
+  1 skipped.
+
+What is left of 1.1 (PLAN, "Release 1.1"): the mesh study and polar sweep of a transient project; per-part
+statistics; a DDES validation that fits the machine (QUESTIONS 261); the Ahmed body.
 
 ## Previous branch (task/v1.0.1-pillow, merged)
 

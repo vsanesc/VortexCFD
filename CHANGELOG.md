@@ -26,12 +26,17 @@
 - The start-up detection's tolerance is a setting (default 5 %, D-186).
 - Continue Solver for a transient run: a later end time, the field averages and the statistics going on (D-189).
 - Laminar projects size their prism layers by a first-cell thickness instead of y+ (D-190).
+- k-omega SST DDES for transient 3D projects (D-191, [NUMERICS-REVIEW]): the shielding function and the LES region
+  in the Results Scene, a warning when the focus region is too coarse.
+- A warning when the largest time step keeps the Courant number below the one asked for (D-194).
 
 ### Changed
 - Project schema v25 (older projects open unchanged as steady k-omega SST). The public benchmarks' dictionaries are
   unchanged.
 - Changing the time unit of the transient settings converts the values already entered (D-188).
 - scripts/ship.sh refuses a branch with no commits ahead of origin/main before running anything (D-184).
+- Transient k and omega use linearUpwind on limited gradients (D-192, [NUMERICS-REVIEW]): limitedLinear crashed a URANS
+  run in its first step.
 
 ## 1.0.1 (unreleased)
 
