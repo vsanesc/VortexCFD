@@ -48,6 +48,8 @@ class TransientControl:
     field_average: dict = field(default_factory=dict)  # the fieldAverage entry (timeStart set when it starts)
     range_tolerance: float = RANGE_TOLERANCE  # the detection's ranges (D-186)
     not_before: float = 0.0  # s: no sampling before this (the end of the start-up perturbation, D-187)
+    max_courant: float | None = None  # the asked largest Courant number of an adaptive step (None: fixed step)
+    max_delta_t: float | None = None  # s: the largest step of an adaptive run (D-194)
 
     def content(self) -> dict:
         data = {
@@ -57,6 +59,9 @@ class TransientControl:
             "detected": self.detected, "fieldAverage": dict(self.field_average),
             "rangeTolerance": self.range_tolerance, "notBefore": self.not_before,
         }
+        if self.max_courant is not None and self.max_delta_t is not None:
+            data["maxCourant"] = self.max_courant
+            data["maxDeltaT"] = self.max_delta_t
         if self.sampling_start is not None:
             data["samplingStart"] = self.sampling_start
         return data
@@ -69,7 +74,9 @@ class TransientControl:
                    str(data.get("stopQuantity", "Cd")), bool(data.get("statisticsStop", False)),
                    None if start is None else float(start), bool(data.get("detected", False)),
                    dict(data.get("fieldAverage", {})), float(data.get("rangeTolerance", RANGE_TOLERANCE)),
-                   float(data.get("notBefore", 0.0)))
+                   float(data.get("notBefore", 0.0)),
+                   None if data.get("maxCourant") is None else float(data["maxCourant"]),
+                   None if data.get("maxDeltaT") is None else float(data["maxDeltaT"]))
 
     def with_start(self, start: float, detected: bool) -> "TransientControl":
         return replace(self, sampling_start=float(start), detected=detected)
@@ -380,6 +387,31 @@ def slot_text(series: Sequence[tuple[float, float]], start: float | None) -> str
     if stats is None or stats.samples < 2:
         return f"sampling from t = {start:.4g} s"
     return f"running mean {stats.mean:.4g}, RMS {stats.rms:.3g} (from t = {start:.4g} s)"
+
+
+# The Courant cap warning (D-194): over the last CAP_STEPS steps, the step sits at the largest step in at least
+# CAP_SHARE of them while the largest Courant number stays below CAP_COURANT of the asked one.
+CAP_STEPS = 50
+CAP_SHARE = 0.8
+CAP_COURANT = 0.9
+
+
+def courant_cap_warning(control: TransientControl | None, steps) -> str | None:
+    """Why the asked Courant number is not reached, or None (D-194): an adaptive run whose time step is held at the
+    largest time step (maxDeltaT) while the largest Courant number stays clearly below the asked maxCo. ``steps``:
+    logparse.TimeSteps (``delta_t``, ``courant_max``) in time order."""
+    if control is None or control.max_courant is None or not control.max_delta_t:
+        return None
+    recent = [s for s in list(steps)[-CAP_STEPS:] if s.delta_t and s.courant_max is not None]
+    if len(recent) < CAP_STEPS // 2:
+        return None
+    capped = sum(s.delta_t >= 0.999 * control.max_delta_t for s in recent)
+    reached = max(s.courant_max for s in recent)
+    if capped < CAP_SHARE * len(recent) or reached >= CAP_COURANT * control.max_courant:
+        return None
+    return (f"The largest time step ({control.max_delta_t:.3g} s) holds the step: the largest Courant number is "
+            f"{reached:.2g}, not the {control.max_courant:g} asked for. Raise \"Largest time step\" (Solvers > "
+            "Transient) to run at the asked Courant number.")
 
 
 def banner(control: TransientControl | None, state: str | None, now: float | None,

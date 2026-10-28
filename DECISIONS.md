@@ -1934,3 +1934,14 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
 - Check: tests/test_thread_teardown.py::test_a_viewer_window_whose_vtk_objects_are_left_in_cycles and
   test_the_teardown_freed_the_previous_windows_vtk_objects_with_no_context_current (fails with the old teardown,
   4 renderers left); 20 consecutive single-process runs of the GUI test files under a nice 15 fast suite (STATUS).
+
+## D-194 A warning when the largest time step holds the Courant number below the asked one
+- Status: Proposed (task 1.1-transient, Part 2 review, point 4).
+- Context: on the coarse cylinder a PIMPLE run asked for Co 5 reached only 3.7: the automatic largest time step
+  (t_c / 50) held the step, and nothing said so.
+- Decision: an adaptive run's control file records the asked largest Courant number and the largest time step
+  (`maxCourant`, `maxDeltaT`; a fixed step records neither). `foam/transient.courant_cap_warning`: over the last 50
+  steps, when at least 80 % sit at the largest step and the largest Courant number stays below 90 % of the asked
+  one, the monitors' convergence box shows "The largest time step (X s) holds the step: the largest Courant number
+  is Y, not the Z asked for. Raise "Largest time step" (Solvers > Transient) ...", live and for a finished run.
+- Check: tests/test_transient.py::test_a_courant_number_held_down_by_the_largest_step_is_reported.

@@ -531,7 +531,8 @@ def transient_control(inp: SolverCaseInput) -> FoamFileSpec:
         times.convective_time, times.length, inp.inflow.speed, times.end_time, times.window, settings.tolerance,
         settings.stop_quantity, settings.statistics_stop, start, False,
         transient_files.field_average(start if start is not None else 0.0), settings.detect_tolerance,
-        times.perturb_end)
+        times.perturb_end, *((settings.resolved_max_courant(inp.physics.laminar, inp.physics.ddes), times.max_delta_t)
+                             if settings.time_step == "adaptive" else (None, None)))
     return FoamFileSpec(content=control.content())
 
 

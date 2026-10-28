@@ -1,6 +1,7 @@
 """Right column: live residual chart and report slots (empty states until a solver runs)."""
 
 import math
+from collections import deque
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
@@ -756,6 +757,7 @@ class MonitorsPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.case_dir: Path | None = None  # case of the shown run
+        self._recent_steps: deque = deque(maxlen=transient.CAP_STEPS)  # the Courant cap warning (D-194)
         self.setObjectName("panel")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.header = SectionHeader("Residuals")
@@ -857,6 +859,7 @@ class MonitorsPanel(QWidget):
         self.stopping = self.run_stopping = None
         self.run_criteria_known = True
         self.transient = self.transient_record = None
+        self._recent_steps: deque = deque(maxlen=transient.CAP_STEPS)  # the Courant cap warning (D-194)
         self._transient_stats = (0.0, None)
         self.chart.set_series({})
         self.kpis.set_series(None)
@@ -918,6 +921,7 @@ class MonitorsPanel(QWidget):
     def add_step(self, step: TimeStep) -> None:
         """One completed solver iteration (logparse.TimeStep), in the GUI thread."""
         self.history.add(step)
+        self._recent_steps.append(step)  # the Courant cap warning of a transient run (D-194)
         self._dirty = True
 
     def end_run(self) -> None:
@@ -936,6 +940,7 @@ class MonitorsPanel(QWidget):
         self.stopping = judged if judged is not None else stopping
         self.run_criteria_known = stopping is not None
         self.history.extend(steps)
+        self._recent_steps.extend(steps)
         self.reports = ReportMonitor(case_dir)
         self.case_dir = Path(case_dir)
         self.transient = transient.read_control(case_dir)
@@ -1028,7 +1033,8 @@ class MonitorsPanel(QWidget):
             text, colour = BANNER_NO_RUN, None
         summary = self.transient_summary()
         note = transient.statistics_text(summary, self.transient.convective_time)
-        self.convergence.set_view(True, (text, colour), [], [], "Transient run", note)
+        cap = transient.courant_cap_warning(self.transient, self._recent_steps)
+        self.convergence.set_view(True, (text, colour), [], [cap] if cap else [], "Transient run", note)
         self._sync_criteria_section()
 
     def _update_convergence(self) -> None:

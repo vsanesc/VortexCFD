@@ -746,3 +746,30 @@ def test_a_sampling_start_set_by_hand_after_an_undetected_start_up(make_window, 
     stats = w.run_record.transient["statistics"]["coefficients"]["Cd"]
     assert w.run_record.transient["sampling_start"] == pytest.approx(4.0) and stats["start"] == pytest.approx(4.0)
     assert not w.run_record.transient["detected"]
+
+
+def test_a_courant_number_held_down_by_the_largest_step_is_reported(make_window, qtbot: QtBot) -> None:
+    """D-194: an adaptive run whose step sits at the largest time step while the Courant number stays below the
+    asked one shows a warning in the monitors; a run that reaches it does not."""
+    from vortexcfd.foam.logparse import TimeStep
+
+    control = transient.TransientControl(1.0, 1.0, 1.0, 10.0, 2.0, 0.005, max_courant=5.0, max_delta_t=0.02)
+    capped = [TimeStep(time=0.02 * i, courant_max=3.7, delta_t=0.02) for i in range(1, 60)]
+    text = transient.courant_cap_warning(control, capped)
+    assert text is not None and "0.02 s" in text and "3.7" in text and "5 asked for" in text
+    reached = [TimeStep(time=0.01 * i, courant_max=4.98, delta_t=0.01) for i in range(1, 60)]
+    assert transient.courant_cap_warning(control, reached) is None
+    fixed = transient.TransientControl(1.0, 1.0, 1.0, 10.0, 2.0, 0.005)
+    assert transient.courant_cap_warning(fixed, capped) is None
+    files = build_solver_files(_input(max_courant=5.0, max_delta_t=0.02))
+    written = transient.TransientControl.from_content(files[transient.TRANSIENT_FILE].content)
+    assert written.max_courant == 5.0 and written.max_delta_t == 0.02
+    assert transient.TransientControl.from_content(
+        build_solver_files(_input(time_step="fixed"))[transient.TRANSIENT_FILE].content).max_courant is None
+    w = make_window()  # in the monitors
+    case = w.project.path.parent / "case"
+    case.mkdir(exist_ok=True)
+    transient.write_control(case, control)
+    w.monitors.load_run(case, capped, ("end_time", (), 59))
+    texts = [label.text() for label in w.monitors.convergence.warnings]
+    assert any("holds the step" in s for s in texts)
