@@ -104,7 +104,8 @@ Close-out (2026-10-28; D-199, D-200; not published; no solver run):
 - D-200: a transient run that reaches its end time with no statistically stable period now says so, with what to do,
   in the monitors' convergence box and in the report (before: a green "End time reached" and "sampling not started"
   in the monitors, "not reached (the start-up transient did not settle)" in the report).
-- FAST_SUITE_LINE
+- Fast suite (-n 6, offscreen, nice 15): 1503 passed, 1 skipped. Public benchmark dictionaries byte-identical to
+  origin/main (`diff -r`, 51 files).
 
 What is left of 1.1 (PLAN, "Release 1.1"): the mesh study and polar sweep of a transient project; per-part
 statistics. Later: matched free-stream turbulence (decay control), the medium-mesh and 3D URANS of the square cylinder,
