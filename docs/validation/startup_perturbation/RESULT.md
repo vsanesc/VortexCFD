@@ -74,3 +74,35 @@ shedding) this is evidence for QUESTIONS 257 that the coarse 2D URANS solution h
 
 Start-up time by the app's detection (for information, as SETUP.md says): initial 73.0 t_c after 40,057 steps; swing
 96.0 t_c after 54,002 steps (the reference run's live detection said 95.8 t_c).
+
+## A2. The cylinder runs extended to 300 t_c (owner's addendum)
+
+Rules committed before the runs (SETUP.md, "A2", commit 5394adc). The three A runs continued from 240 to 300 t_c with
+the app's Continue (8,674 / 8,671 / 8,673 more steps; about 100 s each, indicative only: measured with another
+workload running). Numbers: [cylinder_a2.json](cylinder_a2.json).
+
+Window [240, 300] t_c (9.8 cycles), halves [240, 270] / [270, 300]:
+
+| Run | St | mean Cd | RMS Cl |
+|---|---|---|---|
+| none | 0.163832 (0.163809 / 0.163840) | 1.340017 (1.339960 / 1.340073) | 0.229689 (0.228701 / 0.230668) |
+| initial | 0.163831 (0.163802 / 0.163807) | 1.339856 (1.339787 / 1.339924) | 0.228094 (0.227859 / 0.228304) |
+| swing | 0.163832 (0.163810 / 0.163834) | 1.339975 (1.339903 / 1.340049) | 0.229061 (0.228138 / 0.229974) |
+
+**Rule 1, the settling of "none" in 180-240: not settled.** Change of "none" from [180, 240] to [240, 300] against
+its own half-difference in A: St 9.4e-7 / 1.6e-5 (within); mean Cd **2.3e-4 (0.017 %) / 4.1e-5**; RMS Cl **1.36e-3
+(0.59 %) / 1.11e-3**. The unperturbed run's mean drag and lift amplitude were still moving slowly at 180-240 t_c.
+
+**Rule 2, equivalence over [240, 300]** (beside A's verdict, not in place of it):
+
+| | St: d / v | mean Cd: d / v | RMS Cl: d / v | Verdict |
+|---|---|---|---|---|
+| initial vs none | 1.0e-6 / 2.9e-5 | **1.6e-4 (0.012 %)** / 1.4e-4 | 1.59e-3 (0.69 %) / 1.97e-3 | **not equivalent** (mean Cd) |
+| swing vs none | 5.0e-7 / 2.9e-5 | 4.2e-5 / 1.4e-4 | 6.3e-4 (0.27 %) / 2.0e-3 | **equivalent** |
+
+Reading: A's verdict stands (the initial-field run failed its rule), and in the later window it fails again, now on
+the mean Cd by 0.012 % where it had failed on RMS Cl by 0.85 %. The unperturbed run itself changed between the two
+windows by 0.017 % in mean Cd and 0.59 % in RMS Cl, more than its own half-to-half spread, so the halves of a 60 t_c
+window understate the slow drift of this flow's statistics; the initial-field run's differences from "none" (0.01 %
+in Cd, 0.7-0.9 % in RMS Cl) are of the same size as that drift. The Strouhal number agrees to 1e-5 in every run and
+window. The rule was not relaxed and no verdict is changed by this reading.
