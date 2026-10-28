@@ -579,4 +579,9 @@ settled the open ones on 2026-10-17.
      above a fraction of Cd, or a few zero crossings of Cl), then hold the detection for one more window; (b) turn
      it on by default only in bluff-body presets (2D sections and the external-flow presets used for cylinders),
      off for streamlined bodies at incidence that shed without help. Adopt (a), (b), both, or keep it as it is?
+260. **[OPEN]** [NUMERICS-REVIEW] **The DDES U scheme (D-191).** The default is `Gauss DEShybrid linear linearUpwind
+     grad(U) delta 0.65 <U> <l_ref> 0 1 1 10` (central in the resolved LES region, linearUpwind elsewhere: the
+     vault note and the wallMountedHump tutorial), and `Gauss LUST grad(U)` is the other choice in Physics. If the
+     decision was DEShybrid blending LUST (LUST in the LES region instead of linear), it is a one-entry change:
+     confirm which.
 
