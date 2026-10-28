@@ -55,3 +55,19 @@ algorithm=piso`, run/validation/square_re22000/, beside the DDES run) against th
 the medium level): PISO 16,139 steps in 759 s, PIMPLE at Co 2 8,768 steps in 613 s (3 outer correctors each).
 PIMPLE took 19 % less wall time here, where the wall layers set the Courant limit (on the laminar cylinder, whose
 limit is set by the wake cells, it took 26 % more). The PISO run's statistics were not sampled (timing only).
+
+### PISO and PIMPLE over a sampled window (Part 2 review)
+
+A PISO run of the coarse level at Co 1 (6 cores, `--tag piso_window --set algorithm=piso --set sampling_start=96`,
+157,885 steps to 150 t_c in 3,596 s) against the PIMPLE coarse run, statistics over the same window 96-150 t_c
+from the force histories:
+
+| Coupling | St | mean Cd | RMS Cl | St 96-123 / 123-150 | Cd 96-123 / 123-150 |
+|---|---|---|---|---|---|
+| PIMPLE, Co 2 | 0.1353 | 2.129 | 1.405 | 0.1359 / 0.1368 | 2.154 / 2.103 |
+| PISO, Co 1 | 0.1250 (-7.6 %) | 1.939 (-8.9 %) | 1.030 | 0.1250 / 0.1251 | 1.940 / 1.938 |
+
+Each run agrees with itself across the two halves of the window to about 1-2 %, so the difference between them is
+systematic, not sampling noise: on this case the coupling changes the answer by 8-9 %, unlike the laminar cylinder
+(0.1-0.4 %). Both would pass this validation's rule (PISO: St -6.0 %, Cd -7.7 % against 0.133 and 2.1); PIMPLE,
+which iterates each step to the outer tolerance, is the nearer to the experiment. QUESTIONS 257.

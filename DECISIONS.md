@@ -1820,6 +1820,10 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   step gains), which is why PISO stays the laminar default. On the square cylinder's wall-function mesh (5 prism
   layers) the first 15 t_c took PISO at Co 1 759 s (16,139 steps) and PIMPLE at Co 2 613 s (8,768 steps): 19 %
   less, which supports PIMPLE as the turbulent default (docs/validation/square_re22000/RESULT.md).
+  Accuracy on that case (Part 2 review, statistics over 96-150 t_c): PISO at Co 1 St 0.1250, Cd 1.939; PIMPLE at
+  Co 2 St 0.1353, Cd 2.129: 8-9 % apart, each self-consistent to 1-2 % across the window's halves. On a turbulent
+  case with wall layers the coupling is not neutral; PIMPLE was the nearer to the experiment (St 0.132-0.133,
+  Cd 1.9-2.2). Not a reason to change any default without the owner (QUESTIONS 257).
 - Check: tests/test_transient.py::test_piso_or_pimple_per_case_type_and_by_choice,
   test_adaptive_time_step_dictionaries, test_the_rows_of_a_transient_project.
 
