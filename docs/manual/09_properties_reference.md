@@ -145,6 +145,8 @@ the choices.
 | End time | 200 t_c | The run ends here |
 | Write interval | 20 t_c | The full and averaged fields are written this often and at the end |
 | Sampling starts at | Auto | The statistics start here; Auto: detected once the start-up transient is over |
+| Initial-field perturbation | off | External flow, declared start-up perturbation (D-198): a small cross-flow velocity (up to 0.1 U) behind the body in the initial field only; boundary conditions unchanged; no sampling before 5 t_c |
+| Inflow swing | off | External flow, declared start-up perturbation (D-187, D-198): the inflow direction swings by the Swing angle (default 10°) at 0.2 U / l_ref for the Swing time (default 10 t_c), then +x; no sampling before its end |
 | Window | 20 t_c | The window of the start-up detection and of the statistics stop |
 | Stop when statistically converged | off | Also end once the running mean of the coefficient below is stable over the window |
 | Statistics of | Cd | The coefficient of the statistics stop and of the detection's mean |

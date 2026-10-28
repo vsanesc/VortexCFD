@@ -15,9 +15,8 @@ from pydantic import ValidationError
 from vortexcfd.core.model import AsymptoticCriterion, Simulation
 from vortexcfd.core.reports import missing_reference, report_label
 from vortexcfd.core.project import Project
-from vortexcfd.foam.case_writer import enable_clean_stop, enable_write_now
+from vortexcfd.foam.case_writer import enable_clean_stop, enable_write_now, write_spec
 from vortexcfd.foam.live_view import LivePlane, LiveViewSpec, safe_name
-from vortexcfd.foam.dictfile import write_foam_file
 from vortexcfd.foam.mesh_case import MARKER_NAME, part_force_groups, remove_results
 from vortexcfd.foam.mesh_report import lost_part_message
 from vortexcfd.foam.results import latest_result_time
@@ -94,6 +93,17 @@ def physics_problem(project: Project) -> str | None:
     return None
 
 
+def convective_time(project: Project) -> float | None:
+    """t_c = l_ref / U in seconds (D-181), None without a part."""
+    try:
+        _box, _names, bounds = parts_layout(project)
+    except (MeshingNotReady, TypeError, ValueError, OSError):  # no part file, or an unsaved project
+        return None
+    if bounds is None:
+        return None
+    return reference_values(bounds, project.sim.reports).l_ref / project.sim.inflow.speed
+
+
 def transient_problem(project: Project, names, probes, locations, drops) -> str | None:
     """Why a transient project cannot be run (D-181), or None: internal flow has no force history to detect the
     sampling start from; the statistics stop's quantity must be a report of the project; a start from the steady
@@ -109,11 +119,11 @@ def transient_problem(project: Project, names, probes, locations, drops) -> str 
         why = missing_reference(settings.stop_quantity, names, probes, locations, drops, sim.internal)
         if why is not None:
             return f"The statistics stop watches {report_label(settings.stop_quantity)}: {why}."
-    if (settings.perturb and not sim.internal and settings.sampling_start is not None
-            and settings.sampling_start < settings.perturb_time):  # D-187: never sample the perturbation
+    end = 0.0 if sim.internal else settings.perturbation_end(convective_time(project))
+    if settings.sampling_start is not None and settings.sampling_start < end:  # D-187, D-198: never sampled
         unit = "flow-through times" if settings.time_unit == "flow_through" else "s"
         return (f"The sampling starts at {settings.sampling_start:g} {unit}, inside the start-up perturbation (it "
-                f"ends at {settings.perturb_time:g} {unit}): start the sampling later, or turn the perturbation off "
+                f"ends at {end:g} {unit}): start the sampling later, or turn the perturbation off "
                 "(Solvers > Transient).")
     if sim.physics.ddes and sim.dimension == "2d":
         return ("DDES resolves three-dimensional turbulence: a 2D project cannot use it. Choose k-\u03c9 SST (URANS) "
@@ -448,7 +458,7 @@ def prepare_solver_case(project: Project, interactive: bool = False, planes: tup
         shutil.copytree(case_dir / latest, start)
     clear_results(case_dir)
     for rel, spec in files.items():
-        write_foam_file(case_dir / rel, spec.content, object_name=Path(rel).name, class_name=spec.class_name)
+        write_spec(case_dir / rel, spec)
     if start is not None:
         start_from_fields(case_dir, start, files)
         shutil.rmtree(start, ignore_errors=True)
@@ -464,6 +474,7 @@ def start_from_fields(case_dir: Path, source: Path, files) -> list[str]:
     files write that ``source`` has is that solution's field (its internalField) with the new boundary conditions
     (the solver files' boundaryField), as D-171's continue from a changed set-up; a field the source lacks (k and
     omega after a laminar run) keeps the free-stream start. Returns the fields taken from ``source``."""
+    from vortexcfd.foam.case_writer import insert_comment
     from vortexcfd.foam.dictfile import set_foam_entry
 
     taken = []
@@ -476,6 +487,8 @@ def start_from_fields(case_dir: Path, source: Path, files) -> list[str]:
         target = Path(case_dir) / rel
         shutil.copyfile(Path(source) / name, target)
         set_foam_entry(target, "boundaryField", spec.content["boundaryField"])
+        if spec.comment:  # a declared start-up perturbation (D-198)
+            insert_comment(target, spec.comment)
         taken.append(name)
     return taken
 
@@ -617,15 +630,14 @@ def prepare_continue(project: Project, record, rewrite: bool = False, interactiv
     two_stage = record.stages and int(record.stages[-1].get("stage", 1)) == 2
     if rewrite:
         for rel, spec in files.items():
-            write_foam_file(case_dir / rel, spec.content, object_name=Path(rel).name, class_name=spec.class_name)
+            write_spec(case_dir / rel, spec)
         replace_boundaries(case_dir, _time_name(case_dir, latest), files)
         stage2 = read_stages(case_dir)
         if two_stage and stage2 is not None:
             apply_stage2(case_dir, stage2)  # the solution was in stage 2: its schemes again (D-126)
     else:
         spec = files["system/controlDict"]  # the iteration limit, the write interval and the criteria now
-        write_foam_file(case_dir / "system/controlDict", spec.content, object_name="controlDict",
-                        class_name=spec.class_name)
+        write_spec(case_dir / "system/controlDict", spec)
     set_foam_entry(case_dir / "system" / "controlDict", "startFrom", "latestTime")
     try:
         text = solver_log(case_dir).read_text(encoding="utf-8", errors="replace")
@@ -673,10 +685,10 @@ def prepare_continue_transient(project: Project, record, interactive: bool = Fal
     old = transient_files.read_control(case_dir) or new
     if old.sampling_start is not None:  # the sampling has started: it goes on from the same start
         control = dataclasses.replace(new, sampling_start=old.sampling_start, detected=old.detected,
-                                      not_before=old.not_before)
+                                      not_before=old.not_before, perturbations=old.perturbations)
     else:  # not started: the start set now by hand (the statistics from it; the field averages from the restart
         # at the latest, they cannot go back in time), or the detection goes on with the new tolerance
-        control = dataclasses.replace(new, not_before=old.not_before)
+        control = dataclasses.replace(new, not_before=old.not_before, perturbations=old.perturbations)
     cores = project.sim.solvers.cores
     reuse = (cores > 1 and processor_count(case_dir) == cores and in_processors is not None
              and abs(in_processors - latest) <= 1e-9 * max(1.0, latest))
@@ -690,8 +702,7 @@ def prepare_continue_transient(project: Project, record, interactive: bool = Fal
     content["startFrom"] = "latestTime"
     interval = transient_times_of(project, case_dir).write_interval  # the write times count from the restart
     content["writeInterval"] = transient_files.even_interval(control.end_time - latest, interval)
-    write_foam_file(case_dir / "system" / "controlDict", content, object_name="controlDict",
-                    class_name=spec.class_name)
+    write_spec(case_dir / "system" / "controlDict", dataclasses.replace(spec, content=content))
     transient_files.write_control(case_dir, control)
     try:
         text = solver_log(case_dir).read_text(encoding="utf-8", errors="replace")

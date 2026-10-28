@@ -71,7 +71,7 @@ def test_the_speed_of_sound_is_a_reference_value_only(tmp_path: Path) -> None:
     before = solving.results_hash(project)
     project.update_physics(speed_of_sound=340.0)
     assert solving.results_hash(project) == before  # never written to the case: results stay current
-    assert migrate({"schema_version": 23, "x": 1}) == {"schema_version": 25, "x": 1}
+    assert migrate({"schema_version": 23, "x": 1}) == {"schema_version": 26, "x": 1}
     with pytest.raises(ValueError):
         project.update_physics(speed_of_sound=0.0)
 

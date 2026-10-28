@@ -22,7 +22,7 @@ hump is proposed for Part 3 (QUESTIONS).
 | Geometry | sphere of diameter D = 1 m (a 180 x 90 triangulated sphere), 3D |
 | Flow | U = 1 m/s, nu = 1e-4 m²/s: Re = 10,000; k-omega SST DDES (Δω̃, σ variant, DEShybrid: the app's defaults, D-191) |
 | Domain and mesh | the "External flow" preset's domain and mesh (y+ sizing, wall functions) plus a focus box from 0.5 D ahead of the sphere to 2.75 D behind it, 2 D wide and high, at 0.05 D (D/20, finer than the 0.068 D of the coarser cylinder grid in Spalart, NASA/CR-2001-211032, 40 cells across its smallest extent) |
-| Run | PIMPLE at Co 1 (the DDES default), the start-up perturbation (10 t_c), the sampling set at 15 t_c, end 40 t_c; 8 cores, nice 15 |
+| Run | PIMPLE at Co 1 (the DDES default), the start-up perturbation: the inflow swing (±10° at 0.2 U / D for 10 t_c; declared since D-198, the driver sets it), the sampling set at 15 t_c, end 40 t_c; 8 cores, nice 15 |
 
 ## What is recorded
 

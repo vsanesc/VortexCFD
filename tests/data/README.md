@@ -119,3 +119,10 @@ Real output (ESI OpenFOAM v2606) of the owner's ~/simulation_2 (a 12-core run to
 A default external project saved at schema v24 (written from the v25 model's defaults without `solvers.transient`):
 the last schema before transient flow (D-181). It must load as a steady k-omega SST project with the default
 transient settings (tests/test_transient.py).
+
+## `project_v25.json`
+A real schema v25 project written by the app (the square-cylinder validation's coarse level,
+run/validation/square_re22000/coarse/square.json, 2026-10-27; no absolute paths in it): a transient k-omega SST
+project with the inflow swing on (`perturb: true`, the v25 default) and no `perturb_initial` (it did not exist). It
+must load at v26 with both start-up perturbations off and every other setting unchanged (tests/test_transient.py,
+D-198).

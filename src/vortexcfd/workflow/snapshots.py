@@ -147,6 +147,12 @@ def setup_summary(sim: Simulation, numbers=None) -> dict[str, str]:
     out["reference: CofR"] = _text(rep.center_of_rotation)
     for b in sim.boundaries:
         out[f"boundary: {b.patch}"] = _text(b.model_dump(exclude={"patch"}))
+    if sim.physics.transient and not sim.internal:  # the declared start-up perturbations (D-198)
+        t = sim.solvers.transient
+        unit = "t_c" if t.time_unit == "flow_through" else "s"
+        declared = (["initial field"] if t.perturb_initial else []) + (
+            [f"inflow swing \u00b1{t.perturb_angle:g}\u00b0 for {t.perturb_time:g} {unit}"] if t.perturb else [])
+        out["transient: start-up perturbation"] = ", ".join(declared) or "none"
     return out
 
 
@@ -223,6 +229,8 @@ def capture(project: Project, name: str, now: datetime | None = None, points=Non
         snap.transient = {"sampling_start": statistics.get("start"), "strouhal": statistics.get("strouhal"),
                           "cycles": statistics.get("cycles"),
                           "rms": {name: c["rms"] for name, c in transient_stats.items()}}
+        if "perturbation" in record.transient:  # the declared start-up perturbations (D-198)
+            snap.transient["perturbation"] = list(record.transient["perturbation"])
     if (case / "postProcessing").is_dir():
         from vortexcfd.workflow.solving import report_scope
 

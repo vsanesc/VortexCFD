@@ -55,10 +55,22 @@ The statistics (averaged fields, mean and RMS of the coefficients, the Strouhal 
 transient: the flow develops from the free stream (or from a steady solution, "Start from") before it settles into
 its statistically steady state.
 
-- **Start-up perturbation** (external flow, on by default): for the first 10 flow-through times the inflow swings
-  by ±10° towards the lift direction at 0.2 U / l_ref, then flows along +x. It breaks the symmetry of the start, so a
-  symmetric body sheds within a few tens of flow-through times instead of over a hundred (the cylinder at Re 100:
-  3 sampled cycles after 226 s instead of 345 s on 4 cores). The sampling never starts before it has ended.
+- **Start-up perturbations** (external flow; both **off by default**, never applied unless you turn them on, D-198).
+  A symmetric body started from rest (a cylinder, a sphere) sheds only once round-off has grown into an asymmetry,
+  which can take more than a hundred flow-through times; the Transient section shows a hint while both are off.
+  Each option is its own checkbox with a one-line explanation under it:
+  - **Initial-field perturbation**: a small cross-flow velocity (up to 0.1 U along the lift direction, in a blob of
+    radius 0.25 l_ref centred 0.5 l_ref behind the body) is added to the **initial** velocity field only. The
+    boundary conditions are not touched: after t = 0 the run is exactly your set-up. It counts as lasting 5
+    flow-through times.
+  - **Inflow swing**: for the **Swing time** (default 10 flow-through times) the inflow direction swings by the
+    **Swing angle** (default ±10°) towards the lift direction and back at 0.2 U / l_ref, then flows along +x.
+  When one is on it is declared everywhere: in the case files (a comment block in system/controlDict, 0/U's inlet
+  for the swing, and system/setExprFieldsDict, which setExprFields applies once before the solver, for the initial
+  field), at the top of log.pimpleFoam, in the run record, the HTML report (Convergence) and the snapshots. The
+  sampling never starts before a perturbation has ended: the detection's windows begin after it, and a sampling
+  start set by hand inside it is refused. Their effect on the sampled statistics and the start-up time saved:
+  docs/validation/startup_perturbation/.
 - **Sampling starts at: Auto** (the default): the app watches the force history and starts the sampling once the
   start-up is over: over two consecutive **windows**, the mean of the stop quantity (Cd by default) changes by less
   than the **tolerance** and the ranges of Cd and Cl by less than the **Start-up detection tolerance** (default 5 %;

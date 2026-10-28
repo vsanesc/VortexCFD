@@ -1828,7 +1828,8 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   test_adaptive_time_step_dictionaries, test_the_rows_of_a_transient_project.
 
 ## D-187 A start-up perturbation for transient external flow: the inflow swings at 0.2 U / l_ref [NUMERICS-REVIEW]
-- Status: Proposed (task 1.1-transient, Part 2, Part A item 2).
+- Status: Proposed (task 1.1-transient, Part 2, Part A item 2). Amended by D-198: the swing is now a declared option,
+  off by default (it was on by default), beside a second one, the initial-field perturbation.
 - Context: from rest, a symmetric body's shedding grows from round-off: on the coarse cylinder the start-up was
   detected only at 151.7 t_c and 3 sampled cycles took 345 s of solver time on 4 cores (Part 1's requirement: 5 min).
 - Decision: `Transient.perturb` (default on), `perturb_angle` (default 10 deg), `perturb_time` (default 10 t_c, in
@@ -2021,4 +2022,53 @@ reviewed pull request. "Context: not recorded" means the repository does not sho
   validation; the DDES sphere's figures stay outside the repository. Nothing in the repository promises a DDES or
   Ahmed validation in 1.1 any more (PLAN, CHANGELOG, STATUS, the DDES validation folders).
 - Check: tests/test_transient.py::test_ddes_shows_an_inline_experimental_notice, test_ddes_project_checks.
+
+## D-198 Start-up perturbations are declared options, both off by default: the initial-field perturbation and the inflow swing (schema v26) [NUMERICS-REVIEW]
+- Status: Accepted (owner, 2026-10-28; QUESTIONS 259 closed: the owner's requirement is that a start-up perturbation
+  is a fully declared option, never applied silently). Amends D-187. The perturbation's amplitude, shape and end are
+  this task's choice: [NUMERICS-REVIEW].
+- Model (schema v26): `Transient.perturb_initial` (new) and `Transient.perturb` (the inflow swing of D-187, with
+  `perturb_angle` and `perturb_time`), both **False** by default for every project and preset. The v25 -> v26
+  migration sets both off (the swing was on by default in v25) and changes nothing else; fixture
+  tests/data/project_v25.json (a real v25 file with the swing on). A preset never turns one on (presets carry no
+  solver settings).
+- The initial-field perturbation (new): a cross-flow velocity added to the **initial** velocity field only,
+  w(x) = A U exp(-|x - x0|^2 / (2 s^2)) along the lift direction (+z), A = 0.1, s = 0.25 l_ref, x0 = 0.5 l_ref
+  behind the parts' largest x, on the centre of their y and z extents (a 2D section leaves y out: one cell across
+  its span). One sign across the wake's centre line: the antisymmetric (sinuous) mode of a symmetric wake, placed
+  where the shear layers separate and the recirculation forms, so the mirror symmetry of a symmetric body's start
+  is broken where the shedding begins (from rest it grows only from round-off: 151.7 t_c to a detected start-up on
+  the coarse cylinder). A small amplitude (a tenth of U, on a blob of half a reference length) so that it seeds the
+  instability without imposing a flow; its non-solenoidal part is removed by the first pressure solution. The
+  boundary conditions are untouched: after t = 0 the physics and the boundary conditions are exactly the user's
+  set-up. It counts as lasting INITIAL_PERTURB_END = 5 t_c (the free stream carries it five reference lengths
+  downstream, past the near wake). Applied by OpenFOAM's setExprFields (v2606, read in
+  applications/utilities/preProcessing/setExprFields; checked on the coarse cylinder: peak 0.098 U on the cell
+  centres, Ux unchanged, the boundary conditions written back): system/setExprFieldsDict holds the expression
+  (`readFields ( U );` first: without it v2606's setExprFields aborts, "Attempted non-const reference to const
+  object", on an expression that reads the field it sets). SolverRun runs `setExprFields` once (log.setExprFields)
+  on the serial 0/U before decomposePar, for a run from the start only (never for Continue); a failure stops the run
+  before the solver. Works after a start from the steady solution too (it adds to whatever 0/U holds).
+- The inflow swing (D-187): unchanged, now a separate declared option.
+- Declared everywhere when on: its own checkbox in Solvers > Transient with a visible one-line explanation under
+  it ("Initial-field perturbation", "Inflow swing"; the swing's angle and time rows only with it on); with both off
+  a muted hint suggests the initial-field option for symmetric bluff bodies (it never turns it on); a comment block
+  under the FoamFile header of system/controlDict (every declared option), of 0/U (the swing's inlet table; put back
+  after setExprFields rewrites the file) and of system/setExprFieldsDict (`FoamFileSpec.comment`, `.text`;
+  `case_writer.write_spec` is now the one writer of case files from specs); the control file's
+  `startupPerturbation` (one sentence each, physics_case.perturbation_lines); the solver log's first lines
+  ("VortexCFD start-up perturbation: ...") and the console; the run record's `transient.perturbation`; the HTML
+  report's Convergence row "Start-up perturbation"; the snapshot's `transient.perturbation` and its set-up row
+  "transient: start-up perturbation" (Compare); the SETUP.md of each validation that used one (the square cylinder,
+  the cylinder's Part 2 runs, the DDES sphere and square: all the swing, ±10 deg for 10 t_c; not rerun).
+- The sampling never starts before a perturbation ends: the control file's `notBefore` is the latest end of those
+  declared (the detection's two windows both begin after it, as D-187), and `workflow.solving.transient_problem`
+  refuses a sampling start set by hand before it (`Transient.perturbation_end`).
+- Dictionaries changed: with both off, a transient external case's 0/U inlet is fixedValue (it was the swing's
+  table by default) and transientControl's notBefore is 0; steady cases never had either and are unchanged. With
+  an option on: the comment blocks, system/setExprFieldsDict and transientControl's startupPerturbation.
+- Measured: docs/validation/startup_perturbation/ (the rules committed before the runs).
+- Check: tests/test_startup_perturbation.py (defaults and presets, the v25 migration, the dictionary and its
+  comments, both together, the refused sampling start and the held detection, SolverRun's setExprFields step and
+  declaration, the panel's rows, notes and hint, the report and the snapshot); tests/test_transient.py.
 

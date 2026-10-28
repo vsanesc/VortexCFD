@@ -58,6 +58,14 @@ opened 2026-10-28), Table 1 "Global parameters for flow past square cylinder", r
 1.9-2.2, L_R/D 1.38 (C_L' not measured: "there are no experimental results available for comparison"). Added in
 the Part 2 review; the references and the rule above are unchanged.
 
+## Start-up perturbation used (declared, D-198)
+
+Every run of this validation (the coarse and medium levels, the PISO timing and window runs, and measurement C)
+started with the **inflow swing**: the inflow direction swinging by ±10° in the x-z plane at 0.2 U / D for the first
+10 t_c, then along +x (D-187; the app's default when these runs were made). The initial-field perturbation was not
+used. Since D-198 both start-up perturbations are off by default and must be declared; the driver
+(tests/validation/square_case.py) declares the swing so that these runs are reproduced. The runs were not repeated.
+
 ## Pass rule
 
 The vault note's rule for this case (1.1-c), adopted unchanged:

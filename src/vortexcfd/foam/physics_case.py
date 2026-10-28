@@ -22,10 +22,11 @@ def inlet_turbulence(speed: float, intensity: float, nu: float, viscosity_ratio:
     return k, omega
 
 
+import dataclasses
 import math
 from dataclasses import dataclass, field
 
-from vortexcfd.core.model import Inflow, Physics, Reports, Solvers
+from vortexcfd.core.model import INITIAL_PERTURB_END, Inflow, Physics, Reports, Solvers
 from vortexcfd.foam.live_view import LIVE_VIEW, LiveViewSpec
 from vortexcfd.foam.live_view import function_object as live_function_object
 from vortexcfd.foam.case_writer import FoamFileSpec
@@ -411,7 +412,13 @@ class TransientTimes:
     max_delta_t: float
     window: float
     sampling_start: float | None
-    perturb_end: float = 0.0  # s: the inflow is along +x again from here (0: no perturbation, D-187)
+    perturb_end: float = 0.0  # s: the inflow is along +x again from here (0: no inflow swing, D-187)
+    initial_end: float = 0.0  # s: the initial-field perturbation counts as over from here (0: none, D-198)
+
+    @property
+    def not_before(self) -> float:
+        """s: the end of every start-up perturbation that is on (D-198): no sampling before it."""
+        return max(self.perturb_end, self.initial_end)
 
 
 def transient_times(inp: SolverCaseInput) -> TransientTimes:
@@ -430,14 +437,104 @@ def transient_times(inp: SolverCaseInput) -> TransientTimes:
     start = settings.sampling_start
     if adaptive:  # the first step: never above the largest
         dt = min(dt, max_dt)
-    perturb_end = settings.perturb_time * scale if perturbed(inp) else 0.0
+    perturb_end = settings.perturb_time * scale if inflow_swing(inp) else 0.0
+    initial_end = INITIAL_PERTURB_END * t_c if initial_perturbation(inp) else 0.0
     return TransientTimes(t_c, length, settings.end_time * scale, settings.write_interval * scale, dt, max_dt,
-                          settings.window * scale, None if start is None else start * scale, perturb_end)
+                          settings.window * scale, None if start is None else start * scale, perturb_end,
+                          initial_end)
 
 
-def perturbed(inp: SolverCaseInput) -> bool:
-    """Whether the run starts with the inflow perturbation (D-187): a transient external flow with it on."""
+def inflow_swing(inp: SolverCaseInput) -> bool:
+    """Whether the run starts with the inflow swing (D-187, D-198): a transient external flow with it declared."""
     return inp.physics.transient and inp.internal is None and inp.solvers.transient.perturb
+
+
+def initial_perturbation(inp: SolverCaseInput) -> bool:
+    """Whether the initial velocity field gets the initial-field perturbation (D-198): a transient external flow
+    with it declared."""
+    return inp.physics.transient and inp.internal is None and inp.solvers.transient.perturb_initial
+
+
+# The initial-field perturbation (D-198) [NUMERICS-REVIEW]: a cross-flow velocity in the lift direction (+z) of peak
+# INITIAL_PERTURB_AMPLITUDE x U, a Gaussian of standard deviation INITIAL_PERTURB_RADIUS x l_ref centred
+# INITIAL_PERTURB_OFFSET x l_ref behind the parts' downstream end, on the centre of their cross-section (in 2D the
+# span direction y is left out). It is the antisymmetric (sinuous) mode of a symmetric wake: one sign across the
+# wake's centre line, so the mirror symmetry z -> -z of a symmetric body's start is broken where the shedding
+# begins. It counts as lasting INITIAL_PERTURB_END (core.model) flow-through times.
+INITIAL_PERTURB_AMPLITUDE = 0.1
+INITIAL_PERTURB_RADIUS = 0.25
+INITIAL_PERTURB_OFFSET = 0.5
+# The case file that carries it: setExprFields (v2606, applications/utilities/preProcessing/setExprFields) reads it
+# and changes 0/U once before the run (foam/solver_run.SolverRun).
+INITIAL_PERTURB_FILE = transient_files.INITIAL_PERTURB_FILE
+
+
+def initial_perturbation_centre(inp: SolverCaseInput) -> tuple[float, float, float]:
+    """The centre (m) of the initial-field perturbation: INITIAL_PERTURB_OFFSET l_ref behind the parts' largest x,
+    on the centre of their y and z extents."""
+    b = inp.parts_bounds
+    length = reference_values(inp.parts_bounds, inp.reports, inp.span).l_ref
+    return (b[1] + INITIAL_PERTURB_OFFSET * length, 0.5 * (b[2] + b[3]), 0.5 * (b[4] + b[5]))
+
+
+def initial_perturbation_expression(inp: SolverCaseInput) -> str:
+    """The setExprFields expression of the perturbed initial velocity: U + (0, 0, A U exp(-r^2 / (2 s^2)))."""
+    length = reference_values(inp.parts_bounds, inp.reports, inp.span).l_ref
+    x0, y0, z0 = initial_perturbation_centre(inp)
+    amplitude = INITIAL_PERTURB_AMPLITUDE * inp.inflow.speed
+    width = 2.0 * (INITIAL_PERTURB_RADIUS * length) ** 2
+    terms = [f"sqr(pos().x() - ({x0:.10g}))", f"sqr(pos().z() - ({z0:.10g}))"]
+    if inp.span is None:  # 3D: a blob in y too; a 2D section is uniform across its one-cell span
+        terms.insert(1, f"sqr(pos().y() - ({y0:.10g}))")
+    return f"U + vector(0, 0, {amplitude:.10g}*exp(-({' + '.join(terms)})/{width:.10g}))"
+
+
+def perturbation_lines(inp: SolverCaseInput) -> list[str]:
+    """One plain sentence per declared start-up perturbation (D-198), for the case files' comments, the control
+    file, the solver log, the run record, the report and the snapshots; [] with none."""
+    lines = []
+    if initial_perturbation(inp) or inflow_swing(inp):
+        times = transient_times(inp)
+        settings = inp.solvers.transient
+    if initial_perturbation(inp):
+        x0, y0, z0 = initial_perturbation_centre(inp)
+        where = f"x = {x0:.6g} m, z = {z0:.6g} m" + ("" if inp.span is not None else f", y = {y0:.6g} m")
+        lines.append(f"Initial-field perturbation (declared by the user): a cross-flow velocity of up to "
+                     f"{INITIAL_PERTURB_AMPLITUDE:g} U along +z, a Gaussian of radius {INITIAL_PERTURB_RADIUS:g} l_ref "
+                     f"centred {INITIAL_PERTURB_OFFSET:g} l_ref behind the body ({where}), added to the initial "
+                     f"velocity field only; boundary conditions unchanged; no sampling before t = "
+                     f"{times.initial_end:.6g} s ({INITIAL_PERTURB_END:g} t_c).")
+    if inflow_swing(inp):
+        lines.append(f"Inflow swing (declared by the user): the inflow direction swings by +/-{settings.perturb_angle:g} "
+                     f"deg in the x-z plane at {PERTURB_STROUHAL:g} U / l_ref until t = {times.perturb_end:.6g} s, "
+                     f"then flows along +x as set; no sampling before that time.")
+    return lines
+
+
+def initial_perturbation_file(inp: SolverCaseInput) -> FoamFileSpec:
+    """system/setExprFieldsDict of the initial-field perturbation (D-198) [NUMERICS-REVIEW]: setExprFields changes
+    0/U once before the solver runs (U preloaded with readFields: v2606's setExprFields aborts on an expression that
+    reads the field it sets without it). The boundary conditions are written back as they are."""
+    text = (
+        "readFields ( U );\n\n"
+        "expressions\n(\n    U\n    {\n        field       U;\n        dimensions  [0 1 -1 0 0 0 0];\n"
+        f"        expression\n        #{{\n            {initial_perturbation_expression(inp)}\n        #}};\n"
+        "    }\n);\n"
+    )
+    comment = ("VortexCFD start-up perturbation (D-198): Solvers > Transient > Initial-field perturbation, turned on\n"
+               "by the user (off by default). setExprFields runs this file once, before the solver, and changes the\n"
+               "initial velocity field 0/U only. After t = 0 nothing is imposed: the boundary conditions and the\n"
+               "physics are exactly the project's.\n" + "\n".join(perturbation_lines(inp)[:1]))
+    return FoamFileSpec(content={}, comment=comment, text=text)
+
+
+def perturbation_comment(inp: SolverCaseInput) -> str | None:
+    """The comment block of controlDict declaring every start-up perturbation that is on (D-198); None with none."""
+    lines = perturbation_lines(inp)
+    if not lines:
+        return None
+    return ("VortexCFD start-up perturbation(s) declared by the user (D-198; Solvers > Transient):\n"
+            + "\n".join(f"- {line}" for line in lines))
 
 
 # The start-up perturbation's forcing frequency as a Strouhal number on l_ref (D-187): 0.2, a bluff body's shedding;
@@ -531,8 +628,9 @@ def transient_control(inp: SolverCaseInput) -> FoamFileSpec:
         times.convective_time, times.length, inp.inflow.speed, times.end_time, times.window, settings.tolerance,
         settings.stop_quantity, settings.statistics_stop, start, False,
         transient_files.field_average(start if start is not None else 0.0), settings.detect_tolerance,
-        times.perturb_end, *((settings.resolved_max_courant(inp.physics.laminar, inp.physics.ddes), times.max_delta_t)
-                             if settings.time_step == "adaptive" else (None, None)))
+        times.not_before, *((settings.resolved_max_courant(inp.physics.laminar, inp.physics.ddes), times.max_delta_t)
+                            if settings.time_step == "adaptive" else (None, None)),
+        tuple(perturbation_lines(inp)))
     return FoamFileSpec(content=control.content())
 
 
@@ -984,7 +1082,7 @@ def initial_fields(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
     moving_u = {"type": "fixedValue", "value": list(ground_velocity(inp))}  # a moving wall: the free stream's velocity
     u = _field(
         inp, "volVectorField", [0, 1, -1, 0, 0, 0, 0], velocity,
-        inlet=perturbed_inlet(inp) if perturbed(inp) else {"type": "fixedValue", "value": velocity},
+        inlet=perturbed_inlet(inp) if inflow_swing(inp) else {"type": "fixedValue", "value": velocity},
         outlet={"type": "inletOutlet", "inletValue": [0.0, 0.0, 0.0], "value": velocity},
         far=slip, wall={"type": "noSlip"},
         ground=(moving_u if inp.ground == "moving" else None), moving=moving_u,
@@ -1033,6 +1131,11 @@ def build_solver_files(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
     }
     if inp.physics.transient:  # D-181
         files[transient_files.TRANSIENT_FILE] = transient_control(inp)
+        declared = perturbation_comment(inp)
+        if declared is not None:  # a start-up perturbation is declared in the case files (D-198)
+            files["system/controlDict"] = dataclasses.replace(files["system/controlDict"], comment=declared)
+        if initial_perturbation(inp):
+            files[INITIAL_PERTURB_FILE] = initial_perturbation_file(inp)
     elif inp.two_stage:  # D-126 (a transient run is second order from the start)
         files[STAGES_FILE] = turbulence_stages()
     if inp.internal is not None:  # the report definitions for the monitors (D-129); OpenFOAM ignores the file
@@ -1040,6 +1143,11 @@ def build_solver_files(inp: SolverCaseInput) -> dict[str, FoamFileSpec]:
     fields = internal_fields(inp) if inp.internal is not None else initial_fields(inp)
     if laminar:  # U and p only (D-182)
         fields = {rel: spec for rel, spec in fields.items() if rel in LAMINAR_FIELDS}
+    if inflow_swing(inp):  # its table is in 0/U's inlet condition (D-187, D-198)
+        fields["0/U"] = dataclasses.replace(fields["0/U"], comment=(
+            "VortexCFD start-up perturbation (D-198), declared by the user: Solvers > Transient > Inflow swing.\n"
+            "The inlet's uniformFixedValue table below turns the inflow direction; after it ends the inflow is\n"
+            "along +x as set.\n" + perturbation_lines(inp)[-1]))
     files.update(fields)
     if inp.solvers.cores > 1:  # parallel run (D-063)
         files[DECOMPOSE_DICT] = decompose_par_dict(inp.solvers.cores)

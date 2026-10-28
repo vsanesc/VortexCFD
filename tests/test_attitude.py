@@ -258,12 +258,12 @@ def test_v17_project_migrates_with_a_note(tmp_path: Path) -> None:
     assert stored["studies"]["polar"]["init_from_previous"] is True and "frame" not in stored["refinement_volumes"][0]
     notes: list[str] = []
     sim = load_simulation(DATA / "project_v17.json", notes)
-    assert sim.schema_version == 25 and sim.inflow.alpha_deg == 6.0  # the angle is kept
+    assert sim.schema_version == 26 and sim.inflow.alpha_deg == 6.0  # the angle is kept
     assert sim.refinement_volumes[0].frame == "body" and sim.refinement_volumes[0].shape.pitch_deg == 6.0
     assert len(notes) == 1 and "rotation of the parts" in notes[0] and "out of date" in notes[0]
     assert "init_from_previous" not in sim.studies.polar.model_dump()
     assert migrate({"schema_version": 17, "inflow": {"alpha_deg": 0.0}}, notes) == {
-        "schema_version": 25, "inflow": {"alpha_deg": 0.0}}
+        "schema_version": 26, "inflow": {"alpha_deg": 0.0}}
     assert len(notes) == 1  # no note at 0 degrees
     path = tmp_path / "old.json"
     path.write_text((DATA / "project_v17.json").read_text())

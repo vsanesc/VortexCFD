@@ -65,7 +65,8 @@ def build_project(folder: Path, level: str = "coarse", end_time: float = END_TIM
                   **transient_settings):
     """The project in ``folder`` (created): the "2D airfoil" preset, k-omega SST transient at Re 22,000, the square
     imported as a section, the domain, the level's mesh and the wake box; the app's transient defaults (PIMPLE at
-    Co 2, the start-up perturbation, the detected sampling start) unless ``transient_settings`` say otherwise."""
+    Co 2, the detected sampling start) and the inflow swing of the validation runs (±10 deg for 10 t_c, declared:
+    off by default since D-198) unless ``transient_settings`` say otherwise."""
     from vortexcfd.core.model import BoxShape, RefinementVolume
     from vortexcfd.core.presets import BUILTIN_PRESETS, apply_preset
     from vortexcfd.core.project import Project
@@ -82,7 +83,8 @@ def build_project(folder: Path, level: str = "coarse", end_time: float = END_TIM
     project.update_domain(radius=RADIUS, downstream=WAKE)
     project.update_mesh(base_size=base, surface_level_min=SURFACE_LEVEL, surface_level_max=SURFACE_LEVEL)
     project.update_solver(cores=cores, live_view=False)
-    project.update_transient(end_time=end_time, write_interval=end_time, window=WINDOW, **transient_settings)
+    project.update_transient(end_time=end_time, write_interval=end_time, window=WINDOW,
+                             **{"perturb": True, **transient_settings})  # the runs used the swing (D-198)
     centre, size = WAKE_BOX
     project._sim = project.sim.model_copy(update={"refinement_volumes": [RefinementVolume(
         id="wake", name="Wake", shape=BoxShape(centre=centre, size=size), target_size=WAKE_LEVEL_SIZE * base,

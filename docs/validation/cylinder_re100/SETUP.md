@@ -49,6 +49,14 @@ Amendment (after the coarse level, before the fine one; the pass rule is unchang
 The coarse level's start-up was detected at 153.7 t_c, leaving 26 t_c (4.3 cycles) to sample; 20 more t_c keep the
 finest level above the 3-cycle minimum even if its start-up ends later.
 
+## Start-up perturbation used (declared, D-198)
+
+The three-level study (Part 1) ran **without** any start-up perturbation (it did not exist; the driver,
+tests/validation/cylinder_case.py, keeps both off unless set). The Part 2 runs of RESULT.md ("Part 2": the PIMPLE
+comparisons and the perturbation timing) used the **inflow swing** (±10° at 0.2 U / D for 10 t_c), declared with
+`--set perturb=true`. The perturbation-equivalence runs (docs/validation/startup_perturbation/) declare their start
+each. Since D-198 both perturbations are off by default.
+
 ## References
 
 Sourced in Part 2, Part 0 of task 1.1-transient (2026-10-27), replacing the values first written here from memory.

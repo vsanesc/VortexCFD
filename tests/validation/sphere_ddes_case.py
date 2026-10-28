@@ -46,7 +46,7 @@ def build_project(folder: Path, end_time: float = END_TIME, cores: int = CORES, 
     project.update_reports(reference_length=DIAMETER)
     project.update_solver(cores=cores, live_view=False)
     project.update_transient(end_time=end_time, write_interval=end_time, sampling_start=SAMPLING_START,
-                             **transient_settings)
+                             **{"perturb": True, **transient_settings})  # the run used the inflow swing (D-198)
     centre, size = FOCUS_BOX
     project._sim = project.sim.model_copy(update={"refinement_volumes": [RefinementVolume(
         id="focus", name="Focus", shape=BoxShape(centre=centre, size=size), target_size=FOCUS_SIZE,

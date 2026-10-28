@@ -127,9 +127,10 @@ def test_piso_or_pimple_per_case_type_and_by_choice() -> None:
 
 
 def test_the_start_up_perturbation_swings_the_inflow_and_holds_the_detection(tmp_path: Path) -> None:
-    """D-187: the inflow swings +-10 degrees towards +z at 0.2 U / l_ref for 10 t_c (two periods), the speed kept,
-    then along +x; the control file holds the detection until then; off: a plain fixedValue inlet."""
-    files = build_solver_files(_input())  # l_ref 2 m at 4 m/s: t_c = 0.5 s, f = 0.4 Hz, 10 t_c = 5 s
+    """D-187: the inflow swing (declared, D-198) turns the inflow +-10 degrees towards +z at 0.2 U / l_ref for 10 t_c
+    (two periods), the speed kept, then along +x; the control file holds the detection until then; off: a plain
+    fixedValue inlet."""
+    files = build_solver_files(_input(perturb=True))  # l_ref 2 m at 4 m/s: t_c = 0.5 s, f = 0.4 Hz, 10 t_c = 5 s
     inlet = files["0/U"].content["boundaryField"]["inlet"]
     assert inlet["type"] == "uniformFixedValue"
     kind, rows = inlet["uniformValue"]
@@ -335,11 +336,11 @@ def test_the_record_keeps_the_transient_results(tmp_path: Path) -> None:
 
 def test_older_projects_stay_steady(tmp_path: Path) -> None:
     sim = load_simulation(DATA / "project_v24.json")
-    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 25
+    assert sim.schema_version == CURRENT_SCHEMA_VERSION == 26
     assert sim.physics.flow == "incompressible_steady" and sim.physics.turbulence_model == "kOmegaSST"
     assert sim.solvers.transient == Transient()
     raw = json.loads((DATA / "project_v24.json").read_text())
-    assert migrate(raw)["schema_version"] == 25 and "transient" not in migrate(raw)["solvers"]
+    assert migrate(raw)["schema_version"] == 26 and "transient" not in migrate(raw)["solvers"]
 
 
 def test_a_steady_hash_has_no_transient_settings(make_window) -> None:
@@ -363,13 +364,14 @@ def test_start_from_the_steady_solution(make_window) -> None:
                                     "boundaryField\n{\n    old\n    {\n        type zeroGradient;\n    }\n}\n")
     write_run_record(case, RunRecord("criteria_met", 300))
     w.project.update_physics(flow="incompressible_transient")
-    w.project.update_transient(start_from="steady")
+    w.project.update_transient(start_from="steady", perturb=True)  # the swing declared (D-198)
     assert solving.readiness(w.project, has_mesh=True, mesh_stale=False, meshing=False) is None
     solving.prepare_solver_case(w.project)
     u = read_foam_file(case / "0" / "U")
     assert tuple(u["internalField"]) == (7.0, 0.0, 0.0)  # the steady solution's field
-    assert "old" not in u["boundaryField"]  # the new conditions: the perturbed inlet (D-187)
+    assert "old" not in u["boundaryField"]  # the new conditions: the swinging inlet (D-187)
     assert u["boundaryField"]["inlet"]["type"] == "uniformFixedValue"
+    assert "// VortexCFD start-up perturbation (D-198)" in (case / "0" / "U").read_text()  # still declared
     assert read_foam_file(case / "0" / "k")["internalField"] != 0  # the free stream: the steady run had none
     assert not (case / "300").exists() and not (case / solving.STEADY_START).exists()
     assert read_foam_file(case / "system" / "controlDict")["application"] == "pimpleFoam"
@@ -407,6 +409,8 @@ def test_the_rows_of_a_transient_project(make_window) -> None:
     w.project.update_transient(algorithm="pimple")
     assert panel._rows["transient_outer_tolerance"].isVisibleTo(panel)
     assert panel.group_fields["transient"]["max_courant"].spin.value() == 2.0
+    assert not panel._rows["transient_perturb_angle"].isVisibleTo(panel)  # the swing is off by default (D-198)
+    w.project.update_transient(perturb=True)
     assert panel._rows["transient_perturb_angle"].isVisibleTo(panel)
     w.project.update_transient(perturb=False)
     assert not panel._rows["transient_perturb_angle"].isVisibleTo(panel)
@@ -801,7 +805,7 @@ def test_a_sampling_start_inside_the_perturbation_is_refused(make_window) -> Non
     perturbation off, it can (the detection already never samples it: settled_at's not_before)."""
     w = make_window()
     w.project.update_physics(flow="incompressible_transient")
-    w.project.update_transient(sampling_start=5.0)  # perturbation: 10 flow-through times
+    w.project.update_transient(sampling_start=5.0, perturb=True)  # the swing: 10 flow-through times
     assert "inside the start-up perturbation" in (solving.transient_problem(w.project, [], [], [], []) or "")
     w.project.update_transient(sampling_start=10.0)
     assert solving.transient_problem(w.project, [], [], [], []) is None

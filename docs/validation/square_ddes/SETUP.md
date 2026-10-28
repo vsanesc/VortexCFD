@@ -10,7 +10,7 @@ is not changed after them.
 
 k-omega SST DDES (D-191; the app's defaults: Δω̃, the σ variant, DEShybrid with linear in the resolved LES region and
 linearUpwind elsewhere, k and omega by linearUpwind on limited gradients (D-192), PIMPLE with residual control at
-Co 1, the start-up perturbation) on the case validated in 2D URANS (docs/validation/square_re22000/), now in 3D with
+Co 1, the start-up perturbation: the inflow swing, ±10° for 10 t_c, declared since D-198) on the case validated in 2D URANS (docs/validation/square_re22000/), now in 3D with
 resolved spanwise turbulence.
 
 ## Mesh

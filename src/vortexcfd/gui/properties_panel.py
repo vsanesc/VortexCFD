@@ -653,14 +653,19 @@ GROUPS["transient"] = {
          "The start-up transient is over when the ranges (max - min) of Cd and Cl change by at most this between "
          "two consecutive windows (and the mean of the quantity below by at most the tolerance further down). "
          "Default 5 %. Or set the sampling start by hand above."),
-        ("perturb", "Start-up perturbation", QCheckBox,
-         "External flow: for the time below, the inflow direction swings by the angle below towards the lift "
-         "direction and away, at 0.2 U / l_ref (a bluff body's shedding frequency), then flows along +x again. It "
-         "breaks the symmetry of the start, so the shedding of a symmetric body is developed within a few tens of "
-         "flow-through times instead of over a hundred. The sampling never starts before it has ended."),
-        ("perturb_angle", "Perturbation angle", lambda: _dspin(0.1, 30.0, 1, " \u00b0"),
-         "The largest angle of the inflow during the perturbation (default 10\u00b0)."),
-        ("perturb_time", "Perturbation time", lambda: _dspin(1e-6, 1e9, 4, " t_c"),
+        ("perturb_initial", "Initial-field perturbation", QCheckBox,
+         "Start-up perturbation, off by default (D-198). External flow: adds a small cross-flow velocity (up to "
+         "10 % of U, along the lift direction) in a blob of radius 0.25 l_ref centred 0.5 l_ref behind the body, to "
+         "the initial velocity field only. The boundary conditions are not touched: after t = 0 the run is exactly "
+         "the set-up. It breaks the symmetry of a symmetric body's start, so shedding begins sooner. The sampling "
+         "never starts before 5 flow-through times."),
+        ("perturb", "Inflow swing", QCheckBox,
+         "Start-up perturbation, off by default (D-187, D-198). External flow: for the time below, the inflow "
+         "direction swings by the angle below towards the lift direction and away, at 0.2 U / l_ref (a bluff "
+         "body's shedding frequency), then flows along +x again. The sampling never starts before it has ended."),
+        ("perturb_angle", "Swing angle", lambda: _dspin(0.1, 30.0, 1, " \u00b0"),
+         "The largest angle of the inflow during the swing (default 10\u00b0)."),
+        ("perturb_time", "Swing time", lambda: _dspin(1e-6, 1e9, 4, " t_c"),
          "How long the inflow swings (default 10 flow-through times: two periods), in the unit of the times."),
         ("window", "Window", lambda: _dspin(1e-6, 1e9, 4, " t_c"),
          "The window of the start-up detection and of the statistics stop (in the unit above). Default 20 "
@@ -678,8 +683,21 @@ GROUPS["transient"] = {
          "mesh (run the project steady first; its solution is replaced by the transient one)."),
     ),
 }
+# The one-line explanation shown under a row (not only in its tooltip): what a declared start-up perturbation does to
+# the flow (D-198).
+FIELD_NOTES = {
+    ("transient", "perturb_initial"): "Adds a small sideways velocity behind the body to the initial field only; the "
+                                      "boundary conditions are unchanged.",
+    ("transient", "perturb"): "Turns the inflow direction back and forth by the angle below for the time below, then "
+                              "the inflow is along +x as set.",
+}
+# The hint of a transient external flow with neither start-up perturbation (D-198): a hint, never turned on for the
+# user.
+PERTURB_HINT = ("Hint: a symmetric bluff body (a cylinder, a sphere) started from rest can take more than 100 "
+                "flow-through times to start shedding; the initial-field perturbation above shortens that. It stays "
+                "off unless you turn it on.")
 # The transient settings in the chosen time unit (their suffix: " t_c" or " s"): core.model.TRANSIENT_TIME_FIELDS.
-# The rows of PIMPLE only, and of the start-up perturbation (external flow) only (D-185, D-187).
+# The rows of PIMPLE only, and of the inflow swing (external flow, declared) only (D-185, D-187, D-198).
 DES_ROWS = ("physics_des_delta", "physics_des_use_sigma", "physics_des_scheme")
 PIMPLE_ROWS = ("transient_outer_correctors", "transient_outer_tolerance")
 PERTURB_ROWS = ("transient_perturb_angle", "transient_perturb_time")
@@ -1209,6 +1227,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
         self._layout.addWidget(self.mesh_empty)
         # Physics / Free stream / Solvers nodes and the Body attitude (Geometry): one generic group each.
         self.group_fields: dict[str, dict[str, QWidget]] = {}
+        self.field_notes: dict[str, QLabel] = {}
         for gkind, spec in GROUPS.items():
             fields: dict[str, QWidget] = {}
             header = self._section(*spec["section"])
@@ -1220,7 +1239,12 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                 widget = factory()
                 widget.setToolTip(tip)
                 fields[key] = widget
-                self._layout.addWidget(self._make_row(f"{gkind}_{key}", label, widget))
+                host: QWidget = widget
+                if (gkind, key) in FIELD_NOTES:  # a visible one-line explanation under it (D-198)
+                    host, note = self._with_note(widget)
+                    note.setText(FIELD_NOTES[gkind, key])
+                    self.field_notes[f"{gkind}_{key}"] = note
+                self._layout.addWidget(self._make_row(f"{gkind}_{key}", label, host))
                 _connect_commit(widget, lambda k=key, g=gkind: self._commit_group(g, k))
             self.group_fields[gkind] = fields
             if gkind == "inflow":  # the angle of attack lives in Geometry > Body attitude: said and linked (D-167)
@@ -1237,6 +1261,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
                 self.physics_ddes_warning = self._note("")
                 self.physics_ddes_note = self._note("")
             if gkind == "transient":  # the time unit (D-181)
+                self.transient_perturb_hint = self._note(PERTURB_HINT)
                 self.transient_convective = self._ro_row("transient_convective", "Flow-through time")
                 self.transient_convective.setToolTip("t_c = l_ref / U: the reference length (Reference Values) "
                                                      "over the free-stream speed, the unit of the times above")
@@ -2008,8 +2033,12 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
             for key in PIMPLE_ROWS:
                 self._rows[key].setVisible(pimple)
             self._rows["transient_perturb"].setVisible(not sim.internal)
+            self._rows["transient_perturb_initial"].setVisible(not sim.internal)
             for key in PERTURB_ROWS:
                 self._rows[key].setVisible(not sim.internal and settings.perturb)
+        self.transient_perturb_hint.setVisible(  # a hint only: neither perturbation is turned on for the user (D-198)
+            self._group_shown("transient") and not sim.internal and not sim.solvers.transient.perturb
+            and not sim.solvers.transient.perturb_initial)
         self._rows["transient_convective"].setVisible(self._group_shown("transient"))
         if self._group_shown("transient"):
             self.transient_convective.setText(self._convective_time_text())
@@ -2113,13 +2142,7 @@ class PropertiesPanel(StudyRowsMixin, VolumeRowsMixin, InternalRowsMixin, SceneR
 
     def _convective_time(self) -> float | None:
         """t_c = l_ref / U in seconds, None without a part."""
-        try:
-            _box, _names, bounds = parts_layout(self._project)
-        except (MeshingNotReady, TypeError, ValueError, OSError):
-            return None
-        if bounds is None:
-            return None
-        return reference_values(bounds, self._project.sim.reports).l_ref / self._project.sim.inflow.speed
+        return solving.convective_time(self._project)
 
     def _commit_group(self, gkind: str, key: str) -> None:
         if not self._group_shown(gkind):

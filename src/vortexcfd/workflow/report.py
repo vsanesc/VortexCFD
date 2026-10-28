@@ -275,6 +275,8 @@ def convergence_section(project: Project) -> Section:
                 ("Sampling start", "not reached (the start-up transient did not settle)" if start is None else
                  f"t = {start:.6g} s ({'detected' if tr.get('detected') else 'set'})"),
                 *([("Statistics converged at", f"t = {tr['met_time']:.6g} s")] if tr.get("met_time") else []),
+                *([("Start-up perturbation", "; ".join(tr["perturbation"]) or "none")]  # declared (D-198)
+                  if "perturbation" in tr else []),
                 ("Solver time", _num(record.duration_s, "{:.0f} s") + f" on {record.cores} cores"),
                 ("Up to date", rows[-1][1])]
     body = _pairs(rows)

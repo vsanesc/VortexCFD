@@ -572,7 +572,7 @@ settled the open ones on 2026-10-17.
 258. **[CLOSED (owner, 2026-10-28): approved; D-192 Accepted]** [NUMERICS-REVIEW] **k and omega by linearUpwind instead of limitedLinear (D-192, amends the accepted
      D-181).** limitedLinear 1 drove omega negative and crashed the first URANS run (the square cylinder) in its
      first step; linearUpwind on cell-limited gradients ran without a single clip. Accept the change?
-259. **[OPEN]** **The start-up perturbation: when to end it, and for which projects (D-187).** Today it is on by
+259. **[CLOSED (owner, 2026-10-28): a fully declared option, never applied silently; a second mechanism (the initial-field perturbation), the swing kept as a separate option, both off by default; D-198]** **The start-up perturbation: when to end it, and for which projects (D-187).** Today it is on by
      default for every transient external flow and lasts a fixed 10 flow-through times (on the square cylinder
      5.6-10.6 % of the solver time; the earliest detection is then 50 t_c). Two proposals, not implemented: (a)
      end it once the lift shows a developed asymmetric oscillation (for example its amplitude over the last period

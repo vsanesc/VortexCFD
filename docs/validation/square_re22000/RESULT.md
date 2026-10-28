@@ -41,6 +41,12 @@ with two levels and a modulated signal no extrapolation is attempted. Mean Cl -0
   largest Courant number exceeded the target only in the first two steps of the impulsive start (6.1 and 11.0 at
   t ≈ 0.0015 s), not in the sampled flow.
 
+## Start-up perturbation used (declared, D-198)
+
+These runs used the inflow swing (±10° at 0.2 U / D for 10 t_c, then +x), as SETUP.md states; no initial-field
+perturbation. The sampling windows all start after it ended (detected at 95.8 and 82.3 t_c; set at 96 t_c for the
+window comparisons). They were not rerun after D-198 made both perturbations declared options, off by default.
+
 ## Cost
 
 | Level | Cells | Solver wall time | Wall time per step | Wall µs per cell and step (4 cores) |

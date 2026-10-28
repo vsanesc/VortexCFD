@@ -12,8 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from vortexcfd.core.project import Project
-from vortexcfd.foam.case_writer import enable_clean_stop
-from vortexcfd.foam.dictfile import write_foam_file
+from vortexcfd.foam.case_writer import enable_clean_stop, write_spec
 from vortexcfd.foam.mesh_case import (
     TRI_SURFACE,
     MeshCaseInput,
@@ -323,6 +322,6 @@ def solver_writer(project: Project):
             if (case / name).is_dir():
                 shutil.rmtree(case / name)
         for rel, spec in enable_clean_stop(build_solver_files(for_case(inp, case))).items():
-            write_foam_file(case / rel, spec.content, object_name=Path(rel).name, class_name=spec.class_name)
+            write_spec(case / rel, spec)
 
     return write

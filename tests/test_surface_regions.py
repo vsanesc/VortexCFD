@@ -57,8 +57,8 @@ def test_surface_shape_model_and_migration() -> None:
     volume = RefinementVolume(id="v1", name="r", shape={"kind": "surface", "file": "g/r.stl", "units": "mm"},
                               target_size=0.01)
     assert isinstance(volume.shape, SurfaceShape) and volume.shape.units == "mm"
-    assert CURRENT_SCHEMA_VERSION == 25
-    assert migrate({"schema_version": 21, "x": 1}) == {"schema_version": 25, "x": 1}
+    assert CURRENT_SCHEMA_VERSION == 26
+    assert migrate({"schema_version": 21, "x": 1}) == {"schema_version": 26, "x": 1}
 
 
 def test_part_becomes_a_refinement_region_in_one_undo_step(tmp_path: Path) -> None:

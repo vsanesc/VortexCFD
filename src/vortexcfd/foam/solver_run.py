@@ -44,6 +44,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from vortexcfd.core.model import StoppingCriteria
+from vortexcfd.foam.case_writer import insert_comment
 from vortexcfd.foam.dictfile import read_foam_file, set_foam_entry
 from vortexcfd.foam import convergence
 from vortexcfd.foam.logparse import LogParser, TimeStep
@@ -493,6 +494,39 @@ class SolverRun:
         self._forward_line(summary + "\n")
         return summary, None
 
+    def _perturb_initial_field(self) -> str | None:
+        """setExprFields on the case's 0/U (the declared initial-field perturbation, D-198; log.setExprFields); the
+        comment block declaring a start-up perturbation in 0/U is put back (setExprFields writes the file anew).
+        Returns an error message, or None."""
+        field = self.case_dir / "0" / "U"
+        try:
+            lines = field.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            lines = []
+        comment = [line[3:] for line in lines if line.startswith("// ") and not line.startswith("// *")]
+        self._forward_line("Initial-field perturbation (declared): setExprFields on 0/U\n")
+        res = self._step(["setExprFields"], "log.setExprFields", self._forward_line)
+        if res.timed_out or res.stop_requested:
+            with self._lock:
+                self._stop = True
+            return None
+        if res.exit_code != 0:
+            return f"setExprFields failed (exit code {res.exit_code}): see log.setExprFields"
+        if comment and field.is_file():
+            insert_comment(field, "\n".join(comment))
+        return None
+
+    def _declare_perturbations(self, log_file: Path) -> bool:
+        """Write the declared start-up perturbations (D-198) at the top of the solver log of a run from the start (and
+        show them in the console); False when there are none (the solver then writes the log as usual)."""
+        lines = self._transient.perturbations if self._transient is not None else ()
+        if not lines:
+            return False
+        text = "".join(f"VortexCFD start-up perturbation: {line}\n" for line in lines)
+        log_file.write_text(text, encoding="utf-8")
+        self._forward_line(text)
+        return True
+
     def _reconstruct(self, new_times: bool = False) -> bool:
         """reconstructPar of the latest time, or (``new_times``) of every time not reconstructed yet: the times
         written on request during the run (D-172), appended to log.reconstructPar."""
@@ -528,15 +562,22 @@ class SolverRun:
             if resume is not None and resume.reconstruct_first and not resume.reuse_decomposition:
                 if not self._reconstruct():  # the latest time was only in the processor directories
                     error = "reconstructPar failed: the latest time cannot be continued (see log.reconstructPar)"
-            if error is None and self.cores > 1 and not (resume is not None and resume.reuse_decomposition):
+            if resume is None and (self.case_dir / transient.INITIAL_PERTURB_FILE).is_file():
+                error = self._perturb_initial_field()  # D-198: once, on the serial 0/U, before decomposePar
+                with self._lock:
+                    stopped_early = self._stop
+            go_on = error is None and not stopped_early
+            if go_on and self.cores > 1 and not (resume is not None and resume.reuse_decomposition):
                 decomposition, error = self._decompose(latest_time=resume is not None)
                 with self._lock:
                     stopped_early = self._stop
-            elif error is None and self.cores > 1:
+            elif go_on and self.cores > 1:
                 self._forward_line(f"Continuing on the existing decomposition ({self.cores} subdomains)\n")
             if error is None and not stopped_early:
                 command = solver_command(self.solver, self.cores, self.binding)
-                res = self._step(command, self.log_name, self._line, clean_stop=True, append=resume is not None)
+                declared = resume is None and self._declare_perturbations(log_file)
+                res = self._step(command, self.log_name, self._line, clean_stop=True,
+                                 append=resume is not None or declared)
                 if self._switch_ready(res):
                     self._stage1_duration = res.duration_s
                     res = self._second_stage(command)
@@ -598,7 +639,8 @@ class SolverRun:
         out = {"end_time": last, "steps": self._last_iteration(),
                "sampling_start": control.sampling_start, "detected": control.detected,
                "convective_time": control.convective_time,
-               "met_time": self._met_time if state == CRITERIA_MET else None, "statistics": None}
+               "met_time": self._met_time if state == CRITERIA_MET else None, "statistics": None,
+               "perturbation": list(control.perturbations)}  # the declared start-up perturbations (D-198)
         if control.sampling_start is None:
             return out
         try:

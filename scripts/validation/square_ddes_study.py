@@ -134,7 +134,8 @@ def ddes_project():
     project = Project.open(SOURCE_2D / "square.json")
     project.update_physics(turbulence_model="kOmegaSSTDDES")
     project.update_reports(reference_area_basis="custom", reference_area=SPAN * sc.SIDE * sc.SIDE)
-    project.update_transient(end_time=END_TIME, write_interval=10.0, sampling_start=SAMPLING_START)
+    project.update_transient(end_time=END_TIME, write_interval=10.0, sampling_start=SAMPLING_START,
+                             perturb=True)  # SETUP.md's start-up: the inflow swing, declared (D-198)
     return project
 
 

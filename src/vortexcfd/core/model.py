@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from vortexcfd.core.reports import PROBE_NAME_RE, default_floor, is_criterion_quantity, is_report_id
 
-CURRENT_SCHEMA_VERSION: int = 25
+CURRENT_SCHEMA_VERSION: int = 26
 
 
 class StrictModel(BaseModel):
@@ -398,6 +398,10 @@ class StoppingCriteria(StrictModel):
     oscillation_window: int = Field(default=100, ge=4)
 
 
+# The initial-field perturbation (D-198) counts as lasting this many flow-through times: the free stream carries it
+# five reference lengths downstream, past the near wake where it sits; the sampling never starts before.
+INITIAL_PERTURB_END = 5.0
+
 # The transient settings that are times in ``Transient.time_unit`` (converted when it changes, D-188).
 TRANSIENT_TIME_FIELDS = ("end_time", "write_interval", "sampling_start", "window", "perturb_time")
 
@@ -419,10 +423,15 @@ class Transient(StrictModel):
     2-5) or "auto": PISO for a laminar project, PIMPLE for a turbulent one (``resolved_algorithm``). ``max_courant``
     None: 1 (PISO) or 2 (PIMPLE). ``correctors``: pressure corrections per outer corrector.
 
-    Start-up perturbation (D-187): with ``perturb`` (external flow) the inflow direction oscillates by
+    Start-up perturbations (D-198): two declared options of a transient external flow, both off by default (schema
+    v26); never applied unless the user turns them on. ``perturb_initial``: a small, localised cross-flow component
+    is added to the initial velocity field only (foam/physics_case.initial_perturbation_text; the boundary
+    conditions are untouched, so after t = 0 the run is exactly the set-up); it counts as lasting
+    INITIAL_PERTURB_END flow-through times. ``perturb`` (the inflow swing, D-187): the inflow direction oscillates by
     ``perturb_angle`` degrees towards and away from the lift direction at 0.2 U / l_ref for the first
-    ``perturb_time`` (in ``time_unit``; default 10 t_c, two periods); the start-up detection never samples before
-    it has ended.
+    ``perturb_time`` (in ``time_unit``; default 10 t_c, two periods). The sampling never starts before the end of
+    either (the start-up detection's windows both begin after it; a sampling start set by hand before it is
+    refused).
 
     Statistics: from ``sampling_start`` (None: detected from the force history once the start-up transient has
     passed, foam/transient.detect_start, the ranges of Cd and Cl settled within ``detect_tolerance``, D-186) to the
@@ -440,7 +449,8 @@ class Transient(StrictModel):
     outer_correctors: int = Field(default=10, ge=1, le=100)  # PIMPLE: the most per step
     outer_tolerance: float = Field(default=1e-4, gt=0, lt=1)  # PIMPLE: residualControl tolerance (relTol 0)
     correctors: int = Field(default=2, ge=1, le=20)
-    perturb: bool = True
+    perturb_initial: bool = False  # D-198: the initial-field perturbation
+    perturb: bool = False  # D-187, D-198: the inflow swing
     perturb_angle: float = Field(default=10.0, gt=0, le=30)  # degrees
     perturb_time: float = Field(default=10.0, gt=0)  # time_unit
     time_unit: Literal["flow_through", "s"] = "flow_through"
@@ -453,6 +463,19 @@ class Transient(StrictModel):
     window: float = Field(default=20.0, gt=0)
     tolerance: float = Field(default=0.005, gt=0)  # relative
     detect_tolerance: float = Field(default=0.05, gt=0, le=1)  # relative: the ranges' change (D-186)
+
+    def perturbation_end(self, convective_time: float | None) -> float:
+        """The end of the start-up perturbations that are on (D-198), in ``time_unit``: the inflow swing's
+        ``perturb_time`` and the initial-field perturbation's INITIAL_PERTURB_END flow-through times (converted with
+        ``convective_time`` = t_c in seconds when the unit is "s"; unknown t_c leaves the initial one out); 0 with
+        neither. Internal flow never has them (the caller checks)."""
+        end = self.perturb_time if self.perturb else 0.0
+        if self.perturb_initial:
+            if self.time_unit == "flow_through":
+                end = max(end, INITIAL_PERTURB_END)
+            elif convective_time:
+                end = max(end, INITIAL_PERTURB_END * convective_time)
+        return end
 
     def resolved_algorithm(self, laminar: bool) -> str:
         """"piso" or "pimple" (D-185): "auto" is PISO for a laminar project (the cylinder2D tutorial) and PIMPLE for a

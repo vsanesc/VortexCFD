@@ -20,6 +20,8 @@ from pathlib import Path
 import numpy as np
 
 TRANSIENT_FILE = "system/transientControl"
+# The initial-field perturbation's dictionary (D-198): setExprFields changes 0/U from it once, before the solver.
+INITIAL_PERTURB_FILE = "system/setExprFieldsDict"
 FIELD_AVERAGE = "fieldAverage1"  # the function object and its fields' prefix-free names (UMean, pPrime2Mean, ...)
 # The coefficients whose ranges must settle before the sampling starts (with the stop quantity's mean).
 DETECT_RANGES = ("Cd", "Cl")
@@ -47,9 +49,11 @@ class TransientControl:
     detected: bool = False  # the sampling start was detected (not set by the user)
     field_average: dict = field(default_factory=dict)  # the fieldAverage entry (timeStart set when it starts)
     range_tolerance: float = RANGE_TOLERANCE  # the detection's ranges (D-186)
-    not_before: float = 0.0  # s: no sampling before this (the end of the start-up perturbation, D-187)
+    not_before: float = 0.0  # s: no sampling before this (the end of the start-up perturbations, D-187, D-198)
     max_courant: float | None = None  # the asked largest Courant number of an adaptive step (None: fixed step)
     max_delta_t: float | None = None  # s: the largest step of an adaptive run (D-194)
+    # The declared start-up perturbations, one sentence each (physics_case.perturbation_lines, D-198); () with none.
+    perturbations: tuple[str, ...] = ()
 
     def content(self) -> dict:
         data = {
@@ -64,6 +68,8 @@ class TransientControl:
             data["maxDeltaT"] = self.max_delta_t
         if self.sampling_start is not None:
             data["samplingStart"] = self.sampling_start
+        if self.perturbations:  # quoted: foamlib writes a sentence only as a string token
+            data["startupPerturbation"] = [f'"{line}"' for line in self.perturbations]
         return data
 
     @classmethod
@@ -76,7 +82,8 @@ class TransientControl:
                    dict(data.get("fieldAverage", {})), float(data.get("rangeTolerance", RANGE_TOLERANCE)),
                    float(data.get("notBefore", 0.0)),
                    None if data.get("maxCourant") is None else float(data["maxCourant"]),
-                   None if data.get("maxDeltaT") is None else float(data["maxDeltaT"]))
+                   None if data.get("maxDeltaT") is None else float(data["maxDeltaT"]),
+                   tuple(str(line).strip('"') for line in data.get("startupPerturbation", ())))
 
     def with_start(self, start: float, detected: bool) -> "TransientControl":
         return replace(self, sampling_start=float(start), detected=detected)
