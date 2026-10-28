@@ -118,3 +118,61 @@ nothing is concluded about time-step convergence. What the three runs show:
   tested).
 - The validation's verdict (PASS, on PIMPLE Co 2, the app's default) is unchanged as measured, but it is not shown to
   be time-step independent. No default was changed. For the owner: QUESTIONS 257.
+
+## Diagnostics of measurement C (owner's addendum)
+
+Rules committed before the runs and samples (SETUP.md, "Diagnostics of measurement C", commit bd7273a; two driver
+fixes after it, neither touching a rule: the restart folder created first, and PIMPLE Co 2's fields at the switch read
+from their reconstructed copy). Lift histories (offscreen PNG): ~/vortexcfd-research/1.1-urans-diagnostics/
+(lift_all.png and one per run; outside the repository).
+
+### a. Restart from PIMPLE Co 2 at 95.8 t_c, continued at PIMPLE Co 1
+
+The PIMPLE Co 2 run's fields at its sampling switch (t = 95.81674986, with their old-time fields), continued to 150 t_c
+at a largest Courant number of 1, everything else unchanged, 6 processes: 60,416 steps (Δt 0.00080-0.0011 s; the
+Courant number 2.0 in the first step after the restart only, at the Co 2 run's last step, then 1), 2.85 outer
+correctors per step, 1,937 s (indicative only: measured with another workload running). Numbers:
+[diagnostic_a.json](diagnostic_a.json).
+
+| Run | St | mean Cd | RMS Cl | lift range 130-140 / 140-150 |
+|---|---|---|---|---|
+| PIMPLE Co 2 | 0.1353 | 2.129 | 1.405 | 4.30 / 4.14 |
+| a: Co 2 -> Co 1 at 95.8 t_c | 0.1352 (-0.04 %) | 2.131 (+0.10 %) | 1.405 (-0.04 %) | **4.31 / 4.14** |
+| C: PIMPLE Co 1 from the start | 0.1090 | 1.511 | 0.014 | 0.04 / 0.02 |
+
+**Verdict under the rule: the shedding persists** (lift range ≥ 1.0 in both intervals). Reading fixed in advance: at
+PIMPLE Co 1 the two states coexist on this mesh and the start-up selects one. A developed shedding is sustained at
+Co 1 with the Co 2 run's statistics (within 0.1 %); C's nearly steady wake is the other state, reached because C's
+shedding had not developed when its start-up swing ended.
+
+### b. Eddy viscosity and inflow turbulence (no solver run)
+
+Instantaneous written fields, the cell nearest each point on z = 0. Numbers: [diagnostic_b.json](diagnostic_b.json).
+The inlet (x = -19.5 D): k 6.0e-4 m²/s², omega 1.32 1/s: I = 2.0 %, nut/nu = 10 (the app's defaults with the inlet
+intensity 2 % set by the validation). Analytic decay of that free stream under SST's far-field terms, convected at U:
+I 1.36 / 1.14 / 1.10 / 1.08 % and nut/nu 9.4 / 9.1 / 9.1 / 9.1 at x = -10 / -3 / -1 / -0.05 D.
+
+| Point (x in D) | C (Co 1), t 150 | PISO Co 1, t 150 | PIMPLE Co 2, t 95.8 | PIMPLE Co 2, t 200 |
+|---|---|---|---|---|
+| upstream -10: nut/nu, I | 3.35, 1.15 % | 3.51, 1.16 % | 6.69, 1.33 % | 6.69, 1.33 % |
+| upstream -3: nut/nu, I | 1.42, **0.75 %** | 1.53, **0.77 %** | 3.80, **1.00 %** | 3.80, **1.00 %** |
+| upstream -1: nut/nu, I | 1.22, 0.70 % | 1.29, 0.72 % | 3.52, 1.00 % | 3.53, 1.00 % |
+| front face -0.05: nut/nu, I | 1.45, 1.87 % | 1.56, 1.98 % | 2.21, 2.36 % | 2.21, 2.37 % |
+| near wake 1.5: nut/nu | **887** | 427 | 347 | 139 |
+| near wake 2: nut/nu | **2,310** | 574 | 369 | 2.2 |
+| near wake 3: nut/nu | **3,530** | 101 | 226 | 544 |
+
+Reference: ERCOFTAC UFR 2-02 (Test Case page, opened 2026-10-28): "The approach flow was measured 3 cylinder widths
+upstream and had a turbulence level of about 2%"; "no information is available from the measurements on the length
+scale of the turbulence"; an inflow viscosity ratio of 10 recommended, the inflow 5 to 10 D upstream.
+
+- **(b1) Approach turbulence: lower** than the experiment's in every run: I = 0.75-1.00 % at 3 D upstream against
+  about 2 %. The inlet sits 19.5 D upstream (the preset's C-type far field), twice the page's 5-10 D, and the free
+  stream's turbulence decays on the way: the analytic SST decay alone leaves 1.14 %, and the computed fields have less
+  still (nut/nu 1.4-3.8 where the analytic decay keeps about 9). The upstream values also differ between the runs
+  (C and PISO alike; PIMPLE Co 2 about 15-35 % higher in I and 2-2.7 times in nut/nu, the same at 95.8 and 200 t_c); why
+  was not examined.
+- **(b2) C's near-wake eddy viscosity: higher**: it exceeds both other runs (each sampled time) by more than a factor
+  2 at all three near-wake points (887-3,530 against 2-574). By the rule this makes eddy-viscosity damping a candidate
+  in C, not a proof: with a (the same Co 1 sustains the shedding when started from it), the high wake eddy viscosity
+  may as well be a property of the steady state (long, steady shear layers) as its cause.
