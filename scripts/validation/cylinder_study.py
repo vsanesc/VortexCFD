@@ -61,10 +61,10 @@ def mesh(project) -> dict:
             "max_non_orthogonality": report.max_non_orthogonality}
 
 
-def solve(project) -> dict:
+def solve(project, timeout_s: float = 3 * 3600) -> dict:
     case = solving.prepare_solver_case(project)
     t0 = time.monotonic()
-    run = SolverRun(case, cores=project.sim.solvers.cores, timeout_s=3 * 3600,
+    run = SolverRun(case, cores=project.sim.solvers.cores, timeout_s=timeout_s,
                     on_line=lambda line: line.startswith("Start-up transient") and say(line.strip()))
     run.start()
     result = run.wait()

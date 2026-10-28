@@ -48,7 +48,7 @@ def cmd_level(args) -> None:
     out = {"level": args.name, "base_m": sc.LEVELS[args.name], "settings": extra,
            "mesh": cylinder_study.mesh(project)}
     if not args.mesh_only:
-        out["solve"] = cylinder_study.solve(project)
+        out["solve"] = cylinder_study.solve(project, timeout_s=args.timeout_h * 3600)
     path = WORK / f"{folder.name}.json"
     path.write_text(json.dumps(out, indent=2) + "\n")
     say(f"wrote {path}")
@@ -123,6 +123,7 @@ def main() -> None:
     level.add_argument("--cores", type=int, default=sc.CORES)
     level.add_argument("--mesh-only", action="store_true")
     level.add_argument("--tag", default="")
+    level.add_argument("--timeout-h", type=float, default=3.0, help="the solver's time limit (hours)")
     level.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
     level.set_defaults(func=cmd_level)
     cont = sub.add_parser("continue")

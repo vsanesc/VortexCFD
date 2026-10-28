@@ -70,3 +70,27 @@ The vault note's rule for this case (1.1-c), adopted unchanged:
 The case PASSES when the medium level passes both. If St passes and Cd fails, the case is a FAIL documented as a
 limitation of 2D URANS (the note expects URANS to under-predict Cd). A run whose sampling window holds fewer than
 3 shedding cycles does not count.
+
+## Time-step convergence (QUESTIONS 257; Part 2 closing brief, measurement C)
+
+Written and committed before the run; the rule is not changed after it.
+
+The PIMPLE Co 2 and PISO Co 1 coarse runs disagree by 8-9 % in St and mean Cd over 96-150 t_c (RESULT.md). One
+more run separates the time step from the coupling: the coarse level with PIMPLE (the same outer correctors and
+residual control 1e-4) at a largest Courant number of 1, with the same start-up as the two existing runs (the
+inflow swing, ±10° at 0.2 U / D for 10 t_c), from the free stream, sampling start set by hand at 96 t_c, end
+150 t_c, 6 MPI processes, nice 15 (`scripts/validation/square_study.py level --name coarse --end 150 --cores 6
+--tag pimple_co1 --timeout-h 8 --set algorithm=pimple --set max_courant=1 --set perturb=true --set
+sampling_start=96`). Only the time step differs from the PIMPLE Co 2 run, and only the coupling from the PISO Co 1
+run.
+
+Measured over the same window 96-150 t_c by scripts/validation/window_compare.py (the app's own St, mean and RMS
+from the force history; also the halves 96-123 and 123-150).
+
+**Rule.** If PIMPLE Co 1 and PIMPLE Co 2 agree within 2 % in St and in mean Cd (|Q_Co1 − Q_Co2| / |Q_Co2| ≤ 0.02
+for each), PIMPLE is time-step converged there and PISO Co 1 is the outlier. Otherwise the three runs' numbers are
+reported as they are, with what they show, and no conclusion on convergence is drawn. No default is changed either
+way; the result and its reading go to QUESTIONS 257 for the owner.
+
+Machine: another workload ran on the other cores: wall times are indicative only, measured with another workload
+running.
